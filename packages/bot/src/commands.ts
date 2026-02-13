@@ -1,4 +1,4 @@
-import { formatItem, formatEnchantment, formatCompare, formatMonster } from '@bazaarinfo/shared'
+import { formatItem, formatEnchantment, formatMonster } from '@bazaarinfo/shared'
 import type { TierName } from '@bazaarinfo/shared'
 import * as store from './store'
 import { appendFileSync } from 'fs'
@@ -30,7 +30,7 @@ function parseTier(args: string[]): { query: string; tier?: TierName } {
 let lobbyChannel = ''
 export function setLobbyChannel(name: string) { lobbyChannel = name }
 
-const BASE_USAGE = '!b <item> [tier] | !b <enchant> <item> [tier] | !b <item> vs <item> | !b hero <name> | !b mob <name>'
+const BASE_USAGE = '!b <item> [tier] | !b <enchant> <item> [tier] | !b hero <name> | !b mob <name>'
 const JOIN_USAGE = () => lobbyChannel ? ` | !join in #${lobbyChannel} to add bot, !part to remove` : ''
 
 function bazaarinfo(args: string): string | null {
@@ -57,24 +57,6 @@ function bazaarinfo(args: string): string | null {
     const names = items.map((i) => i.Title.Text)
     const result = `[${heroName}] ${names.join(', ')}`
     return result.length > 480 ? result.slice(0, 477) + '...' : result
-  }
-
-  // compare: "x [tier] vs y [tier]"
-  const vsParts = args.split(/\s+vs\s+/i)
-  if (vsParts.length === 2 && vsParts[0] && vsParts[1]) {
-    const sideA = parseTier(vsParts[0].trim().split(/\s+/))
-    const sideB = parseTier(vsParts[1].trim().split(/\s+/))
-    const a = store.exact(sideA.query) ?? store.search(sideA.query, 1)[0]
-    const b = store.exact(sideB.query) ?? store.search(sideB.query, 1)[0]
-    if (!a) {
-      try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${sideA.query}\n`) } catch {}
-      return `no item found for ${sideA.query}`
-    }
-    if (!b) {
-      try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${sideB.query}\n`) } catch {}
-      return `no item found for ${sideB.query}`
-    }
-    return formatCompare(a, b, sideA.tier, sideB.tier)
   }
 
   const words = args.split(/\s+/)
@@ -119,7 +101,6 @@ const commands: Record<string, CommandHandler> = {
   bazaarinfo,
   item: bazaarinfo,
   enchant: bazaarinfo,
-  compare: bazaarinfo,
 }
 
 export function handleCommand(text: string): string | null {

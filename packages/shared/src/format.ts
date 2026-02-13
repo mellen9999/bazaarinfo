@@ -4,8 +4,6 @@ const TIER_ORDER: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendar
 const TIER_EMOJI: Record<string, string> = {
   Bronze: '🟤', Silver: '⚪', Gold: '🟡', Diamond: '💎', Legendary: '🟣',
 }
-const SIZE_ABBREV: Record<string, string> = { Small: 'Sm', Medium: 'Med', Large: 'Lg' }
-const TIER_ABBREV = (tiers: string[]) => tiers.map((t) => t[0]).join('/')
 const HERO_ABBREV: Record<string, string> = {
   Pygmalien: 'Pyg',
 }
@@ -108,40 +106,6 @@ export function formatEnchantment(card: BazaarCard, enchName: string, tier?: Tie
   return truncate(`[${card.Title.Text} - ${enchName}]${tags} ${tooltips.join(' | ')}`)
 }
 
-export function formatCompare(a: BazaarCard, b: BazaarCard, tierA?: TierName, tierB?: TierName): string {
-  const attrsA = getAttributes(a, tierA)
-  const attrsB = getAttributes(b, tierB)
-
-  const nameA = tierA ? `${a.Title.Text} (${tierA})` : a.Title.Text
-  const nameB = tierB ? `${b.Title.Text} (${tierB})` : b.Title.Text
-
-  const stats: [string, string][] = [
-    ['DamageAmount', '🗡️'],
-    ['ShieldApplyAmount', '🛡'],
-    ['HealAmount', '💚'],
-    ['CooldownMax', '🕐'],
-  ]
-
-  const fmt = (key: string, v: number | undefined) => {
-    if (v == null) return '—'
-    return key === 'CooldownMax' ? v / 1000 + 's' : String(v)
-  }
-
-  const diffs: string[] = []
-  for (const [key, emoji] of stats) {
-    const vA = attrsA[key]
-    const vB = attrsB[key]
-    if (!vA && !vB) continue
-    diffs.push(`${emoji} ${fmt(key, vA)}/${fmt(key, vB)}`)
-  }
-
-  const sA = SIZE_ABBREV[a.Size] ?? a.Size
-  const sB = SIZE_ABBREV[b.Size] ?? b.Size
-  if (sA !== sB) diffs.push(`${sA}/${sB}`)
-
-  const parts = [`${nameA} vs ${nameB}`, ...diffs]
-  return truncate(parts.join(' | '))
-}
 
 export function formatMonster(monster: Monster): string {
   const meta = monster.MonsterMetadata

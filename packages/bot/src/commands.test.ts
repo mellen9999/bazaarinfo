@@ -319,107 +319,9 @@ describe('!b enchantment routing', () => {
 })
 
 // ---------------------------------------------------------------------------
-// !b — compare detection
-// ---------------------------------------------------------------------------
-describe('!b compare routing', () => {
-  it('detects compare with "vs" keyword', () => {
-    mockExact.mockImplementation((name) => {
-      if (name === 'boomerang') return boomerang
-      if (name === 'shield') return shield
-      return undefined
-    })
-    const result = handleCommand('!b boomerang vs shield')
-    expect(result).toContain('Boomerang')
-    expect(result).toContain(' vs ')
-    expect(result).toContain('Shield')
-  })
-
-  it('handles VS case-insensitively', () => {
-    mockExact.mockImplementation((name) => {
-      if (name === 'boomerang') return boomerang
-      if (name === 'shield') return shield
-      return undefined
-    })
-    const result = handleCommand('!b boomerang VS shield')
-    expect(result).toContain(' vs ')
-  })
-
-  it('handles "Vs" mixed case', () => {
-    mockExact.mockImplementation((name) => {
-      if (name === 'boomerang') return boomerang
-      if (name === 'shield') return shield
-      return undefined
-    })
-    const result = handleCommand('!b boomerang Vs shield')
-    expect(result).toContain(' vs ')
-  })
-
-  it('returns not found for first item in compare', () => {
-    mockExact.mockImplementation((name) => name === 'shield' ? shield : undefined)
-    mockSearch.mockImplementation(() => [])
-    const result = handleCommand('!b nonexistent vs shield')
-    expect(result).toContain('no item found for nonexistent')
-  })
-
-  it('returns not found for second item in compare', () => {
-    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
-    mockSearch.mockImplementation(() => [])
-    const result = handleCommand('!b boomerang vs nonexistent')
-    expect(result).toContain('no item found for nonexistent')
-  })
-
-  it('handles multi-word items in compare', () => {
-    const hat = makeCard({ Title: { Text: 'Tinfoil Hat' } })
-    const crystal = makeCard({ Title: { Text: 'Echo Crystal' } })
-    mockExact.mockImplementation((name) => {
-      if (name === 'tinfoil hat') return hat
-      if (name === 'echo crystal') return crystal
-      return undefined
-    })
-    const result = handleCommand('!b tinfoil hat vs echo crystal')
-    expect(result).toContain('Tinfoil Hat')
-    expect(result).toContain('Echo Crystal')
-  })
-
-  it('trims whitespace around vs parts', () => {
-    mockExact.mockImplementation((name) => {
-      if (name === 'boomerang') return boomerang
-      if (name === 'shield') return shield
-      return undefined
-    })
-    const result = handleCommand('!b  boomerang  vs  shield ')
-    expect(result).toContain('Boomerang')
-    expect(result).toContain('Shield')
-  })
-
-  it('uses fuzzy search as fallback in compare', () => {
-    mockExact.mockImplementation(() => undefined)
-    mockSearch.mockImplementation((query) => {
-      if (query === 'boomrang') return [boomerang]
-      if (query === 'sheld') return [shield]
-      return []
-    })
-    const result = handleCommand('!b boomrang vs sheld')
-    expect(result).toContain('Boomerang')
-    expect(result).toContain('Shield')
-  })
-})
-
-// ---------------------------------------------------------------------------
 // !b — edge cases and priority
 // ---------------------------------------------------------------------------
 describe('!b edge cases', () => {
-  it('compare takes priority over enchantment detection', () => {
-    // "fiery boomerang vs shield" — should compare, not enchant
-    mockExact.mockImplementation((name) => {
-      if (name === 'fiery boomerang') return boomerang
-      if (name === 'shield') return shield
-      return undefined
-    })
-    const result = handleCommand('!b fiery boomerang vs shield')
-    expect(result).toContain(' vs ')
-  })
-
   it('handles single character input', () => {
     mockExact.mockImplementation(() => undefined)
     mockSearch.mockImplementation(() => [])
@@ -457,7 +359,6 @@ describe('!b edge cases', () => {
   it('aliases route to same handler', () => {
     expect(handleCommand('!item boomerang')).not.toBeNull()
     expect(handleCommand('!enchant fiery boomerang')).not.toBeNull()
-    expect(handleCommand('!compare boomerang vs shield')).not.toBeNull()
   })
 
   it('does not match unregistered commands', () => {
@@ -472,35 +373,6 @@ describe('!b edge cases', () => {
     expect(result).toContain('!b')
   })
 
-  it('handles "vs" as item name when alone', () => {
-    // "!b vs" — split on vs gives ["", ""], both empty
-    // vsParts[0] is empty string which is falsy, so skip compare route
-    mockExact.mockImplementation(() => undefined)
-    mockSearch.mockImplementation(() => [])
-    const result = handleCommand('!b vs')
-    // falls through to item lookup for "vs"
-    expect(result).toContain('nothing found')
-  })
-
-  it('handles "vs" with only left side', () => {
-    // "boomerang vs" — split gives ["boomerang", ""], second is empty
-    mockExact.mockImplementation(() => undefined)
-    mockSearch.mockImplementation(() => [])
-    const result = handleCommand('!b boomerang vs')
-    // vsParts[1] is empty string, falsy — skips compare
-    // falls through, "boomerang vs" gets parsed, "vs" is not a tier
-    expect(result).toBeTruthy()
-  })
-
-  it('handles "vs" with only right side', () => {
-    mockExact.mockImplementation(() => undefined)
-    mockSearch.mockImplementation(() => [])
-    const result = handleCommand('!b vs shield')
-    // split on /\s+vs\s+/ won't match "vs shield" at start? Let's see:
-    // "vs shield".split(/\s+vs\s+/) = ["vs shield"] — only 1 part, no compare
-    // falls through to item/enchant, but "vs" is not an enchantment
-    expect(result).toBeTruthy()
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -532,15 +404,4 @@ describe('!b output format integration', () => {
     expect(result).toContain('Burn for')
   })
 
-  it('compare output shows names and stats', () => {
-    mockExact.mockImplementation((name) => {
-      if (name === 'boomerang') return boomerang
-      if (name === 'shield') return shield
-      return undefined
-    })
-    const result = handleCommand('!b boomerang vs shield')!
-    expect(result).toContain('Boomerang')
-    expect(result).toContain('Shield')
-    expect(result).toContain(' vs ')
-  })
 })
