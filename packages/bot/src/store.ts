@@ -22,7 +22,7 @@ function loadCache(cache: CardCache) {
   // extract all enchantment names from item data
   const enchSet = new Set<string>()
   for (const item of items) {
-    for (const key of Object.keys(item.Enchantments)) enchSet.add(key.toLowerCase())
+    if (item.Enchantments) for (const key of Object.keys(item.Enchantments)) enchSet.add(key.toLowerCase())
   }
   enchantmentNames = [...enchSet].sort()
 }
