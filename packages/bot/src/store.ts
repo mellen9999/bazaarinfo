@@ -6,6 +6,18 @@ import { log } from './log'
 
 export const CACHE_PATH = resolve(import.meta.dir, '../../../cache/items.json')
 
+// slang/common names → actual item names
+const ALIASES: Record<string, string> = {
+  beetle: 'BLU-B33TL3',
+  wasp: 'GRN-W4SP',
+  spider: 'BLK-SP1D3R',
+  firefly: 'RED-F1R3FLY',
+  mantis: 'YLW-M4NT1S',
+  ufo: 'Boosted Saucer',
+  saucer: 'Boosted Saucer',
+  pyg: 'Pygmalien',
+}
+
 let items: BazaarCard[] = []
 let skills: BazaarCard[] = []
 let monsters: Monster[] = []
@@ -59,15 +71,26 @@ export async function reloadStore() {
   }
 }
 
+function resolveAlias(query: string): string {
+  return ALIASES[query.toLowerCase()] ?? query
+}
+
 export function search(query: string, limit = 5) {
-  const results = searchCards(index, query, limit)
+  const resolved = resolveAlias(query)
+  // try alias exact match first
+  if (resolved !== query) {
+    const aliased = findExact(allCards, resolved)
+    if (aliased) return [aliased]
+  }
+  const results = searchCards(index, resolved, limit)
   // fallback to prefix match for short partial queries
-  if (results.length === 0) return searchPrefix(allCards, query, limit)
+  if (results.length === 0) return searchPrefix(allCards, resolved, limit)
   return results
 }
 
 export function exact(name: string) {
-  return findExact(allCards, name)
+  const resolved = resolveAlias(name)
+  return findExact(allCards, resolved)
 }
 
 export function byHero(hero: string) {
