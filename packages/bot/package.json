@@ -5,7 +5,6 @@
   "main": "src/index.ts",
   "dependencies": {
     "@bazaarinfo/shared": "workspace:*",
-    "@bazaarinfo/data": "workspace:*",
-    "@tmi.js/chat": "^0.1.0"
+    "@bazaarinfo/data": "workspace:*"
   }
 }

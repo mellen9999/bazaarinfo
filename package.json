@@ -1,13 +1,10 @@
 {
   "name": "bazaarinfo",
-  "private": true,
-  "workspaces": [
-    "packages/*"
-  ],
   "devDependencies": {
     "bun-types": "^1.3.9"
   },
-  "dependencies": {
-    "@tmi.js/chat": "0.7.4"
-  }
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ]
 }

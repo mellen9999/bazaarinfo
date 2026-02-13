@@ -4,9 +4,6 @@
   "workspaces": {
     "": {
       "name": "bazaarbot",
-      "dependencies": {
-        "@tmi.js/chat": "0.7.4",
-      },
       "devDependencies": {
         "bun-types": "^1.3.9",
       },
@@ -17,7 +14,6 @@
       "dependencies": {
         "@bazaarinfo/data": "workspace:*",
         "@bazaarinfo/shared": "workspace:*",
-        "@tmi.js/chat": "^0.1.0",
       },
     },
     "packages/data": {
@@ -42,10 +38,6 @@
 
     "@bazaarinfo/shared": ["@bazaarinfo/shared@workspace:packages/shared"],
 
-    "@tmi.js/chat": ["@tmi.js/chat@0.7.4", "", { "dependencies": { "@tmi.js/irc-parser": "^0.5.0" } }, "sha512-z1bWXvUQnw1hkuUQldPoy6EqiEP7fufyQah56d6ITYWU3549cB8rjT3c0JOt/kmucHYYB7Z3rjPQSLgqE9EmtQ=="],
-
-    "@tmi.js/irc-parser": ["@tmi.js/irc-parser@0.5.0", "", {}, "sha512-CReUjEyOxqGyIJOffC3z3W5LLp7IxdnYRtbfPQlmiGoaoNWAVHWDNm9mY4twIo56b0D3aJDOglDY7ZUAMKWdrQ=="],
-
     "@types/node": ["@types/node@25.2.3", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-m0jEgYlYz+mDJZ2+F4v8D1AyQb+QzsNqRuI7xg1VQX/KlKS0qT9r1Mo16yo5F/MtifXFgaofIFsdFMox2SxIbQ=="],
 
     "bun-types": ["bun-types@1.3.9", "", { "dependencies": { "@types/node": "*" } }, "sha512-+UBWWOakIP4Tswh0Bt0QD0alpTY8cb5hvgiYeWCMet9YukHbzuruIEeXC2D7nMJPB12kbh8C7XJykSexEqGKJg=="],
@@ -53,7 +45,5 @@
     "fuse.js": ["fuse.js@7.1.0", "", {}, "sha512-trLf4SzuuUxfusZADLINj+dE8clK1frKdmqiJNb1Es75fmI5oY6X2mxLVUciLLjxqw/xr72Dhy+lER6dGd02FQ=="],
 
     "undici-types": ["undici-types@7.16.0", "", {}, "sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw=="],
-
-    "@bazaarinfo/bot/@tmi.js/chat": ["@tmi.js/chat@0.1.2", "", { "dependencies": { "@tmi.js/irc-parser": "^0.5.0" } }, "sha512-mCnFElctDCBnK88anxZssMVvTSkGrqhfDEKmgbzujNBdEELgF2U7md4waN8Gd6vv7jNqQOZcaQGeoHMb1yunWw=="],
   }
 }
