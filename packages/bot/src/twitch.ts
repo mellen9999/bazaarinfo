@@ -329,13 +329,23 @@ export class TwitchClient {
   }
 }
 
-export async function getUserId(token: string, clientId: string, login: string): Promise<string> {
+export async function getUserId(
+  token: string,
+  clientId: string,
+  login: string,
+  onAuthFailure?: AuthRefreshFn,
+): Promise<string> {
   const res = await fetchWithTimeout(`${HELIX_URL}/users?login=${login}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       'Client-Id': clientId,
     },
   })
+  if (res.status === 401 && onAuthFailure) {
+    log(`getUserId 401 for ${login}, refreshing token and retrying`)
+    const newToken = await onAuthFailure()
+    return getUserId(newToken, clientId, login)
+  }
   if (!res.ok) throw new Error(`getUserId failed: ${res.status}`)
   const data = (await res.json()) as any
   const id = data.data[0]?.id

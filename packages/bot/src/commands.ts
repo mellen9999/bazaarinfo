@@ -5,7 +5,8 @@ import * as store from './store'
 type CommandHandler = (args: string) => string | null
 
 const TIERS = ['bronze', 'silver', 'gold', 'diamond', 'legendary']
-const ENCHANTMENTS = [
+// fallback if store hasn't loaded yet
+const ENCHANTMENTS_FALLBACK = [
   'golden', 'heavy', 'icy', 'turbo', 'shielded', 'toxic',
   'fiery', 'deadly', 'radiant', 'obsidian', 'restorative', 'aegis',
 ]
@@ -55,7 +56,8 @@ function bazaarinfo(args: string): string | null {
   const firstWord = words[0].toLowerCase()
 
   // enchantment: first word matches an enchantment name
-  const enchMatches = ENCHANTMENTS.filter((e) => e.startsWith(firstWord))
+  const enchList = store.getEnchantments().length > 0 ? store.getEnchantments() : ENCHANTMENTS_FALLBACK
+  const enchMatches = enchList.filter((e) => e.startsWith(firstWord))
   if (enchMatches.length === 1 && words.length > 1) {
     const rest = words.slice(1)
     const { query: itemQuery, tier } = parseTier(rest)

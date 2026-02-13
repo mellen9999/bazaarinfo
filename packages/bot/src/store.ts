@@ -8,6 +8,7 @@ export const CACHE_PATH = resolve(import.meta.dir, '../../../cache/items.json')
 
 let items: BazaarCard[] = []
 let index: Fuse<BazaarCard>
+let enchantmentNames: string[] = []
 
 function loadCache(cache: CardCache) {
   const seen = new Set<string>()
@@ -17,6 +18,13 @@ function loadCache(cache: CardCache) {
     return true
   })
   index = buildIndex(items)
+
+  // extract all enchantment names from item data
+  const enchSet = new Set<string>()
+  for (const item of items) {
+    for (const key of Object.keys(item.Enchantments)) enchSet.add(key.toLowerCase())
+  }
+  enchantmentNames = [...enchSet].sort()
 }
 
 export async function loadStore() {
@@ -52,4 +60,8 @@ export function exact(name: string) {
 export function byHero(hero: string) {
   const lower = hero.toLowerCase()
   return items.filter((i) => i.Heroes.some((h) => h.toLowerCase() === lower))
+}
+
+export function getEnchantments(): string[] {
+  return enchantmentNames
 }

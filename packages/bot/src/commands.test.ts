@@ -4,10 +4,14 @@ import type { BazaarCard, TierName } from '@bazaarinfo/shared'
 // --- mock store before importing commands ---
 const mockExact = mock<(name: string) => BazaarCard | undefined>(() => undefined)
 const mockSearch = mock<(query: string, limit: number) => BazaarCard[]>(() => [])
+const mockGetEnchantments = mock<() => string[]>(() => [])
+const mockByHero = mock<(hero: string) => BazaarCard[]>(() => [])
 
 mock.module('./store', () => ({
   exact: mockExact,
   search: mockSearch,
+  getEnchantments: mockGetEnchantments,
+  byHero: mockByHero,
 }))
 
 const { handleCommand } = await import('./commands')

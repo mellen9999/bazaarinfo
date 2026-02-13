@@ -44,10 +44,11 @@ async function refreshData() {
   const scrape = scrapeItems((done, pages) => {
     if (done % 10 === 0) log(`scrape progress: ${done}/${pages}`)
   })
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('scrape timed out after 5min')), SCRAPE_TIMEOUT),
-  )
-  const { cards, total } = await Promise.race([scrape, timeout])
+  let timer: Timer
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('scrape timed out after 5min')), SCRAPE_TIMEOUT)
+  })
+  const { cards, total } = await Promise.race([scrape, timeout]).finally(() => clearTimeout(timer))
   log(`scraped ${cards.length} items (expected ~${total})`)
   const cache: CardCache = {
     items: cards,
@@ -77,19 +78,20 @@ try {
 
 await loadStore()
 
+const doRefresh = () => refreshToken(CLIENT_ID, CLIENT_SECRET)
+
 // resolve user IDs
 log('resolving user IDs...')
-const botUserId = await getUserId(token, CLIENT_ID, BOT_USERNAME)
+const botUserId = await getUserId(token, CLIENT_ID, BOT_USERNAME, doRefresh)
 const channels: ChannelInfo[] = await Promise.all(
   channelNames.map(async (name) => ({
     name,
-    userId: await getUserId(token, CLIENT_ID, name),
+    userId: await getUserId(token, CLIENT_ID, name, doRefresh),
   })),
 )
 log(`bot: ${BOT_USERNAME} (${botUserId}), channels: ${channels.map((c) => `${c.name}(${c.userId})`).join(', ')}`)
 
 setLobbyChannel(BOT_USERNAME.toLowerCase())
-const doRefresh = () => refreshToken(CLIENT_ID, CLIENT_SECRET)
 
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
@@ -108,7 +110,7 @@ const client = new TwitchClient(
             return
           }
           try {
-            const targetId = await getUserId(getAccessToken(), CLIENT_ID, target)
+            const targetId = await getUserId(getAccessToken(), CLIENT_ID, target, doRefresh)
             const info: ChannelInfo = { name: target, userId: targetId }
             await client.joinChannel(info)
             await channelStore.add(target)

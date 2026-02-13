@@ -88,6 +88,7 @@ export async function scrapeItems(onProgress?: (done: number, total: number) => 
   const text = await res.text()
 
   const totalMatch = text.match(/"totalCards":(\d+)/)
+  if (!totalMatch) console.warn('warn: could not parse totalCards from bazaardb, using fallback of 923')
   const total = totalMatch ? parseInt(totalMatch[1]) : 923
   const totalPages = Math.ceil(total / 10)
 
