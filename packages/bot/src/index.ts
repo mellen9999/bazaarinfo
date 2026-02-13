@@ -5,7 +5,7 @@ import { handleCommand, setLobbyChannel } from './commands'
 import { checkCooldown } from './cooldown'
 import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily } from './scheduler'
-import { scrapeItems } from '@bazaarinfo/data'
+import { scrapeItems, scrapeSkills } from '@bazaarinfo/data'
 import type { CardCache } from '@bazaarinfo/shared'
 import * as channelStore from './channels'
 import { log } from './log'
@@ -41,18 +41,27 @@ const SCRAPE_TIMEOUT = 5 * 60_000 // 5min
 
 async function refreshData() {
   log('starting data refresh...')
-  const scrape = scrapeItems((done, pages) => {
-    if (done % 10 === 0) log(`scrape progress: ${done}/${pages}`)
-  })
   let timer: Timer
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error('scrape timed out after 5min')), SCRAPE_TIMEOUT)
   })
-  const { cards, total } = await Promise.race([scrape, timeout]).finally(() => clearTimeout(timer))
-  log(`scraped ${cards.length} items (expected ~${total})`)
+
+  const itemsScrape = scrapeItems((done, pages) => {
+    if (done % 10 === 0) log(`items scrape: ${done}/${pages}`)
+  })
+  const skillsScrape = scrapeSkills((done, pages) => {
+    if (done % 5 === 0) log(`skills scrape: ${done}/${pages}`)
+  })
+
+  const [items, skills] = await Promise.race([
+    Promise.all([itemsScrape, skillsScrape]),
+    timeout,
+  ]).finally(() => clearTimeout(timer))
+
+  log(`scraped ${items.cards.length} items, ${skills.cards.length} skills`)
   const cache: CardCache = {
-    items: cards,
-    skills: [],
+    items: items.cards,
+    skills: skills.cards,
     monsters: [],
     fetchedAt: new Date().toISOString(),
   }

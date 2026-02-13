@@ -1,4 +1,4 @@
-import { scrapeItems } from './scraper'
+import { scrapeItems, scrapeSkills } from './scraper'
 import type { CardCache } from '@bazaarinfo/shared'
 import { resolve } from 'path'
 
@@ -7,15 +7,20 @@ const CACHE_DIR = resolve(import.meta.dir, '../../../cache')
 async function main() {
   console.log('scraping items from bazaardb.gg...')
 
-  const { cards, total } = await scrapeItems((done, pages) => {
-    process.stdout.write(`\r  pages: ${done}/${pages}`)
+  const { cards: items, total: itemTotal } = await scrapeItems((done, pages) => {
+    process.stdout.write(`\r  items: ${done}/${pages}`)
   })
+  console.log(`\nfetched ${items.length} items (expected ~${itemTotal})`)
 
-  console.log(`\nfetched ${cards.length} items (expected ~${total})`)
+  console.log('scraping skills from bazaardb.gg...')
+  const { cards: skills, total: skillTotal } = await scrapeSkills((done, pages) => {
+    process.stdout.write(`\r  skills: ${done}/${pages}`)
+  })
+  console.log(`\nfetched ${skills.length} skills`)
 
   const cache: CardCache = {
-    items: cards,
-    skills: [],
+    items,
+    skills,
     monsters: [],
     fetchedAt: new Date().toISOString(),
   }

@@ -46,12 +46,34 @@ function getAttributes(card: BazaarCard, tier?: TierName): Record<string, number
   return base
 }
 
-function statLine(attrs: Record<string, number>): string {
+function formatStat(emoji: string, key: string, base: number, card: BazaarCard, tier?: TierName): string {
+  const val = tier ? (getAttributes(card, tier)[key] ?? base) : base
+  if (tier) return `${emoji}${key === 'CooldownMax' ? val / 1000 + 's' : val}`
+
+  // no tier specified — show tier range if values differ
+  const tierVals = TIER_ORDER
+    .filter((t) => t in card.Tiers)
+    .map((t) => card.Tiers[t]?.OverrideAttributes?.[key])
+    .filter((v) => v != null) as number[]
+
+  if (tierVals.length === 0 || tierVals.every((v) => v === base)) {
+    return `${emoji}${key === 'CooldownMax' ? base / 1000 + 's' : base}`
+  }
+
+  const allVals = [base, ...tierVals]
+  const unique = [...new Set(allVals)]
+  if (key === 'CooldownMax') {
+    return `${emoji}${unique.map((v) => v / 1000 + 's').join('/')}`
+  }
+  return `${emoji}${unique.join('/')}`
+}
+
+function statLine(attrs: Record<string, number>, card: BazaarCard, tier?: TierName): string {
   const s: string[] = []
-  if (attrs.DamageAmount) s.push(`🗡️${attrs.DamageAmount}`)
-  if (attrs.ShieldApplyAmount) s.push(`🛡${attrs.ShieldApplyAmount}`)
-  if (attrs.HealAmount) s.push(`💚${attrs.HealAmount}`)
-  if (attrs.CooldownMax) s.push(`🕐${attrs.CooldownMax / 1000}s`)
+  if (attrs.DamageAmount) s.push(formatStat('🗡️', 'DamageAmount', attrs.DamageAmount, card, tier))
+  if (attrs.ShieldApplyAmount) s.push(formatStat('🛡', 'ShieldApplyAmount', attrs.ShieldApplyAmount, card, tier))
+  if (attrs.HealAmount) s.push(formatStat('💚', 'HealAmount', attrs.HealAmount, card, tier))
+  if (attrs.CooldownMax) s.push(formatStat('🕐', 'CooldownMax', attrs.CooldownMax, card, tier))
   return s.join(' ')
 }
 
@@ -61,7 +83,7 @@ export function formatItem(card: BazaarCard, tier?: TierName): string {
   const abilities = card.Tooltips.map((t) =>
     resolveTooltip(t.Content.Text, card.TooltipReplacements, tier),
   )
-  const stats = statLine(getAttributes(card, tier))
+  const stats = statLine(getAttributes(card, tier), card, tier)
 
   const parts = [
     `${name}${heroes ? ` · ${heroes}` : ''}`,
@@ -85,6 +107,6 @@ export function formatEnchantment(card: BazaarCard, enchName: string, tier?: Tie
 }
 
 export function formatCompare(a: BazaarCard, b: BazaarCard, tierA?: TierName, tierB?: TierName): string {
-  const line = (c: BazaarCard, tier?: TierName) => `${c.Title.Text} ${statLine(getAttributes(c, tier))}`.trim()
+  const line = (c: BazaarCard, tier?: TierName) => `${c.Title.Text} ${statLine(getAttributes(c, tier), c, tier)}`.trim()
   return truncate(`${line(a, tierA)} vs ${line(b, tierB)}`)
 }

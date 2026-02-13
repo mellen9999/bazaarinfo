@@ -81,24 +81,49 @@ async function fetchPages(
   return allCards
 }
 
-export async function scrapeItems(onProgress?: (done: number, total: number) => void) {
-  // page 0 to discover total count
-  const url = `${BASE_URL}?c=items&page=0`
+async function scrapeCategory(
+  category: string,
+  onProgress?: (done: number, total: number) => void,
+) {
+  const url = `${BASE_URL}?c=${category}&page=0`
   const res = await fetch(url, { headers: RSC_HEADERS })
   const text = await res.text()
 
   const totalMatch = text.match(/"totalCards":(\d+)/)
-  if (!totalMatch) console.warn('warn: could not parse totalCards from bazaardb, using fallback of 923')
-  const total = totalMatch ? parseInt(totalMatch[1]) : 923
-  const totalPages = Math.ceil(total / 10)
+  if (!totalMatch) console.warn(`warn: could not parse totalCards for ${category}, paginating until empty`)
+  const total = totalMatch ? parseInt(totalMatch[1]) : 0
+  const totalPages = total ? Math.ceil(total / 10) : 0
 
   const firstPage = extractPageCards(text)
-  onProgress?.(1, totalPages)
+  if (firstPage.length === 0) return { cards: [], total: 0 }
 
-  // fetch pages 1..n
-  const rest = await fetchPages('items', 1, totalPages, (done, t) =>
-    onProgress?.(done + 1, totalPages),
-  )
+  onProgress?.(1, totalPages || 1)
 
-  return { cards: [...firstPage, ...rest], total }
+  if (totalPages > 1) {
+    const rest = await fetchPages(category, 1, totalPages, (done, t) =>
+      onProgress?.(done + 1, totalPages),
+    )
+    return { cards: [...firstPage, ...rest], total }
+  }
+
+  // no totalCards — paginate until empty
+  const allCards = [...firstPage]
+  let page = 1
+  while (true) {
+    const cards = await fetchPage(category, page)
+    if (cards.length === 0) break
+    allCards.push(...cards)
+    page++
+    onProgress?.(page, page)
+    if (page > 1) await new Promise((r) => setTimeout(r, DELAY_MS))
+  }
+  return { cards: allCards, total: allCards.length }
+}
+
+export async function scrapeItems(onProgress?: (done: number, total: number) => void) {
+  return scrapeCategory('items', onProgress)
+}
+
+export async function scrapeSkills(onProgress?: (done: number, total: number) => void) {
+  return scrapeCategory('skills', onProgress)
 }

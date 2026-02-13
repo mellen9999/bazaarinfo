@@ -1,1 +1,1 @@
-export { scrapeItems } from './scraper'
+export { scrapeItems, scrapeSkills } from './scraper'

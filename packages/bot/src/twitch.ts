@@ -209,6 +209,7 @@ export class TwitchClient {
     this.irc = new WebSocket(IRC_URL)
 
     this.irc.onopen = () => {
+      this.ircSend('CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands')
       this.ircSend(`PASS oauth:${this.config.token}`)
       this.ircSend(`NICK ${this.config.botUsername}`)
     }
@@ -269,11 +270,14 @@ export class TwitchClient {
     this.reconnectWithBackoff('irc', () => this.ircBackoff, (n) => { this.ircBackoff = n }, () => this.connectIrc())
   }
 
-  private flushQueue() {
+  private async flushQueue() {
     while (this.ircQueue.length > 0 && this.canSend()) {
       const { channel, text } = this.ircQueue.shift()!
       this.sendTimes.push(Date.now())
-      this.ircSend(`PRIVMSG #${channel} :${text}`)
+      const sent = await this.helixSend(channel, text)
+      if (!sent && this.ircReady) {
+        this.ircSend(`PRIVMSG #${channel} :${text}`)
+      }
     }
     if (this.ircQueue.length > 0) {
       log(`${this.ircQueue.length} queued messages waiting for rate limit`)
@@ -311,20 +315,63 @@ export class TwitchClient {
     log(`left channel: ${name}`)
   }
 
+  private channelIdMap(): Record<string, string> {
+    const map: Record<string, string> = {}
+    for (const ch of this.config.channels) map[ch.name] = ch.userId
+    return map
+  }
+
+  private async helixSend(channel: string, text: string): Promise<boolean> {
+    const broadcasterId = this.channelIdMap()[channel]
+    if (!broadcasterId) return false
+    try {
+      const res = await fetchWithTimeout(`${HELIX_URL}/chat/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.config.token}`,
+          'Client-Id': this.config.clientId,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          broadcaster_id: broadcasterId,
+          sender_id: this.config.botUserId,
+          message: text,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.text()
+        log(`helix send failed (${channel}): ${res.status} ${err}`)
+        return false
+      }
+      const data = (await res.json()) as any
+      if (!data.data?.[0]?.is_sent) {
+        log(`helix send dropped (${channel}): ${data.data?.[0]?.drop_reason?.message ?? 'unknown'}`)
+        return false
+      }
+      return true
+    } catch (e) {
+      log(`helix send error (${channel}): ${e}`)
+      return false
+    }
+  }
+
   async say(channel: string, text: string) {
     if (text.length > 490) text = text.slice(0, 487) + '...'
-    if (this.ircReady && this.canSend()) {
-      this.sendTimes.push(Date.now())
-      this.ircSend(`PRIVMSG #${channel} :${text}`)
-    } else {
+    if (!this.canSend()) {
       if (this.ircQueue.length >= MAX_QUEUE) {
-        log('irc queue full, dropping oldest')
+        log('queue full, dropping oldest')
         this.ircQueue.shift()
       }
       this.ircQueue.push({ channel, text })
-      if (this.ircReady) {
-        setTimeout(() => this.flushQueue(), 1000)
-      }
+      if (this.ircReady) setTimeout(() => this.flushQueue(), 1000)
+      return
+    }
+    this.sendTimes.push(Date.now())
+    // prefer helix api (explicit error feedback, bot badge support)
+    const sent = await this.helixSend(channel, text)
+    if (!sent && this.ircReady) {
+      log(`helix failed, falling back to irc for #${channel}`)
+      this.ircSend(`PRIVMSG #${channel} :${text}`)
     }
   }
 }
