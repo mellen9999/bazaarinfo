@@ -1,6 +1,11 @@
 import { formatItem, formatEnchantment, formatCompare, formatMonster } from '@bazaarinfo/shared'
 import type { TierName } from '@bazaarinfo/shared'
 import * as store from './store'
+import { appendFileSync } from 'fs'
+import { resolve } from 'path'
+import { homedir } from 'os'
+
+const MISS_LOG = resolve(homedir(), '.bazaarinfo-misses.log')
 
 type CommandHandler = (args: string) => string | null
 
@@ -36,7 +41,10 @@ function bazaarinfo(args: string): string | null {
   if (mobMatch) {
     const query = mobMatch[1].trim()
     const monster = store.findMonster(query)
-    if (!monster) return `no monster found for ${query}`
+    if (!monster) {
+      try { appendFileSync(MISS_LOG, `${new Date().toISOString()} mob:${query}\n`) } catch {}
+      return `no monster found for ${query}`
+    }
     return formatMonster(monster)
   }
 
@@ -56,8 +64,14 @@ function bazaarinfo(args: string): string | null {
   if (vsParts.length === 2 && vsParts[0] && vsParts[1]) {
     const a = store.exact(vsParts[0].trim()) ?? store.search(vsParts[0].trim(), 1)[0]
     const b = store.exact(vsParts[1].trim()) ?? store.search(vsParts[1].trim(), 1)[0]
-    if (!a) return `no item found for ${vsParts[0].trim()}`
-    if (!b) return `no item found for ${vsParts[1].trim()}`
+    if (!a) {
+      try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${vsParts[0].trim()}\n`) } catch {}
+      return `no item found for ${vsParts[0].trim()}`
+    }
+    if (!b) {
+      try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${vsParts[1].trim()}\n`) } catch {}
+      return `no item found for ${vsParts[1].trim()}`
+    }
     return formatCompare(a, b)
   }
 
@@ -71,7 +85,10 @@ function bazaarinfo(args: string): string | null {
     const rest = words.slice(1)
     const { query: itemQuery, tier } = parseTier(rest)
     const card = store.exact(itemQuery) ?? store.search(itemQuery, 1)[0]
-    if (!card) return `no item found for ${itemQuery}`
+    if (!card) {
+      try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${itemQuery}\n`) } catch {}
+      return `no item found for ${itemQuery}`
+    }
     const key = enchMatches[0][0].toUpperCase() + enchMatches[0].slice(1)
     return formatEnchantment(card, key, tier)
   }
@@ -91,6 +108,7 @@ function bazaarinfo(args: string): string | null {
   const fuzzyCard = store.search(query, 1)[0]
   if (fuzzyCard) return formatItem(fuzzyCard, tier)
 
+  try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${query}\n`) } catch {}
   return `nothing found for ${query}`
 }
 
