@@ -8,6 +8,34 @@ const MAX_QUEUE = 50
 const BACKOFF_BASE = 3_000
 const BACKOFF_MAX = 300_000 // 5min cap
 
+interface EventSubMessage {
+  metadata: {
+    message_type: string
+    subscription_type?: string
+  }
+  payload: {
+    session?: {
+      id: string
+      keepalive_timeout_seconds?: number
+      reconnect_url?: string
+    }
+    event?: {
+      broadcaster_user_login: string
+      chatter_user_id: string
+      chatter_user_login: string
+      message: { text: string }
+    }
+  }
+}
+
+interface HelixSendResponse {
+  data: { is_sent: boolean; drop_reason?: { message: string } }[]
+}
+
+interface HelixUsersResponse {
+  data: { id: string }[]
+}
+
 export interface ChannelInfo {
   name: string
   userId: string
@@ -82,14 +110,14 @@ export class TwitchClient {
 
   private wireEventSub(ws: WebSocket): WebSocket {
     ws.onmessage = (ev) => {
-      try { this.handleEventSub(JSON.parse(ev.data)) } catch (e) { log('eventsub message error:', e) }
+      try { this.handleEventSub(JSON.parse(ev.data) as EventSubMessage) } catch (e) { log('eventsub message error:', e) }
     }
     ws.onclose = (ev) => { log(`eventsub closed: ${ev.code}`); this.reconnectEventSub() }
     ws.onerror = (ev) => log('eventsub error:', ev)
     return ws
   }
 
-  private async handleEventSub(msg: any) {
+  private async handleEventSub(msg: EventSubMessage) {
     const type = msg.metadata?.message_type
 
     if (type === 'session_welcome') {
@@ -343,7 +371,7 @@ export class TwitchClient {
         log(`helix send failed (${channel}): ${res.status} ${err}`)
         return false
       }
-      const data = (await res.json()) as any
+      const data = (await res.json()) as HelixSendResponse
       if (!data.data?.[0]?.is_sent) {
         log(`helix send dropped (${channel}): ${data.data?.[0]?.drop_reason?.message ?? 'unknown'}`)
         return false
@@ -394,7 +422,7 @@ export async function getUserId(
     return getUserId(newToken, clientId, login)
   }
   if (!res.ok) throw new Error(`getUserId failed: ${res.status}`)
-  const data = (await res.json()) as any
+  const data = (await res.json()) as HelixUsersResponse
   const id = data.data[0]?.id
   if (!id) throw new Error(`user not found: ${login}`)
   return id

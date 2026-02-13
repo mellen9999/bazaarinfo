@@ -9,6 +9,7 @@ const RSC_HEADERS = {
 
 const BATCH_SIZE = 5
 const DELAY_MS = 200
+const MAX_PAGES = 200
 
 function extractPageCards(rscText: string): BazaarCard[] {
   // pageCards is embedded in the RSC payload as a JSON array
@@ -28,7 +29,8 @@ function extractPageCards(rscText: string): BazaarCard[] {
       if (depth === 0) {
         try {
           return JSON.parse(rscText.substring(arrStart, i + 1))
-        } catch {
+        } catch (e) {
+          console.warn('warn: failed to parse pageCards JSON:', e)
           return []
         }
       }
@@ -106,10 +108,10 @@ async function scrapeCategory(
     return { cards: [...firstPage, ...rest], total }
   }
 
-  // no totalCards — paginate until empty
+  // no totalCards — paginate until empty (capped for safety)
   const allCards = [...firstPage]
   let page = 1
-  while (true) {
+  while (page < MAX_PAGES) {
     const cards = await fetchPage(category, page)
     if (cards.length === 0) break
     allCards.push(...cards)
@@ -117,6 +119,7 @@ async function scrapeCategory(
     onProgress?.(page, page)
     if (page > 1) await new Promise((r) => setTimeout(r, DELAY_MS))
   }
+  if (page >= MAX_PAGES) console.warn(`warn: hit ${MAX_PAGES} page cap for ${category}`)
   return { cards: allCards, total: allCards.length }
 }
 
@@ -148,7 +151,9 @@ function extractMonsters(rscText: string): Monster[] {
         if (depth === 0) {
           try {
             monsters.push(JSON.parse(rscText.substring(start, i + 1)))
-          } catch {}
+          } catch (e) {
+            console.warn('warn: failed to parse monster JSON:', e)
+          }
           searchFrom = i + 1
           found = true
           break
