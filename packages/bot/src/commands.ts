@@ -58,7 +58,7 @@ export function parseArgs(words: string[]): ParsedArgs {
 let lobbyChannel = ''
 export function setLobbyChannel(name: string) { lobbyChannel = name }
 
-const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero <name> | !b mob <name>'
+const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero <name> | !b mob <name> | data: bazaardb.gg'
 const JOIN_USAGE = () => lobbyChannel ? ` | !join in #${lobbyChannel} to add bot, !part to remove` : ''
 
 function logMiss(query: string, prefix = '') {
