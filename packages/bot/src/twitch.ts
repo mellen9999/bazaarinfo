@@ -1,17 +1,33 @@
+import { log } from './log'
+
 const EVENTSUB_URL = 'wss://eventsub.wss.twitch.tv/ws'
 const IRC_URL = 'wss://irc-ws.chat.twitch.tv'
 const HELIX_URL = 'https://api.twitch.tv/helix'
+const FETCH_TIMEOUT = 10_000
+const MAX_QUEUE = 50
+const BACKOFF_BASE = 3_000
+const BACKOFF_MAX = 300_000 // 5min cap
 
-interface TwitchConfig {
+export interface ChannelInfo {
+  name: string
+  userId: string
+}
+
+export interface TwitchConfig {
   token: string
   clientId: string
   botUserId: string
   botUsername: string
-  channelUserId: string
-  channel: string
+  channels: ChannelInfo[]
 }
 
-type MessageHandler = (userId: string, username: string, text: string) => void
+export type MessageHandler = (channel: string, userId: string, username: string, text: string) => void
+
+export type AuthRefreshFn = () => Promise<string>
+
+function fetchWithTimeout(url: string, opts: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...opts, signal: AbortSignal.timeout(FETCH_TIMEOUT) })
+}
 
 export class TwitchClient {
   private eventsub: WebSocket | null = null
@@ -19,14 +35,29 @@ export class TwitchClient {
   private sessionId = ''
   private config: TwitchConfig
   private onMessage: MessageHandler
+  private onAuthFailure: AuthRefreshFn | null = null
   private keepaliveTimeout: Timer | null = null
   private keepaliveMs = 15_000
+  private closing = false
   private ircReady = false
-  private ircQueue: string[] = []
+  private ircQueue: { channel: string; text: string }[] = []
+  private sendTimes: number[] = []
+  private readonly SEND_LIMIT = 18
+  private readonly SEND_WINDOW = 30_000
+  private eventsubBackoff = BACKOFF_BASE
+  private ircBackoff = BACKOFF_BASE
 
   constructor(config: TwitchConfig, onMessage: MessageHandler) {
     this.config = config
     this.onMessage = onMessage
+  }
+
+  setAuthRefresh(fn: AuthRefreshFn) {
+    this.onAuthFailure = fn
+  }
+
+  updateToken(token: string) {
+    this.config.token = token
   }
 
   async connect() {
@@ -34,16 +65,30 @@ export class TwitchClient {
     this.connectIrc()
   }
 
+  close() {
+    this.closing = true
+    if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
+    this.eventsub?.close()
+    this.irc?.close()
+    log('connections closed')
+  }
+
   // --- EventSub (receive) ---
 
   private connectEventSub() {
     this.eventsub = new WebSocket(EVENTSUB_URL)
-    this.eventsub.onmessage = (ev) => this.handleEventSub(JSON.parse(ev.data))
+    this.eventsub.onmessage = (ev) => {
+      try {
+        this.handleEventSub(JSON.parse(ev.data))
+      } catch (e) {
+        log('eventsub message error:', e)
+      }
+    }
     this.eventsub.onclose = (ev) => {
-      console.log(`eventsub closed: ${ev.code} ${ev.reason}`)
+      log(`eventsub closed: ${ev.code} ${ev.reason}`)
       this.reconnectEventSub()
     }
-    this.eventsub.onerror = (ev) => console.error('eventsub error:', ev)
+    this.eventsub.onerror = (ev) => log('eventsub error:', ev)
   }
 
   private async handleEventSub(msg: any) {
@@ -52,8 +97,9 @@ export class TwitchClient {
     if (type === 'session_welcome') {
       this.sessionId = msg.payload.session.id
       this.keepaliveMs = (msg.payload.session.keepalive_timeout_seconds ?? 10) * 1000
-      console.log(`eventsub connected, session: ${this.sessionId}`)
-      await this.subscribe()
+      log(`eventsub connected, session: ${this.sessionId}`)
+      this.eventsubBackoff = BACKOFF_BASE // reset on success
+      await this.subscribeAll()
       this.resetKeepalive()
     } else if (type === 'session_keepalive') {
       this.resetKeepalive()
@@ -61,16 +107,22 @@ export class TwitchClient {
       this.resetKeepalive()
       if (msg.metadata.subscription_type === 'channel.chat.message') {
         const e = msg.payload.event
-        this.onMessage(e.chatter_user_id, e.chatter_user_login, e.message.text)
+        this.onMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, e.message.text)
       }
     } else if (type === 'session_reconnect') {
       const newUrl = msg.payload.session.reconnect_url
-      console.log('eventsub reconnecting to', newUrl)
+      log('eventsub reconnecting to', newUrl)
       const oldWs = this.eventsub
       this.eventsub = new WebSocket(newUrl)
-      this.eventsub.onmessage = (ev) => this.handleEventSub(JSON.parse(ev.data))
+      this.eventsub.onmessage = (ev) => {
+        try {
+          this.handleEventSub(JSON.parse(ev.data))
+        } catch (e) {
+          log('eventsub message error:', e)
+        }
+      }
       this.eventsub.onclose = (ev) => {
-        console.log(`eventsub closed: ${ev.code}`)
+        log(`eventsub closed: ${ev.code}`)
         this.reconnectEventSub()
       }
       this.eventsub.onopen = () => oldWs?.close()
@@ -80,24 +132,36 @@ export class TwitchClient {
   private resetKeepalive() {
     if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
     this.keepaliveTimeout = setTimeout(() => {
-      console.log('keepalive timeout, reconnecting eventsub...')
+      log('keepalive timeout, reconnecting eventsub...')
       this.eventsub?.close()
     }, this.keepaliveMs + 5000)
   }
 
   private async reconnectEventSub() {
+    if (this.closing) return
     if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
-    console.log('eventsub reconnecting in 3s...')
-    await new Promise((r) => setTimeout(r, 3000))
-    this.connectEventSub()
+    log(`eventsub reconnecting in ${Math.round(this.eventsubBackoff / 1000)}s...`)
+    await new Promise((r) => setTimeout(r, this.eventsubBackoff))
+    this.eventsubBackoff = Math.min(this.eventsubBackoff * 2, BACKOFF_MAX)
+    if (!this.closing) this.connectEventSub()
   }
 
-  private async subscribe() {
+  private async subscribeAll() {
+    for (const ch of this.config.channels) {
+      try {
+        await this.subscribe(ch.userId)
+      } catch (e) {
+        log(`subscribe error for ${ch.name}: ${e}`)
+      }
+    }
+  }
+
+  private async subscribe(broadcasterUserId: string, retries = 2): Promise<void> {
     const body = {
       type: 'channel.chat.message',
       version: '1',
       condition: {
-        broadcaster_user_id: this.config.channelUserId,
+        broadcaster_user_id: broadcasterUserId,
         user_id: this.config.botUserId,
       },
       transport: {
@@ -106,7 +170,7 @@ export class TwitchClient {
       },
     }
 
-    const res = await fetch(`${HELIX_URL}/eventsub/subscriptions`, {
+    const res = await fetchWithTimeout(`${HELIX_URL}/eventsub/subscriptions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.config.token}`,
@@ -116,11 +180,28 @@ export class TwitchClient {
       body: JSON.stringify(body),
     })
 
+    if (res.status === 401 && this.onAuthFailure && retries > 0) {
+      log('helix 401 — refreshing token and retrying subscribe')
+      const newToken = await this.onAuthFailure()
+      this.config.token = newToken
+      return this.subscribe(broadcasterUserId, retries - 1)
+    }
+
+    if (res.status === 409) {
+      log(`already subscribed for ${broadcasterUserId}, skipping`)
+      return
+    }
+
     if (!res.ok) {
       const err = await res.text()
-      throw new Error(`subscribe failed: ${res.status} ${err}`)
+      if (retries > 0) {
+        log(`subscribe failed (${broadcasterUserId}): ${res.status}, retrying in 5s...`)
+        await new Promise((r) => setTimeout(r, 5000))
+        return this.subscribe(broadcasterUserId, retries - 1)
+      }
+      throw new Error(`subscribe failed (${broadcasterUserId}): ${res.status} ${err}`)
     }
-    console.log('subscribed to channel.chat.message')
+    log(`subscribed to channel.chat.message for ${broadcasterUserId}`)
   }
 
   // --- IRC (send) ---
@@ -139,26 +220,45 @@ export class TwitchClient {
       for (const line of lines) {
         if (line.startsWith('PING')) {
           this.ircSend(`PONG ${line.slice(5)}`)
-        } else if (line.includes('001')) {
-          // RPL_WELCOME — auth succeeded, join channel
-          this.ircSend(`JOIN #${this.config.channel}`)
-        } else if (line.includes('JOIN')) {
-          console.log(`irc joined #${this.config.channel}`)
-          this.ircReady = true
-          this.flushQueue()
+        } else if (/ 001 /.test(line)) {
+          this.ircBackoff = BACKOFF_BASE // reset on success
+          for (const ch of this.config.channels) {
+            this.ircSend(`JOIN #${ch.name}`)
+          }
+        } else if (/ JOIN #/.test(line)) {
+          const match = line.match(/JOIN #(\S+)/)
+          if (match) log(`irc joined #${match[1]}`)
+          if (!this.ircReady) {
+            this.ircReady = true
+            this.flushQueue()
+          }
+        } else if (/NOTICE.*(?:Login authentication failed|Login unsuccessful)/.test(line)) {
+          log('irc auth failed — refreshing token and reconnecting')
+          this.handleIrcAuthFailure()
         } else if (line.startsWith(':tmi.twitch.tv NOTICE')) {
-          console.log('irc notice:', line)
+          log('irc notice:', line)
         }
       }
     }
 
     this.irc.onclose = (ev) => {
-      console.log(`irc closed: ${ev.code} ${ev.reason}`)
+      log(`irc closed: ${ev.code} ${ev.reason}`)
       this.ircReady = false
       this.reconnectIrc()
     }
 
-    this.irc.onerror = (ev) => console.error('irc error:', ev)
+    this.irc.onerror = (ev) => log('irc error:', ev)
+  }
+
+  private async handleIrcAuthFailure() {
+    if (!this.onAuthFailure) return
+    try {
+      const newToken = await this.onAuthFailure()
+      this.config.token = newToken
+      this.irc?.close()
+    } catch (e) {
+      log('auth refresh failed during irc reconnect:', e)
+    }
   }
 
   private ircSend(msg: string) {
@@ -168,35 +268,58 @@ export class TwitchClient {
   }
 
   private async reconnectIrc() {
-    console.log('irc reconnecting in 3s...')
-    await new Promise((r) => setTimeout(r, 3000))
-    this.connectIrc()
+    if (this.closing) return
+    log(`irc reconnecting in ${Math.round(this.ircBackoff / 1000)}s...`)
+    await new Promise((r) => setTimeout(r, this.ircBackoff))
+    this.ircBackoff = Math.min(this.ircBackoff * 2, BACKOFF_MAX)
+    if (!this.closing) this.connectIrc()
   }
 
   private flushQueue() {
-    while (this.ircQueue.length > 0) {
-      const msg = this.ircQueue.shift()!
-      this.ircSend(`PRIVMSG #${this.config.channel} :${msg}`)
+    while (this.ircQueue.length > 0 && this.canSend()) {
+      const { channel, text } = this.ircQueue.shift()!
+      this.sendTimes.push(Date.now())
+      this.ircSend(`PRIVMSG #${channel} :${text}`)
+    }
+    if (this.ircQueue.length > 0) {
+      log(`${this.ircQueue.length} queued messages waiting for rate limit`)
+      setTimeout(() => this.flushQueue(), 1000)
     }
   }
 
-  async say(text: string) {
-    if (this.ircReady) {
-      this.ircSend(`PRIVMSG #${this.config.channel} :${text}`)
+  private canSend(): boolean {
+    const now = Date.now()
+    this.sendTimes = this.sendTimes.filter((t) => now - t < this.SEND_WINDOW)
+    return this.sendTimes.length < this.SEND_LIMIT
+  }
+
+  async say(channel: string, text: string) {
+    if (this.ircReady && this.canSend()) {
+      this.sendTimes.push(Date.now())
+      this.ircSend(`PRIVMSG #${channel} :${text}`)
     } else {
-      this.ircQueue.push(text)
+      if (this.ircQueue.length >= MAX_QUEUE) {
+        log('irc queue full, dropping oldest')
+        this.ircQueue.shift()
+      }
+      this.ircQueue.push({ channel, text })
+      if (this.ircReady) {
+        setTimeout(() => this.flushQueue(), 1000)
+      }
     }
   }
 }
 
 export async function getUserId(token: string, clientId: string, login: string): Promise<string> {
-  const res = await fetch(`${HELIX_URL}/users?login=${login}`, {
+  const res = await fetchWithTimeout(`${HELIX_URL}/users?login=${login}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       'Client-Id': clientId,
     },
   })
   if (!res.ok) throw new Error(`getUserId failed: ${res.status}`)
-  const data = await res.json() as any
-  return data.data[0]?.id
+  const data = (await res.json()) as any
+  const id = data.data[0]?.id
+  if (!id) throw new Error(`user not found: ${login}`)
+  return id
 }

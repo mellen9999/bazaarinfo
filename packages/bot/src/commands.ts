@@ -1,4 +1,4 @@
-import { formatItem, formatItemShort, formatEnchantment, formatCompare } from '@bazaarinfo/shared'
+import { formatItem, formatEnchantment, formatCompare } from '@bazaarinfo/shared'
 import type { TierName } from '@bazaarinfo/shared'
 import * as store from './store'
 
@@ -21,61 +21,56 @@ function parseTier(args: string[]): { query: string; tier?: TierName } {
   return { query: args.join(' ') }
 }
 
-const commands: Record<string, CommandHandler> = {
-  item(args) {
-    if (!args) return 'usage: !item <name> [tier]'
-    const parts = args.split(/\s+/)
-    const { query, tier } = parseTier(parts)
+const USAGE = '!b <item> [tier] | !b <enchant> <item> [tier] | !b <item> vs <item> | !b hero <name> — ex: !b boomerang gold, !b fiery boomerang, !b boomerang vs shield'
 
-    const card = store.exact(query) ?? store.search(query, 1)[0]
-    if (!card) return `no item found for "${query}"`
-    return formatItem(card, tier)
-  },
+function bazaarinfo(args: string): string | null {
+  if (!args || args === 'help' || args === 'info') return USAGE
 
-  enc(args) {
-    if (!args) return 'usage: !enc <type> [item]'
-    const parts = args.split(/\s+/)
-    const enchType = parts[0].toLowerCase()
+  // hero listing: "hero vanessa"
+  const heroMatch = args.match(/^hero\s+(.+)$/i)
+  if (heroMatch) {
+    const heroName = heroMatch[1].trim()
+    const items = store.byHero(heroName)
+    if (items.length === 0) return `no items found for hero "${heroName}"`
+    const names = items.map((i) => i.Title.Text)
+    const result = `[${heroName}] ${names.join(', ')}`
+    return result.length > 480 ? result.slice(0, 477) + '...' : result
+  }
 
-    // find matching enchantment name
-    const enchName = ENCHANTMENTS.find((e) => e.startsWith(enchType))
-    if (!enchName) return `unknown enchantment "${enchType}". options: ${ENCHANTMENTS.join(', ')}`
+  // compare: "x vs y"
+  const vsParts = args.split(/\s+vs\s+/i)
+  if (vsParts.length === 2 && vsParts[0] && vsParts[1]) {
+    const a = store.exact(vsParts[0].trim()) ?? store.search(vsParts[0].trim(), 1)[0]
+    const b = store.exact(vsParts[1].trim()) ?? store.search(vsParts[1].trim(), 1)[0]
+    if (!a) return `no item found for "${vsParts[0].trim()}"`
+    if (!b) return `no item found for "${vsParts[1].trim()}"`
+    return formatCompare(a, b)
+  }
 
-    const itemQuery = parts.slice(1).join(' ')
-    if (!itemQuery) return `usage: !enc ${enchName} <item>`
+  const words = args.split(/\s+/)
+  const firstWord = words[0].toLowerCase()
 
+  // enchantment: first word matches an enchantment name
+  const enchMatches = ENCHANTMENTS.filter((e) => e.startsWith(firstWord))
+  if (enchMatches.length === 1 && words.length > 1) {
+    const rest = words.slice(1)
+    const { query: itemQuery, tier } = parseTier(rest)
     const card = store.exact(itemQuery) ?? store.search(itemQuery, 1)[0]
     if (!card) return `no item found for "${itemQuery}"`
+    const key = enchMatches[0][0].toUpperCase() + enchMatches[0].slice(1)
+    return formatEnchantment(card, key, tier)
+  }
 
-    const key = enchName[0].toUpperCase() + enchName.slice(1)
-    return formatEnchantment(card, key)
-  },
+  // item lookup (optional tier as last word)
+  const { query, tier } = parseTier(words)
+  const card = store.exact(query) ?? store.search(query, 1)[0]
+  if (!card) return `no item found for "${query}"`
+  return formatItem(card, tier)
+}
 
-  hero(args) {
-    if (!args) return 'usage: !hero <name>'
-    const heroItems = store.byHero(args.trim())
-    if (!heroItems.length) return `no items found for hero "${args}"`
-    const names = heroItems.slice(0, 15).map((i) => i.Title.Text)
-    const more = heroItems.length > 15 ? ` (+${heroItems.length - 15} more)` : ''
-    return `[${args}] ${heroItems.length} items: ${names.join(', ')}${more}`
-  },
-
-  compare(args) {
-    if (!args) return 'usage: !compare <item> vs <item>'
-    const [aQuery, bQuery] = args.split(/\s+vs\s+/i)
-    if (!aQuery || !bQuery) return 'usage: !compare <item> vs <item>'
-
-    const a = store.exact(aQuery.trim()) ?? store.search(aQuery.trim(), 1)[0]
-    const b = store.exact(bQuery.trim()) ?? store.search(bQuery.trim(), 1)[0]
-    if (!a) return `no item found for "${aQuery.trim()}"`
-    if (!b) return `no item found for "${bQuery.trim()}"`
-
-    return formatCompare(a, b)
-  },
-
-  help() {
-    return '!item <name> [tier] | !enc <type> <item> | !hero <name> | !compare <a> vs <b>'
-  },
+const commands: Record<string, CommandHandler> = {
+  b: bazaarinfo,
+  bazaarinfo,
 }
 
 export function handleCommand(text: string): string | null {

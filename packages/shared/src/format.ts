@@ -1,6 +1,19 @@
 import type { BazaarCard, TierName, ReplacementValue } from './types'
 
 const TIER_ORDER: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
+const SIZE_ABBREV: Record<string, string> = { Small: 'Sm', Medium: 'Med', Large: 'Lg' }
+const TIER_ABBREV = (tiers: string[]) => tiers.map((t) => t[0]).join('/')
+const MAX_LEN = 480
+
+function truncate(str: string): string {
+  if (str.length <= MAX_LEN) return str
+  // cut at last pipe separator or space before limit
+  const cut = str.lastIndexOf(' | ', MAX_LEN - 4)
+  if (cut > MAX_LEN * 0.5) return str.slice(0, cut) + '...'
+  const space = str.lastIndexOf(' ', MAX_LEN - 4)
+  if (space > MAX_LEN * 0.5) return str.slice(0, space) + '...'
+  return str.slice(0, MAX_LEN - 3) + '...'
+}
 
 function resolveReplacement(val: ReplacementValue, tier?: TierName): string {
   if ('Fixed' in val) return String(val.Fixed)
@@ -19,41 +32,40 @@ function resolveTooltip(text: string, replacements: Record<string, ReplacementVa
   })
 }
 
+function getAttributes(card: BazaarCard, tier?: TierName): Record<string, number> {
+  const base = { ...card.BaseAttributes }
+  if (tier && card.Tiers[tier]?.OverrideAttributes) {
+    Object.assign(base, card.Tiers[tier].OverrideAttributes)
+  }
+  return base
+}
+
 export function formatItem(card: BazaarCard, tier?: TierName): string {
   const name = card.Title.Text
-  const size = card.Size
+  const size = SIZE_ABBREV[card.Size] ?? card.Size
   const heroes = card.Heroes.join(', ')
-  const tiers = Object.keys(card.Tiers).join('/')
+  const tiers = TIER_ABBREV(Object.keys(card.Tiers))
 
-  // resolve tooltips
-  const abilities = card.Tooltips.map((t) => {
-    const text = resolveTooltip(t.Content.Text, card.TooltipReplacements, tier)
-    const tag = t.TooltipType === 'Active' ? '⚡' : '🛡'
-    return `${tag} ${text}`
-  })
+  // resolve tooltips — no emoji prefix
+  const abilities = card.Tooltips.map((t) =>
+    resolveTooltip(t.Content.Text, card.TooltipReplacements, tier),
+  )
 
-  // key stats
-  const attrs = card.BaseAttributes
+  // compact stats with tier overrides applied
+  const attrs = getAttributes(card, tier)
   const stats: string[] = []
-  if (attrs.DamageAmount) stats.push(`DMG:${attrs.DamageAmount}`)
-  if (attrs.ShieldApplyAmount) stats.push(`SHD:${attrs.ShieldApplyAmount}`)
-  if (attrs.HealAmount) stats.push(`HEAL:${attrs.HealAmount}`)
-  if (attrs.CooldownMax) stats.push(`CD:${attrs.CooldownMax / 1000}s`)
-  if (attrs.BuyPrice) stats.push(`Buy:${attrs.BuyPrice}`)
+  if (attrs.DamageAmount) stats.push(`${attrs.DamageAmount}dmg`)
+  if (attrs.ShieldApplyAmount) stats.push(`${attrs.ShieldApplyAmount}shd`)
+  if (attrs.HealAmount) stats.push(`${attrs.HealAmount}heal`)
+  if (attrs.CooldownMax) stats.push(`${attrs.CooldownMax / 1000}s`)
 
   const parts = [
-    `[${name}] ${size} | ${tiers} | ${heroes}`,
+    `[${name}] ${size} ${heroes} ${tiers}`,
     stats.length ? stats.join(' ') : null,
     ...abilities,
   ].filter(Boolean)
 
-  // twitch chat limit ~500 chars
-  const result = parts.join(' | ')
-  return result.length > 480 ? result.slice(0, 477) + '...' : result
-}
-
-export function formatItemShort(card: BazaarCard): string {
-  return `[${card.Title.Text}] ${card.Size} ${Object.keys(card.Tiers).join('/')} - ${card.Heroes.join(', ')}`
+  return truncate(parts.join(' | '))
 }
 
 export function formatEnchantment(card: BazaarCard, enchName: string, tier?: TierName): string {
@@ -65,18 +77,19 @@ export function formatEnchantment(card: BazaarCard, enchName: string, tier?: Tie
   )
 
   const tags = ench.Tags.length ? ` [${ench.Tags.join(', ')}]` : ''
-  return `[${card.Title.Text} - ${enchName}]${tags} ${tooltips.join(' | ')}`
+  return truncate(`[${card.Title.Text} - ${enchName}]${tags} ${tooltips.join(' | ')}`)
 }
 
-export function formatCompare(a: BazaarCard, b: BazaarCard): string {
-  const line = (c: BazaarCard) => {
-    const attrs = c.BaseAttributes
-    const parts = [`${c.Title.Text} (${c.Size})`]
+export function formatCompare(a: BazaarCard, b: BazaarCard, tierA?: TierName, tierB?: TierName): string {
+  const line = (c: BazaarCard, tier?: TierName) => {
+    const attrs = getAttributes(c, tier)
+    const size = SIZE_ABBREV[c.Size] ?? c.Size
+    const parts = [`${c.Title.Text} (${size})`]
     if (attrs.DamageAmount) parts.push(`DMG:${attrs.DamageAmount}`)
     if (attrs.ShieldApplyAmount) parts.push(`SHD:${attrs.ShieldApplyAmount}`)
     if (attrs.HealAmount) parts.push(`HEAL:${attrs.HealAmount}`)
     if (attrs.CooldownMax) parts.push(`CD:${attrs.CooldownMax / 1000}s`)
     return parts.join(' ')
   }
-  return `${line(a)} vs ${line(b)}`
+  return truncate(`${line(a, tierA)} vs ${line(b, tierB)}`)
 }
