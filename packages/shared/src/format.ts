@@ -46,26 +46,26 @@ function getAttributes(card: BazaarCard, tier?: TierName): Record<string, number
   return base
 }
 
+function statLine(attrs: Record<string, number>): string {
+  const s: string[] = []
+  if (attrs.DamageAmount) s.push(`🗡️${attrs.DamageAmount}`)
+  if (attrs.ShieldApplyAmount) s.push(`🛡${attrs.ShieldApplyAmount}`)
+  if (attrs.HealAmount) s.push(`💚${attrs.HealAmount}`)
+  if (attrs.CooldownMax) s.push(`🕐${attrs.CooldownMax / 1000}s`)
+  return s.join(' ')
+}
+
 export function formatItem(card: BazaarCard, tier?: TierName): string {
   const name = card.Title.Text
   const heroes = card.Heroes.map((h) => HERO_ABBREV[h] ?? h).join(', ')
-
-  // resolve tooltips — no emoji prefix
   const abilities = card.Tooltips.map((t) =>
     resolveTooltip(t.Content.Text, card.TooltipReplacements, tier),
   )
-
-  // compact stats with tier overrides applied
-  const attrs = getAttributes(card, tier)
-  const stats: string[] = []
-  if (attrs.DamageAmount) stats.push(`🗡️${attrs.DamageAmount}`)
-  if (attrs.ShieldApplyAmount) stats.push(`🛡${attrs.ShieldApplyAmount}`)
-  if (attrs.HealAmount) stats.push(`💚${attrs.HealAmount}`)
-  if (attrs.CooldownMax) stats.push(`🕐${attrs.CooldownMax / 1000}s`)
+  const stats = statLine(getAttributes(card, tier))
 
   const parts = [
     `${name}${heroes ? ` · ${heroes}` : ''}`,
-    stats.length ? stats.join(' ') : null,
+    stats || null,
     ...abilities,
   ].filter(Boolean)
 
@@ -85,14 +85,6 @@ export function formatEnchantment(card: BazaarCard, enchName: string, tier?: Tie
 }
 
 export function formatCompare(a: BazaarCard, b: BazaarCard, tierA?: TierName, tierB?: TierName): string {
-  const line = (c: BazaarCard, tier?: TierName) => {
-    const attrs = getAttributes(c, tier)
-    const parts = [c.Title.Text]
-    if (attrs.DamageAmount) parts.push(`🗡️${attrs.DamageAmount}`)
-    if (attrs.ShieldApplyAmount) parts.push(`🛡${attrs.ShieldApplyAmount}`)
-    if (attrs.HealAmount) parts.push(`💚${attrs.HealAmount}`)
-    if (attrs.CooldownMax) parts.push(`🕐${attrs.CooldownMax / 1000}s`)
-    return parts.join(' ')
-  }
+  const line = (c: BazaarCard, tier?: TierName) => `${c.Title.Text} ${statLine(getAttributes(c, tier))}`.trim()
   return truncate(`${line(a, tierA)} vs ${line(b, tierB)}`)
 }

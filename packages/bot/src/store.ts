@@ -41,10 +41,6 @@ export async function reloadStore() {
   }
 }
 
-export function getItems() {
-  return items
-}
-
 export function search(query: string, limit = 5) {
   return searchCards(index, query, limit)
 }

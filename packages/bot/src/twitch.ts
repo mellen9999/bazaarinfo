@@ -77,19 +77,16 @@ export class TwitchClient {
   // --- EventSub (receive) ---
 
   private connectEventSub() {
-    this.eventsub = new WebSocket(EVENTSUB_URL)
-    this.eventsub.onmessage = (ev) => {
-      try {
-        this.handleEventSub(JSON.parse(ev.data))
-      } catch (e) {
-        log('eventsub message error:', e)
-      }
+    this.eventsub = this.wireEventSub(new WebSocket(EVENTSUB_URL))
+  }
+
+  private wireEventSub(ws: WebSocket): WebSocket {
+    ws.onmessage = (ev) => {
+      try { this.handleEventSub(JSON.parse(ev.data)) } catch (e) { log('eventsub message error:', e) }
     }
-    this.eventsub.onclose = (ev) => {
-      log(`eventsub closed: ${ev.code} ${ev.reason}`)
-      this.reconnectEventSub()
-    }
-    this.eventsub.onerror = (ev) => log('eventsub error:', ev)
+    ws.onclose = (ev) => { log(`eventsub closed: ${ev.code}`); this.reconnectEventSub() }
+    ws.onerror = (ev) => log('eventsub error:', ev)
+    return ws
   }
 
   private async handleEventSub(msg: any) {
@@ -114,18 +111,7 @@ export class TwitchClient {
       const newUrl = msg.payload.session.reconnect_url
       log('eventsub reconnecting to', newUrl)
       const oldWs = this.eventsub
-      this.eventsub = new WebSocket(newUrl)
-      this.eventsub.onmessage = (ev) => {
-        try {
-          this.handleEventSub(JSON.parse(ev.data))
-        } catch (e) {
-          log('eventsub message error:', e)
-        }
-      }
-      this.eventsub.onclose = (ev) => {
-        log(`eventsub closed: ${ev.code}`)
-        this.reconnectEventSub()
-      }
+      this.eventsub = this.wireEventSub(new WebSocket(newUrl))
       this.eventsub.onopen = () => oldWs?.close()
     }
   }
@@ -139,13 +125,23 @@ export class TwitchClient {
     }, this.keepaliveMs + 5000)
   }
 
-  private async reconnectEventSub() {
+  private async reconnectWithBackoff(
+    label: string,
+    getBackoff: () => number,
+    setBackoff: (n: number) => void,
+    connectFn: () => void,
+  ) {
     if (this.closing) return
+    const ms = getBackoff()
+    log(`${label} reconnecting in ${Math.round(ms / 1000)}s...`)
+    await new Promise((r) => setTimeout(r, ms))
+    setBackoff(Math.min(ms * 2, BACKOFF_MAX))
+    if (!this.closing) connectFn()
+  }
+
+  private reconnectEventSub() {
     if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
-    log(`eventsub reconnecting in ${Math.round(this.eventsubBackoff / 1000)}s...`)
-    await new Promise((r) => setTimeout(r, this.eventsubBackoff))
-    this.eventsubBackoff = Math.min(this.eventsubBackoff * 2, BACKOFF_MAX)
-    if (!this.closing) this.connectEventSub()
+    this.reconnectWithBackoff('eventsub', () => this.eventsubBackoff, (n) => { this.eventsubBackoff = n }, () => this.connectEventSub())
   }
 
   private async subscribeAll() {
@@ -269,12 +265,8 @@ export class TwitchClient {
     }
   }
 
-  private async reconnectIrc() {
-    if (this.closing) return
-    log(`irc reconnecting in ${Math.round(this.ircBackoff / 1000)}s...`)
-    await new Promise((r) => setTimeout(r, this.ircBackoff))
-    this.ircBackoff = Math.min(this.ircBackoff * 2, BACKOFF_MAX)
-    if (!this.closing) this.connectIrc()
+  private reconnectIrc() {
+    this.reconnectWithBackoff('irc', () => this.ircBackoff, (n) => { this.ircBackoff = n }, () => this.connectIrc())
   }
 
   private flushQueue() {
