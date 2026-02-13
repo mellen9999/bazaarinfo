@@ -3,6 +3,7 @@ import type { BazaarCard, Monster } from '@bazaarinfo/shared'
 const BASE_URL = 'https://bazaardb.gg/search'
 const RSC_HEADERS = {
   RSC: '1',
+  'User-Agent': 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)',
   'Next-Router-State-Tree':
     '%5B%22%22%2C%7B%22children%22%3A%5B%22search%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%5D%7D%5D%7D%2Cnull%2Cnull%2Ctrue%5D',
 }

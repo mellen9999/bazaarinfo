@@ -7,6 +7,7 @@ const TIER_EMOJI: Record<string, string> = {
 const HERO_ABBREV: Record<string, string> = {
   Pygmalien: 'Pyg',
 }
+const SITE_URL = 'https://bazaardb.gg'
 const MAX_LEN = 480
 
 function truncate(str: string): string {
@@ -85,10 +86,13 @@ export function formatItem(card: BazaarCard, tier?: TierName): string {
 
   const tags = card.DisplayTags?.length ? ` [${card.DisplayTags.join(', ')}]` : ''
 
+  const link = card.Uri ? `${SITE_URL}${card.Uri}` : null
+
   const parts = [
     `${name}${heroes ? ` · ${heroes}` : ''}${tags}`,
     stats || null,
     ...abilities,
+    link,
   ].filter(Boolean)
 
   return truncate(parts.join(' | '))
@@ -103,7 +107,8 @@ export function formatEnchantment(card: BazaarCard, enchName: string, tier?: Tie
   )
 
   const tags = ench.Tags.length ? ` [${ench.Tags.join(', ')}]` : ''
-  return truncate(`[${card.Title.Text} - ${enchName}]${tags} ${tooltips.join(' | ')}`)
+  const link = card.Uri ? ` | ${SITE_URL}${card.Uri}` : ''
+  return truncate(`[${card.Title.Text} - ${enchName}]${tags} ${tooltips.join(' | ')}${link}`)
 }
 
 
@@ -131,10 +136,13 @@ export function formatMonster(monster: Monster): string {
     boardEntries.push(count > 1 ? `${label} x${count}` : label)
   }
 
+  const link = monster.Uri ? `${SITE_URL}${monster.Uri}` : null
+
   const parts = [
     `${monster.Title.Text} · ${day} · ${hp}HP`,
     boardEntries.join(', '),
-  ]
+    link,
+  ].filter(Boolean)
 
   return truncate(parts.join(' | '))
 }
