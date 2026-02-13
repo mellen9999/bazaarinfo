@@ -42,7 +42,7 @@ export class TwitchClient {
   private ircReady = false
   private ircQueue: { channel: string; text: string }[] = []
   private sendTimes: number[] = []
-  private readonly SEND_LIMIT = 18
+  private readonly SEND_LIMIT = 90
   private readonly SEND_WINDOW = 30_000
   private eventsubBackoff = BACKOFF_BASE
   private ircBackoff = BACKOFF_BASE

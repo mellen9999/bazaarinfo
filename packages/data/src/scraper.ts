@@ -1,4 +1,4 @@
-import type { BazaarCard } from '@bazaarinfo/shared'
+import type { BazaarCard, Monster } from '@bazaarinfo/shared'
 
 const BASE_URL = 'https://bazaardb.gg/search'
 const RSC_HEADERS = {
@@ -126,4 +126,45 @@ export async function scrapeItems(onProgress?: (done: number, total: number) => 
 
 export async function scrapeSkills(onProgress?: (done: number, total: number) => void) {
   return scrapeCategory('skills', onProgress)
+}
+
+function extractMonsters(rscText: string): Monster[] {
+  const monsters: Monster[] = []
+  const marker = '"Type":"CombatEncounter"'
+  let searchFrom = 0
+  while (true) {
+    const typeIdx = rscText.indexOf(marker, searchFrom)
+    if (typeIdx === -1) break
+
+    let start = typeIdx
+    while (start > 0 && rscText[start] !== '{') start--
+
+    let depth = 0
+    let found = false
+    for (let i = start; i < rscText.length; i++) {
+      if (rscText[i] === '{') depth++
+      else if (rscText[i] === '}') {
+        depth--
+        if (depth === 0) {
+          try {
+            monsters.push(JSON.parse(rscText.substring(start, i + 1)))
+          } catch {}
+          searchFrom = i + 1
+          found = true
+          break
+        }
+      }
+    }
+    if (!found) break
+  }
+  return monsters
+}
+
+export async function scrapeMonsters() {
+  const url = `${BASE_URL}?c=monsters&page=0`
+  const res = await fetch(url, { headers: RSC_HEADERS })
+  if (!res.ok) throw new Error(`HTTP ${res.status} for monsters`)
+  const text = await res.text()
+  const monsters = extractMonsters(text)
+  return { monsters, total: monsters.length }
 }

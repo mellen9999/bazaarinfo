@@ -1,4 +1,4 @@
-import type { BazaarCard, CardCache } from '@bazaarinfo/shared'
+import type { BazaarCard, CardCache, Monster } from '@bazaarinfo/shared'
 import { buildIndex, searchCards, findExact, searchPrefix } from '@bazaarinfo/shared'
 import type Fuse from 'fuse.js'
 import { resolve } from 'path'
@@ -8,11 +8,12 @@ export const CACHE_PATH = resolve(import.meta.dir, '../../../cache/items.json')
 
 let items: BazaarCard[] = []
 let skills: BazaarCard[] = []
+let monsters: Monster[] = []
 let allCards: BazaarCard[] = []
 let index: Fuse<BazaarCard>
 let enchantmentNames: string[] = []
 
-function dedup(cards: BazaarCard[]): BazaarCard[] {
+function dedup<T extends { Id: string }>(cards: T[]): T[] {
   const seen = new Set<string>()
   return cards.filter((i) => {
     if (seen.has(i.Id)) return false
@@ -24,6 +25,7 @@ function dedup(cards: BazaarCard[]): BazaarCard[] {
 function loadCache(cache: CardCache) {
   items = dedup(cache.items)
   skills = dedup(cache.skills ?? [])
+  monsters = dedup(cache.monsters ?? [])
   allCards = [...items, ...skills]
   index = buildIndex(allCards)
 
@@ -44,16 +46,16 @@ export async function loadStore() {
     process.exit(1)
   }
   loadCache(cache)
-  log(`loaded ${items.length} items + ${skills.length} skills (cached ${cache.fetchedAt})`)
+  log(`loaded ${items.length} items + ${skills.length} skills + ${monsters.length} monsters (cached ${cache.fetchedAt})`)
 }
 
 export async function reloadStore() {
   try {
     const cache: CardCache = await Bun.file(CACHE_PATH).json()
     loadCache(cache)
-    log(`reloaded ${items.length} items + ${skills.length} skills (cached ${cache.fetchedAt})`)
+    log(`reloaded ${items.length} items + ${skills.length} skills + ${monsters.length} monsters (cached ${cache.fetchedAt})`)
   } catch (e) {
-    log(`reload failed, keeping existing ${items.length} items: ${e}`)
+    log(`reload failed, keeping existing data: ${e}`)
   }
 }
 
@@ -75,4 +77,20 @@ export function byHero(hero: string) {
 
 export function getEnchantments(): string[] {
   return enchantmentNames
+}
+
+export function findMonster(query: string): Monster | undefined {
+  const lower = query.toLowerCase()
+  // exact match first
+  const exactMatch = monsters.find((m) => m.Title.Text.toLowerCase() === lower)
+  if (exactMatch) return exactMatch
+  // prefix match
+  const prefix = monsters.find((m) => m.Title.Text.toLowerCase().startsWith(lower))
+  if (prefix) return prefix
+  // fuzzy: find monsters whose name contains the query
+  return monsters.find((m) => m.Title.Text.toLowerCase().includes(lower))
+}
+
+export function getMonsters(): Monster[] {
+  return monsters
 }

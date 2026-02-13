@@ -1,4 +1,4 @@
-import { formatItem, formatEnchantment, formatCompare } from '@bazaarinfo/shared'
+import { formatItem, formatEnchantment, formatCompare, formatMonster } from '@bazaarinfo/shared'
 import type { TierName } from '@bazaarinfo/shared'
 import * as store from './store'
 
@@ -25,11 +25,20 @@ function parseTier(args: string[]): { query: string; tier?: TierName } {
 let lobbyChannel = ''
 export function setLobbyChannel(name: string) { lobbyChannel = name }
 
-const BASE_USAGE = '!b <item> [tier] | !b <enchant> <item> [tier] | !b <item> vs <item> | !b hero <name>'
+const BASE_USAGE = '!b <item> [tier] | !b <enchant> <item> [tier] | !b <item> vs <item> | !b hero <name> | !b mob <name>'
 const JOIN_USAGE = () => lobbyChannel ? ` | !join in #${lobbyChannel} to add bot, !part to remove` : ''
 
 function bazaarinfo(args: string): string | null {
   if (!args || args === 'help' || args === 'info') return BASE_USAGE + JOIN_USAGE()
+
+  // monster lookup: "mob lich" or "monster lich"
+  const mobMatch = args.match(/^(?:mob|monster)\s+(.+)$/i)
+  if (mobMatch) {
+    const query = mobMatch[1].trim()
+    const monster = store.findMonster(query)
+    if (!monster) return `no monster found for ${query}`
+    return formatMonster(monster)
+  }
 
   // hero listing: "hero vanessa"
   const heroMatch = args.match(/^hero\s+(.+)$/i)
@@ -69,9 +78,20 @@ function bazaarinfo(args: string): string | null {
 
   // item lookup (optional tier as last word)
   const { query, tier } = parseTier(words)
-  const card = store.exact(query) ?? store.search(query, 1)[0]
-  if (!card) return `no item found for ${query}`
-  return formatItem(card, tier)
+
+  // exact item/skill match wins
+  const exactCard = store.exact(query)
+  if (exactCard) return formatItem(exactCard, tier)
+
+  // check monsters before fuzzy item search (avoids "lich" → "Lightbulb")
+  const monster = store.findMonster(query)
+  if (monster) return formatMonster(monster)
+
+  // fuzzy item/skill search
+  const fuzzyCard = store.search(query, 1)[0]
+  if (fuzzyCard) return formatItem(fuzzyCard, tier)
+
+  return `nothing found for ${query}`
 }
 
 const commands: Record<string, CommandHandler> = {

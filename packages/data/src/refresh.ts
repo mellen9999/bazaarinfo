@@ -1,27 +1,28 @@
-import { scrapeItems, scrapeSkills } from './scraper'
+import { scrapeItems, scrapeSkills, scrapeMonsters } from './scraper'
 import type { CardCache } from '@bazaarinfo/shared'
 import { resolve } from 'path'
 
 const CACHE_DIR = resolve(import.meta.dir, '../../../cache')
 
 async function main() {
-  console.log('scraping items from bazaardb.gg...')
+  console.log('scraping from bazaardb.gg...')
 
-  const { cards: items, total: itemTotal } = await scrapeItems((done, pages) => {
-    process.stdout.write(`\r  items: ${done}/${pages}`)
-  })
-  console.log(`\nfetched ${items.length} items (expected ~${itemTotal})`)
+  const [itemsResult, skillsResult, monstersResult] = await Promise.all([
+    scrapeItems((done, pages) => {
+      process.stdout.write(`\r  items: ${done}/${pages}`)
+    }),
+    scrapeSkills((done, pages) => {
+      process.stdout.write(`\r  skills: ${done}/${pages}`)
+    }),
+    scrapeMonsters(),
+  ])
 
-  console.log('scraping skills from bazaardb.gg...')
-  const { cards: skills, total: skillTotal } = await scrapeSkills((done, pages) => {
-    process.stdout.write(`\r  skills: ${done}/${pages}`)
-  })
-  console.log(`\nfetched ${skills.length} skills`)
+  console.log(`\nfetched ${itemsResult.cards.length} items, ${skillsResult.cards.length} skills, ${monstersResult.monsters.length} monsters`)
 
   const cache: CardCache = {
-    items,
-    skills,
-    monsters: [],
+    items: itemsResult.cards,
+    skills: skillsResult.cards,
+    monsters: monstersResult.monsters,
     fetchedAt: new Date().toISOString(),
   }
 

@@ -1,4 +1,4 @@
-import type { BazaarCard, TierName, ReplacementValue } from './types'
+import type { BazaarCard, TierName, ReplacementValue, Monster } from './types'
 
 const TIER_ORDER: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
 const TIER_EMOJI: Record<string, string> = {
@@ -85,8 +85,10 @@ export function formatItem(card: BazaarCard, tier?: TierName): string {
   )
   const stats = statLine(getAttributes(card, tier), card, tier)
 
+  const tags = card.DisplayTags?.length ? ` [${card.DisplayTags.join(', ')}]` : ''
+
   const parts = [
-    `${name}${heroes ? ` · ${heroes}` : ''}`,
+    `${name}${heroes ? ` · ${heroes}` : ''}${tags}`,
     stats || null,
     ...abilities,
   ].filter(Boolean)
@@ -109,4 +111,36 @@ export function formatEnchantment(card: BazaarCard, enchName: string, tier?: Tie
 export function formatCompare(a: BazaarCard, b: BazaarCard, tierA?: TierName, tierB?: TierName): string {
   const line = (c: BazaarCard, tier?: TierName) => `${c.Title.Text} ${statLine(getAttributes(c, tier), c, tier)}`.trim()
   return truncate(`${line(a, tierA)} vs ${line(b, tierB)}`)
+}
+
+export function formatMonster(monster: Monster): string {
+  const meta = monster.MonsterMetadata
+  const day = meta.day != null ? `Day ${meta.day}` : meta.available || '?'
+  const hp = meta.health
+
+  // group board entries: "Item Name (tier)" with dedup counts
+  const boardEntries: string[] = []
+  const counts = new Map<string, number>()
+  const entryMap = new Map<string, string>()
+
+  for (const b of meta.board) {
+    const key = `${b.title}|${b.tierOverride}`
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+    if (!entryMap.has(key)) {
+      const emoji = TIER_EMOJI[b.tierOverride] ?? ''
+      entryMap.set(key, `${emoji}${b.title}`)
+    }
+  }
+
+  for (const [key, label] of entryMap) {
+    const count = counts.get(key)!
+    boardEntries.push(count > 1 ? `${label} x${count}` : label)
+  }
+
+  const parts = [
+    `${monster.Title.Text} · ${day} · ${hp}HP`,
+    boardEntries.join(', '),
+  ]
+
+  return truncate(parts.join(' | '))
 }

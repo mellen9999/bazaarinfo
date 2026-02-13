@@ -5,7 +5,7 @@ import { handleCommand, setLobbyChannel } from './commands'
 import { checkCooldown } from './cooldown'
 import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily } from './scheduler'
-import { scrapeItems, scrapeSkills } from '@bazaarinfo/data'
+import { scrapeItems, scrapeSkills, scrapeMonsters } from '@bazaarinfo/data'
 import type { CardCache } from '@bazaarinfo/shared'
 import * as channelStore from './channels'
 import { log } from './log'
@@ -52,17 +52,18 @@ async function refreshData() {
   const skillsScrape = scrapeSkills((done, pages) => {
     if (done % 5 === 0) log(`skills scrape: ${done}/${pages}`)
   })
+  const monstersScrape = scrapeMonsters()
 
-  const [items, skills] = await Promise.race([
-    Promise.all([itemsScrape, skillsScrape]),
+  const [items, skills, monstersResult] = await Promise.race([
+    Promise.all([itemsScrape, skillsScrape, monstersScrape]),
     timeout,
   ]).finally(() => clearTimeout(timer))
 
-  log(`scraped ${items.cards.length} items, ${skills.cards.length} skills`)
+  log(`scraped ${items.cards.length} items, ${skills.cards.length} skills, ${monstersResult.monsters.length} monsters`)
   const cache: CardCache = {
     items: items.cards,
     skills: skills.cards,
-    monsters: [],
+    monsters: monstersResult.monsters,
     fetchedAt: new Date().toISOString(),
   }
   await Bun.write(CACHE_PATH, JSON.stringify(cache, null, 2))

@@ -66,9 +66,41 @@ export interface BazaarCard {
   _originalTitleText: string
 }
 
+export interface MonsterBoardEntry {
+  baseId: string
+  title: string
+  size: ItemSize
+  tierOverride: TierName
+  type: 'Item' | 'Skill'
+  url: string
+  art: string
+  artBlur: string
+}
+
+export interface MonsterMetadata {
+  available: string
+  day: number | null
+  health: number
+  board: MonsterBoardEntry[]
+}
+
+export interface Monster {
+  Id: string
+  Type: 'CombatEncounter'
+  Title: TooltipText
+  Description: string | null
+  Size: ItemSize
+  Tags: string[]
+  DisplayTags: string[]
+  HiddenTags: string[]
+  Heroes: string[]
+  Uri: string
+  MonsterMetadata: MonsterMetadata
+}
+
 export interface CardCache {
   items: BazaarCard[]
   skills: BazaarCard[]
-  monsters: BazaarCard[]
+  monsters: Monster[]
   fetchedAt: string
 }

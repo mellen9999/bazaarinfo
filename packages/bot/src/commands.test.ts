@@ -1,17 +1,19 @@
 import { describe, expect, it, mock, beforeEach } from 'bun:test'
-import type { BazaarCard, TierName } from '@bazaarinfo/shared'
+import type { BazaarCard, TierName, Monster } from '@bazaarinfo/shared'
 
 // --- mock store before importing commands ---
 const mockExact = mock<(name: string) => BazaarCard | undefined>(() => undefined)
 const mockSearch = mock<(query: string, limit: number) => BazaarCard[]>(() => [])
 const mockGetEnchantments = mock<() => string[]>(() => [])
 const mockByHero = mock<(hero: string) => BazaarCard[]>(() => [])
+const mockFindMonster = mock<(query: string) => Monster | undefined>(() => undefined)
 
 mock.module('./store', () => ({
   exact: mockExact,
   search: mockSearch,
   getEnchantments: mockGetEnchantments,
   byHero: mockByHero,
+  findMonster: mockFindMonster,
 }))
 
 const { handleCommand } = await import('./commands')
@@ -142,7 +144,7 @@ describe('!b item lookup', () => {
 
   it('returns not found when no match at all', () => {
     const result = handleCommand('!b xyznonexistent')
-    expect(result).toContain('no item found for xyznonexistent')
+    expect(result).toContain('nothing found for xyznonexistent')
   })
 
   it('handles multi-word item names', () => {
@@ -265,7 +267,7 @@ describe('!b enchantment routing', () => {
     mockSearch.mockImplementation(() => [])
     const result = handleCommand('!b fiery')
     // single word "fiery" — enchMatches.length === 1 but words.length === 1, so falls to item lookup
-    expect(result).toContain('no item found for fiery')
+    expect(result).toContain('nothing found for fiery')
   })
 
   it('returns not found when enchantment item doesnt exist', () => {
@@ -422,7 +424,7 @@ describe('!b edge cases', () => {
     mockExact.mockImplementation(() => undefined)
     mockSearch.mockImplementation(() => [])
     const result = handleCommand('!b x')
-    expect(result).toContain('no item found for x')
+    expect(result).toContain('nothing found for x')
   })
 
   it('handles extra whitespace between words', () => {
@@ -436,7 +438,7 @@ describe('!b edge cases', () => {
     mockExact.mockImplementation(() => undefined)
     mockSearch.mockImplementation(() => [])
     const result = handleCommand('!b toxic')
-    expect(result).toContain('no item found for toxic')
+    expect(result).toContain('nothing found for toxic')
   })
 
   it('output never exceeds 480 chars', () => {
@@ -477,7 +479,7 @@ describe('!b edge cases', () => {
     mockSearch.mockImplementation(() => [])
     const result = handleCommand('!b vs')
     // falls through to item lookup for "vs"
-    expect(result).toContain('no item found')
+    expect(result).toContain('nothing found')
   })
 
   it('handles "vs" with only left side', () => {
