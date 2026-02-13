@@ -65,6 +65,10 @@ function logMiss(query: string, prefix = '') {
   try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${prefix}${query}\n`) } catch {}
 }
 
+const ATTRIBUTION = ' | bazaardb.gg'
+const ATTRIB_INTERVAL = 10
+let commandCount = 0
+
 function bazaarinfo(args: string): string | null {
   if (!args || args === 'help' || args === 'info') return BASE_USAGE + JOIN_USAGE()
 
@@ -135,5 +139,9 @@ export function handleCommand(text: string): string | null {
   const handler = commands[cmd.toLowerCase()]
   if (!handler) return null
 
-  return handler(args.trim())
+  const result = handler(args.trim())
+  if (result && ++commandCount % ATTRIB_INTERVAL === 0) {
+    return result + ATTRIBUTION
+  }
+  return result
 }
