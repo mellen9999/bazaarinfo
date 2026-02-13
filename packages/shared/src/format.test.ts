@@ -318,40 +318,29 @@ describe('formatCompare', () => {
     const a = makeCard({ Title: { Text: 'Sword' }, Size: 'Small', BaseAttributes: { DamageAmount: 30 } })
     const b = makeCard({ Title: { Text: 'Shield' }, Size: 'Large', BaseAttributes: { ShieldApplyAmount: 25 } })
     const result = formatCompare(a, b)
-    expect(result).toContain('Sword')
-    expect(result).toContain(' vs ')
-    expect(result).toContain('Shield')
+    expect(result).toContain('Sword vs Shield')
   })
 
-  it('includes damage stat', () => {
+  it('shows stats side-by-side with slash', () => {
     const a = makeCard({ BaseAttributes: { DamageAmount: 50 } })
     const b = makeCard({ BaseAttributes: { DamageAmount: 30 } })
     const result = formatCompare(a, b)
-    expect(result).toContain('🗡️50')
-    expect(result).toContain('🗡️30')
+    expect(result).toContain('🗡️ 50/30')
   })
 
-  it('includes shield stat', () => {
-    const a = makeCard({ BaseAttributes: { ShieldApplyAmount: 10 } })
-    const b = makeCard({ BaseAttributes: { ShieldApplyAmount: 20 } })
+  it('shows dash for missing stat on one side', () => {
+    const a = makeCard({ Title: { Text: 'Sword' }, BaseAttributes: { DamageAmount: 30 } })
+    const b = makeCard({ Title: { Text: 'Shield' }, BaseAttributes: { ShieldApplyAmount: 25 } })
     const result = formatCompare(a, b)
-    expect(result).toContain('🛡10')
-    expect(result).toContain('🛡20')
+    expect(result).toContain('🗡️ 30/—')
+    expect(result).toContain('🛡 —/25')
   })
 
-  it('includes heal stat', () => {
-    const a = makeCard({ BaseAttributes: { HealAmount: 15 } })
-    const b = makeCard({ BaseAttributes: {} })
-    const result = formatCompare(a, b)
-    expect(result).toContain('💚15')
-  })
-
-  it('includes cooldown stat', () => {
+  it('shows cooldown side-by-side', () => {
     const a = makeCard({ BaseAttributes: { CooldownMax: 6000 } })
     const b = makeCard({ BaseAttributes: { CooldownMax: 3000 } })
     const result = formatCompare(a, b)
-    expect(result).toContain('🕐6s')
-    expect(result).toContain('🕐3s')
+    expect(result).toContain('🕐 6s/3s')
   })
 
   it('handles items with no stats', () => {
@@ -361,17 +350,38 @@ describe('formatCompare', () => {
     expect(result).toBe('Hat vs Cap')
   })
 
-  it('shows all stats for each item', () => {
+  it('shows size diff when different', () => {
+    const a = makeCard({ Title: { Text: 'X' }, Size: 'Small', BaseAttributes: {} })
+    const b = makeCard({ Title: { Text: 'Y' }, Size: 'Large', BaseAttributes: {} })
+    const result = formatCompare(a, b)
+    expect(result).toContain('Sm/Lg')
+  })
+
+  it('omits size when same', () => {
+    const a = makeCard({ Title: { Text: 'X' }, Size: 'Medium', BaseAttributes: {} })
+    const b = makeCard({ Title: { Text: 'Y' }, Size: 'Medium', BaseAttributes: {} })
+    const result = formatCompare(a, b)
+    expect(result).not.toContain('Med')
+  })
+
+  it('shows all stat categories side-by-side', () => {
     const a = makeCard({
       Title: { Text: 'X' },
       BaseAttributes: { DamageAmount: 10, ShieldApplyAmount: 5, HealAmount: 3, CooldownMax: 2000 },
     })
     const b = makeCard({ Title: { Text: 'Y' }, BaseAttributes: {} })
     const result = formatCompare(a, b)
-    expect(result).toContain('🗡️10')
-    expect(result).toContain('🛡5')
-    expect(result).toContain('💚3')
-    expect(result).toContain('🕐2s')
+    expect(result).toContain('🗡️ 10/—')
+    expect(result).toContain('🛡 5/—')
+    expect(result).toContain('💚 3/—')
+    expect(result).toContain('🕐 2s/—')
+  })
+
+  it('shows tier in header when specified', () => {
+    const a = makeCard({ Title: { Text: 'Sword' }, BaseAttributes: { DamageAmount: 30 } })
+    const b = makeCard({ Title: { Text: 'Shield' }, BaseAttributes: { DamageAmount: 20 } })
+    const result = formatCompare(a, b, 'Gold', 'Diamond')
+    expect(result).toContain('Sword (Gold) vs Shield (Diamond)')
   })
 
   it('truncates very long compare output', () => {

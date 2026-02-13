@@ -59,20 +59,22 @@ function bazaarinfo(args: string): string | null {
     return result.length > 480 ? result.slice(0, 477) + '...' : result
   }
 
-  // compare: "x vs y"
+  // compare: "x [tier] vs y [tier]"
   const vsParts = args.split(/\s+vs\s+/i)
   if (vsParts.length === 2 && vsParts[0] && vsParts[1]) {
-    const a = store.exact(vsParts[0].trim()) ?? store.search(vsParts[0].trim(), 1)[0]
-    const b = store.exact(vsParts[1].trim()) ?? store.search(vsParts[1].trim(), 1)[0]
+    const sideA = parseTier(vsParts[0].trim().split(/\s+/))
+    const sideB = parseTier(vsParts[1].trim().split(/\s+/))
+    const a = store.exact(sideA.query) ?? store.search(sideA.query, 1)[0]
+    const b = store.exact(sideB.query) ?? store.search(sideB.query, 1)[0]
     if (!a) {
-      try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${vsParts[0].trim()}\n`) } catch {}
-      return `no item found for ${vsParts[0].trim()}`
+      try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${sideA.query}\n`) } catch {}
+      return `no item found for ${sideA.query}`
     }
     if (!b) {
-      try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${vsParts[1].trim()}\n`) } catch {}
-      return `no item found for ${vsParts[1].trim()}`
+      try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${sideB.query}\n`) } catch {}
+      return `no item found for ${sideB.query}`
     }
-    return formatCompare(a, b)
+    return formatCompare(a, b, sideA.tier, sideB.tier)
   }
 
   const words = args.split(/\s+/)
