@@ -1,0 +1,11 @@
+{
+  "name": "@bazaarinfo/bot",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@bazaarinfo/shared": "workspace:*",
+    "@bazaarinfo/data": "workspace:*",
+    "@tmi.js/chat": "^0.1.0"
+  }
+}

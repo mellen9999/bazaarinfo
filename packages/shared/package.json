@@ -1,0 +1,9 @@
+{
+  "name": "@bazaarinfo/shared",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "fuse.js": "^7.0.0"
+  }
+}
