@@ -1,12 +1,13 @@
 import { TwitchClient, getUserId } from './twitch'
 import type { ChannelInfo } from './twitch'
 import { loadStore, reloadStore, CACHE_PATH } from './store'
-import { handleCommand } from './commands'
+import { handleCommand, setLobbyChannel } from './commands'
 import { checkCooldown } from './cooldown'
-import { ensureValidToken, refreshToken } from './auth'
+import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily } from './scheduler'
 import { scrapeItems } from '@bazaarinfo/data'
 import type { CardCache } from '@bazaarinfo/shared'
+import * as channelStore from './channels'
 import { log } from './log'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
@@ -19,7 +20,16 @@ if (!CHANNELS_RAW || !CLIENT_ID || !CLIENT_SECRET || !BOT_USERNAME) {
   process.exit(1)
 }
 
-const channelNames = CHANNELS_RAW.split(',').map((s) => s.trim()).filter(Boolean)
+const envChannels = CHANNELS_RAW.split(',').map((s) => s.trim()).filter(Boolean)
+
+// ensure bot's own channel is always joined (lobby for !join)
+if (!envChannels.includes(BOT_USERNAME.toLowerCase())) {
+  envChannels.push(BOT_USERNAME.toLowerCase())
+}
+
+// merge env channels + stored dynamic channels
+const storedChannels = await channelStore.load()
+const channelNames = [...new Set([...envChannels, ...storedChannels])]
 
 // validate + refresh token
 const token = await ensureValidToken(CLIENT_ID, CLIENT_SECRET)
@@ -78,14 +88,49 @@ const channels: ChannelInfo[] = await Promise.all(
 )
 log(`bot: ${BOT_USERNAME} (${botUserId}), channels: ${channels.map((c) => `${c.name}(${c.userId})`).join(', ')}`)
 
+setLobbyChannel(BOT_USERNAME.toLowerCase())
 const doRefresh = () => refreshToken(CLIENT_ID, CLIENT_SECRET)
 
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
-  (channel, userId, username, text) => {
+  async (channel, userId, username, text) => {
     try {
       if (userId === botUserId) return
       if (!checkCooldown(userId)) return
+
+      // handle !join / !part in bot's own channel
+      if (channel === BOT_USERNAME.toLowerCase()) {
+        const trimmed = text.trim().toLowerCase()
+        if (trimmed === '!join') {
+          const target = username.toLowerCase()
+          if (client.hasChannel(target)) {
+            client.say(channel, `@${username} i'm already in your channel`)
+            return
+          }
+          try {
+            const targetId = await getUserId(getAccessToken(), CLIENT_ID, target)
+            const info: ChannelInfo = { name: target, userId: targetId }
+            await client.joinChannel(info)
+            await channelStore.add(target)
+            client.say(channel, `@${username} joined #${target}! type !b help in your chat`)
+          } catch (e) {
+            log(`join error for ${target}: ${e}`)
+            client.say(channel, `@${username} couldn't join your channel, try again later`)
+          }
+          return
+        }
+        if (trimmed === '!part') {
+          const target = username.toLowerCase()
+          if (envChannels.includes(target)) {
+            client.say(channel, `@${username} can't leave a hardcoded channel`)
+            return
+          }
+          client.leaveChannel(target)
+          await channelStore.remove(target)
+          client.say(channel, `@${username} left #${target}`)
+          return
+        }
+      }
 
       const response = handleCommand(text)
       if (response) {
@@ -137,4 +182,4 @@ setInterval(() => {
 }, 30_000)
 
 client.connect()
-log(`bazaarinfo starting — ${channels.length} channel(s)`)
+log(`bazaarinfo starting — ${channels.length} channel(s) (${envChannels.length} env, ${storedChannels.length} dynamic)`)

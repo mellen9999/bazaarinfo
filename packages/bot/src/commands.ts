@@ -21,10 +21,14 @@ function parseTier(args: string[]): { query: string; tier?: TierName } {
   return { query: args.join(' ') }
 }
 
-const USAGE = '!b <item> [tier] | !b <enchant> <item> [tier] | !b <item> vs <item> | !b hero <name> — ex: !b boomerang gold, !b fiery boomerang, !b boomerang vs shield'
+let lobbyChannel = ''
+export function setLobbyChannel(name: string) { lobbyChannel = name }
+
+const BASE_USAGE = '!b <item> [tier] | !b <enchant> <item> [tier] | !b <item> vs <item> | !b hero <name>'
+const JOIN_USAGE = () => lobbyChannel ? ` | !join in #${lobbyChannel} to add bot, !part to remove` : ''
 
 function bazaarinfo(args: string): string | null {
-  if (!args || args === 'help' || args === 'info') return USAGE
+  if (!args || args === 'help' || args === 'info') return BASE_USAGE + JOIN_USAGE()
 
   // hero listing: "hero vanessa"
   const heroMatch = args.match(/^hero\s+(.+)$/i)

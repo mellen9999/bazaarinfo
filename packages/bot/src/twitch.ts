@@ -295,6 +295,30 @@ export class TwitchClient {
     return this.sendTimes.length < this.SEND_LIMIT
   }
 
+  hasChannel(name: string): boolean {
+    return this.config.channels.some((c) => c.name === name)
+  }
+
+  async joinChannel(channel: ChannelInfo) {
+    if (this.config.channels.some((c) => c.name === channel.name)) return
+    this.config.channels.push(channel)
+    this.ircSend(`JOIN #${channel.name}`)
+    if (this.sessionId) {
+      try {
+        await this.subscribe(channel.userId)
+      } catch (e) {
+        log(`subscribe error for ${channel.name}: ${e}`)
+      }
+    }
+    log(`joined channel: ${channel.name}`)
+  }
+
+  leaveChannel(name: string) {
+    this.config.channels = this.config.channels.filter((c) => c.name !== name)
+    this.ircSend(`PART #${name}`)
+    log(`left channel: ${name}`)
+  }
+
   async say(channel: string, text: string) {
     if (text.length > 490) text = text.slice(0, 487) + '...'
     if (this.ircReady && this.canSend()) {
