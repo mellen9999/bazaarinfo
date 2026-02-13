@@ -16,7 +16,7 @@ mock.module('./store', () => ({
   findMonster: mockFindMonster,
 }))
 
-const { handleCommand } = await import('./commands')
+const { handleCommand, parseArgs } = await import('./commands')
 
 // --- test fixtures ---
 function t() {
@@ -83,8 +83,179 @@ const shield = makeCard({
 beforeEach(() => {
   mockExact.mockReset()
   mockSearch.mockReset()
+  mockGetEnchantments.mockReset()
+  mockByHero.mockReset()
+  mockFindMonster.mockReset()
   mockExact.mockImplementation(() => undefined)
   mockSearch.mockImplementation(() => [])
+  mockGetEnchantments.mockImplementation(() => [])
+  mockByHero.mockImplementation(() => [])
+  mockFindMonster.mockImplementation(() => undefined)
+})
+
+// ---------------------------------------------------------------------------
+// parseArgs — unit tests for the order-agnostic parser
+// ---------------------------------------------------------------------------
+describe('parseArgs', () => {
+  it('parses item only', () => {
+    const result = parseArgs(['boomerang'])
+    expect(result).toEqual({ item: 'boomerang', tier: undefined, enchant: undefined })
+  })
+
+  it('parses multi-word item', () => {
+    const result = parseArgs(['tinfoil', 'hat'])
+    expect(result).toEqual({ item: 'tinfoil hat', tier: undefined, enchant: undefined })
+  })
+
+  it('extracts tier from end', () => {
+    const result = parseArgs(['boomerang', 'gold'])
+    expect(result.tier).toBe('Gold')
+    expect(result.item).toBe('boomerang')
+  })
+
+  it('extracts tier from start', () => {
+    const result = parseArgs(['gold', 'boomerang'])
+    expect(result.tier).toBe('Gold')
+    expect(result.item).toBe('boomerang')
+  })
+
+  it('extracts tier from middle', () => {
+    const result = parseArgs(['tinfoil', 'diamond', 'hat'])
+    expect(result.tier).toBe('Diamond')
+    expect(result.item).toBe('tinfoil hat')
+  })
+
+  it('extracts tier case-insensitively', () => {
+    expect(parseArgs(['boomerang', 'GOLD']).tier).toBe('Gold')
+    expect(parseArgs(['boomerang', 'Silver']).tier).toBe('Silver')
+    expect(parseArgs(['boomerang', 'LEGENDARY']).tier).toBe('Legendary')
+  })
+
+  it('extracts enchant from start', () => {
+    const result = parseArgs(['fiery', 'boomerang'])
+    expect(result.enchant).toBe('Fiery')
+    expect(result.item).toBe('boomerang')
+  })
+
+  it('extracts enchant from end', () => {
+    const result = parseArgs(['boomerang', 'fiery'])
+    expect(result.enchant).toBe('Fiery')
+    expect(result.item).toBe('boomerang')
+  })
+
+  it('extracts enchant from middle of multi-word', () => {
+    const result = parseArgs(['tinfoil', 'fiery', 'hat'])
+    expect(result.enchant).toBe('Fiery')
+    expect(result.item).toBe('tinfoil hat')
+  })
+
+  it('extracts both tier and enchant — enchant first', () => {
+    const result = parseArgs(['fiery', 'boomerang', 'gold'])
+    expect(result.enchant).toBe('Fiery')
+    expect(result.tier).toBe('Gold')
+    expect(result.item).toBe('boomerang')
+  })
+
+  it('extracts both tier and enchant — tier first', () => {
+    const result = parseArgs(['gold', 'fiery', 'boomerang'])
+    expect(result.enchant).toBe('Fiery')
+    expect(result.tier).toBe('Gold')
+    expect(result.item).toBe('boomerang')
+  })
+
+  it('extracts both tier and enchant — item in middle', () => {
+    const result = parseArgs(['fiery', 'boomerang', 'gold'])
+    expect(result.enchant).toBe('Fiery')
+    expect(result.tier).toBe('Gold')
+    expect(result.item).toBe('boomerang')
+  })
+
+  it('extracts both — all 6 orderings of 3 words', () => {
+    const orderings = [
+      ['fiery', 'boomerang', 'gold'],
+      ['fiery', 'gold', 'boomerang'],
+      ['boomerang', 'fiery', 'gold'],
+      ['boomerang', 'gold', 'fiery'],
+      ['gold', 'fiery', 'boomerang'],
+      ['gold', 'boomerang', 'fiery'],
+    ]
+    for (const words of orderings) {
+      const result = parseArgs(words)
+      expect(result.tier).toBe('Gold')
+      expect(result.enchant).toBe('Fiery')
+      expect(result.item).toBe('boomerang')
+    }
+  })
+
+  it('extracts both with multi-word item — all orderings', () => {
+    const orderings = [
+      ['fiery', 'tinfoil', 'hat', 'gold'],
+      ['gold', 'fiery', 'tinfoil', 'hat'],
+      ['tinfoil', 'hat', 'gold', 'fiery'],
+      ['tinfoil', 'hat', 'fiery', 'gold'],
+      ['gold', 'tinfoil', 'hat', 'fiery'],
+      ['fiery', 'gold', 'tinfoil', 'hat'],
+      ['tinfoil', 'fiery', 'hat', 'gold'],
+      ['tinfoil', 'gold', 'hat', 'fiery'],
+      ['tinfoil', 'fiery', 'gold', 'hat'],
+      ['tinfoil', 'gold', 'fiery', 'hat'],
+      ['gold', 'tinfoil', 'fiery', 'hat'],
+      ['fiery', 'tinfoil', 'gold', 'hat'],
+    ]
+    for (const words of orderings) {
+      const result = parseArgs(words)
+      expect(result.tier).toBe('Gold')
+      expect(result.enchant).toBe('Fiery')
+      expect(result.item).toBe('tinfoil hat')
+    }
+  })
+
+  it('enchant prefix matching works', () => {
+    const result = parseArgs(['fier', 'boomerang'])
+    expect(result.enchant).toBe('Fiery')
+  })
+
+  it('does not extract enchant if it would leave no item', () => {
+    const result = parseArgs(['fiery'])
+    expect(result.enchant).toBeUndefined()
+    expect(result.item).toBe('fiery')
+  })
+
+  it('does not extract enchant if prefix is ambiguous', () => {
+    // if multiple enchants start with same prefix, no extraction
+    mockGetEnchantments.mockImplementation(() => ['fiery', 'fierce'])
+    const result = parseArgs(['fie', 'boomerang'])
+    expect(result.enchant).toBeUndefined()
+    expect(result.item).toBe('fie boomerang')
+  })
+
+  it('"gold" is tier, not "golden" enchant prefix', () => {
+    const result = parseArgs(['gold', 'boomerang'])
+    expect(result.tier).toBe('Gold')
+    expect(result.enchant).toBeUndefined()
+    expect(result.item).toBe('boomerang')
+  })
+
+  it('"golden" is enchant, not tier', () => {
+    const result = parseArgs(['golden', 'boomerang'])
+    expect(result.tier).toBeUndefined()
+    expect(result.enchant).toBe('Golden')
+    expect(result.item).toBe('boomerang')
+  })
+
+  it('all tier names work', () => {
+    for (const tier of ['bronze', 'silver', 'gold', 'diamond', 'legendary']) {
+      const result = parseArgs(['boomerang', tier])
+      expect(result.tier).toBe(tier[0].toUpperCase() + tier.slice(1))
+      expect(result.item).toBe('boomerang')
+    }
+  })
+
+  it('tier-only input returns tier and empty item', () => {
+    const result = parseArgs(['gold'])
+    expect(result.tier).toBe('Gold')
+    expect(result.item).toBe('')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -121,6 +292,18 @@ describe('handleCommand routing', () => {
     const result = handleCommand('!b   boomerang   ')
     expect(result).toContain('Boomerang')
   })
+
+  it('removed aliases do not route', () => {
+    expect(handleCommand('!item boomerang')).toBeNull()
+    expect(handleCommand('!enchant fiery boomerang')).toBeNull()
+    expect(handleCommand('!compare boomerang')).toBeNull()
+    expect(handleCommand('!bazaarinfo boomerang')).toBeNull()
+  })
+
+  it('only !b routes to handler', () => {
+    mockExact.mockImplementation(() => boomerang)
+    expect(handleCommand('!b boomerang')).toBeTruthy()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -135,7 +318,6 @@ describe('!b item lookup', () => {
   })
 
   it('falls back to fuzzy search when exact match fails', () => {
-    mockExact.mockImplementation(() => undefined)
     mockSearch.mockImplementation(() => [boomerang])
     const result = handleCommand('!b boomrang')
     expect(result).toContain('Boomerang ·')
@@ -153,178 +335,375 @@ describe('!b item lookup', () => {
     const result = handleCommand('!b tinfoil hat')
     expect(result).toContain('Tinfoil Hat ·')
   })
+
+  it('falls back to monster if no item found', () => {
+    const lich: Monster = {
+      Id: 'lich-001', Type: 'CombatEncounter', Title: { Text: 'Lich' },
+      Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [], Uri: '',
+      MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [] },
+    }
+    mockFindMonster.mockImplementation((q) => q === 'lich' ? lich : undefined)
+    const result = handleCommand('!b lich')
+    expect(result).toContain('Lich')
+    expect(result).toContain('Day 5')
+  })
 })
 
 // ---------------------------------------------------------------------------
-// !b — item with tier
+// !b — item with tier (any order)
 // ---------------------------------------------------------------------------
-describe('!b item + tier', () => {
-  it('parses tier as last word (gold)', () => {
+describe('!b item + tier (any order)', () => {
+  beforeEach(() => {
     mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
+  })
+
+  it('tier at end: !b boomerang gold', () => {
     const result = handleCommand('!b boomerang gold')
-    expect(result).toContain('Boomerang ·')
+    expect(result).toContain('Boomerang')
     expect(mockExact).toHaveBeenCalledWith('boomerang')
   })
 
-  it('parses tier case-insensitively', () => {
-    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
+  it('tier at start: !b gold boomerang', () => {
+    const result = handleCommand('!b gold boomerang')
+    expect(result).toContain('Boomerang')
+    expect(mockExact).toHaveBeenCalledWith('boomerang')
+  })
+
+  it('tier case-insensitive: !b boomerang DIAMOND', () => {
     const result = handleCommand('!b boomerang DIAMOND')
-    expect(result).toContain('Boomerang ·')
+    expect(result).toContain('Boomerang')
   })
 
-  it('parses bronze tier', () => {
-    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
-    const result = handleCommand('!b boomerang bronze')
-    expect(result).toBeTruthy()
+  it('all five tiers work at end', () => {
+    for (const tier of ['bronze', 'silver', 'gold', 'diamond', 'legendary']) {
+      mockExact.mockClear()
+      mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
+      const result = handleCommand(`!b boomerang ${tier}`)
+      expect(result).toContain('Boomerang')
+    }
   })
 
-  it('parses silver tier', () => {
-    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
-    const result = handleCommand('!b boomerang silver')
-    expect(result).toBeTruthy()
+  it('all five tiers work at start', () => {
+    for (const tier of ['bronze', 'silver', 'gold', 'diamond', 'legendary']) {
+      mockExact.mockClear()
+      mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
+      const result = handleCommand(`!b ${tier} boomerang`)
+      expect(result).toContain('Boomerang')
+    }
   })
 
-  it('parses legendary tier', () => {
-    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
-    const result = handleCommand('!b boomerang legendary')
-    expect(result).toBeTruthy()
-  })
-
-  it('handles multi-word item with tier', () => {
+  it('multi-word item with tier at end', () => {
     const tinfoil = makeCard({ Title: { Text: 'Tinfoil Hat' } })
     mockExact.mockImplementation((name) => name === 'tinfoil hat' ? tinfoil : undefined)
     const result = handleCommand('!b tinfoil hat gold')
-    expect(result).toContain('Tinfoil Hat ·')
+    expect(result).toContain('Tinfoil Hat')
     expect(mockExact).toHaveBeenCalledWith('tinfoil hat')
+  })
+
+  it('multi-word item with tier at start', () => {
+    const tinfoil = makeCard({ Title: { Text: 'Tinfoil Hat' } })
+    mockExact.mockImplementation((name) => name === 'tinfoil hat' ? tinfoil : undefined)
+    const result = handleCommand('!b gold tinfoil hat')
+    expect(result).toContain('Tinfoil Hat')
+    expect(mockExact).toHaveBeenCalledWith('tinfoil hat')
+  })
+
+  it('multi-word item with tier in middle', () => {
+    const tinfoil = makeCard({ Title: { Text: 'Tinfoil Hat' } })
+    mockExact.mockImplementation((name) => name === 'tinfoil hat' ? tinfoil : undefined)
+    const result = handleCommand('!b tinfoil gold hat')
+    expect(result).toContain('Tinfoil Hat')
   })
 
   it('does not eat non-tier last word as tier', () => {
     const hat = makeCard({ Title: { Text: 'Fancy Hat' } })
     mockExact.mockImplementation((name) => name === 'fancy hat' ? hat : undefined)
     const result = handleCommand('!b fancy hat')
-    expect(result).toContain('Fancy Hat ·')
+    expect(result).toContain('Fancy Hat')
     expect(mockExact).toHaveBeenCalledWith('fancy hat')
   })
 })
 
 // ---------------------------------------------------------------------------
-// !b — enchantment detection
+// !b — enchantment (any order)
 // ---------------------------------------------------------------------------
-describe('!b enchantment routing', () => {
-  it('detects enchantment when first word matches', () => {
+describe('!b enchantment (any order)', () => {
+  it('enchant first: !b fiery boomerang', () => {
     mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = handleCommand('!b fiery boomerang')
     expect(result).toContain('[Boomerang - Fiery]')
   })
 
-  it('detects enchantment with prefix match', () => {
+  it('enchant last: !b boomerang fiery', () => {
     mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
-    // "fier" should match "fiery" uniquely
+    const result = handleCommand('!b boomerang fiery')
+    expect(result).toContain('[Boomerang - Fiery]')
+  })
+
+  it('enchant prefix: !b fier boomerang', () => {
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = handleCommand('!b fier boomerang')
     expect(result).toContain('[Boomerang - Fiery]')
   })
 
-  it('handles icy enchantment', () => {
+  it('enchant prefix at end: !b boomerang fier', () => {
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
+    const result = handleCommand('!b boomerang fier')
+    expect(result).toContain('[Boomerang - Fiery]')
+  })
+
+  it('icy enchantment any order', () => {
     const card = makeCard({
       Enchantments: {
         Icy: {
-          Tags: [],
-          HiddenTags: [],
+          Tags: [], HiddenTags: [],
           Localization: { Tooltips: [{ Content: { Text: 'Freeze' }, TooltipType: 'Passive' }] },
-          TooltipReplacements: {},
-          DisplayTags: [],
+          TooltipReplacements: {}, DisplayTags: [],
         },
       },
     })
     mockExact.mockImplementation(() => card)
-    const result = handleCommand('!b icy boomerang')
-    expect(result).toContain('[Boomerang - Icy]')
-  })
-
-  it('handles golden enchantment', () => {
-    const card = makeCard({
-      Enchantments: {
-        Golden: {
-          Tags: ['Gold'],
-          HiddenTags: [],
-          Localization: { Tooltips: [{ Content: { Text: 'Extra gold' }, TooltipType: 'Passive' }] },
-          TooltipReplacements: {},
-          DisplayTags: [],
-        },
-      },
-    })
-    mockExact.mockImplementation(() => card)
-    const result = handleCommand('!b golden boomerang')
-    expect(result).toContain('[Boomerang - Golden]')
-  })
-
-  it('falls back to item lookup when enchantment prefix is ambiguous', () => {
-    // "de" matches both "deadly" and could match others — but actually only "deadly" starts with "de"
-    // Let's use a truly ambiguous one: "s" matches "shielded" — wait, only one starts with "s"? No: "shielded"
-    // Actually none are ambiguous by first full word. Let's test the single-word case:
-    // If someone types "!b fiery" with no item, it should be an item lookup for "fiery"
-    mockExact.mockImplementation(() => undefined)
-    mockSearch.mockImplementation(() => [])
-    const result = handleCommand('!b fiery')
-    // single word "fiery" — enchMatches.length === 1 but words.length === 1, so falls to item lookup
-    expect(result).toContain('nothing found for fiery')
+    expect(handleCommand('!b icy boomerang')).toContain('[Boomerang - Icy]')
+    expect(handleCommand('!b boomerang icy')).toContain('[Boomerang - Icy]')
   })
 
   it('returns not found when enchantment item doesnt exist', () => {
-    mockExact.mockImplementation(() => undefined)
-    mockSearch.mockImplementation(() => [])
     const result = handleCommand('!b fiery nonexistent')
     expect(result).toContain('no item found for nonexistent')
   })
 
-  it('handles multi-word item after enchantment', () => {
+  it('multi-word item after enchantment', () => {
     const hat = makeCard({
       Title: { Text: 'Tinfoil Hat' },
       Enchantments: {
         Fiery: {
-          Tags: [],
-          HiddenTags: [],
+          Tags: [], HiddenTags: [],
           Localization: { Tooltips: [{ Content: { Text: 'Burn it' }, TooltipType: 'Active' }] },
-          TooltipReplacements: {},
-          DisplayTags: [],
+          TooltipReplacements: {}, DisplayTags: [],
         },
       },
     })
     mockExact.mockImplementation((name) => name === 'tinfoil hat' ? hat : undefined)
-    const result = handleCommand('!b fiery tinfoil hat')
-    expect(result).toContain('[Tinfoil Hat - Fiery]')
+    expect(handleCommand('!b fiery tinfoil hat')).toContain('[Tinfoil Hat - Fiery]')
+    expect(handleCommand('!b tinfoil hat fiery')).toContain('[Tinfoil Hat - Fiery]')
+    expect(handleCommand('!b tinfoil fiery hat')).toContain('[Tinfoil Hat - Fiery]')
   })
 
-  it('treats "gold" as tier not enchantment prefix for "golden"', () => {
-    // "gold" matches "golden" as prefix, but if words.length > 1, it would try enchantment.
-    // However "gold" also matches TIERS. The enchantment check runs first.
-    // "gold" starts "golden" — enchMatches = ["golden"], words.length > 1 → enchantment route
-    // This means "!b gold boomerang" tries enchantment Golden on boomerang
-    // This is actually correct behavior since "gold" uniquely matches "golden"
-    const card = makeCard({
-      Enchantments: {
-        Golden: {
-          Tags: [],
-          HiddenTags: [],
-          Localization: { Tooltips: [{ Content: { Text: 'Money' }, TooltipType: 'Active' }] },
-          TooltipReplacements: {},
-          DisplayTags: [],
-        },
-      },
-    })
-    mockExact.mockImplementation(() => card)
-    const result = handleCommand('!b gold boomerang')
-    expect(result).toContain('Golden')
+  it('single word alone is item lookup not enchant', () => {
+    const result = handleCommand('!b fiery')
+    expect(result).toContain('nothing found for fiery')
+  })
+
+  it('single word alone is item lookup not enchant (toxic)', () => {
+    const result = handleCommand('!b toxic')
+    expect(result).toContain('nothing found for toxic')
   })
 })
 
 // ---------------------------------------------------------------------------
-// !b — edge cases and priority
+// !b — enchantment + tier (any order, all permutations)
+// ---------------------------------------------------------------------------
+describe('!b enchant + tier (any order)', () => {
+  beforeEach(() => {
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
+  })
+
+  it('enchant item tier', () => {
+    expect(handleCommand('!b fiery boomerang gold')).toContain('[Boomerang - Fiery]')
+  })
+
+  it('enchant tier item', () => {
+    expect(handleCommand('!b fiery gold boomerang')).toContain('[Boomerang - Fiery]')
+  })
+
+  it('item enchant tier', () => {
+    expect(handleCommand('!b boomerang fiery gold')).toContain('[Boomerang - Fiery]')
+  })
+
+  it('item tier enchant', () => {
+    expect(handleCommand('!b boomerang gold fiery')).toContain('[Boomerang - Fiery]')
+  })
+
+  it('tier enchant item', () => {
+    expect(handleCommand('!b gold fiery boomerang')).toContain('[Boomerang - Fiery]')
+  })
+
+  it('tier item enchant', () => {
+    expect(handleCommand('!b gold boomerang fiery')).toContain('[Boomerang - Fiery]')
+  })
+
+  it('all 6 orderings produce same result', () => {
+    const orderings = [
+      '!b fiery boomerang gold',
+      '!b fiery gold boomerang',
+      '!b boomerang fiery gold',
+      '!b boomerang gold fiery',
+      '!b gold fiery boomerang',
+      '!b gold boomerang fiery',
+    ]
+    const results = orderings.map((cmd) => handleCommand(cmd))
+    for (const r of results) {
+      expect(r).toContain('[Boomerang - Fiery]')
+    }
+  })
+
+  it('multi-word item + enchant + tier all orderings', () => {
+    const hat = makeCard({
+      Title: { Text: 'Tinfoil Hat' },
+      Enchantments: {
+        Fiery: {
+          Tags: [], HiddenTags: [],
+          Localization: { Tooltips: [{ Content: { Text: 'Burn' }, TooltipType: 'Active' }] },
+          TooltipReplacements: {}, DisplayTags: [],
+        },
+      },
+    })
+    mockExact.mockImplementation((name) => name === 'tinfoil hat' ? hat : undefined)
+    const cmds = [
+      '!b fiery tinfoil hat gold',
+      '!b gold fiery tinfoil hat',
+      '!b tinfoil hat fiery gold',
+      '!b tinfoil hat gold fiery',
+      '!b gold tinfoil hat fiery',
+      '!b fiery gold tinfoil hat',
+    ]
+    for (const cmd of cmds) {
+      expect(handleCommand(cmd)).toContain('[Tinfoil Hat - Fiery]')
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// !b — "gold" vs "golden" disambiguation
+// ---------------------------------------------------------------------------
+describe('!b gold vs golden', () => {
+  beforeEach(() => {
+    const card = makeCard({
+      Enchantments: {
+        Golden: {
+          Tags: ['Gold'], HiddenTags: [],
+          Localization: { Tooltips: [{ Content: { Text: 'Extra gold' }, TooltipType: 'Passive' }] },
+          TooltipReplacements: {}, DisplayTags: [],
+        },
+      },
+    })
+    mockExact.mockImplementation(() => card)
+  })
+
+  it('"gold boomerang" → gold tier item lookup', () => {
+    const result = handleCommand('!b gold boomerang')
+    expect(result).toContain('Boomerang ·')
+    expect(result).not.toContain('Golden')
+  })
+
+  it('"golden boomerang" → golden enchantment', () => {
+    const result = handleCommand('!b golden boomerang')
+    expect(result).toContain('[Boomerang - Golden]')
+  })
+
+  it('"boomerang gold" → gold tier item lookup', () => {
+    const result = handleCommand('!b boomerang gold')
+    expect(result).toContain('Boomerang ·')
+    expect(result).not.toContain('Golden')
+  })
+
+  it('"boomerang golden" → golden enchantment', () => {
+    const result = handleCommand('!b boomerang golden')
+    expect(result).toContain('[Boomerang - Golden]')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// !b hero
+// ---------------------------------------------------------------------------
+describe('!b hero', () => {
+  it('lists hero items', () => {
+    mockByHero.mockImplementation(() => [boomerang])
+    const result = handleCommand('!b hero pygmalien')
+    expect(result).toContain('[pygmalien]')
+    expect(result).toContain('Boomerang')
+  })
+
+  it('returns not found for unknown hero', () => {
+    const result = handleCommand('!b hero nobody')
+    expect(result).toContain('no items found for hero nobody')
+  })
+
+  it('hero keyword is case-insensitive', () => {
+    mockByHero.mockImplementation(() => [boomerang])
+    expect(handleCommand('!b HERO pygmalien')).toContain('Boomerang')
+    expect(handleCommand('!b Hero Pygmalien')).toContain('Boomerang')
+  })
+
+  it('truncates long hero output', () => {
+    const cards = Array.from({ length: 100 }, (_, i) =>
+      makeCard({ Title: { Text: 'Item' + 'X'.repeat(20) + i } }),
+    )
+    mockByHero.mockImplementation(() => cards)
+    const result = handleCommand('!b hero pyg')!
+    expect(result.length).toBeLessThanOrEqual(480)
+    expect(result).toEndWith('...')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// !b mob / monster
+// ---------------------------------------------------------------------------
+describe('!b mob/monster', () => {
+  const lich: Monster = {
+    Id: 'lich-001', Type: 'CombatEncounter', Title: { Text: 'Lich' },
+    Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+    Heroes: [], Uri: '',
+    MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [] },
+  }
+
+  it('mob prefix finds monster', () => {
+    mockFindMonster.mockImplementation((q) => q === 'lich' ? lich : undefined)
+    const result = handleCommand('!b mob lich')
+    expect(result).toContain('Lich')
+    expect(result).toContain('Day 5')
+  })
+
+  it('monster prefix finds monster', () => {
+    mockFindMonster.mockImplementation((q) => q === 'lich' ? lich : undefined)
+    const result = handleCommand('!b monster lich')
+    expect(result).toContain('Lich')
+  })
+
+  it('mob prefix is case-insensitive', () => {
+    mockFindMonster.mockImplementation(() => lich)
+    expect(handleCommand('!b MOB lich')).toContain('Lich')
+    expect(handleCommand('!b Mob lich')).toContain('Lich')
+  })
+
+  it('monster prefix is case-insensitive', () => {
+    mockFindMonster.mockImplementation(() => lich)
+    expect(handleCommand('!b MONSTER lich')).toContain('Lich')
+  })
+
+  it('returns not found for unknown monster', () => {
+    const result = handleCommand('!b mob xyzmonster')
+    expect(result).toContain('no monster found for xyzmonster')
+  })
+
+  it('multi-word monster name', () => {
+    const dragon: Monster = {
+      Id: 'dragon-001', Type: 'CombatEncounter', Title: { Text: 'Fire Dragon' },
+      Description: null, Size: 'Large', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [], Uri: '',
+      MonsterMetadata: { available: 'Rare', day: null, health: 500, board: [] },
+    }
+    mockFindMonster.mockImplementation((q) => q === 'fire dragon' ? dragon : undefined)
+    expect(handleCommand('!b mob fire dragon')).toContain('Fire Dragon')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// !b — edge cases
 // ---------------------------------------------------------------------------
 describe('!b edge cases', () => {
   it('handles single character input', () => {
-    mockExact.mockImplementation(() => undefined)
-    mockSearch.mockImplementation(() => [])
     const result = handleCommand('!b x')
     expect(result).toContain('nothing found for x')
   })
@@ -333,14 +712,6 @@ describe('!b edge cases', () => {
     mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = handleCommand('!b   boomerang')
     expect(result).toContain('Boomerang ·')
-  })
-
-  it('handles item name that looks like enchantment but no second word', () => {
-    // "toxic" alone — enchant match but words.length === 1, so item lookup
-    mockExact.mockImplementation(() => undefined)
-    mockSearch.mockImplementation(() => [])
-    const result = handleCommand('!b toxic')
-    expect(result).toContain('nothing found for toxic')
   })
 
   it('output never exceeds 480 chars', () => {
@@ -356,23 +727,28 @@ describe('!b edge cases', () => {
     expect(result.length).toBeLessThanOrEqual(480)
   })
 
-  it('aliases route to same handler', () => {
-    expect(handleCommand('!item boomerang')).not.toBeNull()
-    expect(handleCommand('!enchant fiery boomerang')).not.toBeNull()
-  })
-
   it('does not match unregistered commands', () => {
     expect(handleCommand('!hero pygmalien')).toBeNull()
     expect(handleCommand('!help')).toBeNull()
     expect(handleCommand('!enc fiery boomerang')).toBeNull()
+    expect(handleCommand('!item boomerang')).toBeNull()
   })
 
   it('handles empty string after command', () => {
     const result = handleCommand('!b ')
-    // trimmed to empty string — should show usage
     expect(result).toContain('!b')
   })
 
+  it('help and info show usage', () => {
+    expect(handleCommand('!b help')).toContain('!b')
+    expect(handleCommand('!b info')).toContain('!b')
+  })
+
+  it('tier-only input shows usage', () => {
+    const result = handleCommand('!b gold')
+    // tier extracted, empty item → shows usage
+    expect(result).toContain('!b')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -403,5 +779,4 @@ describe('!b output format integration', () => {
     expect(result).toContain('[Burn]')
     expect(result).toContain('Burn for')
   })
-
 })
