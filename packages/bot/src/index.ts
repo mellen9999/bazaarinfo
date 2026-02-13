@@ -27,11 +27,17 @@ const token = await ensureValidToken(CLIENT_ID, CLIENT_SECRET)
 // check cache freshness, refresh if stale or missing
 const STALE_HOURS = 24
 
+const SCRAPE_TIMEOUT = 5 * 60_000 // 5min
+
 async function refreshData() {
   log('starting data refresh...')
-  const { cards, total } = await scrapeItems((done, pages) => {
+  const scrape = scrapeItems((done, pages) => {
     if (done % 10 === 0) log(`scrape progress: ${done}/${pages}`)
   })
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('scrape timed out after 5min')), SCRAPE_TIMEOUT),
+  )
+  const { cards, total } = await Promise.race([scrape, timeout])
   log(`scraped ${cards.length} items (expected ~${total})`)
   const cache: CardCache = {
     items: cards,
@@ -120,6 +126,15 @@ function shutdown() {
 process.on('SIGTERM', shutdown)
 process.on('SIGINT', shutdown)
 process.on('unhandledRejection', (e) => log('unhandled rejection:', e))
+
+// self-health: if eventsub hasn't sent a keepalive in 2min, exit and let systemd restart
+setInterval(() => {
+  if (Date.now() - client.lastActivity > 120_000) {
+    log('health check failed — no eventsub activity for 2min, exiting')
+    client.close()
+    process.exit(1)
+  }
+}, 30_000)
 
 client.connect()
 log(`bazaarinfo starting — ${channels.length} channel(s)`)

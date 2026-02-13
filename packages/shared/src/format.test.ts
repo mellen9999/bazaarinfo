@@ -58,39 +58,9 @@ function t() {
 // formatItem
 // ---------------------------------------------------------------------------
 describe('formatItem', () => {
-  it('outputs compact format with abbreviated size and tiers', () => {
+  it('outputs name and hero', () => {
     const result = formatItem(makeCard())
-    expect(result).toStartWith('[Boomerang] Med Pygmalien B/S/G/D')
-  })
-
-  it('abbreviates Small to Sm', () => {
-    const result = formatItem(makeCard({ Size: 'Small' }))
-    expect(result).toContain('] Sm ')
-  })
-
-  it('abbreviates Large to Lg', () => {
-    const result = formatItem(makeCard({ Size: 'Large' }))
-    expect(result).toContain('] Lg ')
-  })
-
-  it('abbreviates Medium to Med', () => {
-    const result = formatItem(makeCard({ Size: 'Medium' }))
-    expect(result).toContain('] Med ')
-  })
-
-  it('shows tier first letters separated by slash', () => {
-    const result = formatItem(makeCard({
-      Tiers: { Bronze: t(), Gold: t(), Legendary: t() },
-    }))
-    expect(result).toContain('B/G/L')
-  })
-
-  it('shows single tier as single letter', () => {
-    const result = formatItem(makeCard({
-      Tiers: { Diamond: t() },
-    }))
-    expect(result).toContain(' D')
-    expect(result).not.toContain('/')
+    expect(result).toStartWith('Boomerang · Pyg')
   })
 
   it('does not include Buy price', () => {
@@ -101,47 +71,45 @@ describe('formatItem', () => {
     expect(result).not.toContain('4g') // could false-match but BuyPrice shouldn't appear
   })
 
-  it('does not include emoji prefixes on abilities', () => {
+  it('uses emoji prefixes on stats', () => {
     const result = formatItem(makeCard())
-    expect(result).not.toContain('⚡')
-    expect(result).not.toContain('🛡')
+    expect(result).toContain('🗡️20')
+    expect(result).toContain('🕐4s')
   })
 
-  it('formats damage as Ndmg', () => {
+  it('formats damage with sword emoji', () => {
     const result = formatItem(makeCard({
       BaseAttributes: { DamageAmount: 20 },
     }))
-    expect(result).toContain('20dmg')
-    expect(result).not.toContain('DMG:')
+    expect(result).toContain('🗡️20')
   })
 
-  it('formats shield as Nshd', () => {
+  it('formats shield with shield emoji', () => {
     const result = formatItem(makeCard({
       BaseAttributes: { ShieldApplyAmount: 15 },
     }))
-    expect(result).toContain('15shd')
+    expect(result).toContain('🛡15')
   })
 
-  it('formats heal as Nheal', () => {
+  it('formats heal with heart emoji', () => {
     const result = formatItem(makeCard({
       BaseAttributes: { HealAmount: 30 },
     }))
-    expect(result).toContain('30heal')
+    expect(result).toContain('💚30')
   })
 
-  it('formats cooldown as Ns without CD: prefix', () => {
+  it('formats cooldown with timer emoji', () => {
     const result = formatItem(makeCard({
       BaseAttributes: { CooldownMax: 5000 },
     }))
-    expect(result).toContain('5s')
-    expect(result).not.toContain('CD:')
+    expect(result).toContain('🕐5s')
   })
 
   it('shows multiple stats space-separated', () => {
     const result = formatItem(makeCard({
       BaseAttributes: { DamageAmount: 10, ShieldApplyAmount: 5, CooldownMax: 3000 },
     }))
-    expect(result).toContain('10dmg 5shd 3s')
+    expect(result).toContain('🗡️10 🛡5 🕐3s')
   })
 
   it('omits stats segment when no stats', () => {
@@ -150,7 +118,7 @@ describe('formatItem', () => {
     }))
     // header | ability (no stats segment with extra |)
     const pipes = result.split(' | ')
-    expect(pipes[0]).toStartWith('[Boomerang]')
+    expect(pipes[0]).toStartWith('Boomerang')
     // next segment should be ability text, not empty
     expect(pipes[1]).toContain('Deal')
   })
@@ -183,7 +151,7 @@ describe('formatItem', () => {
       },
     })
     const result = formatItem(card)
-    expect(result).toContain('B:10/S:20/G:30/D:40')
+    expect(result).toContain('🟤10/⚪20/🟡30/💎40')
   })
 
   it('leaves unresolved placeholders as-is', () => {
@@ -201,18 +169,18 @@ describe('formatItem', () => {
     const result = formatItem(makeCard({
       Heroes: ['Pygmalien', 'Vanessa'],
     }))
-    expect(result).toContain('Pygmalien, Vanessa')
+    expect(result).toContain('Pyg, Vanessa')
   })
 
   it('handles card with no heroes', () => {
     const result = formatItem(makeCard({ Heroes: [] }))
-    expect(result).toContain('[Boomerang] Med')
+    expect(result).toStartWith('Boomerang |')
   })
 
   it('handles card with no tooltips', () => {
     const result = formatItem(makeCard({ Tooltips: [] }))
     expect(result).toBeTruthy()
-    expect(result).toContain('[Boomerang]')
+    expect(result).toContain('Boomerang')
   })
 
   it('truncates output exceeding 480 chars', () => {
@@ -282,7 +250,7 @@ describe('formatEnchantment', () => {
 
   it('shows all tier values when no tier specified', () => {
     const result = formatEnchantment(makeCard(), 'Fiery')
-    expect(result).toContain('B:5/S:10/G:15/D:20')
+    expect(result).toContain('🟤5/⚪10/🟡15/💎20')
   })
 
   it('joins multiple enchantment tooltips with pipe', () => {
@@ -350,55 +318,47 @@ describe('formatCompare', () => {
     const a = makeCard({ Title: { Text: 'Sword' }, Size: 'Small', BaseAttributes: { DamageAmount: 30 } })
     const b = makeCard({ Title: { Text: 'Shield' }, Size: 'Large', BaseAttributes: { ShieldApplyAmount: 25 } })
     const result = formatCompare(a, b)
-    expect(result).toContain('Sword (Sm)')
+    expect(result).toContain('Sword')
     expect(result).toContain(' vs ')
-    expect(result).toContain('Shield (Lg)')
-  })
-
-  it('abbreviates sizes in compare', () => {
-    const a = makeCard({ Title: { Text: 'A' }, Size: 'Small', BaseAttributes: {} })
-    const b = makeCard({ Title: { Text: 'B' }, Size: 'Medium', BaseAttributes: {} })
-    const result = formatCompare(a, b)
-    expect(result).toContain('A (Sm)')
-    expect(result).toContain('B (Med)')
+    expect(result).toContain('Shield')
   })
 
   it('includes damage stat', () => {
     const a = makeCard({ BaseAttributes: { DamageAmount: 50 } })
     const b = makeCard({ BaseAttributes: { DamageAmount: 30 } })
     const result = formatCompare(a, b)
-    expect(result).toContain('DMG:50')
-    expect(result).toContain('DMG:30')
+    expect(result).toContain('🗡️50')
+    expect(result).toContain('🗡️30')
   })
 
   it('includes shield stat', () => {
     const a = makeCard({ BaseAttributes: { ShieldApplyAmount: 10 } })
     const b = makeCard({ BaseAttributes: { ShieldApplyAmount: 20 } })
     const result = formatCompare(a, b)
-    expect(result).toContain('SHD:10')
-    expect(result).toContain('SHD:20')
+    expect(result).toContain('🛡10')
+    expect(result).toContain('🛡20')
   })
 
   it('includes heal stat', () => {
     const a = makeCard({ BaseAttributes: { HealAmount: 15 } })
     const b = makeCard({ BaseAttributes: {} })
     const result = formatCompare(a, b)
-    expect(result).toContain('HEAL:15')
+    expect(result).toContain('💚15')
   })
 
   it('includes cooldown stat', () => {
     const a = makeCard({ BaseAttributes: { CooldownMax: 6000 } })
     const b = makeCard({ BaseAttributes: { CooldownMax: 3000 } })
     const result = formatCompare(a, b)
-    expect(result).toContain('CD:6s')
-    expect(result).toContain('CD:3s')
+    expect(result).toContain('🕐6s')
+    expect(result).toContain('🕐3s')
   })
 
   it('handles items with no stats', () => {
     const a = makeCard({ Title: { Text: 'Hat' }, Size: 'Small', BaseAttributes: {} })
     const b = makeCard({ Title: { Text: 'Cap' }, Size: 'Small', BaseAttributes: {} })
     const result = formatCompare(a, b)
-    expect(result).toBe('Hat (Sm) vs Cap (Sm)')
+    expect(result).toBe('Hat vs Cap')
   })
 
   it('shows all stats for each item', () => {
@@ -408,10 +368,10 @@ describe('formatCompare', () => {
     })
     const b = makeCard({ Title: { Text: 'Y' }, BaseAttributes: {} })
     const result = formatCompare(a, b)
-    expect(result).toContain('DMG:10')
-    expect(result).toContain('SHD:5')
-    expect(result).toContain('HEAL:3')
-    expect(result).toContain('CD:2s')
+    expect(result).toContain('🗡️10')
+    expect(result).toContain('🛡5')
+    expect(result).toContain('💚3')
+    expect(result).toContain('🕐2s')
   })
 
   it('truncates very long compare output', () => {

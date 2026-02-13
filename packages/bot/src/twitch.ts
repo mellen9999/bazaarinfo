@@ -46,6 +46,7 @@ export class TwitchClient {
   private readonly SEND_WINDOW = 30_000
   private eventsubBackoff = BACKOFF_BASE
   private ircBackoff = BACKOFF_BASE
+  lastActivity = Date.now()
 
   constructor(config: TwitchConfig, onMessage: MessageHandler) {
     this.config = config
@@ -130,6 +131,7 @@ export class TwitchClient {
   }
 
   private resetKeepalive() {
+    this.lastActivity = Date.now()
     if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
     this.keepaliveTimeout = setTimeout(() => {
       log('keepalive timeout, reconnecting eventsub...')
@@ -294,6 +296,7 @@ export class TwitchClient {
   }
 
   async say(channel: string, text: string) {
+    if (text.length > 490) text = text.slice(0, 487) + '...'
     if (this.ircReady && this.canSend()) {
       this.sendTimes.push(Date.now())
       this.ircSend(`PRIVMSG #${channel} :${text}`)

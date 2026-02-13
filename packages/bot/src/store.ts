@@ -32,9 +32,13 @@ export async function loadStore() {
 }
 
 export async function reloadStore() {
-  const cache: CardCache = await Bun.file(CACHE_PATH).json()
-  loadCache(cache)
-  log(`reloaded ${items.length} items (cached ${cache.fetchedAt})`)
+  try {
+    const cache: CardCache = await Bun.file(CACHE_PATH).json()
+    loadCache(cache)
+    log(`reloaded ${items.length} items (cached ${cache.fetchedAt})`)
+  } catch (e) {
+    log(`reload failed, keeping existing ${items.length} items: ${e}`)
+  }
 }
 
 export function getItems() {

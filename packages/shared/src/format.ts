@@ -1,8 +1,14 @@
 import type { BazaarCard, TierName, ReplacementValue } from './types'
 
 const TIER_ORDER: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
+const TIER_EMOJI: Record<string, string> = {
+  Bronze: '🟤', Silver: '⚪', Gold: '🟡', Diamond: '💎', Legendary: '🟣',
+}
 const SIZE_ABBREV: Record<string, string> = { Small: 'Sm', Medium: 'Med', Large: 'Lg' }
 const TIER_ABBREV = (tiers: string[]) => tiers.map((t) => t[0]).join('/')
+const HERO_ABBREV: Record<string, string> = {
+  Pygmalien: 'Pyg',
+}
 const MAX_LEN = 480
 
 function truncate(str: string): string {
@@ -18,9 +24,9 @@ function truncate(str: string): string {
 function resolveReplacement(val: ReplacementValue, tier?: TierName): string {
   if ('Fixed' in val) return String(val.Fixed)
   if (tier && tier in val) return String((val as Record<string, number>)[tier])
-  // show all tiers
+  // show all tiers with emoji
   const parts = TIER_ORDER.filter((t) => t in val).map(
-    (t) => `${t[0]}:${(val as Record<string, number>)[t]}`,
+    (t) => `${TIER_EMOJI[t]}${(val as Record<string, number>)[t]}`,
   )
   return parts.join('/') || '?'
 }
@@ -42,9 +48,7 @@ function getAttributes(card: BazaarCard, tier?: TierName): Record<string, number
 
 export function formatItem(card: BazaarCard, tier?: TierName): string {
   const name = card.Title.Text
-  const size = SIZE_ABBREV[card.Size] ?? card.Size
-  const heroes = card.Heroes.join(', ')
-  const tiers = TIER_ABBREV(Object.keys(card.Tiers))
+  const heroes = card.Heroes.map((h) => HERO_ABBREV[h] ?? h).join(', ')
 
   // resolve tooltips — no emoji prefix
   const abilities = card.Tooltips.map((t) =>
@@ -54,13 +58,13 @@ export function formatItem(card: BazaarCard, tier?: TierName): string {
   // compact stats with tier overrides applied
   const attrs = getAttributes(card, tier)
   const stats: string[] = []
-  if (attrs.DamageAmount) stats.push(`${attrs.DamageAmount}dmg`)
-  if (attrs.ShieldApplyAmount) stats.push(`${attrs.ShieldApplyAmount}shd`)
-  if (attrs.HealAmount) stats.push(`${attrs.HealAmount}heal`)
-  if (attrs.CooldownMax) stats.push(`${attrs.CooldownMax / 1000}s`)
+  if (attrs.DamageAmount) stats.push(`🗡️${attrs.DamageAmount}`)
+  if (attrs.ShieldApplyAmount) stats.push(`🛡${attrs.ShieldApplyAmount}`)
+  if (attrs.HealAmount) stats.push(`💚${attrs.HealAmount}`)
+  if (attrs.CooldownMax) stats.push(`🕐${attrs.CooldownMax / 1000}s`)
 
   const parts = [
-    `[${name}] ${size} ${heroes} ${tiers}`,
+    `${name}${heroes ? ` · ${heroes}` : ''}`,
     stats.length ? stats.join(' ') : null,
     ...abilities,
   ].filter(Boolean)
@@ -83,12 +87,11 @@ export function formatEnchantment(card: BazaarCard, enchName: string, tier?: Tie
 export function formatCompare(a: BazaarCard, b: BazaarCard, tierA?: TierName, tierB?: TierName): string {
   const line = (c: BazaarCard, tier?: TierName) => {
     const attrs = getAttributes(c, tier)
-    const size = SIZE_ABBREV[c.Size] ?? c.Size
-    const parts = [`${c.Title.Text} (${size})`]
-    if (attrs.DamageAmount) parts.push(`DMG:${attrs.DamageAmount}`)
-    if (attrs.ShieldApplyAmount) parts.push(`SHD:${attrs.ShieldApplyAmount}`)
-    if (attrs.HealAmount) parts.push(`HEAL:${attrs.HealAmount}`)
-    if (attrs.CooldownMax) parts.push(`CD:${attrs.CooldownMax / 1000}s`)
+    const parts = [c.Title.Text]
+    if (attrs.DamageAmount) parts.push(`🗡️${attrs.DamageAmount}`)
+    if (attrs.ShieldApplyAmount) parts.push(`🛡${attrs.ShieldApplyAmount}`)
+    if (attrs.HealAmount) parts.push(`💚${attrs.HealAmount}`)
+    if (attrs.CooldownMax) parts.push(`🕐${attrs.CooldownMax / 1000}s`)
     return parts.join(' ')
   }
   return truncate(`${line(a, tierA)} vs ${line(b, tierB)}`)

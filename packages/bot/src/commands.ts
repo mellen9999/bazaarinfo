@@ -31,7 +31,7 @@ function bazaarinfo(args: string): string | null {
   if (heroMatch) {
     const heroName = heroMatch[1].trim()
     const items = store.byHero(heroName)
-    if (items.length === 0) return `no items found for hero "${heroName}"`
+    if (items.length === 0) return `no items found for hero ${heroName}`
     const names = items.map((i) => i.Title.Text)
     const result = `[${heroName}] ${names.join(', ')}`
     return result.length > 480 ? result.slice(0, 477) + '...' : result
@@ -42,8 +42,8 @@ function bazaarinfo(args: string): string | null {
   if (vsParts.length === 2 && vsParts[0] && vsParts[1]) {
     const a = store.exact(vsParts[0].trim()) ?? store.search(vsParts[0].trim(), 1)[0]
     const b = store.exact(vsParts[1].trim()) ?? store.search(vsParts[1].trim(), 1)[0]
-    if (!a) return `no item found for "${vsParts[0].trim()}"`
-    if (!b) return `no item found for "${vsParts[1].trim()}"`
+    if (!a) return `no item found for ${vsParts[0].trim()}`
+    if (!b) return `no item found for ${vsParts[1].trim()}`
     return formatCompare(a, b)
   }
 
@@ -56,7 +56,7 @@ function bazaarinfo(args: string): string | null {
     const rest = words.slice(1)
     const { query: itemQuery, tier } = parseTier(rest)
     const card = store.exact(itemQuery) ?? store.search(itemQuery, 1)[0]
-    if (!card) return `no item found for "${itemQuery}"`
+    if (!card) return `no item found for ${itemQuery}`
     const key = enchMatches[0][0].toUpperCase() + enchMatches[0].slice(1)
     return formatEnchantment(card, key, tier)
   }
@@ -64,13 +64,16 @@ function bazaarinfo(args: string): string | null {
   // item lookup (optional tier as last word)
   const { query, tier } = parseTier(words)
   const card = store.exact(query) ?? store.search(query, 1)[0]
-  if (!card) return `no item found for "${query}"`
+  if (!card) return `no item found for ${query}`
   return formatItem(card, tier)
 }
 
 const commands: Record<string, CommandHandler> = {
   b: bazaarinfo,
   bazaarinfo,
+  item: bazaarinfo,
+  enchant: bazaarinfo,
+  compare: bazaarinfo,
 }
 
 export function handleCommand(text: string): string | null {

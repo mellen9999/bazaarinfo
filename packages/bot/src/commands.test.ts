@@ -124,7 +124,7 @@ describe('!b item lookup', () => {
   it('looks up item by exact match first', () => {
     mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = handleCommand('!b boomerang')
-    expect(result).toContain('[Boomerang]')
+    expect(result).toContain('Boomerang ·')
     expect(mockExact).toHaveBeenCalledWith('boomerang')
   })
 
@@ -132,20 +132,20 @@ describe('!b item lookup', () => {
     mockExact.mockImplementation(() => undefined)
     mockSearch.mockImplementation(() => [boomerang])
     const result = handleCommand('!b boomrang')
-    expect(result).toContain('[Boomerang]')
+    expect(result).toContain('Boomerang ·')
     expect(mockSearch).toHaveBeenCalledWith('boomrang', 1)
   })
 
   it('returns not found when no match at all', () => {
     const result = handleCommand('!b xyznonexistent')
-    expect(result).toContain('no item found for "xyznonexistent"')
+    expect(result).toContain('no item found for xyznonexistent')
   })
 
   it('handles multi-word item names', () => {
     const tinfoil = makeCard({ Title: { Text: 'Tinfoil Hat' } })
     mockExact.mockImplementation((name) => name === 'tinfoil hat' ? tinfoil : undefined)
     const result = handleCommand('!b tinfoil hat')
-    expect(result).toContain('[Tinfoil Hat]')
+    expect(result).toContain('Tinfoil Hat ·')
   })
 })
 
@@ -156,14 +156,14 @@ describe('!b item + tier', () => {
   it('parses tier as last word (gold)', () => {
     mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = handleCommand('!b boomerang gold')
-    expect(result).toContain('[Boomerang]')
+    expect(result).toContain('Boomerang ·')
     expect(mockExact).toHaveBeenCalledWith('boomerang')
   })
 
   it('parses tier case-insensitively', () => {
     mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = handleCommand('!b boomerang DIAMOND')
-    expect(result).toContain('[Boomerang]')
+    expect(result).toContain('Boomerang ·')
   })
 
   it('parses bronze tier', () => {
@@ -188,7 +188,7 @@ describe('!b item + tier', () => {
     const tinfoil = makeCard({ Title: { Text: 'Tinfoil Hat' } })
     mockExact.mockImplementation((name) => name === 'tinfoil hat' ? tinfoil : undefined)
     const result = handleCommand('!b tinfoil hat gold')
-    expect(result).toContain('[Tinfoil Hat]')
+    expect(result).toContain('Tinfoil Hat ·')
     expect(mockExact).toHaveBeenCalledWith('tinfoil hat')
   })
 
@@ -196,7 +196,7 @@ describe('!b item + tier', () => {
     const hat = makeCard({ Title: { Text: 'Fancy Hat' } })
     mockExact.mockImplementation((name) => name === 'fancy hat' ? hat : undefined)
     const result = handleCommand('!b fancy hat')
-    expect(result).toContain('[Fancy Hat]')
+    expect(result).toContain('Fancy Hat ·')
     expect(mockExact).toHaveBeenCalledWith('fancy hat')
   })
 })
@@ -261,14 +261,14 @@ describe('!b enchantment routing', () => {
     mockSearch.mockImplementation(() => [])
     const result = handleCommand('!b fiery')
     // single word "fiery" — enchMatches.length === 1 but words.length === 1, so falls to item lookup
-    expect(result).toContain('no item found for "fiery"')
+    expect(result).toContain('no item found for fiery')
   })
 
   it('returns not found when enchantment item doesnt exist', () => {
     mockExact.mockImplementation(() => undefined)
     mockSearch.mockImplementation(() => [])
     const result = handleCommand('!b fiery nonexistent')
-    expect(result).toContain('no item found for "nonexistent"')
+    expect(result).toContain('no item found for nonexistent')
   })
 
   it('handles multi-word item after enchantment', () => {
@@ -352,14 +352,14 @@ describe('!b compare routing', () => {
     mockExact.mockImplementation((name) => name === 'shield' ? shield : undefined)
     mockSearch.mockImplementation(() => [])
     const result = handleCommand('!b nonexistent vs shield')
-    expect(result).toContain('no item found for "nonexistent"')
+    expect(result).toContain('no item found for nonexistent')
   })
 
   it('returns not found for second item in compare', () => {
     mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     mockSearch.mockImplementation(() => [])
     const result = handleCommand('!b boomerang vs nonexistent')
-    expect(result).toContain('no item found for "nonexistent"')
+    expect(result).toContain('no item found for nonexistent')
   })
 
   it('handles multi-word items in compare', () => {
@@ -418,13 +418,13 @@ describe('!b edge cases', () => {
     mockExact.mockImplementation(() => undefined)
     mockSearch.mockImplementation(() => [])
     const result = handleCommand('!b x')
-    expect(result).toContain('no item found for "x"')
+    expect(result).toContain('no item found for x')
   })
 
   it('handles extra whitespace between words', () => {
     mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = handleCommand('!b   boomerang')
-    expect(result).toContain('[Boomerang]')
+    expect(result).toContain('Boomerang ·')
   })
 
   it('handles item name that looks like enchantment but no second word', () => {
@@ -432,7 +432,7 @@ describe('!b edge cases', () => {
     mockExact.mockImplementation(() => undefined)
     mockSearch.mockImplementation(() => [])
     const result = handleCommand('!b toxic')
-    expect(result).toContain('no item found for "toxic"')
+    expect(result).toContain('no item found for toxic')
   })
 
   it('output never exceeds 480 chars', () => {
@@ -448,13 +448,16 @@ describe('!b edge cases', () => {
     expect(result.length).toBeLessThanOrEqual(480)
   })
 
-  it('does not match old command names', () => {
-    expect(handleCommand('!item boomerang')).toBeNull()
-    expect(handleCommand('!enc fiery boomerang')).toBeNull()
-    expect(handleCommand('!enchant fiery boomerang')).toBeNull()
-    expect(handleCommand('!compare boomerang vs shield')).toBeNull()
+  it('aliases route to same handler', () => {
+    expect(handleCommand('!item boomerang')).not.toBeNull()
+    expect(handleCommand('!enchant fiery boomerang')).not.toBeNull()
+    expect(handleCommand('!compare boomerang vs shield')).not.toBeNull()
+  })
+
+  it('does not match unregistered commands', () => {
     expect(handleCommand('!hero pygmalien')).toBeNull()
     expect(handleCommand('!help')).toBeNull()
+    expect(handleCommand('!enc fiery boomerang')).toBeNull()
   })
 
   it('handles empty string after command', () => {
@@ -501,32 +504,18 @@ describe('!b output format integration', () => {
   it('item output uses compact stat format', () => {
     mockExact.mockImplementation(() => boomerang)
     const result = handleCommand('!b boomerang')!
-    expect(result).toContain('20dmg')
+    expect(result).toContain('🗡️20')
     expect(result).toContain('4s')
     expect(result).not.toContain('DMG:')
     expect(result).not.toContain('CD:')
     expect(result).not.toContain('Buy:')
   })
 
-  it('item output uses abbreviated sizes', () => {
+  it('item output uses emoji stats', () => {
     mockExact.mockImplementation(() => boomerang)
     const result = handleCommand('!b boomerang')!
-    expect(result).toContain('Med')
-    expect(result).not.toContain('Medium')
-  })
-
-  it('item output uses abbreviated tiers', () => {
-    mockExact.mockImplementation(() => boomerang)
-    const result = handleCommand('!b boomerang')!
-    expect(result).toContain('B/S/G/D')
-    expect(result).not.toContain('Bronze')
-  })
-
-  it('item output has no emoji', () => {
-    mockExact.mockImplementation(() => boomerang)
-    const result = handleCommand('!b boomerang')!
-    expect(result).not.toContain('⚡')
-    expect(result).not.toContain('🛡')
+    expect(result).toContain('🗡️20')
+    expect(result).toContain('🕐4s')
   })
 
   it('enchantment output includes tags and tooltip', () => {
@@ -537,14 +526,15 @@ describe('!b output format integration', () => {
     expect(result).toContain('Burn for')
   })
 
-  it('compare output uses abbreviated sizes', () => {
+  it('compare output shows names and stats', () => {
     mockExact.mockImplementation((name) => {
       if (name === 'boomerang') return boomerang
       if (name === 'shield') return shield
       return undefined
     })
     const result = handleCommand('!b boomerang vs shield')!
-    expect(result).toContain('(Med)')
-    expect(result).toContain('(Lg)')
+    expect(result).toContain('Boomerang')
+    expect(result).toContain('Shield')
+    expect(result).toContain(' vs ')
   })
 })
