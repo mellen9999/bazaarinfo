@@ -107,34 +107,45 @@ export function formatEnchantment(card: BazaarCard, enchName: string, tier?: Tie
 }
 
 
-export function formatMonster(monster: Monster): string {
+export interface SkillDetail {
+  name: string
+  tooltip: string
+}
+
+export function formatMonster(monster: Monster, skillDetails?: Map<string, SkillDetail>): string {
   const meta = monster.MonsterMetadata
   const day = meta.day != null ? `Day ${meta.day}` : meta.available || '?'
   const hp = meta.health
 
-  // group board entries: "Item Name (tier)" with dedup counts
-  const boardEntries: string[] = []
-  const counts = new Map<string, number>()
-  const entryMap = new Map<string, string>()
+  // separate items and skills
+  const items: string[] = []
+  const skills: string[] = []
+  const itemCounts = new Map<string, number>()
+  const itemLabels = new Map<string, string>()
 
   for (const b of meta.board) {
     const key = `${b.title}|${b.tierOverride}`
-    counts.set(key, (counts.get(key) ?? 0) + 1)
-    if (!entryMap.has(key)) {
-      const emoji = TIER_EMOJI[b.tierOverride] ?? ''
-      entryMap.set(key, `${emoji}${b.title}`)
+    const emoji = TIER_EMOJI[b.tierOverride] ?? ''
+
+    if (b.type === 'Skill' && skillDetails?.has(b.title)) {
+      const detail = skillDetails.get(b.title)!
+      skills.push(`${emoji}${b.title}: ${detail.tooltip}`)
+    } else {
+      itemCounts.set(key, (itemCounts.get(key) ?? 0) + 1)
+      if (!itemLabels.has(key)) itemLabels.set(key, `${emoji}${b.title}`)
     }
   }
 
-  for (const [key, label] of entryMap) {
-    const count = counts.get(key)!
-    boardEntries.push(count > 1 ? `${label} x${count}` : label)
+  for (const [key, label] of itemLabels) {
+    const count = itemCounts.get(key)!
+    items.push(count > 1 ? `${label} x${count}` : label)
   }
 
   const parts = [
     `${monster.Title.Text} · ${day} · ${hp}HP`,
-    boardEntries.join(', '),
-  ]
+    items.length ? items.join(', ') : null,
+    ...skills,
+  ].filter(Boolean)
 
   return truncate(parts.join(' | '))
 }

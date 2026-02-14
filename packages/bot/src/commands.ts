@@ -1,5 +1,5 @@
 import { formatItem, formatEnchantment, formatMonster } from '@bazaarinfo/shared'
-import type { TierName } from '@bazaarinfo/shared'
+import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import { appendFileSync } from 'fs'
 import { resolve } from 'path'
@@ -65,6 +65,26 @@ function logMiss(query: string, prefix = '') {
   try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${prefix}${query}\n`) } catch {}
 }
 
+function resolveSkills(monster: Monster): Map<string, SkillDetail> {
+  const details = new Map<string, SkillDetail>()
+  for (const b of monster.MonsterMetadata.board) {
+    if (b.type !== 'Skill' || details.has(b.title)) continue
+    const card = store.findCard(b.title)
+    if (!card || !card.Tooltips.length) continue
+    const tooltip = card.Tooltips.map((t) => t.Content.Text
+      .replace(/\{[^}]+\}/g, (match) => {
+        const val = card.TooltipReplacements[match]
+        if (!val) return match
+        if ('Fixed' in val) return String(val.Fixed)
+        const tierVal = b.tierOverride in val ? (val as Record<string, number>)[b.tierOverride] : undefined
+        return tierVal != null ? String(tierVal) : match
+      }),
+    ).join('; ')
+    details.set(b.title, { name: b.title, tooltip })
+  }
+  return details
+}
+
 const ATTRIBUTION = ' | bazaardb.gg'
 const ATTRIB_INTERVAL = 10
 let commandCount = 0
@@ -81,7 +101,7 @@ function bazaarinfo(args: string): string | null {
       logMiss(query, 'mob:')
       return `no monster found for ${query}`
     }
-    return formatMonster(monster)
+    return formatMonster(monster, resolveSkills(monster))
   }
 
   // hero listing: "hero vanessa"
@@ -117,7 +137,7 @@ function bazaarinfo(args: string): string | null {
 
   // check monsters before fuzzy item search (avoids "lich" → "Lightbulb")
   const monster = store.findMonster(query)
-  if (monster) return formatMonster(monster)
+  if (monster) return formatMonster(monster, resolveSkills(monster))
 
   // fuzzy item/skill search
   const fuzzyCard = store.search(query, 1)[0]

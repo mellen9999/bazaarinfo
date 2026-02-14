@@ -7,6 +7,7 @@ const mockSearch = mock<(query: string, limit: number) => BazaarCard[]>(() => []
 const mockGetEnchantments = mock<() => string[]>(() => [])
 const mockByHero = mock<(hero: string) => BazaarCard[]>(() => [])
 const mockFindMonster = mock<(query: string) => Monster | undefined>(() => undefined)
+const mockFindCard = mock<(name: string) => BazaarCard | undefined>(() => undefined)
 
 mock.module('./store', () => ({
   exact: mockExact,
@@ -14,6 +15,7 @@ mock.module('./store', () => ({
   getEnchantments: mockGetEnchantments,
   byHero: mockByHero,
   findMonster: mockFindMonster,
+  findCard: mockFindCard,
 }))
 
 const { handleCommand, parseArgs } = await import('./commands')
@@ -86,11 +88,13 @@ beforeEach(() => {
   mockGetEnchantments.mockReset()
   mockByHero.mockReset()
   mockFindMonster.mockReset()
+  mockFindCard.mockReset()
   mockExact.mockImplementation(() => undefined)
   mockSearch.mockImplementation(() => [])
   mockGetEnchantments.mockImplementation(() => [])
   mockByHero.mockImplementation(() => [])
   mockFindMonster.mockImplementation(() => undefined)
+  mockFindCard.mockImplementation(() => undefined)
 })
 
 // ---------------------------------------------------------------------------
@@ -696,6 +700,49 @@ describe('!b mob/monster', () => {
     }
     mockFindMonster.mockImplementation((q) => q === 'fire dragon' ? dragon : undefined)
     expect(handleCommand('!b mob fire dragon')).toContain('Fire Dragon')
+  })
+
+  it('shows skill tooltips from board', () => {
+    const skillCard = makeCard({
+      Title: { Text: 'Ink Blast' },
+      Type: 'Item',
+      Tooltips: [{ Content: { Text: 'Deal {Dmg} damage to all' }, TooltipType: 'Active' }],
+      TooltipReplacements: { '{Dmg}': { Bronze: 10, Gold: 30 } },
+    })
+    const boss: Monster = {
+      Id: 'boss-001', Type: 'CombatEncounter', Title: { Text: 'Octoboss' },
+      Description: null, Size: 'Large', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [], Uri: '',
+      MonsterMetadata: {
+        available: 'Always', day: 8, health: 500,
+        board: [
+          { baseId: 'x', title: 'Sword', size: 'Small', tierOverride: 'Gold', type: 'Item', url: '', art: '', artBlur: '' },
+          { baseId: 'y', title: 'Ink Blast', size: 'Medium', tierOverride: 'Gold', type: 'Skill', url: '', art: '', artBlur: '' },
+        ],
+      },
+    }
+    mockFindMonster.mockImplementation(() => boss)
+    mockFindCard.mockImplementation((name) => name === 'Ink Blast' ? skillCard : undefined)
+    const result = handleCommand('!b mob octoboss')!
+    expect(result).toContain('Ink Blast: Deal 30 damage to all')
+    expect(result).toContain('🟡Sword')
+  })
+
+  it('shows skills without card data as regular entries', () => {
+    const boss: Monster = {
+      Id: 'boss-002', Type: 'CombatEncounter', Title: { Text: 'Mystery' },
+      Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [], Uri: '',
+      MonsterMetadata: {
+        available: 'Always', day: 1, health: 50,
+        board: [
+          { baseId: 'z', title: 'Unknown Skill', size: 'Small', tierOverride: 'Bronze', type: 'Skill', url: '', art: '', artBlur: '' },
+        ],
+      },
+    }
+    mockFindMonster.mockImplementation(() => boss)
+    const result = handleCommand('!b mob mystery')!
+    expect(result).toContain('Unknown Skill')
   })
 })
 

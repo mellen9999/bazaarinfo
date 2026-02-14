@@ -117,3 +117,8 @@ export function findMonster(query: string): Monster | undefined {
 export function getMonsters(): Monster[] {
   return monsters
 }
+
+export function findCard(name: string): BazaarCard | undefined {
+  const lower = name.toLowerCase()
+  return allCards.find((c) => c.Title.Text.toLowerCase() === lower)
+}
