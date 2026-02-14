@@ -139,6 +139,18 @@ describe('formatItem', () => {
     })
     const result = formatItem(card, 'Gold')
     expect(result).toContain('Deal 30 Damage')
+    expect(result).toStartWith('🟡 ')
+  })
+
+  it('prefixes tier emoji when tier specified', () => {
+    expect(formatItem(makeCard(), 'Bronze')).toStartWith('🟤 Boomerang')
+    expect(formatItem(makeCard(), 'Diamond')).toStartWith('💎 Boomerang')
+    expect(formatItem(makeCard(), 'Legendary')).toStartWith('🟣 Boomerang')
+  })
+
+  it('no tier prefix when no tier specified', () => {
+    const result = formatItem(makeCard())
+    expect(result).toStartWith('Boomerang')
   })
 
   it('shows all tier values when no tier specified for tiered replacements', () => {
@@ -246,6 +258,15 @@ describe('formatEnchantment', () => {
   it('resolves tiered values in enchantment tooltips with specific tier', () => {
     const result = formatEnchantment(makeCard(), 'Fiery', 'Gold')
     expect(result).toContain('Burn for 15 damage')
+    expect(result).toStartWith('🟡 ')
+  })
+
+  it('prefixes tier emoji on enchantment when tier specified', () => {
+    expect(formatEnchantment(makeCard(), 'Fiery', 'Diamond')).toStartWith('💎 [Boomerang')
+  })
+
+  it('no tier prefix on enchantment when no tier specified', () => {
+    expect(formatEnchantment(makeCard(), 'Fiery')).toStartWith('[Boomerang')
   })
 
   it('shows all tier values when no tier specified', () => {

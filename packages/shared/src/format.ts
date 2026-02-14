@@ -76,6 +76,7 @@ function statLine(attrs: Record<string, number>, card: BazaarCard, tier?: TierNa
 }
 
 export function formatItem(card: BazaarCard, tier?: TierName): string {
+  const tierPrefix = tier ? `${TIER_EMOJI[tier]} ` : ''
   const name = card.Title.Text
   const heroes = card.Heroes.map((h) => HERO_ABBREV[h] ?? h).join(', ')
   const abilities = card.Tooltips.map((t) =>
@@ -86,7 +87,7 @@ export function formatItem(card: BazaarCard, tier?: TierName): string {
   const tags = card.DisplayTags?.length ? ` [${card.DisplayTags.join(', ')}]` : ''
 
   const parts = [
-    `${name}${heroes ? ` · ${heroes}` : ''}${tags}`,
+    `${tierPrefix}${name}${heroes ? ` · ${heroes}` : ''}${tags}`,
     stats || null,
     ...abilities,
   ].filter(Boolean)
@@ -102,8 +103,9 @@ export function formatEnchantment(card: BazaarCard, enchName: string, tier?: Tie
     resolveTooltip(t.Content.Text, ench.TooltipReplacements, tier),
   )
 
+  const tierPrefix = tier ? `${TIER_EMOJI[tier]} ` : ''
   const tags = ench.Tags.length ? ` [${ench.Tags.join(', ')}]` : ''
-  return truncate(`[${card.Title.Text} - ${enchName}]${tags} ${tooltips.join(' | ')}`)
+  return truncate(`${tierPrefix}[${card.Title.Text} - ${enchName}]${tags} ${tooltips.join(' | ')}`)
 }
 
 
