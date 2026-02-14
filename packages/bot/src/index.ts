@@ -144,7 +144,7 @@ const client = new TwitchClient(
         }
       }
 
-      const response = handleCommand(text)
+      const response = handleCommand(text, { user: username, channel })
       if (response) {
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
         client.say(channel, response)

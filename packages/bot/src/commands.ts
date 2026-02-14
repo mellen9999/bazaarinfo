@@ -6,8 +6,14 @@ import { resolve } from 'path'
 import { homedir } from 'os'
 
 const MISS_LOG = resolve(homedir(), '.bazaarinfo-misses.log')
+const HIT_LOG = resolve(homedir(), '.bazaarinfo-hits.log')
 
-type CommandHandler = (args: string) => string | null
+interface CommandContext {
+  user?: string
+  channel?: string
+}
+
+type CommandHandler = (args: string, ctx: CommandContext) => string | null
 
 const TIERS = ['bronze', 'silver', 'gold', 'diamond', 'legendary']
 // fallback if store hasn't loaded yet
@@ -61,8 +67,23 @@ export function setLobbyChannel(name: string) { lobbyChannel = name }
 const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero <name> | !b mob <name> | data: bazaardb.gg'
 const JOIN_USAGE = () => lobbyChannel ? ` | !join in #${lobbyChannel} to add bot, !part to remove` : ''
 
-function logMiss(query: string, prefix = '') {
-  try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${prefix}${query}\n`) } catch {}
+function logMiss(query: string, ctx: CommandContext, prefix = '') {
+  const who = ctx.user ? ` user:${ctx.user}` : ''
+  const where = ctx.channel ? ` ch:${ctx.channel}` : ''
+  try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${prefix}${query}${who}${where}\n`) } catch {}
+}
+
+function logHit(type: string, query: string, match: string, ctx: CommandContext, tier?: string) {
+  const parts = [
+    new Date().toISOString(),
+    `type:${type}`,
+    `q:${query}`,
+    `match:${match}`,
+    tier ? `tier:${tier}` : null,
+    ctx.user ? `user:${ctx.user}` : null,
+    ctx.channel ? `ch:${ctx.channel}` : null,
+  ].filter(Boolean).join(' ')
+  try { appendFileSync(HIT_LOG, parts + '\n') } catch {}
 }
 
 function resolveSkills(monster: Monster): Map<string, SkillDetail> {
@@ -89,7 +110,7 @@ const ATTRIBUTION = ' | bazaardb.gg'
 const ATTRIB_INTERVAL = 10
 let commandCount = 0
 
-function bazaarinfo(args: string): string | null {
+function bazaarinfo(args: string, ctx: CommandContext): string | null {
   if (!args || args === 'help' || args === 'info') return BASE_USAGE + JOIN_USAGE()
 
   // monster lookup: "mob lich" or "monster lich"
@@ -98,9 +119,10 @@ function bazaarinfo(args: string): string | null {
     const query = mobMatch[1].trim()
     const monster = store.findMonster(query)
     if (!monster) {
-      logMiss(query, 'mob:')
+      logMiss(query, ctx, 'mob:')
       return `no monster found for ${query}`
     }
+    logHit('mob', query, monster.Title.Text, ctx)
     return formatMonster(monster, resolveSkills(monster))
   }
 
@@ -110,6 +132,7 @@ function bazaarinfo(args: string): string | null {
     const heroName = heroMatch[1].trim()
     const items = store.byHero(heroName)
     if (items.length === 0) return `no items found for hero ${heroName}`
+    logHit('hero', heroName, `${items.length} items`, ctx)
     const names = items.map((i) => i.Title.Text)
     const result = `[${heroName}] ${names.join(', ')}`
     return result.length > 480 ? result.slice(0, 477) + '...' : result
@@ -125,25 +148,35 @@ function bazaarinfo(args: string): string | null {
   if (enchant) {
     const card = store.exact(query) ?? store.search(query, 1)[0]
     if (!card) {
-      logMiss(query)
+      logMiss(query, ctx)
       return `no item found for ${query}`
     }
+    logHit('enchant', query, `${card.Title.Text}+${enchant}`, ctx, tier)
     return formatEnchantment(card, enchant, tier)
   }
 
   // exact item/skill match wins
   const exactCard = store.exact(query)
-  if (exactCard) return formatItem(exactCard, tier)
+  if (exactCard) {
+    logHit('item', query, exactCard.Title.Text, ctx, tier)
+    return formatItem(exactCard, tier)
+  }
 
   // check monsters before fuzzy item search (avoids "lich" → "Lightbulb")
   const monster = store.findMonster(query)
-  if (monster) return formatMonster(monster, resolveSkills(monster))
+  if (monster) {
+    logHit('mob', query, monster.Title.Text, ctx)
+    return formatMonster(monster, resolveSkills(monster))
+  }
 
   // fuzzy item/skill search
   const fuzzyCard = store.search(query, 1)[0]
-  if (fuzzyCard) return formatItem(fuzzyCard, tier)
+  if (fuzzyCard) {
+    logHit('item', query, fuzzyCard.Title.Text, ctx, tier)
+    return formatItem(fuzzyCard, tier)
+  }
 
-  logMiss(query)
+  logMiss(query, ctx)
   return `nothing found for ${query}`
 }
 
@@ -151,7 +184,7 @@ const commands: Record<string, CommandHandler> = {
   b: bazaarinfo,
 }
 
-export function handleCommand(text: string): string | null {
+export function handleCommand(text: string, ctx: CommandContext = {}): string | null {
   const match = text.match(/^!(\w+)\s*(.*)$/)
   if (!match) return null
 
@@ -159,7 +192,7 @@ export function handleCommand(text: string): string | null {
   const handler = commands[cmd.toLowerCase()]
   if (!handler) return null
 
-  const result = handler(args.trim())
+  const result = handler(args.trim(), ctx)
   if (result && ++commandCount % ATTRIB_INTERVAL === 0) {
     return result + ATTRIBUTION
   }

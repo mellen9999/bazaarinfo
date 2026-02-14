@@ -1,7 +1,10 @@
 import { describe, expect, it, mock, beforeEach } from 'bun:test'
 import type { BazaarCard, TierName, Monster } from '@bazaarinfo/shared'
 
-// --- mock store before importing commands ---
+// --- mock fs and store before importing commands ---
+const mockAppendFileSync = mock<(path: string, data: string) => void>(() => {})
+mock.module('fs', () => ({ appendFileSync: mockAppendFileSync }))
+
 const mockExact = mock<(name: string) => BazaarCard | undefined>(() => undefined)
 const mockSearch = mock<(query: string, limit: number) => BazaarCard[]>(() => [])
 const mockGetEnchantments = mock<() => string[]>(() => [])
@@ -83,6 +86,7 @@ const shield = makeCard({
 })
 
 beforeEach(() => {
+  mockAppendFileSync.mockReset()
   mockExact.mockReset()
   mockSearch.mockReset()
   mockGetEnchantments.mockReset()
@@ -825,5 +829,117 @@ describe('!b output format integration', () => {
     expect(result).toContain('[Boomerang - Fiery]')
     expect(result).toContain('[Burn]')
     expect(result).toContain('Burn for')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Analytics logging
+// ---------------------------------------------------------------------------
+describe('analytics logging', () => {
+  it('logs hit on exact item match', () => {
+    mockExact.mockImplementation(() => boomerang)
+    handleCommand('!b boomerang', { user: 'tidolar', channel: 'mellen' })
+    const hitCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('hits'))
+    expect(hitCall).toBeTruthy()
+    expect(hitCall![1]).toContain('type:item')
+    expect(hitCall![1]).toContain('match:Boomerang')
+    expect(hitCall![1]).toContain('user:tidolar')
+    expect(hitCall![1]).toContain('ch:mellen')
+  })
+
+  it('logs hit on fuzzy item match', () => {
+    mockSearch.mockImplementation(() => [boomerang])
+    handleCommand('!b boom', { user: 'chatter' })
+    const hitCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('hits'))
+    expect(hitCall).toBeTruthy()
+    expect(hitCall![1]).toContain('type:item')
+    expect(hitCall![1]).toContain('q:boom')
+    expect(hitCall![1]).toContain('match:Boomerang')
+  })
+
+  it('logs hit with tier on tiered item lookup', () => {
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
+    handleCommand('!b diamond boomerang', { user: 'test' })
+    const hitCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('hits'))
+    expect(hitCall).toBeTruthy()
+    expect(hitCall![1]).toContain('tier:Diamond')
+  })
+
+  it('logs hit on enchantment lookup', () => {
+    mockExact.mockImplementation(() => boomerang)
+    handleCommand('!b fiery boomerang', { user: 'test' })
+    const hitCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('hits'))
+    expect(hitCall).toBeTruthy()
+    expect(hitCall![1]).toContain('type:enchant')
+    expect(hitCall![1]).toContain('match:Boomerang+Fiery')
+  })
+
+  it('logs hit on monster lookup via mob prefix', () => {
+    const lich: Monster = {
+      Id: 'lich-001', Type: 'CombatEncounter', Title: { Text: 'Lich' },
+      Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [], Uri: '',
+      MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [] },
+    }
+    mockFindMonster.mockImplementation(() => lich)
+    handleCommand('!b mob lich', { user: 'test' })
+    const hitCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('hits'))
+    expect(hitCall).toBeTruthy()
+    expect(hitCall![1]).toContain('type:mob')
+    expect(hitCall![1]).toContain('match:Lich')
+  })
+
+  it('logs hit on hero lookup', () => {
+    mockByHero.mockImplementation(() => [boomerang])
+    handleCommand('!b hero vanessa', { user: 'test' })
+    const hitCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('hits'))
+    expect(hitCall).toBeTruthy()
+    expect(hitCall![1]).toContain('type:hero')
+    expect(hitCall![1]).toContain('q:vanessa')
+  })
+
+  it('logs miss with user context', () => {
+    handleCommand('!b xyznothing', { user: 'chatter', channel: 'stream' })
+    const missCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('misses'))
+    expect(missCall).toBeTruthy()
+    expect(missCall![1]).toContain('xyznothing')
+    expect(missCall![1]).toContain('user:chatter')
+    expect(missCall![1]).toContain('ch:stream')
+  })
+
+  it('logs mob miss with user context', () => {
+    handleCommand('!b mob xyzmonster', { user: 'test' })
+    const missCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('misses'))
+    expect(missCall).toBeTruthy()
+    expect(missCall![1]).toContain('mob:xyzmonster')
+    expect(missCall![1]).toContain('user:test')
+  })
+
+  it('does not log on help/usage', () => {
+    handleCommand('!b help', { user: 'test' })
+    expect(mockAppendFileSync).not.toHaveBeenCalled()
+  })
+
+  it('works without context (backwards compat)', () => {
+    mockExact.mockImplementation(() => boomerang)
+    handleCommand('!b boomerang')
+    const hitCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('hits'))
+    expect(hitCall).toBeTruthy()
+    expect(hitCall![1]).not.toContain(' user:')
+    expect(hitCall![1]).not.toContain(' ch:')
+  })
+
+  it('logs implicit monster match (no mob prefix)', () => {
+    const lich: Monster = {
+      Id: 'lich-001', Type: 'CombatEncounter', Title: { Text: 'Lich' },
+      Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [], Uri: '',
+      MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [] },
+    }
+    mockFindMonster.mockImplementation(() => lich)
+    handleCommand('!b lich', { user: 'test' })
+    const hitCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('hits'))
+    expect(hitCall).toBeTruthy()
+    expect(hitCall![1]).toContain('type:mob')
   })
 })
