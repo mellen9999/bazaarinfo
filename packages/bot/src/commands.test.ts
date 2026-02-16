@@ -943,3 +943,45 @@ describe('analytics logging', () => {
     expect(hitCall![1]).toContain('type:mob')
   })
 })
+
+describe('@mention passthrough', () => {
+  beforeEach(() => {
+    mockExact.mockReset()
+    mockSearch.mockReset()
+    mockFindMonster.mockReset()
+    mockAppendFileSync.mockReset()
+  })
+
+  it('appends @mention to item response', () => {
+    mockExact.mockImplementation(() => boomerang)
+    const result = handleCommand('!b boomerang @hamstornado')
+    expect(result).toContain('@hamstornado')
+    expect(result).toContain('Boomerang')
+  })
+
+  it('strips @mention from search query', () => {
+    mockExact.mockImplementation(() => boomerang)
+    handleCommand('!b boomerang @someone')
+    expect(mockExact).toHaveBeenCalledWith('boomerang')
+  })
+
+  it('handles multiple mentions', () => {
+    mockExact.mockImplementation(() => boomerang)
+    const result = handleCommand('!b boomerang @user1 @user2')
+    expect(result).toContain('@user1')
+    expect(result).toContain('@user2')
+  })
+
+  it('mention anywhere in args', () => {
+    mockExact.mockImplementation(() => boomerang)
+    const result = handleCommand('!b @someone boomerang')
+    expect(result).toContain('@someone')
+    expect(result).toContain('Boomerang')
+  })
+
+  it('no mention = no suffix', () => {
+    mockExact.mockImplementation(() => boomerang)
+    const result = handleCommand('!b boomerang')
+    expect(result).not.toContain('@')
+  })
+})
