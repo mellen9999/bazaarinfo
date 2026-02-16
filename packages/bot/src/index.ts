@@ -2,7 +2,6 @@ import { TwitchClient, getUserId } from './twitch'
 import type { ChannelInfo } from './twitch'
 import { loadStore, reloadStore, CACHE_PATH } from './store'
 import { handleCommand, setLobbyChannel } from './commands'
-import { checkCooldown } from './cooldown'
 import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily } from './scheduler'
 import { scrapeItems, scrapeSkills, scrapeMonsters } from '@bazaarinfo/data'
@@ -108,7 +107,6 @@ const client = new TwitchClient(
   async (channel, userId, username, text) => {
     try {
       if (userId === botUserId) return
-      if (!checkCooldown(userId)) return
 
       // handle !join / !part in bot's own channel
       if (channel === BOT_USERNAME.toLowerCase()) {
