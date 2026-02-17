@@ -108,40 +108,42 @@ const client = new TwitchClient(
     try {
       if (userId === botUserId) return
 
-      // handle !join / !part from any channel
-      const trimmed = text.trim().toLowerCase()
-      if (trimmed === '!join') {
-        const target = username.toLowerCase()
-        if (client.hasChannel(target)) {
-          client.say(channel, `@${username} i'm already in your channel`)
+      // handle !join / !part only in bot's own channel to avoid collisions with other bots
+      if (channel === BOT_USERNAME.toLowerCase()) {
+        const trimmed = text.trim().toLowerCase()
+        if (trimmed === '!join') {
+          const target = username.toLowerCase()
+          if (client.hasChannel(target)) {
+            client.say(channel, `@${username} i'm already in your channel`)
+            return
+          }
+          try {
+            const targetId = await getUserId(getAccessToken(), CLIENT_ID, target, doRefresh)
+            const info: ChannelInfo = { name: target, userId: targetId }
+            await client.joinChannel(info)
+            await channelStore.add(target)
+            client.say(channel, `@${username} joined #${target}! type !b help in your chat`)
+          } catch (e) {
+            log(`join error for ${target}: ${e}`)
+            client.say(channel, `@${username} couldn't join your channel, try again later`)
+          }
           return
         }
-        try {
-          const targetId = await getUserId(getAccessToken(), CLIENT_ID, target, doRefresh)
-          const info: ChannelInfo = { name: target, userId: targetId }
-          await client.joinChannel(info)
-          await channelStore.add(target)
-          client.say(channel, `@${username} joined #${target}! type !b help in your chat`)
-        } catch (e) {
-          log(`join error for ${target}: ${e}`)
-          client.say(channel, `@${username} couldn't join your channel, try again later`)
-        }
-        return
-      }
-      if (trimmed === '!part') {
-        const target = username.toLowerCase()
-        if (envChannels.includes(target)) {
-          client.say(channel, `@${username} can't leave a hardcoded channel`)
+        if (trimmed === '!part') {
+          const target = username.toLowerCase()
+          if (envChannels.includes(target)) {
+            client.say(channel, `@${username} can't leave a hardcoded channel`)
+            return
+          }
+          if (!client.hasChannel(target)) {
+            client.say(channel, `@${username} i'm not in your channel`)
+            return
+          }
+          client.leaveChannel(target)
+          await channelStore.remove(target)
+          client.say(channel, `@${username} left #${target}`)
           return
         }
-        if (!client.hasChannel(target)) {
-          client.say(channel, `@${username} i'm not in your channel`)
-          return
-        }
-        client.leaveChannel(target)
-        await channelStore.remove(target)
-        client.say(channel, `@${username} left #${target}`)
-        return
       }
 
       const response = handleCommand(text, { user: username, channel })
