@@ -46,11 +46,12 @@ export function parseArgs(words: string[]): ParsedArgs {
   }
 
   // extract enchantment from any position if other words remain for item
+  // require 3+ chars for prefix match to prevent "to"→toxic, "re"→restorative, etc.
   if (remaining.length > 1) {
     for (let i = 0; i < remaining.length; i++) {
       const lower = remaining[i].toLowerCase()
       const matches = enchList.filter((e) => e.startsWith(lower))
-      if (matches.length === 1) {
+      if (matches.length === 1 && (lower === matches[0] || lower.length >= 3)) {
         enchant = capitalize(matches[0])
         remaining.splice(i, 1)
         break
@@ -198,7 +199,7 @@ function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): str
 
 function bazaarinfo(args: string, ctx: CommandContext): string | null {
   const mentions = args.match(/@\w+/g) ?? []
-  const cleanArgs = args.replace(/@\w+/g, '').replace(/\s+/g, ' ').trim()
+  const cleanArgs = args.replace(/@\w+/g, '').replace(/["']/g, '').replace(/\s+/g, ' ').trim()
 
   if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
 

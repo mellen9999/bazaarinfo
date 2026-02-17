@@ -138,7 +138,11 @@ export class TwitchClient {
     ws.onmessage = (ev) => {
       try { this.handleEventSub(JSON.parse(ev.data) as EventSubMessage) } catch (e) { log('eventsub message error:', e) }
     }
-    ws.onclose = (ev) => { log(`eventsub closed: ${ev.code}`); this.reconnectEventSub() }
+    ws.onclose = (ev) => {
+      log(`eventsub closed: ${ev.code}`)
+      // only reconnect if this is still the active WS (prevents stray reconnect on session_reconnect)
+      if (this.eventsub === ws) this.reconnectEventSub()
+    }
     ws.onerror = (ev) => log('eventsub error:', ev)
     return ws
   }

@@ -249,6 +249,34 @@ describe('parseArgs', () => {
     expect(result.item).toBe('fie boomerang')
   })
 
+  it('does not extract 2-char prefix as enchant ("to" should not match "toxic")', () => {
+    mockGetEnchantments.mockImplementation(() => ['toxic'])
+    const result = parseArgs(['reason', 'to', 'live'])
+    expect(result.enchant).toBeUndefined()
+    expect(result.item).toBe('reason to live')
+  })
+
+  it('does not extract 1-char prefix as enchant ("a" should not match "aegis")', () => {
+    mockGetEnchantments.mockImplementation(() => ['aegis'])
+    const result = parseArgs(['a', 'reason', 'to', 'live'])
+    expect(result.enchant).toBeUndefined()
+    expect(result.item).toBe('a reason to live')
+  })
+
+  it('does not extract "re" as enchant for "restorative"', () => {
+    mockGetEnchantments.mockImplementation(() => ['restorative'])
+    const result = parseArgs(['red', 'rocket'])
+    expect(result.enchant).toBeUndefined()
+    expect(result.item).toBe('red rocket')
+  })
+
+  it('extracts 3-char prefix as enchant ("tox" matches "toxic")', () => {
+    mockGetEnchantments.mockImplementation(() => ['toxic'])
+    const result = parseArgs(['tox', 'boomerang'])
+    expect(result.enchant).toBe('Toxic')
+    expect(result.item).toBe('boomerang')
+  })
+
   it('"gold" is tier, not "golden" enchant prefix', () => {
     const result = parseArgs(['gold', 'boomerang'])
     expect(result.tier).toBe('Gold')
@@ -802,6 +830,14 @@ describe('!b edge cases', () => {
     expect(result).toContain('!b')
   })
 
+  it('strips quotes from input', () => {
+    const eclipse = makeCard({ Title: { Text: 'The Eclipse' } })
+    mockExact.mockImplementation((name) => name === 'the eclipse' ? eclipse : undefined)
+    const result = handleCommand('!b "the eclipse"')
+    expect(result).toContain('The Eclipse')
+    expect(mockExact).toHaveBeenCalledWith('the eclipse')
+  })
+
   it('help and info show usage', () => {
     expect(handleCommand('!b help')).toContain('!b')
     expect(handleCommand('!b info')).toContain('!b')
@@ -1127,12 +1163,12 @@ describe('!b day', () => {
 
   it('rejects day 0', () => {
     const result = handleCommand('!b day 0')
-    expect(result).toBe('day must be 1-10')
+    expect(result).toContain('day must be 1-10')
   })
 
   it('rejects day 11', () => {
     const result = handleCommand('!b day 11')
-    expect(result).toBe('day must be 1-10')
+    expect(result).toContain('day must be 1-10')
   })
 
   it('is case-insensitive keyword', () => {

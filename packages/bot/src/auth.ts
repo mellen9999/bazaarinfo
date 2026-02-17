@@ -45,7 +45,7 @@ async function validate(accessToken: string): Promise<number> {
     return data.expires_in
   } catch (e) {
     log('token validation failed:', e)
-    return 0
+    return -1 // network error, distinct from invalid (0)
   }
 }
 
@@ -82,6 +82,12 @@ export async function ensureValidToken(clientId: string, clientSecret: string): 
   const remaining = await validate(tokens.accessToken)
   if (remaining > 600) {
     log(`token valid, ${remaining}s remaining`)
+    return tokens.accessToken
+  }
+
+  if (remaining === -1) {
+    // network unreachable — use existing token optimistically, periodic refresh will fix later
+    log('validation unreachable, using existing token')
     return tokens.accessToken
   }
 
