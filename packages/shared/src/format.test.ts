@@ -616,5 +616,39 @@ describe('formatQuests', () => {
     const result = formatQuests(card)
     expect(result).toBe('[Dog] Quests: Sell 20 Food → +200 Damage | Sell 40 Food → +1 Multicast')
   })
+
+  it('shows OR for multi-entry quest groups', () => {
+    const card = makeCard({
+      Title: { Text: 'Soulstone' },
+      Quests: [{
+        Entries: [
+          {
+            Reward: {
+              Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
+              Localization: { Tooltips: [{ Content: { Text: 'Poison {a}' }, TooltipType: 'Active' }] },
+              TooltipReplacements: { '{a}': { Fixed: 3 } },
+              DisplayTags: [],
+            },
+            CompletionEffects: null,
+            Localization: { Tooltips: [{ Content: { Text: 'Buy 6 Poison items' }, TooltipType: 'Passive' }] },
+            IconKeyOverride: null,
+          },
+          {
+            Reward: {
+              Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
+              Localization: { Tooltips: [{ Content: { Text: 'Burn {b}' }, TooltipType: 'Active' }] },
+              TooltipReplacements: { '{b}': { Fixed: 3 } },
+              DisplayTags: [],
+            },
+            CompletionEffects: null,
+            Localization: { Tooltips: [{ Content: { Text: 'Buy 6 Burn items' }, TooltipType: 'Passive' }] },
+            IconKeyOverride: null,
+          },
+        ],
+      }],
+    })
+    const result = formatQuests(card)
+    expect(result).toContain('Buy 6 Poison items → Poison 3 OR Buy 6 Burn items → Burn 3')
+  })
 })
 

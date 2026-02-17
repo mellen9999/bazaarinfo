@@ -202,20 +202,24 @@ export function formatMonster(monster: Monster, skillDetails?: Map<string, Skill
   return truncate(parts.join(' | '))
 }
 
+function formatQuestEntry(entry: Quest['Entries'][0], tier?: TierName): string | null {
+  const req = entry.Localization.Tooltips[0]?.Content.Text
+  if (!req) return null
+  const reward = entry.Reward.Localization.Tooltips
+    .map((t) => resolveTooltip(t.Content.Text, entry.Reward.TooltipReplacements, tier))
+    .join('; ')
+  return `${req} → ${reward}`
+}
+
 export function formatQuests(card: BazaarCard, tier?: TierName): string {
   if (!card.Quests?.length) return `${card.Title.Text} has no quests`
 
-  const questLines = card.Quests.map((q) => {
-    const entry = q.Entries[0]
-    if (!entry) return null
-    const req = entry.Localization.Tooltips[0]?.Content.Text
-    if (!req) return null
-    const reward = entry.Reward.Localization.Tooltips
-      .map((t) => resolveTooltip(t.Content.Text, entry.Reward.TooltipReplacements, tier))
-      .join('; ')
-    return `${req} → ${reward}`
+  const questGroups = card.Quests.map((q) => {
+    const entries = q.Entries.map((e) => formatQuestEntry(e, tier)).filter(Boolean)
+    if (!entries.length) return null
+    return entries.join(' OR ')
   }).filter(Boolean)
 
-  if (questLines.length === 0) return `${card.Title.Text} has no quests`
-  return truncate(`[${card.Title.Text}] Quests: ${questLines.join(' | ')}`)
+  if (questGroups.length === 0) return `${card.Title.Text} has no quests`
+  return truncate(`[${card.Title.Text}] Quests: ${questGroups.join(' | ')}`)
 }
