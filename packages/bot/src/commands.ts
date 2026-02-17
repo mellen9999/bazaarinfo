@@ -66,7 +66,7 @@ let lobbyChannel = ''
 export function setLobbyChannel(name: string) { lobbyChannel = name }
 
 const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/quest/enchants | bazaardb.gg'
-const JOIN_USAGE = () => lobbyChannel ? ` | add bot: twitch.tv/${lobbyChannel} and type !join` : ''
+const JOIN_USAGE = () => lobbyChannel ? ` | add bot: type !join in ${lobbyChannel}'s chat` : ''
 
 function logMiss(query: string, ctx: CommandContext, prefix = '') {
   const who = ctx.user ? ` user:${ctx.user}` : ''
