@@ -11,6 +11,9 @@ const mockGetEnchantments = mock<() => string[]>(() => [])
 const mockByHero = mock<(hero: string) => BazaarCard[]>(() => [])
 const mockFindMonster = mock<(query: string) => Monster | undefined>(() => undefined)
 const mockFindCard = mock<(name: string) => BazaarCard | undefined>(() => undefined)
+const mockByTag = mock<(tag: string) => BazaarCard[]>(() => [])
+const mockMonstersByDay = mock<(day: number) => Monster[]>(() => [])
+const mockFindSkill = mock<(query: string) => BazaarCard | undefined>(() => undefined)
 
 mock.module('./store', () => ({
   exact: mockExact,
@@ -19,6 +22,9 @@ mock.module('./store', () => ({
   byHero: mockByHero,
   findMonster: mockFindMonster,
   findCard: mockFindCard,
+  byTag: mockByTag,
+  monstersByDay: mockMonstersByDay,
+  findSkill: mockFindSkill,
 }))
 
 const { handleCommand, parseArgs } = await import('./commands')
@@ -99,6 +105,12 @@ beforeEach(() => {
   mockByHero.mockImplementation(() => [])
   mockFindMonster.mockImplementation(() => undefined)
   mockFindCard.mockImplementation(() => undefined)
+  mockByTag.mockReset()
+  mockMonstersByDay.mockReset()
+  mockFindSkill.mockReset()
+  mockByTag.mockImplementation(() => [])
+  mockMonstersByDay.mockImplementation(() => [])
+  mockFindSkill.mockImplementation(() => undefined)
 })
 
 // ---------------------------------------------------------------------------
@@ -321,14 +333,14 @@ describe('!b item lookup', () => {
   it('looks up item by exact match first', () => {
     mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = handleCommand('!b boomerang')
-    expect(result).toContain('Boomerang ·')
+    expect(result).toContain('Boomerang [M]')
     expect(mockExact).toHaveBeenCalledWith('boomerang')
   })
 
   it('falls back to fuzzy search when exact match fails', () => {
     mockSearch.mockImplementation(() => [boomerang])
     const result = handleCommand('!b boomrang')
-    expect(result).toContain('Boomerang ·')
+    expect(result).toContain('Boomerang [M]')
     expect(mockSearch).toHaveBeenCalledWith('boomrang', 1)
   })
 
@@ -341,7 +353,7 @@ describe('!b item lookup', () => {
     const tinfoil = makeCard({ Title: { Text: 'Tinfoil Hat' } })
     mockExact.mockImplementation((name) => name === 'tinfoil hat' ? tinfoil : undefined)
     const result = handleCommand('!b tinfoil hat')
-    expect(result).toContain('Tinfoil Hat ·')
+    expect(result).toContain('Tinfoil Hat [M]')
   })
 
   it('falls back to monster if no item found', () => {
@@ -601,7 +613,7 @@ describe('!b gold vs golden', () => {
 
   it('"gold boomerang" → gold tier item lookup', () => {
     const result = handleCommand('!b gold boomerang')
-    expect(result).toContain('Boomerang ·')
+    expect(result).toContain('Boomerang [M]')
     expect(result).not.toContain('Golden')
   })
 
@@ -612,7 +624,7 @@ describe('!b gold vs golden', () => {
 
   it('"boomerang gold" → gold tier item lookup', () => {
     const result = handleCommand('!b boomerang gold')
-    expect(result).toContain('Boomerang ·')
+    expect(result).toContain('Boomerang [M]')
     expect(result).not.toContain('Golden')
   })
 
@@ -762,7 +774,7 @@ describe('!b edge cases', () => {
   it('handles extra whitespace between words', () => {
     mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = handleCommand('!b   boomerang')
-    expect(result).toContain('Boomerang ·')
+    expect(result).toContain('Boomerang [M]')
   })
 
   it('output never exceeds 480 chars', () => {
@@ -983,5 +995,235 @@ describe('@mention passthrough', () => {
     mockExact.mockImplementation(() => boomerang)
     const result = handleCommand('!b boomerang')
     expect(result).not.toContain('@')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// !b enchants
+// ---------------------------------------------------------------------------
+describe('!b enchants', () => {
+  it('lists all enchantments', () => {
+    mockGetEnchantments.mockImplementation(() => ['deadly', 'fiery', 'golden'])
+    const result = handleCommand('!b enchants')
+    expect(result).toContain('Enchantments: Deadly, Fiery, Golden')
+  })
+
+  it('matches "enchantments" keyword', () => {
+    mockGetEnchantments.mockImplementation(() => ['deadly'])
+    const result = handleCommand('!b enchantments')
+    expect(result).toContain('Enchantments: Deadly')
+  })
+
+  it('matches "enchant" keyword', () => {
+    mockGetEnchantments.mockImplementation(() => ['deadly'])
+    const result = handleCommand('!b enchant')
+    expect(result).toContain('Enchantments: Deadly')
+  })
+
+  it('is case-insensitive', () => {
+    mockGetEnchantments.mockImplementation(() => ['deadly'])
+    expect(handleCommand('!b ENCHANTS')).toContain('Enchantments:')
+    expect(handleCommand('!b Enchants')).toContain('Enchantments:')
+  })
+
+  it('logs hit', () => {
+    mockGetEnchantments.mockImplementation(() => ['deadly', 'fiery'])
+    handleCommand('!b enchants', { user: 'test' })
+    const hitCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('hits'))
+    expect(hitCall).toBeTruthy()
+    expect(hitCall![1]).toContain('type:enchants')
+  })
+
+  it('appends @mention', () => {
+    mockGetEnchantments.mockImplementation(() => ['deadly'])
+    const result = handleCommand('!b enchants @someone')
+    expect(result).toContain('Enchantments: Deadly')
+    expect(result).toContain('@someone')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// !b tag
+// ---------------------------------------------------------------------------
+describe('!b tag', () => {
+  it('finds items by tag', () => {
+    mockByTag.mockImplementation(() => [boomerang, shield])
+    const result = handleCommand('!b tag Burn')
+    expect(result).toContain('[Burn]')
+    expect(result).toContain('Boomerang')
+    expect(result).toContain('Shield')
+  })
+
+  it('returns not found for unknown tag', () => {
+    const result = handleCommand('!b tag Nonexistent')
+    expect(result).toContain('no items found with tag Nonexistent')
+  })
+
+  it('is case-insensitive keyword', () => {
+    mockByTag.mockImplementation(() => [boomerang])
+    expect(handleCommand('!b TAG burn')).toContain('Boomerang')
+    expect(handleCommand('!b Tag Burn')).toContain('Boomerang')
+  })
+
+  it('logs hit on tag match', () => {
+    mockByTag.mockImplementation(() => [boomerang])
+    handleCommand('!b tag Shield', { user: 'test' })
+    const hitCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('hits'))
+    expect(hitCall).toBeTruthy()
+    expect(hitCall![1]).toContain('type:tag')
+    expect(hitCall![1]).toContain('q:Shield')
+  })
+
+  it('logs miss on tag miss', () => {
+    handleCommand('!b tag Nothing', { user: 'test' })
+    const missCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('misses'))
+    expect(missCall).toBeTruthy()
+    expect(missCall![1]).toContain('tag:Nothing')
+  })
+
+  it('appends @mention to tag results', () => {
+    mockByTag.mockImplementation(() => [boomerang])
+    const result = handleCommand('!b tag Burn @friend')
+    expect(result).toContain('@friend')
+    expect(result).toContain('Boomerang')
+  })
+
+  it('no keyword returns usage (falls through)', () => {
+    // "tag" alone doesn't match /^tag\s+(.+)$/i, falls to parseArgs
+    const result = handleCommand('!b tag')
+    expect(result).toBeTruthy()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// !b day
+// ---------------------------------------------------------------------------
+describe('!b day', () => {
+  const lich: Monster = {
+    Id: 'lich-001', Type: 'CombatEncounter', Title: { Text: 'Lich' },
+    Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+    Heroes: [], Uri: '',
+    MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [] },
+  }
+  const dragon: Monster = {
+    Id: 'dragon-001', Type: 'CombatEncounter', Title: { Text: 'Dragon' },
+    Description: null, Size: 'Large', Tags: [], DisplayTags: [], HiddenTags: [],
+    Heroes: [], Uri: '',
+    MonsterMetadata: { available: 'Always', day: 5, health: 500, board: [] },
+  }
+
+  it('lists monsters for a day', () => {
+    mockMonstersByDay.mockImplementation(() => [lich, dragon])
+    const result = handleCommand('!b day 5')
+    expect(result).toContain('[Day 5]')
+    expect(result).toContain('Lich (100HP)')
+    expect(result).toContain('Dragon (500HP)')
+  })
+
+  it('returns not found for empty day', () => {
+    const result = handleCommand('!b day 9')
+    expect(result).toContain('no monsters found for day 9')
+  })
+
+  it('rejects day 0', () => {
+    const result = handleCommand('!b day 0')
+    expect(result).toBe('day must be 1-10')
+  })
+
+  it('rejects day 11', () => {
+    const result = handleCommand('!b day 11')
+    expect(result).toBe('day must be 1-10')
+  })
+
+  it('is case-insensitive keyword', () => {
+    mockMonstersByDay.mockImplementation(() => [lich])
+    expect(handleCommand('!b DAY 5')).toContain('Lich')
+    expect(handleCommand('!b Day 5')).toContain('Lich')
+  })
+
+  it('logs hit on day match', () => {
+    mockMonstersByDay.mockImplementation(() => [lich])
+    handleCommand('!b day 5', { user: 'test' })
+    const hitCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('hits'))
+    expect(hitCall).toBeTruthy()
+    expect(hitCall![1]).toContain('type:day')
+    expect(hitCall![1]).toContain('q:5')
+  })
+
+  it('logs miss on empty day', () => {
+    handleCommand('!b day 8', { user: 'test' })
+    const missCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('misses'))
+    expect(missCall).toBeTruthy()
+    expect(missCall![1]).toContain('day:8')
+  })
+
+  it('appends @mention', () => {
+    mockMonstersByDay.mockImplementation(() => [lich])
+    const result = handleCommand('!b day 5 @viewer')
+    expect(result).toContain('@viewer')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// !b skill
+// ---------------------------------------------------------------------------
+describe('!b skill', () => {
+  it('finds skill by name', () => {
+    const skill = makeCard({ Title: { Text: 'Ink Blast' }, Type: 'Skill' })
+    mockFindSkill.mockImplementation(() => skill)
+    const result = handleCommand('!b skill ink blast')
+    expect(result).toContain('Ink Blast')
+  })
+
+  it('returns not found for unknown skill', () => {
+    const result = handleCommand('!b skill xyzskill')
+    expect(result).toContain('no skill found for xyzskill')
+  })
+
+  it('is case-insensitive keyword', () => {
+    const skill = makeCard({ Title: { Text: 'Zap' }, Type: 'Skill' })
+    mockFindSkill.mockImplementation(() => skill)
+    expect(handleCommand('!b SKILL zap')).toContain('Zap')
+    expect(handleCommand('!b Skill zap')).toContain('Zap')
+  })
+
+  it('logs hit on skill match', () => {
+    const skill = makeCard({ Title: { Text: 'Zap' }, Type: 'Skill' })
+    mockFindSkill.mockImplementation(() => skill)
+    handleCommand('!b skill zap', { user: 'test' })
+    const hitCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('hits'))
+    expect(hitCall).toBeTruthy()
+    expect(hitCall![1]).toContain('type:skill')
+    expect(hitCall![1]).toContain('match:Zap')
+  })
+
+  it('logs miss on skill miss', () => {
+    handleCommand('!b skill nothing', { user: 'test' })
+    const missCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('misses'))
+    expect(missCall).toBeTruthy()
+    expect(missCall![1]).toContain('skill:nothing')
+  })
+
+  it('appends @mention', () => {
+    const skill = makeCard({ Title: { Text: 'Zap' }, Type: 'Skill' })
+    mockFindSkill.mockImplementation(() => skill)
+    const result = handleCommand('!b skill zap @someone')
+    expect(result).toContain('@someone')
+    expect(result).toContain('Zap')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Updated usage string
+// ---------------------------------------------------------------------------
+describe('usage string', () => {
+  it('includes new route keywords', () => {
+    const result = handleCommand('!b help')!
+    expect(result).toContain('hero')
+    expect(result).toContain('mob')
+    expect(result).toContain('skill')
+    expect(result).toContain('tag')
+    expect(result).toContain('day')
+    expect(result).toContain('enchants')
   })
 })

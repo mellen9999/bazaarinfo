@@ -1,4 +1,4 @@
-import { formatItem, formatEnchantment, formatMonster } from '@bazaarinfo/shared'
+import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults } from '@bazaarinfo/shared'
 import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import { appendFileSync } from 'fs'
@@ -64,7 +64,7 @@ export function parseArgs(words: string[]): ParsedArgs {
 let lobbyChannel = ''
 export function setLobbyChannel(name: string) { lobbyChannel = name }
 
-const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero <name> | !b mob <name> | data: bazaardb.gg'
+const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/enchants | bazaardb.gg'
 const JOIN_USAGE = () => lobbyChannel ? ` | !join in #${lobbyChannel} to add bot, !part to remove` : ''
 
 function logMiss(query: string, ctx: CommandContext, prefix = '') {
@@ -142,6 +142,53 @@ function bazaarinfo(args: string, ctx: CommandContext): string | null {
     const names = items.map((i) => i.Title.Text)
     const result = `[${heroName}] ${names.join(', ')}` + suffix
     return result.length > 480 ? result.slice(0, 477) + '...' : result
+  }
+
+  // enchant list: "enchants" or "enchantments"
+  if (/^enchant(?:s|ments)?$/i.test(cleanArgs)) {
+    const names = store.getEnchantments().map(capitalize)
+    logHit('enchants', cleanArgs, `${names.length} enchants`, ctx)
+    return `Enchantments: ${names.join(', ')}` + suffix
+  }
+
+  // tag search: "tag burn"
+  const tagMatch = cleanArgs.match(/^tag\s+(.+)$/i)
+  if (tagMatch) {
+    const tag = tagMatch[1].trim()
+    const cards = store.byTag(tag)
+    if (cards.length === 0) {
+      logMiss(tag, ctx, 'tag:')
+      return `no items found with tag ${tag}`
+    }
+    logHit('tag', tag, `${cards.length} items`, ctx)
+    return formatTagResults(tag, cards) + suffix
+  }
+
+  // day lookup: "day 5"
+  const dayMatch = cleanArgs.match(/^day\s+(\d+)$/i)
+  if (dayMatch) {
+    const day = parseInt(dayMatch[1])
+    if (day < 1 || day > 10) return `day must be 1-10`
+    const mobs = store.monstersByDay(day)
+    if (mobs.length === 0) {
+      logMiss(String(day), ctx, 'day:')
+      return `no monsters found for day ${day}`
+    }
+    logHit('day', String(day), `${mobs.length} monsters`, ctx)
+    return formatDayResults(day, mobs) + suffix
+  }
+
+  // skill lookup: "skill ink blast"
+  const skillMatch = cleanArgs.match(/^skill\s+(.+)$/i)
+  if (skillMatch) {
+    const query = skillMatch[1].trim()
+    const skill = store.findSkill(query)
+    if (!skill) {
+      logMiss(query, ctx, 'skill:')
+      return `no skill found for ${query}`
+    }
+    logHit('skill', query, skill.Title.Text, ctx)
+    return formatItem(skill) + suffix
   }
 
   // order-agnostic parse: tier and enchant can be anywhere

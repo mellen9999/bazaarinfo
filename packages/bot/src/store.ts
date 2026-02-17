@@ -114,11 +114,27 @@ export function findMonster(query: string): Monster | undefined {
   return monsters.find((m) => m.Title.Text.toLowerCase().includes(lower))
 }
 
-export function getMonsters(): Monster[] {
-  return monsters
-}
-
 export function findCard(name: string): BazaarCard | undefined {
   const lower = name.toLowerCase()
   return allCards.find((c) => c.Title.Text.toLowerCase() === lower)
+}
+
+export function byTag(tag: string): BazaarCard[] {
+  const lower = tag.toLowerCase()
+  return items.filter((c) =>
+    c.HiddenTags.some((t) => t.toLowerCase() === lower),
+  )
+}
+
+export function monstersByDay(day: number): Monster[] {
+  return monsters.filter((m) => m.MonsterMetadata.day === day)
+}
+
+export function findSkill(query: string): BazaarCard | undefined {
+  const lower = query.toLowerCase()
+  const exact = skills.find((s) => s.Title.Text.toLowerCase() === lower)
+  if (exact) return exact
+  const prefix = skills.find((s) => s.Title.Text.toLowerCase().startsWith(lower))
+  if (prefix) return prefix
+  return skills.find((s) => s.Title.Text.toLowerCase().includes(lower))
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { formatItem, formatEnchantment } from './format'
-import type { BazaarCard, TierName } from './types'
+import { formatItem, formatEnchantment, formatTagResults, formatDayResults } from './format'
+import type { BazaarCard, TierName, Monster } from './types'
 
 function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
   return {
@@ -58,9 +58,9 @@ function t() {
 // formatItem
 // ---------------------------------------------------------------------------
 describe('formatItem', () => {
-  it('outputs name and hero', () => {
+  it('outputs name, size, and hero', () => {
     const result = formatItem(makeCard())
-    expect(result).toStartWith('Boomerang · Pyg')
+    expect(result).toStartWith('Boomerang [M] · Pyg')
   })
 
   it('does not include Buy price', () => {
@@ -186,7 +186,7 @@ describe('formatItem', () => {
 
   it('handles card with no heroes', () => {
     const result = formatItem(makeCard({ Heroes: [] }))
-    expect(result).toStartWith('Boomerang |')
+    expect(result).toStartWith('Boomerang [M] |')
   })
 
   it('handles card with no tooltips', () => {
@@ -328,6 +328,155 @@ describe('formatEnchantment', () => {
     })
     const result = formatEnchantment(card, 'Tagged')
     expect(result).toContain('[Burn, Slow]')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatItem — expanded stats
+// ---------------------------------------------------------------------------
+describe('formatItem expanded stats', () => {
+  it('shows burn stat', () => {
+    const result = formatItem(makeCard({ BaseAttributes: { BurnApplyAmount: 10 } }))
+    expect(result).toContain('🔥10')
+  })
+
+  it('shows poison stat', () => {
+    const result = formatItem(makeCard({ BaseAttributes: { PoisonApplyAmount: 5 } }))
+    expect(result).toContain('🧪5')
+  })
+
+  it('shows freeze as seconds', () => {
+    const result = formatItem(makeCard({ BaseAttributes: { FreezeAmount: 2000 } }))
+    expect(result).toContain('🧊2s')
+  })
+
+  it('shows slow as seconds', () => {
+    const result = formatItem(makeCard({ BaseAttributes: { SlowAmount: 1500 } }))
+    expect(result).toContain('🐌1.5s')
+  })
+
+  it('shows haste as seconds', () => {
+    const result = formatItem(makeCard({ BaseAttributes: { HasteAmount: 3000 } }))
+    expect(result).toContain('⚡3s')
+  })
+
+  it('shows regen stat', () => {
+    const result = formatItem(makeCard({ BaseAttributes: { RegenApplyAmount: 8 } }))
+    expect(result).toContain('🌿8')
+  })
+
+  it('shows lifesteal as percent', () => {
+    const result = formatItem(makeCard({ BaseAttributes: { Lifesteal: 25 } }))
+    expect(result).toContain('🩸25%')
+  })
+
+  it('shows crit chance as percent', () => {
+    const result = formatItem(makeCard({ BaseAttributes: { CritChance: 15 } }))
+    expect(result).toContain('🎯15%')
+  })
+
+  it('shows multicast only when > 1', () => {
+    const result1 = formatItem(makeCard({ BaseAttributes: { Multicast: 1 } }))
+    expect(result1).not.toContain('🔁')
+    const result2 = formatItem(makeCard({ BaseAttributes: { Multicast: 2 } }))
+    expect(result2).toContain('🔁2')
+  })
+
+  it('shows ammo stat', () => {
+    const result = formatItem(makeCard({ BaseAttributes: { AmmoMax: 3 } }))
+    expect(result).toContain('🔋3')
+  })
+
+  it('shows charge as seconds', () => {
+    const result = formatItem(makeCard({ BaseAttributes: { ChargeAmount: 5000 } }))
+    expect(result).toContain('⏳5s')
+  })
+
+  it('cooldown always appears last', () => {
+    const result = formatItem(makeCard({
+      BaseAttributes: { CooldownMax: 3000, DamageAmount: 10, AmmoMax: 2 },
+    }))
+    const statsMatch = result.match(/🗡️10 🔋2 🕐3s/)
+    expect(statsMatch).toBeTruthy()
+  })
+
+  it('stat display order is correct', () => {
+    const result = formatItem(makeCard({
+      BaseAttributes: { CooldownMax: 4000, DamageAmount: 20, ShieldApplyAmount: 10, BurnApplyAmount: 5 },
+    }))
+    const dmgIdx = result.indexOf('🗡️')
+    const shieldIdx = result.indexOf('🛡')
+    const burnIdx = result.indexOf('🔥')
+    const cdIdx = result.indexOf('🕐')
+    expect(dmgIdx).toBeLessThan(shieldIdx)
+    expect(shieldIdx).toBeLessThan(burnIdx)
+    expect(burnIdx).toBeLessThan(cdIdx)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatItem — size display
+// ---------------------------------------------------------------------------
+describe('formatItem size display', () => {
+  it('shows [S] for Small items', () => {
+    const result = formatItem(makeCard({ Size: 'Small' }))
+    expect(result).toContain('Boomerang [S]')
+  })
+
+  it('shows [M] for Medium items', () => {
+    const result = formatItem(makeCard({ Size: 'Medium' }))
+    expect(result).toContain('Boomerang [M]')
+  })
+
+  it('shows [L] for Large items', () => {
+    const result = formatItem(makeCard({ Size: 'Large' }))
+    expect(result).toContain('Boomerang [L]')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatTagResults
+// ---------------------------------------------------------------------------
+describe('formatTagResults', () => {
+  it('formats tag results with names', () => {
+    const cards = [makeCard({ Title: { Text: 'Sword' } }), makeCard({ Title: { Text: 'Shield' } })]
+    const result = formatTagResults('Burn', cards)
+    expect(result).toBe('[Burn] Sword, Shield')
+  })
+
+  it('returns not found for empty results', () => {
+    expect(formatTagResults('Nope', [])).toBe('no items found with tag Nope')
+  })
+
+  it('truncates long results to 480', () => {
+    const cards = Array.from({ length: 100 }, (_, i) =>
+      makeCard({ Title: { Text: 'Item' + 'X'.repeat(20) + i } }),
+    )
+    const result = formatTagResults('Test', cards)
+    expect(result.length).toBeLessThanOrEqual(480)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatDayResults
+// ---------------------------------------------------------------------------
+describe('formatDayResults', () => {
+  function makeMonster(name: string, hp: number): Monster {
+    return {
+      Id: 'mon-' + name, Type: 'CombatEncounter', Title: { Text: name },
+      Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [], Uri: '',
+      MonsterMetadata: { available: 'Always', day: 5, health: hp, board: [] },
+    }
+  }
+
+  it('formats day results with name and HP', () => {
+    const result = formatDayResults(5, [makeMonster('Lich', 100), makeMonster('Dragon', 500)])
+    expect(result).toBe('[Day 5] Lich (100HP), Dragon (500HP)')
+  })
+
+  it('returns not found for empty results', () => {
+    expect(formatDayResults(9, [])).toBe('no monsters found for day 9')
   })
 })
 

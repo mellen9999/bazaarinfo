@@ -44,9 +44,40 @@ function getAttributes(card: BazaarCard, tier?: TierName): Record<string, number
   return base
 }
 
-function formatStat(emoji: string, key: string, base: number, card: BazaarCard, tier?: TierName): string {
+interface StatEntry {
+  key: string
+  emoji: string
+  format?: 'ms' | 'pct'
+  minShow?: number
+}
+
+const STAT_CONFIG: StatEntry[] = [
+  { key: 'DamageAmount', emoji: '🗡️' },
+  { key: 'ShieldApplyAmount', emoji: '🛡' },
+  { key: 'HealAmount', emoji: '💚' },
+  { key: 'BurnApplyAmount', emoji: '🔥' },
+  { key: 'PoisonApplyAmount', emoji: '🧪' },
+  { key: 'FreezeAmount', emoji: '🧊', format: 'ms' },
+  { key: 'SlowAmount', emoji: '🐌', format: 'ms' },
+  { key: 'HasteAmount', emoji: '⚡', format: 'ms' },
+  { key: 'RegenApplyAmount', emoji: '🌿' },
+  { key: 'Lifesteal', emoji: '🩸', format: 'pct' },
+  { key: 'CritChance', emoji: '🎯', format: 'pct' },
+  { key: 'Multicast', emoji: '🔁', minShow: 2 },
+  { key: 'AmmoMax', emoji: '🔋' },
+  { key: 'ChargeAmount', emoji: '⏳', format: 'ms' },
+  { key: 'CooldownMax', emoji: '🕐', format: 'ms' },
+]
+
+function fmtVal(v: number, format?: 'ms' | 'pct'): string {
+  if (format === 'ms') return v / 1000 + 's'
+  if (format === 'pct') return v + '%'
+  return String(v)
+}
+
+function formatStat(emoji: string, key: string, base: number, card: BazaarCard, tier?: TierName, format?: 'ms' | 'pct'): string {
   const val = tier ? (getAttributes(card, tier)[key] ?? base) : base
-  if (tier) return `${emoji}${key === 'CooldownMax' ? val / 1000 + 's' : val}`
+  if (tier) return `${emoji}${fmtVal(val, format)}`
 
   // no tier specified — show tier range if values differ
   const tierVals = TIER_ORDER
@@ -55,29 +86,31 @@ function formatStat(emoji: string, key: string, base: number, card: BazaarCard, 
     .filter((v) => v != null) as number[]
 
   if (tierVals.length === 0 || tierVals.every((v) => v === base)) {
-    return `${emoji}${key === 'CooldownMax' ? base / 1000 + 's' : base}`
+    return `${emoji}${fmtVal(base, format)}`
   }
 
   const allVals = [base, ...tierVals]
   const unique = [...new Set(allVals)]
-  if (key === 'CooldownMax') {
-    return `${emoji}${unique.map((v) => v / 1000 + 's').join('/')}`
-  }
-  return `${emoji}${unique.join('/')}`
+  return `${emoji}${unique.map((v) => fmtVal(v, format)).join('/')}`
 }
 
 function statLine(attrs: Record<string, number>, card: BazaarCard, tier?: TierName): string {
   const s: string[] = []
-  if (attrs.DamageAmount) s.push(formatStat('🗡️', 'DamageAmount', attrs.DamageAmount, card, tier))
-  if (attrs.ShieldApplyAmount) s.push(formatStat('🛡', 'ShieldApplyAmount', attrs.ShieldApplyAmount, card, tier))
-  if (attrs.HealAmount) s.push(formatStat('💚', 'HealAmount', attrs.HealAmount, card, tier))
-  if (attrs.CooldownMax) s.push(formatStat('🕐', 'CooldownMax', attrs.CooldownMax, card, tier))
+  for (const { key, emoji, format, minShow } of STAT_CONFIG) {
+    const val = attrs[key]
+    if (!val) continue
+    if (minShow != null && val < minShow) continue
+    s.push(formatStat(emoji, key, val, card, tier, format))
+  }
   return s.join(' ')
 }
+
+const SIZE_LABEL: Record<string, string> = { Small: 'S', Medium: 'M', Large: 'L' }
 
 export function formatItem(card: BazaarCard, tier?: TierName): string {
   const tierPrefix = tier ? `${TIER_EMOJI[tier]} ` : ''
   const name = card.Title.Text
+  const size = SIZE_LABEL[card.Size] ? ` [${SIZE_LABEL[card.Size]}]` : ''
   const heroes = card.Heroes.map((h) => HERO_ABBREV[h] ?? h).join(', ')
   const abilities = card.Tooltips.map((t) =>
     resolveTooltip(t.Content.Text, card.TooltipReplacements, tier),
@@ -87,12 +120,24 @@ export function formatItem(card: BazaarCard, tier?: TierName): string {
   const tags = card.DisplayTags?.length ? ` [${card.DisplayTags.join(', ')}]` : ''
 
   const parts = [
-    `${tierPrefix}${name}${heroes ? ` · ${heroes}` : ''}${tags}`,
+    `${tierPrefix}${name}${size}${heroes ? ` · ${heroes}` : ''}${tags}`,
     stats || null,
     ...abilities,
   ].filter(Boolean)
 
   return truncate(parts.join(' | '))
+}
+
+export function formatTagResults(tag: string, cards: BazaarCard[]): string {
+  if (cards.length === 0) return `no items found with tag ${tag}`
+  const names = cards.map((c) => c.Title.Text)
+  return truncate(`[${tag}] ${names.join(', ')}`)
+}
+
+export function formatDayResults(day: number, monsters: Monster[]): string {
+  if (monsters.length === 0) return `no monsters found for day ${day}`
+  const entries = monsters.map((m) => `${m.Title.Text} (${m.MonsterMetadata.health}HP)`)
+  return truncate(`[Day ${day}] ${entries.join(', ')}`)
 }
 
 export function formatEnchantment(card: BazaarCard, enchName: string, tier?: TierName): string {
@@ -107,7 +152,6 @@ export function formatEnchantment(card: BazaarCard, enchName: string, tier?: Tie
   const tags = ench.Tags.length ? ` [${ench.Tags.join(', ')}]` : ''
   return truncate(`${tierPrefix}[${card.Title.Text} - ${enchName}]${tags} ${tooltips.join(' | ')}`)
 }
-
 
 export interface SkillDetail {
   name: string
