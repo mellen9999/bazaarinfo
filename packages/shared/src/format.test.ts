@@ -217,6 +217,29 @@ describe('formatItem', () => {
     // "Deal 60 Damage" and "Win vs Monster, get Loot." joined by |
     expect(result).toContain('Deal 60 Damage | Win vs Monster, get Loot.')
   })
+
+  it('shows quest hint when item has quests', () => {
+    const card = makeCard({
+      Quests: [{
+        Entries: [{
+          Reward: {
+            Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
+            Localization: { Tooltips: [{ Content: { Text: '+200 Damage' }, TooltipType: 'Passive' }] },
+            TooltipReplacements: {},
+            DisplayTags: [],
+          },
+          CompletionEffects: null,
+          Localization: { Tooltips: [{ Content: { Text: 'Sell 20 Food' }, TooltipType: 'Passive' }] },
+          IconKeyOverride: null,
+        }],
+      }],
+    })
+    expect(formatItem(card)).toContain('!b quest Boomerang for quests')
+  })
+
+  it('no quest hint when item has no quests', () => {
+    expect(formatItem(makeCard())).not.toContain('quest')
+  })
 })
 
 // ---------------------------------------------------------------------------

@@ -123,10 +123,13 @@ export function formatItem(card: BazaarCard, tier?: TierName): string {
 
   const tags = card.DisplayTags?.length ? ` [${card.DisplayTags.join(', ')}]` : ''
 
+  const questHint = card.Quests?.length ? `!b quest ${name} for quests` : null
+
   const parts = [
     `${prefix}${name}${size}${heroes ? ` · ${heroes}` : ''}${tags}`,
     stats || null,
     ...abilities,
+    questHint,
   ].filter(Boolean)
 
   return truncate(parts.join(' | '))
