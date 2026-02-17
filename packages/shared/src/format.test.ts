@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { formatItem, formatEnchantment, formatTagResults, formatDayResults } from './format'
+import { formatItem, formatEnchantment, formatTagResults, formatDayResults, formatQuests } from './format'
 import type { BazaarCard, TierName, Monster } from './types'
 
 function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
@@ -477,6 +477,121 @@ describe('formatDayResults', () => {
 
   it('returns not found for empty results', () => {
     expect(formatDayResults(9, [])).toBe('no monsters found for day 9')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatQuests
+// ---------------------------------------------------------------------------
+describe('formatQuests', () => {
+  it('formats quests with fixed replacements', () => {
+    const card = makeCard({
+      Title: { Text: 'Dog' },
+      Quests: [{
+        Entries: [{
+          Reward: {
+            Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
+            Localization: { Tooltips: [{ Content: { Text: 'This has +{aura.q1} Damage' }, TooltipType: 'Passive' }] },
+            TooltipReplacements: { '{aura.q1}': { Fixed: 200 } },
+            DisplayTags: [],
+          },
+          CompletionEffects: null,
+          Localization: { Tooltips: [{ Content: { Text: 'Sell 20 Food' }, TooltipType: 'Passive' }] },
+          IconKeyOverride: null,
+        }],
+      }],
+    })
+    const result = formatQuests(card)
+    expect(result).toBe('[Dog] Quests: Sell 20 Food → This has +200 Damage')
+  })
+
+  it('formats quests with tier-scaled replacements (no tier)', () => {
+    const card = makeCard({
+      Title: { Text: 'Slate' },
+      Quests: [{
+        Entries: [{
+          Reward: {
+            Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
+            Localization: { Tooltips: [{ Content: { Text: 'Poison {ability.q1}' }, TooltipType: 'Passive' }] },
+            TooltipReplacements: { '{ability.q1}': { Bronze: 5, Silver: 10, Gold: 15, Diamond: 20 } },
+            DisplayTags: [],
+          },
+          CompletionEffects: null,
+          Localization: { Tooltips: [{ Content: { Text: 'Poison 30 times' }, TooltipType: 'Passive' }] },
+          IconKeyOverride: null,
+        }],
+      }],
+    })
+    const result = formatQuests(card)
+    expect(result).toContain('Poison 30 times → Poison 🟤5/⚪10/🟡15/💎20')
+  })
+
+  it('resolves tier-scaled replacements with specific tier', () => {
+    const card = makeCard({
+      Title: { Text: 'Slate' },
+      Quests: [{
+        Entries: [{
+          Reward: {
+            Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
+            Localization: { Tooltips: [{ Content: { Text: 'Poison {ability.q1}' }, TooltipType: 'Passive' }] },
+            TooltipReplacements: { '{ability.q1}': { Bronze: 5, Silver: 10, Gold: 15, Diamond: 20 } },
+            DisplayTags: [],
+          },
+          CompletionEffects: null,
+          Localization: { Tooltips: [{ Content: { Text: 'Poison 30 times' }, TooltipType: 'Passive' }] },
+          IconKeyOverride: null,
+        }],
+      }],
+    })
+    const result = formatQuests(card, 'Gold')
+    expect(result).toContain('Poison 15')
+    expect(result).not.toContain('🟤')
+  })
+
+  it('shows no quests for null quests', () => {
+    const card = makeCard({ Quests: null as any })
+    expect(formatQuests(card)).toBe('Boomerang has no quests')
+  })
+
+  it('shows no quests for empty array', () => {
+    const card = makeCard({ Quests: [] })
+    expect(formatQuests(card)).toBe('Boomerang has no quests')
+  })
+
+  it('joins multiple quests with pipe', () => {
+    const card = makeCard({
+      Title: { Text: 'Dog' },
+      Quests: [
+        {
+          Entries: [{
+            Reward: {
+              Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
+              Localization: { Tooltips: [{ Content: { Text: '+200 Damage' }, TooltipType: 'Passive' }] },
+              TooltipReplacements: {},
+              DisplayTags: [],
+            },
+            CompletionEffects: null,
+            Localization: { Tooltips: [{ Content: { Text: 'Sell 20 Food' }, TooltipType: 'Passive' }] },
+            IconKeyOverride: null,
+          }],
+        },
+        {
+          Entries: [{
+            Reward: {
+              Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
+              Localization: { Tooltips: [{ Content: { Text: '+1 Multicast' }, TooltipType: 'Passive' }] },
+              TooltipReplacements: {},
+              DisplayTags: [],
+            },
+            CompletionEffects: null,
+            Localization: { Tooltips: [{ Content: { Text: 'Sell 40 Food' }, TooltipType: 'Passive' }] },
+            IconKeyOverride: null,
+          }],
+        },
+      ],
+    })
+    const result = formatQuests(card)
+    expect(result).toBe('[Dog] Quests: Sell 20 Food → +200 Damage | Sell 40 Food → +1 Multicast')
   })
 })
 

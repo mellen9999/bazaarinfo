@@ -1214,6 +1214,125 @@ describe('!b skill', () => {
 })
 
 // ---------------------------------------------------------------------------
+// !b quest
+// ---------------------------------------------------------------------------
+describe('!b quest', () => {
+  const questCard = makeCard({
+    Title: { Text: 'Dog' },
+    Quests: [
+      {
+        Entries: [{
+          Reward: {
+            Tiers: null,
+            Abilities: {},
+            Tags: [],
+            HiddenTags: [],
+            Localization: { Tooltips: [{ Content: { Text: 'This has +{aura.q1} Damage' }, TooltipType: 'Passive' }] },
+            TooltipReplacements: { '{aura.q1}': { Fixed: 200 } },
+            DisplayTags: [],
+          },
+          CompletionEffects: null,
+          Localization: { Tooltips: [{ Content: { Text: 'Sell 20 Food or Toys' }, TooltipType: 'Passive' }] },
+          IconKeyOverride: null,
+        }],
+      },
+      {
+        Entries: [{
+          Reward: {
+            Tiers: null,
+            Abilities: {},
+            Tags: [],
+            HiddenTags: [],
+            Localization: { Tooltips: [{ Content: { Text: 'This has +{aura.q2} Multicast' }, TooltipType: 'Passive' }] },
+            TooltipReplacements: { '{aura.q2}': { Fixed: 1 } },
+            DisplayTags: [],
+          },
+          CompletionEffects: null,
+          Localization: { Tooltips: [{ Content: { Text: 'Sell 40 Food or Toys' }, TooltipType: 'Passive' }] },
+          IconKeyOverride: null,
+        }],
+      },
+    ],
+  })
+
+  it('shows quests for item', () => {
+    mockExact.mockImplementation(() => questCard)
+    const result = handleCommand('!b quest dog')
+    expect(result).toContain('[Dog] Quests:')
+    expect(result).toContain('Sell 20 Food or Toys')
+    expect(result).toContain('+200 Damage')
+    expect(result).toContain('Sell 40 Food or Toys')
+    expect(result).toContain('+1 Multicast')
+  })
+
+  it('returns not found for unknown item', () => {
+    const result = handleCommand('!b quest xyznothing')
+    expect(result).toContain('no item found for xyznothing')
+  })
+
+  it('shows no quests message for item without quests', () => {
+    mockExact.mockImplementation(() => boomerang)
+    const result = handleCommand('!b quest boomerang')
+    expect(result).toContain('has no quests')
+  })
+
+  it('is case-insensitive keyword', () => {
+    mockExact.mockImplementation(() => questCard)
+    expect(handleCommand('!b QUEST dog')).toContain('Quests:')
+    expect(handleCommand('!b Quest dog')).toContain('Quests:')
+  })
+
+  it('supports tier argument', () => {
+    const tieredQuest = makeCard({
+      Title: { Text: 'Slate' },
+      Quests: [{
+        Entries: [{
+          Reward: {
+            Tiers: null,
+            Abilities: {},
+            Tags: [],
+            HiddenTags: [],
+            Localization: { Tooltips: [{ Content: { Text: 'Poison {ability.q1}' }, TooltipType: 'Passive' }] },
+            TooltipReplacements: { '{ability.q1}': { Bronze: 5, Silver: 10, Gold: 15, Diamond: 20 } },
+            DisplayTags: [],
+          },
+          CompletionEffects: null,
+          Localization: { Tooltips: [{ Content: { Text: 'Poison 30 times' }, TooltipType: 'Passive' }] },
+          IconKeyOverride: null,
+        }],
+      }],
+    })
+    mockExact.mockImplementation(() => tieredQuest)
+    const result = handleCommand('!b quest slate gold')
+    expect(result).toContain('Poison 15')
+    expect(result).not.toContain('🟤')
+  })
+
+  it('logs hit on quest match', () => {
+    mockExact.mockImplementation(() => questCard)
+    handleCommand('!b quest dog', { user: 'test' })
+    const hitCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('hits'))
+    expect(hitCall).toBeTruthy()
+    expect(hitCall![1]).toContain('type:quest')
+    expect(hitCall![1]).toContain('match:Dog')
+  })
+
+  it('logs miss on quest miss', () => {
+    handleCommand('!b quest nothing', { user: 'test' })
+    const missCall = mockAppendFileSync.mock.calls.find((c) => c[0].includes('misses'))
+    expect(missCall).toBeTruthy()
+    expect(missCall![1]).toContain('quest:nothing')
+  })
+
+  it('appends @mention', () => {
+    mockExact.mockImplementation(() => questCard)
+    const result = handleCommand('!b quest dog @viewer')
+    expect(result).toContain('@viewer')
+    expect(result).toContain('Quests:')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Updated usage string
 // ---------------------------------------------------------------------------
 describe('usage string', () => {
@@ -1224,6 +1343,7 @@ describe('usage string', () => {
     expect(result).toContain('skill')
     expect(result).toContain('tag')
     expect(result).toContain('day')
+    expect(result).toContain('quest')
     expect(result).toContain('enchants')
   })
 })

@@ -1,4 +1,4 @@
-import type { BazaarCard, TierName, ReplacementValue, Monster } from './types'
+import type { BazaarCard, TierName, ReplacementValue, Monster, Quest } from './types'
 
 const TIER_ORDER: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
 const TIER_EMOJI: Record<string, string> = {
@@ -197,4 +197,22 @@ export function formatMonster(monster: Monster, skillDetails?: Map<string, Skill
   ].filter(Boolean)
 
   return truncate(parts.join(' | '))
+}
+
+export function formatQuests(card: BazaarCard, tier?: TierName): string {
+  if (!card.Quests?.length) return `${card.Title.Text} has no quests`
+
+  const questLines = card.Quests.map((q) => {
+    const entry = q.Entries[0]
+    if (!entry) return null
+    const req = entry.Localization.Tooltips[0]?.Content.Text
+    if (!req) return null
+    const reward = entry.Reward.Localization.Tooltips
+      .map((t) => resolveTooltip(t.Content.Text, entry.Reward.TooltipReplacements, tier))
+      .join('; ')
+    return `${req} → ${reward}`
+  }).filter(Boolean)
+
+  if (questLines.length === 0) return `${card.Title.Text} has no quests`
+  return truncate(`[${card.Title.Text}] Quests: ${questLines.join(' | ')}`)
 }

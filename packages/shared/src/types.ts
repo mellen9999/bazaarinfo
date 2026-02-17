@@ -40,6 +40,27 @@ export interface DropSource {
 
 export type ItemSize = 'Small' | 'Medium' | 'Large'
 
+export interface QuestReward {
+  Tiers: Partial<Record<TierName, Record<string, number>>> | null
+  Abilities: Record<string, unknown>
+  Tags: string[]
+  HiddenTags: string[]
+  Localization: { Tooltips: Tooltip[] }
+  TooltipReplacements: Record<string, ReplacementValue>
+  DisplayTags: string[]
+}
+
+export interface QuestEntry {
+  Reward: QuestReward
+  CompletionEffects: unknown
+  Localization: { Tooltips: Tooltip[] }
+  IconKeyOverride: string | null
+}
+
+export interface Quest {
+  Entries: QuestEntry[]
+}
+
 export interface BazaarCard {
   Id: string
   Type: 'Item' | 'Skill' | 'Monster'
@@ -61,7 +82,7 @@ export interface BazaarCard {
   ArtBlur: string
   Uri: string
   DroppedBy: DropSource[] | null
-  Quests: unknown
+  Quests: Quest[]
   Transform: unknown
   _originalTitleText: string
 }

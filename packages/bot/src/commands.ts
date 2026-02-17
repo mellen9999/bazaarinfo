@@ -1,4 +1,4 @@
-import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults } from '@bazaarinfo/shared'
+import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, formatQuests } from '@bazaarinfo/shared'
 import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import { appendFileSync } from 'fs'
@@ -64,7 +64,7 @@ export function parseArgs(words: string[]): ParsedArgs {
 let lobbyChannel = ''
 export function setLobbyChannel(name: string) { lobbyChannel = name }
 
-const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/enchants | bazaardb.gg'
+const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/quest/enchants | bazaardb.gg'
 const JOIN_USAGE = () => lobbyChannel ? ` | !join in #${lobbyChannel} to add bot, !part to remove` : ''
 
 function logMiss(query: string, ctx: CommandContext, prefix = '') {
@@ -150,6 +150,14 @@ const subcommands: [RegExp, SubHandler][] = [
     if (!skill) { logMiss(query, ctx, 'skill:'); return `no skill found for ${query}` }
     logHit('skill', query, skill.Title.Text, ctx)
     return formatItem(skill) + suffix
+  }],
+  [/^quest\s+(.+)$/i, (query, ctx, suffix) => {
+    const words = query.split(/\s+/)
+    const { item, tier } = parseArgs(words)
+    const card = store.exact(item) ?? store.search(item, 1)[0]
+    if (!card) { logMiss(query, ctx, 'quest:'); return `no item found for ${query}` }
+    logHit('quest', query, card.Title.Text, ctx, tier)
+    return formatQuests(card, tier) + suffix
   }],
 ]
 
