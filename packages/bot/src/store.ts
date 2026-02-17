@@ -102,16 +102,15 @@ export function getEnchantments(): string[] {
   return enchantmentNames
 }
 
-export function findMonster(query: string): Monster | undefined {
+function findByTitle<T extends { Title: { Text: string } }>(list: T[], query: string): T | undefined {
   const lower = query.toLowerCase()
-  // exact match first
-  const exactMatch = monsters.find((m) => m.Title.Text.toLowerCase() === lower)
-  if (exactMatch) return exactMatch
-  // prefix match
-  const prefix = monsters.find((m) => m.Title.Text.toLowerCase().startsWith(lower))
-  if (prefix) return prefix
-  // fuzzy: find monsters whose name contains the query
-  return monsters.find((m) => m.Title.Text.toLowerCase().includes(lower))
+  return list.find((x) => x.Title.Text.toLowerCase() === lower)
+    ?? list.find((x) => x.Title.Text.toLowerCase().startsWith(lower))
+    ?? list.find((x) => x.Title.Text.toLowerCase().includes(lower))
+}
+
+export function findMonster(query: string): Monster | undefined {
+  return findByTitle(monsters, query)
 }
 
 export function findCard(name: string): BazaarCard | undefined {
@@ -131,10 +130,5 @@ export function monstersByDay(day: number): Monster[] {
 }
 
 export function findSkill(query: string): BazaarCard | undefined {
-  const lower = query.toLowerCase()
-  const exact = skills.find((s) => s.Title.Text.toLowerCase() === lower)
-  if (exact) return exact
-  const prefix = skills.find((s) => s.Title.Text.toLowerCase().startsWith(lower))
-  if (prefix) return prefix
-  return skills.find((s) => s.Title.Text.toLowerCase().includes(lower))
+  return findByTitle(skills, query)
 }

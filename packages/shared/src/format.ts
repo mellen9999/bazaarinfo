@@ -9,6 +9,10 @@ const HERO_ABBREV: Record<string, string> = {
 }
 const MAX_LEN = 480
 
+function tierPrefix(tier?: TierName): string {
+  return tier ? `${TIER_EMOJI[tier]} ` : ''
+}
+
 function truncate(str: string): string {
   if (str.length <= MAX_LEN) return str
   // cut at last pipe separator or space before limit
@@ -98,7 +102,7 @@ function statLine(attrs: Record<string, number>, card: BazaarCard, tier?: TierNa
   const s: string[] = []
   for (const { key, emoji, format, minShow } of STAT_CONFIG) {
     const val = attrs[key]
-    if (!val) continue
+    if (val == null) continue
     if (minShow != null && val < minShow) continue
     s.push(formatStat(emoji, key, val, card, tier, format))
   }
@@ -108,7 +112,7 @@ function statLine(attrs: Record<string, number>, card: BazaarCard, tier?: TierNa
 const SIZE_LABEL: Record<string, string> = { Small: 'S', Medium: 'M', Large: 'L' }
 
 export function formatItem(card: BazaarCard, tier?: TierName): string {
-  const tierPrefix = tier ? `${TIER_EMOJI[tier]} ` : ''
+  const prefix = tierPrefix(tier)
   const name = card.Title.Text
   const size = SIZE_LABEL[card.Size] ? ` [${SIZE_LABEL[card.Size]}]` : ''
   const heroes = card.Heroes.map((h) => HERO_ABBREV[h] ?? h).join(', ')
@@ -120,7 +124,7 @@ export function formatItem(card: BazaarCard, tier?: TierName): string {
   const tags = card.DisplayTags?.length ? ` [${card.DisplayTags.join(', ')}]` : ''
 
   const parts = [
-    `${tierPrefix}${name}${size}${heroes ? ` · ${heroes}` : ''}${tags}`,
+    `${prefix}${name}${size}${heroes ? ` · ${heroes}` : ''}${tags}`,
     stats || null,
     ...abilities,
   ].filter(Boolean)
@@ -148,9 +152,8 @@ export function formatEnchantment(card: BazaarCard, enchName: string, tier?: Tie
     resolveTooltip(t.Content.Text, ench.TooltipReplacements, tier),
   )
 
-  const tierPrefix = tier ? `${TIER_EMOJI[tier]} ` : ''
   const tags = ench.Tags.length ? ` [${ench.Tags.join(', ')}]` : ''
-  return truncate(`${tierPrefix}[${card.Title.Text} - ${enchName}]${tags} ${tooltips.join(' | ')}`)
+  return truncate(`${tierPrefix(tier)}[${card.Title.Text} - ${enchName}]${tags} ${tooltips.join(' | ')}`)
 }
 
 export interface SkillDetail {

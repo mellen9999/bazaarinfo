@@ -1,7 +1,7 @@
 import { homedir } from 'os'
 import { resolve } from 'path'
-import { chmod, rename } from 'fs/promises'
 import { log } from './log'
+import { writeAtomic } from './fs-util'
 
 const TOKEN_PATH = resolve(homedir(), '.bazaarinfo-tokens.json')
 const VALIDATE_URL = 'https://id.twitch.tv/oauth2/validate'
@@ -31,10 +31,7 @@ async function loadTokens(): Promise<TokenStore> {
 }
 
 async function saveTokens(store: TokenStore) {
-  const tmp = TOKEN_PATH + '.tmp'
-  await Bun.write(tmp, JSON.stringify(store, null, 2))
-  await chmod(tmp, 0o600)
-  await rename(tmp, TOKEN_PATH)
+  await writeAtomic(TOKEN_PATH, JSON.stringify(store, null, 2))
 }
 
 async function validate(accessToken: string): Promise<number> {

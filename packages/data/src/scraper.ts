@@ -12,8 +12,30 @@ const BATCH_SIZE = 5
 const DELAY_MS = 200
 const MAX_PAGES = 200
 
+// find matching close bracket/brace from `start`, respecting strings + escapes
+function findJsonEnd(text: string, start: number): number {
+  const open = text[start]
+  const close = open === '[' ? ']' : '}'
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (escaped) { escaped = false; continue }
+    if (ch === '\\' && inString) { escaped = true; continue }
+    if (ch === '"') { inString = !inString; continue }
+    if (inString) continue
+    if (ch === '[' || ch === '{') depth++
+    else if (ch === ']' || ch === '}') {
+      depth--
+      if (depth === 0 && ch === close) return i
+    }
+  }
+  return -1
+}
+
 function extractPageCards(rscText: string): BazaarCard[] {
-  // pageCards is embedded in the RSC payload as a JSON array
   const marker = '"pageCards":'
   const idx = rscText.indexOf(marker)
   if (idx === -1) return []
@@ -21,23 +43,15 @@ function extractPageCards(rscText: string): BazaarCard[] {
   const arrStart = rscText.indexOf('[', idx + marker.length)
   if (arrStart === -1) return []
 
-  // bracket-count to find the matching ]
-  let depth = 0
-  for (let i = arrStart; i < rscText.length; i++) {
-    if (rscText[i] === '[') depth++
-    else if (rscText[i] === ']') {
-      depth--
-      if (depth === 0) {
-        try {
-          return JSON.parse(rscText.substring(arrStart, i + 1))
-        } catch (e) {
-          console.warn('warn: failed to parse pageCards JSON:', e)
-          return []
-        }
-      }
-    }
+  const end = findJsonEnd(rscText, arrStart)
+  if (end === -1) return []
+
+  try {
+    return JSON.parse(rscText.substring(arrStart, end + 1))
+  } catch (e) {
+    console.warn('warn: failed to parse pageCards JSON:', e)
+    return []
   }
-  return []
 }
 
 async function fetchPage(category: string, page: number): Promise<BazaarCard[]> {
@@ -71,7 +85,9 @@ async function fetchPages(
     )
 
     const results = await Promise.all(pages.map((p) => fetchPage(category, p)))
-    for (const cards of results) allCards.push(...cards)
+    for (const cards of results) {
+      for (let i = 0; i < cards.length; i++) allCards.push(cards[i])
+    }
 
     done += pages.length
     onProgress?.(done, total)
@@ -90,6 +106,7 @@ async function scrapeCategory(
 ) {
   const url = `${BASE_URL}?c=${category}&page=0`
   const res = await fetch(url, { headers: RSC_HEADERS })
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
   const text = await res.text()
 
   const totalMatch = text.match(/"totalCards":(\d+)/)
@@ -143,25 +160,15 @@ function extractMonsters(rscText: string): Monster[] {
     let start = typeIdx
     while (start > 0 && rscText[start] !== '{') start--
 
-    let depth = 0
-    let found = false
-    for (let i = start; i < rscText.length; i++) {
-      if (rscText[i] === '{') depth++
-      else if (rscText[i] === '}') {
-        depth--
-        if (depth === 0) {
-          try {
-            monsters.push(JSON.parse(rscText.substring(start, i + 1)))
-          } catch (e) {
-            console.warn('warn: failed to parse monster JSON:', e)
-          }
-          searchFrom = i + 1
-          found = true
-          break
-        }
-      }
+    const end = findJsonEnd(rscText, start)
+    if (end === -1) break
+
+    try {
+      monsters.push(JSON.parse(rscText.substring(start, end + 1)))
+    } catch (e) {
+      console.warn('warn: failed to parse monster JSON:', e)
     }
-    if (!found) break
+    searchFrom = end + 1
   }
   return monsters
 }

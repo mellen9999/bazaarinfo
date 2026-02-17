@@ -1,7 +1,7 @@
 import { homedir } from 'os'
 import { resolve } from 'path'
-import { chmod, rename } from 'fs/promises'
 import { log } from './log'
+import { writeAtomic } from './fs-util'
 
 const CHANNELS_PATH = resolve(homedir(), '.bazaarinfo-channels.json')
 
@@ -14,10 +14,7 @@ export async function load(): Promise<string[]> {
 }
 
 async function save(channels: string[]) {
-  const tmp = CHANNELS_PATH + '.tmp'
-  await Bun.write(tmp, JSON.stringify(channels, null, 2))
-  await chmod(tmp, 0o600)
-  await rename(tmp, CHANNELS_PATH)
+  await writeAtomic(CHANNELS_PATH, JSON.stringify(channels, null, 2))
 }
 
 export async function add(name: string): Promise<boolean> {

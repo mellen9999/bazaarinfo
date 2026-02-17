@@ -110,119 +110,74 @@ const ATTRIBUTION = ' | bazaardb.gg'
 const ATTRIB_INTERVAL = 10
 let commandCount = 0
 
-function bazaarinfo(args: string, ctx: CommandContext): string | null {
-  // extract @mentions to append to response
-  const mentions = args.match(/@\w+/g) ?? []
-  const cleanArgs = args.replace(/@\w+/g, '').replace(/\s+/g, ' ').trim()
+type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string | null
 
-  if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
-
-  const suffix = mentions.length ? ' ' + mentions.join(' ') : ''
-
-  // monster lookup: "mob lich" or "monster lich"
-  const mobMatch = cleanArgs.match(/^(?:mob|monster)\s+(.+)$/i)
-  if (mobMatch) {
-    const query = mobMatch[1].trim()
+const subcommands: [RegExp, SubHandler][] = [
+  [/^(?:mob|monster)\s+(.+)$/i, (query, ctx, suffix) => {
     const monster = store.findMonster(query)
-    if (!monster) {
-      logMiss(query, ctx, 'mob:')
-      return `no monster found for ${query}`
-    }
+    if (!monster) { logMiss(query, ctx, 'mob:'); return `no monster found for ${query}` }
     logHit('mob', query, monster.Title.Text, ctx)
     return formatMonster(monster, resolveSkills(monster)) + suffix
-  }
-
-  // hero listing: "hero vanessa"
-  const heroMatch = cleanArgs.match(/^hero\s+(.+)$/i)
-  if (heroMatch) {
-    const heroName = heroMatch[1].trim()
-    const items = store.byHero(heroName)
-    if (items.length === 0) return `no items found for hero ${heroName}`
-    logHit('hero', heroName, `${items.length} items`, ctx)
-    const names = items.map((i) => i.Title.Text)
-    const result = `[${heroName}] ${names.join(', ')}` + suffix
+  }],
+  [/^hero\s+(.+)$/i, (query, ctx, suffix) => {
+    const items = store.byHero(query)
+    if (items.length === 0) return `no items found for hero ${query}`
+    logHit('hero', query, `${items.length} items`, ctx)
+    const result = `[${query}] ${items.map((i) => i.Title.Text).join(', ')}` + suffix
     return result.length > 480 ? result.slice(0, 477) + '...' : result
-  }
-
-  // enchant list: "enchants" or "enchantments"
-  if (/^enchant(?:s|ments)?$/i.test(cleanArgs)) {
+  }],
+  [/^enchant(?:s|ments)?$/i, (_query, ctx, suffix) => {
     const names = store.getEnchantments().map(capitalize)
-    logHit('enchants', cleanArgs, `${names.length} enchants`, ctx)
+    logHit('enchants', _query, `${names.length} enchants`, ctx)
     return `Enchantments: ${names.join(', ')}` + suffix
-  }
-
-  // tag search: "tag burn"
-  const tagMatch = cleanArgs.match(/^tag\s+(.+)$/i)
-  if (tagMatch) {
-    const tag = tagMatch[1].trim()
-    const cards = store.byTag(tag)
-    if (cards.length === 0) {
-      logMiss(tag, ctx, 'tag:')
-      return `no items found with tag ${tag}`
-    }
-    logHit('tag', tag, `${cards.length} items`, ctx)
-    return formatTagResults(tag, cards) + suffix
-  }
-
-  // day lookup: "day 5"
-  const dayMatch = cleanArgs.match(/^day\s+(\d+)$/i)
-  if (dayMatch) {
-    const day = parseInt(dayMatch[1])
+  }],
+  [/^tag\s+(.+)$/i, (query, ctx, suffix) => {
+    const cards = store.byTag(query)
+    if (cards.length === 0) { logMiss(query, ctx, 'tag:'); return `no items found with tag ${query}` }
+    logHit('tag', query, `${cards.length} items`, ctx)
+    return formatTagResults(query, cards) + suffix
+  }],
+  [/^day\s+(\d+)$/i, (query, ctx, suffix) => {
+    const day = parseInt(query)
     if (day < 1 || day > 10) return `day must be 1-10`
     const mobs = store.monstersByDay(day)
-    if (mobs.length === 0) {
-      logMiss(String(day), ctx, 'day:')
-      return `no monsters found for day ${day}`
-    }
-    logHit('day', String(day), `${mobs.length} monsters`, ctx)
+    if (mobs.length === 0) { logMiss(query, ctx, 'day:'); return `no monsters found for day ${day}` }
+    logHit('day', query, `${mobs.length} monsters`, ctx)
     return formatDayResults(day, mobs) + suffix
-  }
-
-  // skill lookup: "skill ink blast"
-  const skillMatch = cleanArgs.match(/^skill\s+(.+)$/i)
-  if (skillMatch) {
-    const query = skillMatch[1].trim()
+  }],
+  [/^skill\s+(.+)$/i, (query, ctx, suffix) => {
     const skill = store.findSkill(query)
-    if (!skill) {
-      logMiss(query, ctx, 'skill:')
-      return `no skill found for ${query}`
-    }
+    if (!skill) { logMiss(query, ctx, 'skill:'); return `no skill found for ${query}` }
     logHit('skill', query, skill.Title.Text, ctx)
     return formatItem(skill) + suffix
-  }
+  }],
+]
 
-  // order-agnostic parse: tier and enchant can be anywhere
+function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): string {
   const words = cleanArgs.split(/\s+/)
   const { item: query, tier, enchant } = parseArgs(words)
 
   if (!query) return BASE_USAGE + JOIN_USAGE()
 
-  // enchantment route
   if (enchant) {
     const card = store.exact(query) ?? store.search(query, 1)[0]
-    if (!card) {
-      logMiss(query, ctx)
-      return `no item found for ${query}`
-    }
+    if (!card) { logMiss(query, ctx); return `no item found for ${query}` }
     logHit('enchant', query, `${card.Title.Text}+${enchant}`, ctx, tier)
     return formatEnchantment(card, enchant, tier) + suffix
   }
 
-  // exact item/skill match wins
   const exactCard = store.exact(query)
   if (exactCard) {
     logHit('item', query, exactCard.Title.Text, ctx, tier)
     return formatItem(exactCard, tier) + suffix
   }
 
-  // check monsters before fuzzy item search (avoids "lich" → "Lightbulb")
   const monster = store.findMonster(query)
   if (monster) {
     logHit('mob', query, monster.Title.Text, ctx)
     return formatMonster(monster, resolveSkills(monster)) + suffix
   }
 
-  // fuzzy item/skill search
   const fuzzyCard = store.search(query, 1)[0]
   if (fuzzyCard) {
     logHit('item', query, fuzzyCard.Title.Text, ctx, tier)
@@ -231,6 +186,22 @@ function bazaarinfo(args: string, ctx: CommandContext): string | null {
 
   logMiss(query, ctx)
   return `nothing found for ${query}`
+}
+
+function bazaarinfo(args: string, ctx: CommandContext): string | null {
+  const mentions = args.match(/@\w+/g) ?? []
+  const cleanArgs = args.replace(/@\w+/g, '').replace(/\s+/g, ' ').trim()
+
+  if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
+
+  const suffix = mentions.length ? ' ' + mentions.join(' ') : ''
+
+  for (const [pattern, handler] of subcommands) {
+    const match = cleanArgs.match(pattern)
+    if (match) return handler(match[1]?.trim() ?? cleanArgs, ctx, suffix)
+  }
+
+  return itemLookup(cleanArgs, ctx, suffix)
 }
 
 const commands: Record<string, CommandHandler> = {

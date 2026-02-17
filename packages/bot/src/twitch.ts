@@ -57,6 +57,24 @@ function fetchWithTimeout(url: string, opts: RequestInit = {}): Promise<Response
   return fetch(url, { ...opts, signal: AbortSignal.timeout(FETCH_TIMEOUT) })
 }
 
+type IrcMessage =
+  | { type: 'ping'; payload: string }
+  | { type: 'welcome' }
+  | { type: 'join'; channel: string }
+  | { type: 'auth_failure' }
+  | { type: 'notice' }
+  | { type: 'other' }
+
+function parseIrcLine(line: string): IrcMessage {
+  if (line.startsWith('PING')) return { type: 'ping', payload: line.slice(5) }
+  if (/ 001 /.test(line)) return { type: 'welcome' }
+  const joinMatch = line.match(/ JOIN #(\S+)/)
+  if (joinMatch) return { type: 'join', channel: joinMatch[1] }
+  if (/NOTICE.*(?:Login authentication failed|Login unsuccessful)/.test(line)) return { type: 'auth_failure' }
+  if (line.startsWith(':tmi.twitch.tv NOTICE')) return { type: 'notice' }
+  return { type: 'other' }
+}
+
 export class TwitchClient {
   private eventsub: WebSocket | null = null
   private irc: WebSocket | null = null
@@ -74,11 +92,19 @@ export class TwitchClient {
   private readonly SEND_WINDOW = 30_000
   private eventsubBackoff = BACKOFF_BASE
   private ircBackoff = BACKOFF_BASE
+  private _channelIdMap: Record<string, string> = {}
   lastActivity = Date.now()
 
   constructor(config: TwitchConfig, onMessage: MessageHandler) {
     this.config = config
     this.onMessage = onMessage
+    this.rebuildChannelMap()
+  }
+
+  private rebuildChannelMap() {
+    const map: Record<string, string> = {}
+    for (const ch of this.config.channels) map[ch.name] = ch.userId
+    this._channelIdMap = map
   }
 
   setAuthRefresh(fn: AuthRefreshFn) {
@@ -245,25 +271,26 @@ export class TwitchClient {
     this.irc.onmessage = (ev) => {
       const lines = String(ev.data).split('\r\n').filter(Boolean)
       for (const line of lines) {
-        if (line.startsWith('PING')) {
-          this.ircSend(`PONG ${line.slice(5)}`)
-        } else if (/ 001 /.test(line)) {
-          this.ircBackoff = BACKOFF_BASE // reset on success
-          for (const ch of this.config.channels) {
-            this.ircSend(`JOIN #${ch.name}`)
-          }
-        } else if (/ JOIN #/.test(line)) {
-          const match = line.match(/JOIN #(\S+)/)
-          if (match) log(`irc joined #${match[1]}`)
-          if (!this.ircReady) {
-            this.ircReady = true
-            this.flushQueue()
-          }
-        } else if (/NOTICE.*(?:Login authentication failed|Login unsuccessful)/.test(line)) {
-          log('irc auth failed — refreshing token and reconnecting')
-          this.handleIrcAuthFailure()
-        } else if (line.startsWith(':tmi.twitch.tv NOTICE')) {
-          log('irc notice:', line)
+        const msg = parseIrcLine(line)
+        switch (msg.type) {
+          case 'ping':
+            this.ircSend(`PONG ${msg.payload}`)
+            break
+          case 'welcome':
+            this.ircBackoff = BACKOFF_BASE
+            for (const ch of this.config.channels) this.ircSend(`JOIN #${ch.name}`)
+            break
+          case 'join':
+            log(`irc joined #${msg.channel}`)
+            if (!this.ircReady) { this.ircReady = true; this.flushQueue() }
+            break
+          case 'auth_failure':
+            log('irc auth failed — refreshing token and reconnecting')
+            this.handleIrcAuthFailure()
+            break
+          case 'notice':
+            log('irc notice:', line)
+            break
         }
       }
     }
@@ -315,7 +342,11 @@ export class TwitchClient {
 
   private canSend(): boolean {
     const now = Date.now()
-    this.sendTimes = this.sendTimes.filter((t) => now - t < this.SEND_WINDOW)
+    const cutoff = now - this.SEND_WINDOW
+    // trim expired entries from the front (oldest first)
+    while (this.sendTimes.length > 0 && this.sendTimes[0] < cutoff) {
+      this.sendTimes.shift()
+    }
     return this.sendTimes.length < this.SEND_LIMIT
   }
 
@@ -326,6 +357,7 @@ export class TwitchClient {
   async joinChannel(channel: ChannelInfo) {
     if (this.config.channels.some((c) => c.name === channel.name)) return
     this.config.channels.push(channel)
+    this.rebuildChannelMap()
     this.ircSend(`JOIN #${channel.name}`)
     if (this.sessionId) {
       try {
@@ -339,18 +371,13 @@ export class TwitchClient {
 
   leaveChannel(name: string) {
     this.config.channels = this.config.channels.filter((c) => c.name !== name)
+    this.rebuildChannelMap()
     this.ircSend(`PART #${name}`)
     log(`left channel: ${name}`)
   }
 
-  private channelIdMap(): Record<string, string> {
-    const map: Record<string, string> = {}
-    for (const ch of this.config.channels) map[ch.name] = ch.userId
-    return map
-  }
-
-  private async helixSend(channel: string, text: string): Promise<boolean> {
-    const broadcasterId = this.channelIdMap()[channel]
+  private async helixSend(channel: string, text: string, retried = false): Promise<boolean> {
+    const broadcasterId = this._channelIdMap[channel]
     if (!broadcasterId) return false
     try {
       const res = await fetchWithTimeout(`${HELIX_URL}/chat/messages`, {
@@ -366,6 +393,12 @@ export class TwitchClient {
           message: text,
         }),
       })
+      if (res.status === 401 && !retried && this.onAuthFailure) {
+        log('helix send 401 — refreshing token and retrying')
+        const newToken = await this.onAuthFailure()
+        this.config.token = newToken
+        return this.helixSend(channel, text, true)
+      }
       if (!res.ok) {
         const err = await res.text()
         log(`helix send failed (${channel}): ${res.status} ${err}`)
