@@ -286,9 +286,6 @@ export async function handleCommand(text: string, ctx: CommandContext = {}): Pro
   const isData = result.startsWith(ATTRIB_MARKER)
   if (isAi || isData) result = result.slice(1)
 
-  // tag the user so responses are attributed in busy chat
-  if (ctx.user) result = `${result} @${ctx.user}`
-
   // attribute bazaardb.gg on data responses only, when it fits
   if (isData && ++commandCount % ATTRIB_INTERVAL === 0) {
     if (result.length + ATTRIBUTION.length <= 480) {
