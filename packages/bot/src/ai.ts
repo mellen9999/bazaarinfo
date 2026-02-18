@@ -292,6 +292,7 @@ export async function respond(query: string, ctx: AiContext): Promise<string | n
       .replace(/\bskill issue\b/gi, '')
       .replace(/\bnah\b/gi, '')
       .replace(/not .{0,15}in my (?:database|data|item pool|item list|records)[^.!?]*/gi, '')
+      .replace(/can't find .{0,30}in (?:my|the) (?:data|database|records)[^.!?]*/gi, '')
       .replace(/not .{0,10}my lane[^.!?]*/gi, '')
       .replace(/not sure [^.!?]*/gi, '')
       .replace(/I don't (?:know|have)\b[^.!?]*/gi, '')

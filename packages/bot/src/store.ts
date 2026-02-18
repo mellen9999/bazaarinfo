@@ -66,10 +66,11 @@ function loadCache(cache: CardCache) {
   }
   heroNames = [...heroSet].sort()
 
-  // extract distinct tag names
+  // extract distinct tag names (both hidden + display)
   const tagSet = new Set<string>()
   for (const card of items) {
     for (const t of card.HiddenTags) tagSet.add(t)
+    for (const t of card.DisplayTags) tagSet.add(t)
   }
   tagNames = [...tagSet].sort()
 }
@@ -187,7 +188,8 @@ export function byTag(tag: string): BazaarCard[] {
   const resolved = findTagName(tag) ?? tag
   const lower = resolved.toLowerCase()
   return items.filter((c) =>
-    c.HiddenTags.some((t) => t.toLowerCase() === lower),
+    c.HiddenTags.some((t) => t.toLowerCase() === lower)
+    || c.DisplayTags.some((t) => t.toLowerCase() === lower),
   )
 }
 
