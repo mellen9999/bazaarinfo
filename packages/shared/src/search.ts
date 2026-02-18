@@ -7,7 +7,7 @@ const fuseOptions: Fuse.IFuseOptions<BazaarCard> = {
     { name: 'Tags', weight: 0.5 },
     { name: 'Heroes', weight: 0.5 },
   ],
-  threshold: 0.3,
+  threshold: 0.2,
   includeScore: true,
 }
 
@@ -15,9 +15,11 @@ export function buildIndex(cards: BazaarCard[]) {
   return new Fuse(cards, fuseOptions)
 }
 
-export function searchCards(index: Fuse<BazaarCard>, query: string, limit = 5) {
+export type ScoredCard = { item: BazaarCard; score: number }
+
+export function searchCards(index: Fuse<BazaarCard>, query: string, limit = 5): ScoredCard[] {
   const results = index.search(query, { limit })
-  return results.map((r) => r.item)
+  return results.map((r) => ({ item: r.item, score: r.score ?? 1 }))
 }
 
 // prefix search fallback for short partial queries
