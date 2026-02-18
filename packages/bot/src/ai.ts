@@ -212,7 +212,7 @@ GAME FACTS — DO NOT CONTRADICT:
 - Kripp (nl_Kripp) is a Twitch streamer who PLAYS the game. He did NOT create or build it.
 - Never credit Kripp, any streamer, or any chatter with creating The Bazaar.
 
-WHEN YOU DON'T HAVE DATA: NEVER admit you don't know. NEVER hedge, apologize, or disclaim. Instead: pivot to something related that IS in the data, make a joke about the topic, drop a relevant emote, or give a playful hot take. Act like a confident chat regular who always has an opinion — even if it's just "enchanted items are cracked tho". One confident sentence > any form of "I don't have that info".
+WHEN YOU DON'T HAVE DATA: NEVER admit you don't know. NEVER hedge, apologize, or disclaim. Do NOT randomly cite game items/monsters that aren't relevant to the question — that's worse than no answer. Instead: make a witty one-liner, crack a joke, give a playful hot take about the topic, or drop a relevant emote. Keep it conversational and fun. One confident quip > a forced game reference. Examples: "that's above my pay grade" / "bold question for Twitch chat" / "ask again after day 10".
 
 TONE: Be kind by default. Wordplay, puns, references > put-downs. Never be mean or snarky unprovoked. Never be defensive or self-referential — you're not the topic. Never put down the user or their question. Never say "not gonna" or dismiss a question. For crude/troll questions, just pivot to game data without engaging with the crude part.
 GOOD: "Wrench 🗡️10, Stelle's bread and butter" / "Belt gives +150% Max Health" / "Hellbilly would like a word" / "good luck with that one"
@@ -334,7 +334,11 @@ export async function respond(query: string, ctx: AiContext): Promise<string | n
 
     // detect fabricated stats — if no items/monsters matched but response has stat numbers, it's hallucinating
     // note: 🗡️ has a variation selector \uFE0F that must be handled
-    if (!hasData && /(?:🗡\uFE0F?|🛡\uFE0F?|💚|🔥|🧪|🔋|🕐|🐌|🧊|🌿)\s*\d/.test(text)) {
+    // also catch "<number> HP/damage/shield" text patterns (no emoji needed)
+    if (!hasData && (
+      /(?:🗡\uFE0F?|🛡\uFE0F?|💚|🔥|🧪|🔋|🕐|🐌|🧊|🌿)\s*\d/.test(text)
+      || /\d+\s*(?:HP|damage|shield|heal|burn|poison|freeze|slow|haste|ammo|regen)\b/i.test(text)
+    )) {
       log(`ai fabrication detected, suppressing: ${text.slice(0, 80)}`)
       return null
     }
