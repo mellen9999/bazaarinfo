@@ -45,7 +45,7 @@ function loadCache(cache: CardCache) {
   index = buildIndex(allCards)
   monsterIndex = new Fuse(monsters, {
     keys: [{ name: 'Title.Text', weight: 1 }],
-    threshold: 0.3,
+    threshold: 0.25,
     includeScore: true,
   })
 
@@ -118,11 +118,18 @@ export function exact(name: string) {
   return findExact(allCards, resolved)
 }
 
+// includes but only at word boundaries — "book" matches "Spell Book" not "Zookeeper"
+function wordIncludes(text: string, query: string): boolean {
+  if (query.length < 3) return false
+  const idx = text.indexOf(query)
+  return idx > 0 && /[\s\-']/.test(text[idx - 1])
+}
+
 function findInList(list: string[], query: string): string | undefined {
   const lower = query.toLowerCase()
   return list.find((n) => n.toLowerCase() === lower)
     ?? list.find((n) => n.toLowerCase().startsWith(lower))
-    ?? list.find((n) => n.toLowerCase().includes(lower))
+    ?? list.find((n) => wordIncludes(n.toLowerCase(), lower))
 }
 
 export function findHeroName(query: string): string | undefined {
@@ -147,7 +154,7 @@ function findByTitle<T extends { Title: { Text: string } }>(list: T[], query: st
   const lower = query.toLowerCase()
   return list.find((x) => x.Title.Text.toLowerCase() === lower)
     ?? list.find((x) => x.Title.Text.toLowerCase().startsWith(lower))
-    ?? list.find((x) => x.Title.Text.toLowerCase().includes(lower))
+    ?? list.find((x) => wordIncludes(x.Title.Text.toLowerCase(), lower))
 }
 
 export function findMonster(query: string): Monster | undefined {
@@ -155,7 +162,7 @@ export function findMonster(query: string): Monster | undefined {
   if (byTitle) return byTitle
   // fuse fallback for typos
   const results = monsterIndex.search(query, { limit: 1 })
-  if (results.length > 0 && (results[0].score ?? 1) <= 0.3) return results[0].item
+  if (results.length > 0 && (results[0].score ?? 1) <= 0.2) return results[0].item
   return undefined
 }
 
