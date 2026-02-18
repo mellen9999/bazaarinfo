@@ -103,30 +103,26 @@ function buildContext(query: string, channel: string, user: string): {
   userMessage: string
   contextSummary: string
 } {
-  // search for relevant items/monsters — full query + individual words
-  const STOP_WORDS = new Set(['is', 'the', 'a', 'an', 'it', 'in', 'on', 'to', 'for', 'of', 'do', 'does', 'how', 'what', 'which', 'who', 'why', 'can', 'should', 'would', 'could', 'with', 'my', 'i', 'me', 'and', 'or', 'but', 'not', 'no', 'vs', 'good', 'bad', 'best', 'worst', 'any', 'get', 'use', 'like', 'about', 'that', 'this', 'from', 'beat', 'counter', 'against', 'fight'])
+  // search for relevant items/monsters — individual content words only (no full query = no noise)
+  const STOP_WORDS = new Set(['is', 'the', 'a', 'an', 'it', 'in', 'on', 'to', 'for', 'of', 'do', 'does', 'how', 'what', 'which', 'who', 'why', 'can', 'should', 'would', 'could', 'with', 'my', 'i', 'me', 'and', 'or', 'but', 'not', 'no', 'vs', 'good', 'bad', 'best', 'worst', 'any', 'get', 'use', 'like', 'about', 'that', 'this', 'from', 'beat', 'counter', 'against', 'fight', 'items', 'item', 'have', 'has', 'are', 'were', 'been', 'being'])
+  const queryWords = query.toLowerCase().split(/\s+/)
+  const contentWords = queryWords.filter((w) => w.length >= 3 && !STOP_WORDS.has(w))
   const seen = new Set<string>()
   const items: BazaarCard[] = []
-  const MAX_ITEMS = 3
-  for (const r of store.search(query, MAX_ITEMS)) {
-    if (!seen.has(r.Id)) { seen.add(r.Id); items.push(r) }
-  }
-  const queryWords = query.toLowerCase().split(/\s+/)
-  // search individual words to catch items buried in natural language
-  for (const word of queryWords) {
+  const MAX_ITEMS = 5
+  // search each content word individually — targeted, no noise
+  for (const word of contentWords) {
     if (items.length >= MAX_ITEMS) break
-    if (word.length < 3 || STOP_WORDS.has(word)) continue
-    for (const r of store.search(word, 2)) {
+    for (const r of store.search(word, 3)) {
       if (items.length >= MAX_ITEMS) break
       if (!seen.has(r.Id)) { seen.add(r.Id); items.push(r) }
     }
   }
   // also search by hero name for hero-specific queries
-  for (const word of queryWords) {
+  for (const word of contentWords) {
     if (items.length >= MAX_ITEMS) break
-    if (word.length < 3 || STOP_WORDS.has(word)) continue
     const heroItems = store.byHero(word)
-    for (const r of heroItems.slice(0, MAX_ITEMS)) {
+    for (const r of heroItems.slice(0, 3)) {
       if (items.length >= MAX_ITEMS) break
       if (!seen.has(r.Id)) { seen.add(r.Id); items.push(r) }
     }
@@ -172,18 +168,17 @@ function buildContext(query: string, channel: string, user: string): {
 
   const system = `You are BazaarInfo, a Bazaar card game expert in Twitch chat. ${CHAR_LIMIT} char HARD LIMIT.
 
-ABSOLUTE RULES — BREAK THESE AND YOU FAIL:
-1. Your ONLY source of truth is the [Relevant Items] and [Relevant Monsters] data below. NOTHING ELSE.
-2. NEVER state ANY fact about game mechanics, item interactions, strategies, synergies, or how things work unless it's written verbatim in the tooltip text provided.
-3. If the data doesn't contain the answer, say "don't have data on that" — do NOT fill in gaps with general knowledge or reasoning. You know NOTHING about The Bazaar except what's in the provided data.
-4. NEVER reference items from the data that the user didn't ask about. The data may contain multiple items — only discuss the one(s) relevant to the query.
-5. ${hasData ? 'Item/monster data IS provided below.' : 'No data matched this query. You have NOTHING to reference.'}
+ACCURACY — THIS IS NON-NEGOTIABLE:
+1. You may ONLY quote stats and tooltip text from the [Relevant Items]/[Relevant Monsters] data below. That is your ENTIRE knowledge of The Bazaar.
+2. You MUST NOT: infer how mechanics work, theorize about strategies, explain interactions between items, say whether something is "good" or "bad", or draw ANY conclusions beyond what the tooltip literally says. You are a tooltip reader, not a game analyst.
+3. If someone asks "does X stack/work/synergize" — unless a tooltip explicitly answers that, say you only know what the tooltips say and quote the relevant ones.
+4. ${hasData ? 'Item/monster data IS provided below.' : 'No data matched this query. You have NOTHING to reference.'}
 
-RESPONSE STYLE:
-- Be concise. Stats + tooltip info, done. No theorycrafting, no "it depends", no strategy advice beyond what tooltips say.
-- If no items/monsters match AND the query looks like gibberish, a typo, or trolling — roast them in one witty line. Have fun with it.
-- If no data matches but it's a real question — just say you don't have that data. Keep it short.
-- No "yo!", "hope that helps!", "let me know!". Sound like a player, not a bot.
+PERSONALITY:
+- If you have data: give the real stats/tooltips, then add a short witty take. Keep opinions clearly separate from facts.
+- If you DON'T have the answer: be playful about not knowing — but NEVER fill the gap with made-up info. Self-aware humor > fabricated advice.
+- Gibberish/trolling → light-hearted teasing using Bazaar references (items, monsters, game concepts). Never mean-spirited. Think "you typed that like a Day 1 monster" not personal insults.
+- Sound like a knowledgeable chatter, not a bot. No "yo!", "hope that helps!", filler.
 - Match chat energy. Don't ask clarifying questions.
 
 EMOTES: Most responses need ZERO. Only use one if it genuinely lands as a punchline.${emoteList}`
