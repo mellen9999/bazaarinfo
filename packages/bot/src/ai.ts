@@ -293,6 +293,8 @@ export async function respond(query: string, ctx: AiContext): Promise<string | n
       .replace(/\bnah\b/gi, '')
       .replace(/not .{0,15}in my (?:database|data|item pool|item list|records)[^.!?]*/gi, '')
       .replace(/can't find .{0,30}in (?:my|the) (?:data|database|records)[^.!?]*/gi, '')
+      .replace(/can't speak to\b[^.!?]*/gi, '')
+      .replace(/not ringing any bells[^.!?]*/gi, '')
       .replace(/not .{0,10}my lane[^.!?]*/gi, '')
       .replace(/not sure [^.!?]*/gi, '')
       .replace(/I don't (?:know|have)\b[^.!?]*/gi, '')
@@ -305,6 +307,8 @@ export async function respond(query: string, ctx: AiContext): Promise<string | n
       .replace(/unlike some\b/gi, '')
       .replace(/I'm here for\b[^.!?]*/gi, '')
       .replace(/I appreciate the creativity[^.!?]*/gi, '')
+      // strip trailing questions — chatbot can't follow up
+      .replace(/\s+(?:What|Which|How|Where|Who|Do you|Are you|Want|Would you|Should)[^.!]*\?$/gi, '')
       // strip ms values the model should have written as seconds
       .replace(/(\d+)000ms/g, (_m, n) => n + 's')
       .replace(/(\d+)ms/g, (_m, n) => (Number(n) / 1000) + 's')
@@ -318,8 +322,9 @@ export async function respond(query: string, ctx: AiContext): Promise<string | n
     if (text.length < 3) return null
 
     // detect fabricated stats — if no items/monsters matched but response has stat numbers, it's hallucinating
-    if (!hasData && /[🗡🛡💚🔥🧪🔋]\s*\d/.test(text)) {
-      log(`ai fabrication detected, suppressing: ${text.slice(0, 60)}`)
+    // note: 🗡️ has a variation selector \uFE0F that must be handled
+    if (!hasData && /(?:🗡\uFE0F?|🛡\uFE0F?|💚|🔥|🧪|🔋|🕐|🐌|🧊|🌿)\s*\d/.test(text)) {
+      log(`ai fabrication detected, suppressing: ${text.slice(0, 80)}`)
       return null
     }
 
