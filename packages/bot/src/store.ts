@@ -58,10 +58,11 @@ function loadCache(cache: CardCache) {
   }
   enchantmentNames = [...enchSet].sort()
 
-  // extract distinct hero names
+  // extract distinct hero names (filter data labels that aren't real heroes)
+  const FAKE_HEROES = new Set(['???', 'Common'])
   const heroSet = new Set<string>()
   for (const card of allCards) {
-    for (const h of card.Heroes) heroSet.add(h)
+    for (const h of card.Heroes) if (!FAKE_HEROES.has(h)) heroSet.add(h)
   }
   heroNames = [...heroSet].sort()
 
