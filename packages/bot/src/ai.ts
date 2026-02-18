@@ -40,8 +40,8 @@ function checkRateLimit(user: string, channel: string): string | null {
     return `slow down, try again in ${wait}s`
   }
 
-  // per-channel (exempt high-traffic partner channels)
-  const NO_CHANNEL_LIMIT = new Set(['nl_kripp'])
+  // per-channel (exempt high-traffic channels via env)
+  const NO_CHANNEL_LIMIT = new Set((process.env.NO_RATELIMIT_CHANNELS ?? '').split(',').map((s) => s.trim()).filter(Boolean))
   if (!NO_CHANNEL_LIMIT.has(channel)) {
     const times = channelAsks.get(channel) ?? []
     const recent = times.filter((t) => now - t < CHANNEL_WINDOW)
