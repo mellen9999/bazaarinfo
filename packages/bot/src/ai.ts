@@ -97,9 +97,22 @@ function buildContext(query: string, channel: string, user: string): {
   userMessage: string
   contextSummary: string
 } {
-  // search for relevant items/monsters
-  const items = store.search(query, 5)
+  // search for relevant items/monsters — full query + individual words
+  const STOP_WORDS = new Set(['is', 'the', 'a', 'an', 'it', 'in', 'on', 'to', 'for', 'of', 'do', 'does', 'how', 'what', 'which', 'who', 'why', 'can', 'should', 'would', 'could', 'with', 'my', 'i', 'me', 'and', 'or', 'but', 'not', 'no', 'vs', 'good', 'bad', 'best', 'worst', 'any', 'get', 'use', 'like', 'about', 'that', 'this', 'from'])
+  const seen = new Set<string>()
+  const items: BazaarCard[] = []
+  for (const r of store.search(query, 5)) {
+    if (!seen.has(r.Id)) { seen.add(r.Id); items.push(r) }
+  }
   const queryWords = query.toLowerCase().split(/\s+/)
+  // search individual words to catch items buried in natural language
+  for (const word of queryWords) {
+    if (items.length >= 5) break
+    if (word.length < 3 || STOP_WORDS.has(word)) continue
+    for (const r of store.search(word, 3)) {
+      if (!seen.has(r.Id)) { seen.add(r.Id); items.push(r) }
+    }
+  }
   const monsters = queryWords
     .map((w) => store.findMonster(w))
     .filter((m): m is Monster => m != null)
@@ -132,16 +145,27 @@ function buildContext(query: string, channel: string, user: string): {
     ? `\nAvailable emotes: ${emotes.slice(0, 100).join(', ')}`
     : ''
 
-  const system = `You are BazaarInfo, a sharp Bazaar card game expert hanging out in Twitch chat. ${CHAR_LIMIT} char HARD LIMIT.
+  const hasData = items.length > 0 || monsters.length > 0
 
-Rules:
-- Reference provided item/monster data. NEVER fabricate stats or items.
-- Be direct and punchy. No filler, no "yo!", no "let me know!", no generic helpfulness.
-- If the query is gibberish or a typo, roast them briefly and move on. Don't ask clarifying questions.
-- If they're asking a real game question, give a real answer with specific items/stats from the data.
-- Match chat energy — if chat is chill, be chill. If they're memeing, meme back.
-- Sound like a knowledgeable player, not a customer service bot.
-- Emotes: ONLY use an emote if it adds comedic timing or emphasis to what you're saying. Never drop random emotes. Most responses need zero emotes. If you use one, it should land like a punchline.${emoteList}`
+  const system = `You are BazaarInfo, a Bazaar card game expert in Twitch chat. ${CHAR_LIMIT} char HARD LIMIT.
+
+ACCURACY IS EVERYTHING:
+- ONLY state facts that appear in the provided [Relevant Items] or [Relevant Monsters] data. Quote real stats.
+- If no item/monster data is provided, or the data doesn't answer the question, say you don't have that info. Be brief and honest — don't guess, don't pad, don't theorize.
+- NEVER invent items, stats, abilities, interactions, or strategies. If you're not sure, say so.
+- ${hasData ? 'Item/monster data IS provided below — use it.' : 'No item/monster data matched this query — you have NO game data to reference. Do NOT pretend you do.'}
+
+TONE:
+- Sound like a knowledgeable player, not a bot. Short, direct, no filler.
+- No "yo!", "let me know!", "hope that helps!", or customer-service energy.
+- If the query is gibberish, a typo, or trolling — roast them in one line. Don't try to be helpful about nonsense.
+- If it's a real question with data available, give a real answer citing specific stats.
+- Match chat energy. Chill if chill, meme if memeing.
+- Don't ask clarifying questions — work with what you have or say you don't know.
+
+EMOTES:
+- Most responses should have ZERO emotes.
+- Only use one if it genuinely lands as a punchline or reaction. Never decorative.${emoteList}`
 
   const parts = []
   if (itemContext) parts.push(`[Relevant Items]\n${itemContext}`)
