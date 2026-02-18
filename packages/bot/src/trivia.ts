@@ -38,57 +38,35 @@ function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
 }
 
-function getItemsWithAttr(attr: string): BazaarCard[] {
-  return store.getItems().filter((c) => c.BaseAttributes[attr] != null && c.BaseAttributes[attr] > 0)
-}
-
-// type 1: which item deals X damage?
-// fix: accept ALL items with that damage value, not just the picked one
-function genDamageQuestion(): ReturnType<QuestionGen> {
-  const items = getItemsWithAttr('DamageAmount')
-  if (items.length === 0) return null
-  const item = pickRandom(items)
-  const dmg = item.BaseAttributes.DamageAmount
-  const allMatches = items
-    .filter((c) => c.BaseAttributes.DamageAmount === dmg)
-    .map((c) => c.Title.Text.toLowerCase())
-  return {
-    question: `Which item deals ${dmg} damage? (base tier)`,
-    answer: item.Title.Text,
-    accepted: allMatches,
-    type: 1,
-  }
-}
-
-// type 2: what hero uses item?
+// type 1: what hero uses item?
 function genHeroQuestion(): ReturnType<QuestionGen> {
   const items = store.getItems().filter((c) => c.Heroes.length === 1)
   if (items.length === 0) return null
   const item = pickRandom(items)
   const hero = item.Heroes[0]
   return {
-    question: `What hero uses ${item.Title.Text}?`,
+    question: `What hero uses ${item.Title}?`,
     answer: hero,
     accepted: [hero.toLowerCase()],
-    type: 2,
+    type: 1,
   }
 }
 
-// type 3: what day does monster appear?
+// type 2: what day does monster appear?
 function genMonsterDayQuestion(): ReturnType<QuestionGen> {
   const monsters = store.getMonsters().filter((m) => m.MonsterMetadata.day != null)
   if (monsters.length === 0) return null
   const monster = pickRandom(monsters)
   const day = String(monster.MonsterMetadata.day)
   return {
-    question: `What day does ${monster.Title.Text} appear?`,
+    question: `What day does ${monster.Title} appear?`,
     answer: `Day ${day}`,
     accepted: [day, `day ${day}`],
-    type: 3,
+    type: 2,
   }
 }
 
-// type 4: name an item with tag X
+// type 3: name an item with tag X
 function genTagQuestion(): ReturnType<QuestionGen> {
   const items = store.getItems().filter((c) => c.HiddenTags.length > 0)
   if (items.length === 0) return null
@@ -96,73 +74,16 @@ function genTagQuestion(): ReturnType<QuestionGen> {
   const tag = pickRandom(item.HiddenTags)
   const validItems = store.getItems()
     .filter((c) => c.HiddenTags.some((t) => t.toLowerCase() === tag.toLowerCase()))
-    .map((c) => c.Title.Text.toLowerCase())
+    .map((c) => c.Title.toLowerCase())
   return {
     question: `Name an item with the "${tag}" tag`,
     answer: `any ${tag} item`,
     accepted: validItems,
-    type: 4,
+    type: 3,
   }
 }
 
-// type 5: higher or lower — does item deal more or less than N damage?
-// fix: proportional offset so high-damage items aren't obvious
-function genHigherLowerQuestion(): ReturnType<QuestionGen> {
-  const items = getItemsWithAttr('DamageAmount')
-  if (items.length < 2) return null
-  const item = pickRandom(items)
-  const dmg = item.BaseAttributes.DamageAmount
-  // offset is 10-30% of the damage value, minimum 3
-  const pct = 0.1 + Math.random() * 0.2
-  const offset = Math.max(3, Math.round(dmg * pct))
-  const compare = Math.random() > 0.5 ? dmg + offset : Math.max(1, dmg - offset)
-  const isHigher = dmg > compare
-  const answer = isHigher ? 'higher' : 'lower'
-  return {
-    question: `Higher or lower: ${item.Title.Text} deals more or less than ${compare} damage?`,
-    answer,
-    accepted: isHigher
-      ? ['higher', 'more', 'h']
-      : ['lower', 'less', 'l'],
-    type: 5,
-  }
-}
-
-// type 6: item A or B — which has more stat?
-// fix: removed CooldownMax (confusing — "more cooldown" = worse), use "faster" framing would
-// require separate logic. Keep it simple with 3 clear stats.
-function genCompareQuestion(): ReturnType<QuestionGen> {
-  const attrs = ['DamageAmount', 'ShieldApplyAmount', 'HealAmount']
-  const attr = pickRandom(attrs)
-  const items = getItemsWithAttr(attr)
-  if (items.length < 2) return null
-
-  let a: BazaarCard, b: BazaarCard
-  let attempts = 0
-  do {
-    a = pickRandom(items)
-    b = pickRandom(items)
-    attempts++
-  } while ((a.Id === b.Id || a.BaseAttributes[attr] === b.BaseAttributes[attr]) && attempts < 20)
-  if (a.Id === b.Id || a.BaseAttributes[attr] === b.BaseAttributes[attr]) return null
-
-  const statLabels: Record<string, string> = {
-    DamageAmount: 'damage',
-    ShieldApplyAmount: 'shield',
-    HealAmount: 'healing',
-  }
-  const label = statLabels[attr] ?? attr
-  const winner = a.BaseAttributes[attr] > b.BaseAttributes[attr] ? a : b
-
-  return {
-    question: `${a.Title.Text} or ${b.Title.Text}: which has more ${label}? (base tier)`,
-    answer: winner.Title.Text,
-    accepted: [winner.Title.Text.toLowerCase()],
-    type: 6,
-  }
-}
-
-// type 7: how many items does hero have?
+// type 4: how many items does hero have?
 function genHeroCountQuestion(): ReturnType<QuestionGen> {
   const heroNames = store.getHeroNames()
   if (heroNames.length === 0) return null
@@ -174,26 +95,23 @@ function genHeroCountQuestion(): ReturnType<QuestionGen> {
     question: `How many items does ${hero} have?`,
     answer: count,
     accepted: [count],
-    type: 7,
+    type: 4,
   }
 }
 
 const generators: QuestionGen[] = [
-  genDamageQuestion,     // 0
-  genHeroQuestion,       // 1
-  genMonsterDayQuestion, // 2
-  genTagQuestion,        // 3
-  genHigherLowerQuestion,// 4
-  genCompareQuestion,    // 5
-  genHeroCountQuestion,  // 6
+  genHeroQuestion,        // 0
+  genMonsterDayQuestion,  // 1
+  genTagQuestion,         // 2
+  genHeroCountQuestion,   // 3
 ]
 
 type TriviaCategory = 'items' | 'heroes' | 'monsters'
 
 const CATEGORY_GENERATORS: Record<TriviaCategory, number[]> = {
-  items: [0, 3, 4, 5],    // damage, tag, higher/lower, compare
-  heroes: [1, 6],          // hero question, hero count
-  monsters: [2],           // monster day
+  items: [2],              // tag
+  heroes: [0, 3],          // hero question, hero count
+  monsters: [1],           // monster day
 }
 
 function pickQuestionType(category?: TriviaCategory): number {
@@ -232,8 +150,6 @@ function looksLikeAnswer(text: string, game: TriviaState): boolean {
   const lower = text.toLowerCase()
   // for numeric answers (day questions, count questions), allow short
   if (game.acceptedAnswers.some((a) => /^\d+$/.test(a)) && /\d/.test(lower)) return true
-  // for higher/lower, accept short answers
-  if (game.questionType === 5) return true
   // skip very short messages (1-2 chars) unless they could be answers
   if (lower.length <= 2 && !game.acceptedAnswers.some((a) => a.length <= 2)) return false
   return true

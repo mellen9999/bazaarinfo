@@ -30,11 +30,11 @@ let heroNames: string[] = []
 let tagNames: string[] = []
 let redditPosts: RedditPost[] = []
 
-function dedup<T extends { Id: string }>(cards: T[]): T[] {
+function dedup<T extends { Title: string }>(cards: T[]): T[] {
   const seen = new Set<string>()
   return cards.filter((i) => {
-    if (seen.has(i.Id)) return false
-    seen.add(i.Id)
+    if (seen.has(i.Title)) return false
+    seen.add(i.Title)
     return true
   })
 }
@@ -46,7 +46,7 @@ function loadCache(cache: CardCache) {
   allCards = [...items, ...skills]
   index = buildIndex(allCards)
   monsterIndex = new Fuse(monsters, {
-    keys: [{ name: 'Title.Text', weight: 1 }],
+    keys: [{ name: 'Title', weight: 1 }],
     threshold: 0.25,
     includeScore: true,
   })
@@ -120,7 +120,7 @@ export function search(query: string, limit = 5) {
   const exact: BazaarCard[] = []
   const rest: BazaarCard[] = []
   for (const r of results) {
-    if (wordRe.test(r.Title.Text)) exact.push(r)
+    if (wordRe.test(r.Title)) exact.push(r)
     else rest.push(r)
   }
   return [...exact, ...rest].slice(0, limit)
@@ -163,11 +163,11 @@ export function getEnchantments(): string[] {
   return enchantmentNames
 }
 
-function findByTitle<T extends { Title: { Text: string } }>(list: T[], query: string): T | undefined {
+function findByTitle<T extends { Title: string }>(list: T[], query: string): T | undefined {
   const lower = query.toLowerCase()
-  return list.find((x) => x.Title.Text.toLowerCase() === lower)
-    ?? list.find((x) => x.Title.Text.toLowerCase().startsWith(lower))
-    ?? list.find((x) => wordIncludes(x.Title.Text.toLowerCase(), lower))
+  return list.find((x) => x.Title.toLowerCase() === lower)
+    ?? list.find((x) => x.Title.toLowerCase().startsWith(lower))
+    ?? list.find((x) => wordIncludes(x.Title.toLowerCase(), lower))
 }
 
 export function findMonster(query: string): Monster | undefined {
@@ -181,7 +181,7 @@ export function findMonster(query: string): Monster | undefined {
 
 export function findCard(name: string): BazaarCard | undefined {
   const lower = name.toLowerCase()
-  return allCards.find((c) => c.Title.Text.toLowerCase() === lower)
+  return allCards.find((c) => c.Title.toLowerCase() === lower)
 }
 
 export function byTag(tag: string): BazaarCard[] {
@@ -206,7 +206,7 @@ const SUGGEST_GATE = 0.4
 export function suggest(query: string, limit = 3): string[] {
   const resolved = resolveAlias(query)
   const scored = searchCards(index, resolved, limit)
-  return scored.filter((r) => r.score <= SUGGEST_GATE).map((r) => r.item.Title.Text)
+  return scored.filter((r) => r.score <= SUGGEST_GATE).map((r) => r.item.Title)
 }
 
 export async function loadRedditCache() {

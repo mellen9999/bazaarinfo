@@ -4,8 +4,7 @@ import { loadStore, reloadStore, loadRedditCache, reloadRedditCache, CACHE_PATH,
 import { handleCommand, setLobbyChannel } from './commands'
 import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily } from './scheduler'
-import { scrapeItems, scrapeSkills, scrapeMonsters, scrapeReddit } from '@bazaarinfo/data'
-import type { CardCache } from '@bazaarinfo/shared'
+import { scrapeDump, scrapeReddit } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
 import { loadEmotes, startDailyRefresh, loadChannelEmotes } from './emotes'
@@ -49,28 +48,12 @@ async function refreshData() {
     timer = setTimeout(() => reject(new Error('scrape timed out after 5min')), SCRAPE_TIMEOUT)
   })
 
-  const itemsScrape = scrapeItems((done, pages) => {
-    if (done % 10 === 0) log(`items scrape: ${done}/${pages}`)
-  })
-  const skillsScrape = scrapeSkills((done, pages) => {
-    if (done % 5 === 0) log(`skills scrape: ${done}/${pages}`)
-  })
-  const monstersScrape = scrapeMonsters((done, pages) => {
-    if (done % 5 === 0) log(`monsters scrape: ${done}/${pages}`)
-  })
-
-  const [items, skills, monstersResult] = await Promise.race([
-    Promise.all([itemsScrape, skillsScrape, monstersScrape]),
+  const cache = await Promise.race([
+    scrapeDump((msg) => log(`dump: ${msg}`)),
     timeout,
   ]).finally(() => clearTimeout(timer))
 
-  log(`scraped ${items.cards.length} items, ${skills.cards.length} skills, ${monstersResult.monsters.length} monsters`)
-  const cache: CardCache = {
-    items: items.cards,
-    skills: skills.cards,
-    monsters: monstersResult.monsters,
-    fetchedAt: new Date().toISOString(),
-  }
+  log(`scraped ${cache.items.length} items, ${cache.skills.length} skills, ${cache.monsters.length} monsters`)
   await Bun.write(CACHE_PATH, JSON.stringify(cache, null, 2))
 
   // reddit meta — separate try so card scrape isn't affected
@@ -86,7 +69,7 @@ async function refreshData() {
 try {
   const cacheFile = Bun.file(CACHE_PATH)
   if (await cacheFile.exists()) {
-    const cache = (await cacheFile.json()) as CardCache
+    const cache = (await cacheFile.json()) as { fetchedAt: string }
     const age = Date.now() - new Date(cache.fetchedAt).getTime()
     if (age > STALE_HOURS * 3600_000) {
       log(`cache is ${Math.round(age / 3600_000)}h old, refreshing...`)

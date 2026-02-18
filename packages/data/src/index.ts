@@ -1,2 +1,2 @@
-export { scrapeItems, scrapeSkills, scrapeMonsters } from './scraper'
+export { scrapeDump } from './scraper'
 export { scrapeReddit } from './reddit'

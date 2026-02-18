@@ -1,20 +1,17 @@
 import { describe, expect, it } from 'bun:test'
-import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, formatQuests } from './format'
+import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults } from './format'
 import type { BazaarCard, TierName, Monster, SkillDetail } from './types'
 
 function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
   return {
-    Id: 'test-001',
     Type: 'Item',
-    Title: { Text: 'Boomerang' },
-    Description: null,
+    Title: 'Boomerang',
     Size: 'Medium',
     BaseTier: 'Bronze',
-    Tiers: { Bronze: t(), Silver: t(), Gold: t(), Diamond: t() },
-    BaseAttributes: { DamageAmount: 20, CooldownMax: 4000 },
+    Tiers: ['Bronze', 'Silver', 'Gold', 'Diamond'],
     Tooltips: [
-      { Content: { Text: 'Deal {DamageAmount} Damage' }, TooltipType: 'Active' },
-      { Content: { Text: 'Win vs Monster, get Loot.' }, TooltipType: 'Passive' },
+      { text: 'Deal {DamageAmount} Damage', type: 'Active' },
+      { text: 'Win vs Monster, get Loot.', type: 'Passive' },
     ],
     TooltipReplacements: {
       '{DamageAmount}': { Fixed: 60 },
@@ -25,33 +22,18 @@ function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
     Heroes: ['Pygmalien'],
     Enchantments: {
       Fiery: {
-        Tags: ['Burn'],
-        HiddenTags: [],
-        Localization: {
-          Tooltips: [
-            { Content: { Text: 'Burn for {BurnAmount} damage' }, TooltipType: 'Active' },
-          ],
-        },
-        TooltipReplacements: {
+        tags: ['Burn'],
+        tooltips: [
+          { text: 'Burn for {BurnAmount} damage', type: 'Active' },
+        ],
+        tooltipReplacements: {
           '{BurnAmount}': { Bronze: 5, Silver: 10, Gold: 15, Diamond: 20 },
         },
-        DisplayTags: [],
       },
     },
-    Art: '',
-    ArtLarge: '',
-    ArtBlur: '',
-    Uri: '',
-    DroppedBy: null,
-    Quests: null,
-    Transform: null,
-    _originalTitleText: 'Boomerang',
+    Shortlink: 'https://bzdb.to/boomerang',
     ...overrides,
   }
-}
-
-function t() {
-  return { AbilityIds: [], AuraIds: [], OverrideAttributes: {}, ActiveTooltips: [] }
 }
 
 // ---------------------------------------------------------------------------
@@ -60,67 +42,7 @@ function t() {
 describe('formatItem', () => {
   it('outputs name, size, and hero', () => {
     const result = formatItem(makeCard())
-    expect(result).toStartWith('Boomerang [M] · Pyg')
-  })
-
-  it('does not include Buy price', () => {
-    const result = formatItem(makeCard({
-      BaseAttributes: { DamageAmount: 20, CooldownMax: 4000, BuyPrice: 4 },
-    }))
-    expect(result).not.toContain('Buy')
-    expect(result).not.toContain('4g') // could false-match but BuyPrice shouldn't appear
-  })
-
-  it('uses emoji prefixes on stats', () => {
-    const result = formatItem(makeCard())
-    expect(result).toContain('🗡️20')
-    expect(result).toContain('🕐4s')
-  })
-
-  it('formats damage with sword emoji', () => {
-    const result = formatItem(makeCard({
-      BaseAttributes: { DamageAmount: 20 },
-    }))
-    expect(result).toContain('🗡️20')
-  })
-
-  it('formats shield with shield emoji', () => {
-    const result = formatItem(makeCard({
-      BaseAttributes: { ShieldApplyAmount: 15 },
-    }))
-    expect(result).toContain('🛡15')
-  })
-
-  it('formats heal with heart emoji', () => {
-    const result = formatItem(makeCard({
-      BaseAttributes: { HealAmount: 30 },
-    }))
-    expect(result).toContain('💚30')
-  })
-
-  it('formats cooldown with timer emoji', () => {
-    const result = formatItem(makeCard({
-      BaseAttributes: { CooldownMax: 5000 },
-    }))
-    expect(result).toContain('🕐5s')
-  })
-
-  it('shows multiple stats space-separated', () => {
-    const result = formatItem(makeCard({
-      BaseAttributes: { DamageAmount: 10, ShieldApplyAmount: 5, CooldownMax: 3000 },
-    }))
-    expect(result).toContain('🗡️10 🛡5 🕐3s')
-  })
-
-  it('omits stats segment when no stats', () => {
-    const result = formatItem(makeCard({
-      BaseAttributes: {},
-    }))
-    // header | ability (no stats segment with extra |)
-    const pipes = result.split(' | ')
-    expect(pipes[0]).toStartWith('Boomerang')
-    // next segment should be ability text, not empty
-    expect(pipes[1]).toContain('Deal')
+    expect(result).toContain('Boomerang [M] · Pyg')
   })
 
   it('resolves fixed replacement values in tooltips', () => {
@@ -131,7 +53,7 @@ describe('formatItem', () => {
   it('resolves tiered replacement values when tier specified', () => {
     const card = makeCard({
       Tooltips: [
-        { Content: { Text: 'Deal {Dmg} Damage' }, TooltipType: 'Active' },
+        { text: 'Deal {Dmg} Damage', type: 'Active' },
       ],
       TooltipReplacements: {
         '{Dmg}': { Bronze: 10, Silver: 20, Gold: 30, Diamond: 40 },
@@ -156,7 +78,7 @@ describe('formatItem', () => {
   it('shows all tier values when no tier specified for tiered replacements', () => {
     const card = makeCard({
       Tooltips: [
-        { Content: { Text: 'Deal {Dmg} Damage' }, TooltipType: 'Active' },
+        { text: 'Deal {Dmg} Damage', type: 'Active' },
       ],
       TooltipReplacements: {
         '{Dmg}': { Bronze: 10, Silver: 20, Gold: 30, Diamond: 40 },
@@ -169,7 +91,7 @@ describe('formatItem', () => {
   it('leaves unresolved placeholders as-is', () => {
     const card = makeCard({
       Tooltips: [
-        { Content: { Text: 'Deal {Unknown} Damage' }, TooltipType: 'Active' },
+        { text: 'Deal {Unknown} Damage', type: 'Active' },
       ],
       TooltipReplacements: {},
     })
@@ -198,7 +120,7 @@ describe('formatItem', () => {
   it('truncates output exceeding 480 chars', () => {
     const longName = 'A'.repeat(500)
     const result = formatItem(makeCard({
-      Title: { Text: longName },
+      Title: longName,
     }))
     expect(result.length).toBeLessThanOrEqual(480)
     expect(result).toEndWith('...')
@@ -214,31 +136,12 @@ describe('formatItem', () => {
 
   it('handles multiple abilities separated by pipes', () => {
     const result = formatItem(makeCard())
-    // "Deal 60 Damage" and "Win vs Monster, get Loot." joined by |
     expect(result).toContain('Deal 60 Damage | Win vs Monster, get Loot.')
   })
 
-  it('shows quest hint when item has quests', () => {
-    const card = makeCard({
-      Quests: [{
-        Entries: [{
-          Reward: {
-            Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
-            Localization: { Tooltips: [{ Content: { Text: '+200 Damage' }, TooltipType: 'Passive' }] },
-            TooltipReplacements: {},
-            DisplayTags: [],
-          },
-          CompletionEffects: null,
-          Localization: { Tooltips: [{ Content: { Text: 'Sell 20 Food' }, TooltipType: 'Passive' }] },
-          IconKeyOverride: null,
-        }],
-      }],
-    })
-    expect(formatItem(card)).toContain('!b quest Boomerang for quests')
-  })
-
-  it('no quest hint when item has no quests', () => {
-    expect(formatItem(makeCard())).not.toContain('quest')
+  it('appends shortlink when it fits', () => {
+    const result = formatItem(makeCard())
+    expect(result).toContain('bzdb.to/boomerang')
   })
 })
 
@@ -260,11 +163,8 @@ describe('formatEnchantment', () => {
     const card = makeCard({
       Enchantments: {
         Icy: {
-          Tags: [],
-          HiddenTags: [],
-          Localization: { Tooltips: [{ Content: { Text: 'Freeze target' }, TooltipType: 'Passive' }] },
-          TooltipReplacements: {},
-          DisplayTags: [],
+          tags: [],
+          tooltips: [{ text: 'Freeze target', type: 'Passive' }],
         },
       },
     })
@@ -301,16 +201,11 @@ describe('formatEnchantment', () => {
     const card = makeCard({
       Enchantments: {
         Multi: {
-          Tags: [],
-          HiddenTags: [],
-          Localization: {
-            Tooltips: [
-              { Content: { Text: 'Effect one' }, TooltipType: 'Active' },
-              { Content: { Text: 'Effect two' }, TooltipType: 'Passive' },
-            ],
-          },
-          TooltipReplacements: {},
-          DisplayTags: [],
+          tags: [],
+          tooltips: [
+            { text: 'Effect one', type: 'Active' },
+            { text: 'Effect two', type: 'Passive' },
+          ],
         },
       },
     })
@@ -322,13 +217,8 @@ describe('formatEnchantment', () => {
     const card = makeCard({
       Enchantments: {
         Long: {
-          Tags: [],
-          HiddenTags: [],
-          Localization: {
-            Tooltips: [{ Content: { Text: 'X'.repeat(500) }, TooltipType: 'Active' }],
-          },
-          TooltipReplacements: {},
-          DisplayTags: [],
+          tags: [],
+          tooltips: [{ text: 'X'.repeat(500), type: 'Active' }],
         },
       },
     })
@@ -341,99 +231,18 @@ describe('formatEnchantment', () => {
     const card = makeCard({
       Enchantments: {
         Tagged: {
-          Tags: ['Burn', 'Slow'],
-          HiddenTags: [],
-          Localization: { Tooltips: [{ Content: { Text: 'stuff' }, TooltipType: 'Active' }] },
-          TooltipReplacements: {},
-          DisplayTags: [],
+          tags: ['Burn', 'Slow'],
+          tooltips: [{ text: 'stuff', type: 'Active' }],
         },
       },
     })
     const result = formatEnchantment(card, 'Tagged')
     expect(result).toContain('[Burn, Slow]')
   })
-})
 
-// ---------------------------------------------------------------------------
-// formatItem — expanded stats
-// ---------------------------------------------------------------------------
-describe('formatItem expanded stats', () => {
-  it('shows burn stat', () => {
-    const result = formatItem(makeCard({ BaseAttributes: { BurnApplyAmount: 10 } }))
-    expect(result).toContain('🔥10')
-  })
-
-  it('shows poison stat', () => {
-    const result = formatItem(makeCard({ BaseAttributes: { PoisonApplyAmount: 5 } }))
-    expect(result).toContain('🧪5')
-  })
-
-  it('shows freeze as seconds', () => {
-    const result = formatItem(makeCard({ BaseAttributes: { FreezeAmount: 2000 } }))
-    expect(result).toContain('🧊2s')
-  })
-
-  it('shows slow as seconds', () => {
-    const result = formatItem(makeCard({ BaseAttributes: { SlowAmount: 1500 } }))
-    expect(result).toContain('🐌1.5s')
-  })
-
-  it('shows haste as seconds', () => {
-    const result = formatItem(makeCard({ BaseAttributes: { HasteAmount: 3000 } }))
-    expect(result).toContain('⚡3s')
-  })
-
-  it('shows regen stat', () => {
-    const result = formatItem(makeCard({ BaseAttributes: { RegenApplyAmount: 8 } }))
-    expect(result).toContain('🌿8')
-  })
-
-  it('shows lifesteal as percent', () => {
-    const result = formatItem(makeCard({ BaseAttributes: { Lifesteal: 25 } }))
-    expect(result).toContain('🩸25%')
-  })
-
-  it('shows crit chance as percent', () => {
-    const result = formatItem(makeCard({ BaseAttributes: { CritChance: 15 } }))
-    expect(result).toContain('🎯15%')
-  })
-
-  it('shows multicast only when > 1', () => {
-    const result1 = formatItem(makeCard({ BaseAttributes: { Multicast: 1 } }))
-    expect(result1).not.toContain('🔁')
-    const result2 = formatItem(makeCard({ BaseAttributes: { Multicast: 2 } }))
-    expect(result2).toContain('🔁2')
-  })
-
-  it('shows ammo stat', () => {
-    const result = formatItem(makeCard({ BaseAttributes: { AmmoMax: 3 } }))
-    expect(result).toContain('🔋3')
-  })
-
-  it('shows charge as seconds', () => {
-    const result = formatItem(makeCard({ BaseAttributes: { ChargeAmount: 5000 } }))
-    expect(result).toContain('⏳5s')
-  })
-
-  it('cooldown always appears last', () => {
-    const result = formatItem(makeCard({
-      BaseAttributes: { CooldownMax: 3000, DamageAmount: 10, AmmoMax: 2 },
-    }))
-    const statsMatch = result.match(/🗡️10 🔋2 🕐3s/)
-    expect(statsMatch).toBeTruthy()
-  })
-
-  it('stat display order is correct', () => {
-    const result = formatItem(makeCard({
-      BaseAttributes: { CooldownMax: 4000, DamageAmount: 20, ShieldApplyAmount: 10, BurnApplyAmount: 5 },
-    }))
-    const dmgIdx = result.indexOf('🗡️')
-    const shieldIdx = result.indexOf('🛡')
-    const burnIdx = result.indexOf('🔥')
-    const cdIdx = result.indexOf('🕐')
-    expect(dmgIdx).toBeLessThan(shieldIdx)
-    expect(shieldIdx).toBeLessThan(burnIdx)
-    expect(burnIdx).toBeLessThan(cdIdx)
+  it('appends shortlink when it fits', () => {
+    const result = formatEnchantment(makeCard(), 'Fiery')
+    expect(result).toContain('bzdb.to/boomerang')
   })
 })
 
@@ -462,7 +271,7 @@ describe('formatItem size display', () => {
 // ---------------------------------------------------------------------------
 describe('formatTagResults', () => {
   it('formats tag results with names', () => {
-    const cards = [makeCard({ Title: { Text: 'Sword' } }), makeCard({ Title: { Text: 'Shield' } })]
+    const cards = [makeCard({ Title: 'Sword' }), makeCard({ Title: 'Shield' })]
     const result = formatTagResults('Burn', cards)
     expect(result).toBe('[Burn] Sword, Shield')
   })
@@ -473,7 +282,7 @@ describe('formatTagResults', () => {
 
   it('truncates long results to 480', () => {
     const cards = Array.from({ length: 100 }, (_, i) =>
-      makeCard({ Title: { Text: 'Item' + 'X'.repeat(20) + i } }),
+      makeCard({ Title: 'Item' + 'X'.repeat(20) + i }),
     )
     const result = formatTagResults('Test', cards)
     expect(result.length).toBeLessThanOrEqual(480)
@@ -486,10 +295,11 @@ describe('formatTagResults', () => {
 describe('formatDayResults', () => {
   function makeMonster(name: string, hp: number): Monster {
     return {
-      Id: 'mon-' + name, Type: 'CombatEncounter', Title: { Text: name },
-      Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
-      Heroes: [], Uri: '',
-      MonsterMetadata: { available: 'Always', day: 5, health: hp, board: [] },
+      Type: 'CombatEncounter', Title: name,
+      Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [],
+      MonsterMetadata: { available: 'Always', day: 5, health: hp, board: [], skills: [] },
+      Shortlink: 'https://bzdb.to/test',
     }
   }
 
@@ -504,176 +314,26 @@ describe('formatDayResults', () => {
 })
 
 // ---------------------------------------------------------------------------
-// formatQuests
-// ---------------------------------------------------------------------------
-describe('formatQuests', () => {
-  it('formats quests with fixed replacements', () => {
-    const card = makeCard({
-      Title: { Text: 'Dog' },
-      Quests: [{
-        Entries: [{
-          Reward: {
-            Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
-            Localization: { Tooltips: [{ Content: { Text: 'This has +{aura.q1} Damage' }, TooltipType: 'Passive' }] },
-            TooltipReplacements: { '{aura.q1}': { Fixed: 200 } },
-            DisplayTags: [],
-          },
-          CompletionEffects: null,
-          Localization: { Tooltips: [{ Content: { Text: 'Sell 20 Food' }, TooltipType: 'Passive' }] },
-          IconKeyOverride: null,
-        }],
-      }],
-    })
-    const result = formatQuests(card)
-    expect(result).toBe('[Dog] Quests: Sell 20 Food → This has +200 Damage')
-  })
-
-  it('formats quests with tier-scaled replacements (no tier)', () => {
-    const card = makeCard({
-      Title: { Text: 'Slate' },
-      Quests: [{
-        Entries: [{
-          Reward: {
-            Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
-            Localization: { Tooltips: [{ Content: { Text: 'Poison {ability.q1}' }, TooltipType: 'Passive' }] },
-            TooltipReplacements: { '{ability.q1}': { Bronze: 5, Silver: 10, Gold: 15, Diamond: 20 } },
-            DisplayTags: [],
-          },
-          CompletionEffects: null,
-          Localization: { Tooltips: [{ Content: { Text: 'Poison 30 times' }, TooltipType: 'Passive' }] },
-          IconKeyOverride: null,
-        }],
-      }],
-    })
-    const result = formatQuests(card)
-    expect(result).toContain('Poison 30 times → Poison 🟤5/⚪10/🟡15/💎20')
-  })
-
-  it('resolves tier-scaled replacements with specific tier', () => {
-    const card = makeCard({
-      Title: { Text: 'Slate' },
-      Quests: [{
-        Entries: [{
-          Reward: {
-            Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
-            Localization: { Tooltips: [{ Content: { Text: 'Poison {ability.q1}' }, TooltipType: 'Passive' }] },
-            TooltipReplacements: { '{ability.q1}': { Bronze: 5, Silver: 10, Gold: 15, Diamond: 20 } },
-            DisplayTags: [],
-          },
-          CompletionEffects: null,
-          Localization: { Tooltips: [{ Content: { Text: 'Poison 30 times' }, TooltipType: 'Passive' }] },
-          IconKeyOverride: null,
-        }],
-      }],
-    })
-    const result = formatQuests(card, 'Gold')
-    expect(result).toContain('Poison 15')
-    expect(result).not.toContain('🟤')
-  })
-
-  it('shows no quests for null quests', () => {
-    const card = makeCard({ Quests: null as any })
-    expect(formatQuests(card)).toBe('Boomerang has no quests')
-  })
-
-  it('shows no quests for empty array', () => {
-    const card = makeCard({ Quests: [] })
-    expect(formatQuests(card)).toBe('Boomerang has no quests')
-  })
-
-  it('joins multiple quests with pipe', () => {
-    const card = makeCard({
-      Title: { Text: 'Dog' },
-      Quests: [
-        {
-          Entries: [{
-            Reward: {
-              Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
-              Localization: { Tooltips: [{ Content: { Text: '+200 Damage' }, TooltipType: 'Passive' }] },
-              TooltipReplacements: {},
-              DisplayTags: [],
-            },
-            CompletionEffects: null,
-            Localization: { Tooltips: [{ Content: { Text: 'Sell 20 Food' }, TooltipType: 'Passive' }] },
-            IconKeyOverride: null,
-          }],
-        },
-        {
-          Entries: [{
-            Reward: {
-              Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
-              Localization: { Tooltips: [{ Content: { Text: '+1 Multicast' }, TooltipType: 'Passive' }] },
-              TooltipReplacements: {},
-              DisplayTags: [],
-            },
-            CompletionEffects: null,
-            Localization: { Tooltips: [{ Content: { Text: 'Sell 40 Food' }, TooltipType: 'Passive' }] },
-            IconKeyOverride: null,
-          }],
-        },
-      ],
-    })
-    const result = formatQuests(card)
-    expect(result).toBe('[Dog] Quests: Sell 20 Food → +200 Damage | Sell 40 Food → +1 Multicast')
-  })
-
-  it('shows OR for multi-entry quest groups', () => {
-    const card = makeCard({
-      Title: { Text: 'Soulstone' },
-      Quests: [{
-        Entries: [
-          {
-            Reward: {
-              Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
-              Localization: { Tooltips: [{ Content: { Text: 'Poison {a}' }, TooltipType: 'Active' }] },
-              TooltipReplacements: { '{a}': { Fixed: 3 } },
-              DisplayTags: [],
-            },
-            CompletionEffects: null,
-            Localization: { Tooltips: [{ Content: { Text: 'Buy 6 Poison items' }, TooltipType: 'Passive' }] },
-            IconKeyOverride: null,
-          },
-          {
-            Reward: {
-              Tiers: null, Abilities: {}, Tags: [], HiddenTags: [],
-              Localization: { Tooltips: [{ Content: { Text: 'Burn {b}' }, TooltipType: 'Active' }] },
-              TooltipReplacements: { '{b}': { Fixed: 3 } },
-              DisplayTags: [],
-            },
-            CompletionEffects: null,
-            Localization: { Tooltips: [{ Content: { Text: 'Buy 6 Burn items' }, TooltipType: 'Passive' }] },
-            IconKeyOverride: null,
-          },
-        ],
-      }],
-    })
-    const result = formatQuests(card)
-    expect(result).toContain('Buy 6 Poison items → Poison 3 OR Buy 6 Burn items → Burn 3')
-  })
-})
-
-// ---------------------------------------------------------------------------
 // formatMonster
 // ---------------------------------------------------------------------------
 describe('formatMonster', () => {
   function makeMonster(overrides: Partial<Monster> = {}): Monster {
     return {
-      Id: 'mon-001',
       Type: 'CombatEncounter',
-      Title: { Text: 'BLK-SP1D3R' },
-      Description: null,
+      Title: 'BLK-SP1D3R',
       Size: 'Medium',
       Tags: [],
       DisplayTags: [],
       HiddenTags: [],
       Heroes: [],
-      Uri: '',
       MonsterMetadata: {
         available: 'Always',
         day: 3,
         health: 150,
         board: [],
+        skills: [],
       },
+      Shortlink: 'https://bzdb.to/spider',
       ...overrides,
     }
   }
@@ -685,7 +345,7 @@ describe('formatMonster', () => {
 
   it('shows available string when day is null', () => {
     const m = makeMonster({
-      MonsterMetadata: { available: 'Event Only', day: null, health: 200, board: [] },
+      MonsterMetadata: { available: 'Event Only', day: null, health: 200, board: [], skills: [] },
     })
     const result = formatMonster(m)
     expect(result).toContain('Event Only')
@@ -697,9 +357,10 @@ describe('formatMonster', () => {
       MonsterMetadata: {
         available: 'Always', day: 5, health: 300,
         board: [
-          { baseId: 'i1', title: 'Sword', size: 'Small', tierOverride: 'Gold', type: 'Item', url: '', art: '', artBlur: '' },
-          { baseId: 'i2', title: 'Shield', size: 'Medium', tierOverride: 'Silver', type: 'Item', url: '', art: '', artBlur: '' },
+          { title: 'Sword', tier: 'Gold', id: 'i1' },
+          { title: 'Shield', tier: 'Silver', id: 'i2' },
         ],
+        skills: [],
       },
     })
     const result = formatMonster(m)
@@ -708,9 +369,9 @@ describe('formatMonster', () => {
   })
 
   it('deduplicates items with count', () => {
-    const entry = { baseId: 'i1', title: 'Sword', size: 'Small' as const, tierOverride: 'Gold' as const, type: 'Item' as const, url: '', art: '', artBlur: '' }
+    const entry = { title: 'Sword', tier: 'Gold', id: 'i1' }
     const m = makeMonster({
-      MonsterMetadata: { available: 'Always', day: 5, health: 300, board: [entry, entry, entry] },
+      MonsterMetadata: { available: 'Always', day: 5, health: 300, board: [entry, entry, entry], skills: [] },
     })
     const result = formatMonster(m)
     expect(result).toContain('🟡Sword x3')
@@ -720,8 +381,9 @@ describe('formatMonster', () => {
     const m = makeMonster({
       MonsterMetadata: {
         available: 'Always', day: 2, health: 100,
-        board: [
-          { baseId: 's1', title: 'Web Shot', size: 'Small', tierOverride: 'Bronze', type: 'Skill', url: '', art: '', artBlur: '' },
+        board: [],
+        skills: [
+          { title: 'Web Shot', tier: 'Bronze', id: 's1' },
         ],
       },
     })
@@ -734,15 +396,19 @@ describe('formatMonster', () => {
 
   it('truncates at 480 chars', () => {
     const board = Array.from({ length: 50 }, (_, i) => ({
-      baseId: `i${i}`, title: `VeryLongItemName${i}`, size: 'Small' as const,
-      tierOverride: 'Gold' as const, type: 'Item' as const, url: '', art: '', artBlur: '',
+      title: `VeryLongItemNameThatIsQuiteLong${i}`, tier: 'Gold', id: `i${i}`,
     }))
     const m = makeMonster({
-      MonsterMetadata: { available: 'Always', day: 1, health: 999, board },
+      MonsterMetadata: { available: 'Always', day: 1, health: 999, board, skills: [] },
     })
     const result = formatMonster(m)
     expect(result.length).toBeLessThanOrEqual(480)
-    expect(result).toEndWith('...')
+    // truncated output contains ellipsis (may also have shortlink appended)
+    expect(result).toContain('...')
+  })
+
+  it('appends shortlink when it fits', () => {
+    const result = formatMonster(makeMonster())
+    expect(result).toContain('bzdb.to/spider')
   })
 })
-

@@ -3,7 +3,7 @@ import type { BazaarCard } from './types'
 
 const fuseOptions: Fuse.IFuseOptions<BazaarCard> = {
   keys: [
-    { name: 'Title.Text', weight: 2 },
+    { name: 'Title', weight: 2 },
     { name: 'Tags', weight: 0.5 },
     { name: 'Heroes', weight: 0.5 },
   ],
@@ -26,11 +26,11 @@ export function searchCards(index: Fuse<BazaarCard>, query: string, limit = 5): 
 export function searchPrefix(cards: BazaarCard[], query: string, limit = 5): BazaarCard[] {
   const lower = query.toLowerCase()
   return cards
-    .filter((c) => c.Title.Text.toLowerCase().startsWith(lower))
+    .filter((c) => c.Title.toLowerCase().startsWith(lower))
     .slice(0, limit)
 }
 
 export function findExact(cards: BazaarCard[], name: string) {
   const lower = name.toLowerCase()
-  return cards.find((c) => c.Title.Text.toLowerCase() === lower)
+  return cards.find((c) => c.Title.toLowerCase() === lower)
 }

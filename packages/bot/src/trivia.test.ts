@@ -2,20 +2,13 @@ import { describe, expect, it, mock, beforeEach } from 'bun:test'
 import type { BazaarCard, Monster } from '@bazaarinfo/shared'
 
 // --- fixtures ---
-function tier() {
-  return { AbilityIds: [], AuraIds: [], OverrideAttributes: {}, ActiveTooltips: [] }
-}
-
 function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
   return {
-    Id: `card-${Math.random().toString(36).slice(2, 8)}`,
     Type: 'Item',
-    Title: { Text: 'Boomerang' },
-    Description: null,
+    Title: 'Boomerang',
     Size: 'Medium',
     BaseTier: 'Bronze',
-    Tiers: { Bronze: tier(), Silver: tier(), Gold: tier() },
-    BaseAttributes: { DamageAmount: 20, CooldownMax: 4000 },
+    Tiers: ['Bronze', 'Silver', 'Gold'],
     Tooltips: [],
     TooltipReplacements: {},
     DisplayTags: [],
@@ -23,24 +16,32 @@ function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
     Tags: [],
     Heroes: ['Pygmalien'],
     Enchantments: {},
-    Art: '', ArtLarge: '', ArtBlur: '', Uri: '',
-    DroppedBy: null, Quests: [], Transform: null,
-    _originalTitleText: 'Boomerang',
+    Shortlink: 'https://bzdb.to/test',
     ...overrides,
   }
 }
 
 // --- test data ---
-const sword = makeCard({ Id: 'sword', Title: { Text: 'Sword' }, BaseAttributes: { DamageAmount: 50 }, Heroes: ['Vanessa'], HiddenTags: ['Weapon'] })
-const axe = makeCard({ Id: 'axe', Title: { Text: 'Axe' }, BaseAttributes: { DamageAmount: 50 }, Heroes: ['Dooley'], HiddenTags: ['Weapon'] })
-const dagger = makeCard({ Id: 'dagger', Title: { Text: 'Dagger' }, BaseAttributes: { DamageAmount: 30 }, Heroes: ['Vanessa'], HiddenTags: ['Weapon', 'Crit'] })
-const towerShield = makeCard({ Id: 'shield', Title: { Text: 'Tower Shield' }, BaseAttributes: { ShieldApplyAmount: 40, CooldownMax: 5000 }, Heroes: ['Dooley'], HiddenTags: ['Shield'] })
-const beetle = makeCard({ Id: 'beetle', Title: { Text: 'BLU-B33TL3' }, BaseAttributes: { DamageAmount: 15 }, Heroes: ['Pygmalien'], HiddenTags: ['Tech'] })
-const healSalve = makeCard({ Id: 'heal', Title: { Text: 'Healing Salve' }, BaseAttributes: { HealAmount: 25 }, Heroes: ['Stelle'], HiddenTags: ['Heal'] })
+const sword = makeCard({ Title: 'Sword', Heroes: ['Vanessa'], HiddenTags: ['Weapon'] })
+const axe = makeCard({ Title: 'Axe', Heroes: ['Dooley'], HiddenTags: ['Weapon'] })
+const dagger = makeCard({ Title: 'Dagger', Heroes: ['Vanessa'], HiddenTags: ['Weapon', 'Crit'] })
+const towerShield = makeCard({ Title: 'Tower Shield', Heroes: ['Dooley'], HiddenTags: ['Shield'] })
+const beetle = makeCard({ Title: 'BLU-B33TL3', Heroes: ['Pygmalien'], HiddenTags: ['Tech'] })
+const healSalve = makeCard({ Title: 'Healing Salve', Heroes: ['Stelle'], HiddenTags: ['Heal'] })
 const allItems = [sword, axe, dagger, towerShield, beetle, healSalve]
 
-const spider = { Id: 'spider', Type: 'CombatEncounter' as const, Title: { Text: 'BLK-SP1D3R' }, Description: null, Size: 'Medium' as const, Tags: [], DisplayTags: [], HiddenTags: [], Heroes: [], Uri: '', MonsterMetadata: { available: 'Always', day: 3, health: 150, board: [] } }
-const dragon = { Id: 'dragon', Type: 'CombatEncounter' as const, Title: { Text: 'Dragon' }, Description: null, Size: 'Medium' as const, Tags: [], DisplayTags: [], HiddenTags: [], Heroes: [], Uri: '', MonsterMetadata: { available: 'Always', day: 7, health: 500, board: [] } }
+const spider: Monster = {
+  Type: 'CombatEncounter', Title: 'BLK-SP1D3R', Size: 'Medium',
+  Tags: [], DisplayTags: [], HiddenTags: [], Heroes: [],
+  MonsterMetadata: { available: 'Always', day: 3, health: 150, board: [], skills: [] },
+  Shortlink: 'https://bzdb.to/spider',
+}
+const dragon: Monster = {
+  Type: 'CombatEncounter', Title: 'Dragon', Size: 'Medium',
+  Tags: [], DisplayTags: [], HiddenTags: [], Heroes: [],
+  MonsterMetadata: { available: 'Always', day: 7, health: 500, board: [], skills: [] },
+  Shortlink: 'https://bzdb.to/dragon',
+}
 const allMonsters = [spider, dragon]
 
 // --- mocks ---
@@ -164,13 +165,6 @@ describe('matchAnswer', () => {
     expect(matchAnswer('axe', ['sword', 'axe', 'dagger'])).toBe(true)
   })
 
-  it('higher/lower shorthand', () => {
-    expect(matchAnswer('h', ['higher', 'more', 'h'])).toBe(true)
-    expect(matchAnswer('higher', ['higher', 'more', 'h'])).toBe(true)
-    expect(matchAnswer('more', ['higher', 'more', 'h'])).toBe(true)
-    expect(matchAnswer('l', ['lower', 'less', 'l'])).toBe(true)
-  })
-
   it('day number answers', () => {
     expect(matchAnswer('3', ['3', 'day 3'])).toBe(true)
     expect(matchAnswer('day 3', ['3', 'day 3'])).toBe(true)
@@ -230,10 +224,6 @@ describe('looksLikeAnswer', () => {
     expect(looksLikeAnswer('7', game({ acceptedAnswers: ['7'] }))).toBe(true)
   })
 
-  it('allows short for higher/lower (type 5)', () => {
-    expect(looksLikeAnswer('h', game({ questionType: 5, acceptedAnswers: ['higher', 'h'] }))).toBe(true)
-  })
-
   it('allows multi-word answers', () => {
     expect(looksLikeAnswer('tower shield', game())).toBe(true)
   })
@@ -270,7 +260,7 @@ describe('startTrivia', () => {
     expect(mockCreateTriviaGame).toHaveBeenCalledTimes(1)
   })
 
-  it('items category only generates item types', () => {
+  it('items category only generates tag type', () => {
     const types = new Set<number>()
     for (let i = 0; i < 50; i++) {
       resetForTest()
@@ -280,7 +270,7 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([1, 4, 5, 6]).toContain(t)
+      expect([3]).toContain(t) // type 3 = tag question
     }
   })
 
@@ -294,7 +284,7 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([2, 7]).toContain(t)
+      expect([1, 4]).toContain(t) // type 1 = hero, type 4 = hero count
     }
   })
 
@@ -308,11 +298,11 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([3]).toContain(t)
+      expect([2]).toContain(t) // type 2 = monster day
     }
   })
 
-  it('no category hits 4+ different types across 100 rounds', () => {
+  it('no category hits multiple different types across 100 rounds', () => {
     const types = new Set<number>()
     for (let i = 0; i < 100; i++) {
       resetForTest()
@@ -321,7 +311,7 @@ describe('startTrivia', () => {
       const game = getActiveGameForTest('#test')
       if (game) types.add(game.questionType)
     }
-    expect(types.size).toBeGreaterThanOrEqual(4)
+    expect(types.size).toBeGreaterThanOrEqual(3)
   })
 })
 
@@ -413,36 +403,62 @@ describe('checkAnswer', () => {
 })
 
 // ---------------------------------------------------------------------------
-// type 1: damage — accepts ALL items with same damage
+// hero question (type 1)
 // ---------------------------------------------------------------------------
-describe('damage question (type 1)', () => {
-  it('accepts multiple items with same damage value', () => {
+describe('hero question (type 1)', () => {
+  it('generates valid hero question', () => {
     let found = false
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 50; i++) {
       resetForTest()
       mockCreateTriviaGame.mockImplementation(() => i + 1)
-      startTrivia('#test', 'items')
+      startTrivia('#test', 'heroes')
       const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 1 && game.question.includes('50 damage')) {
-        // sword AND axe both deal 50 — both must be accepted
-        expect(matchAnswer('sword', game.acceptedAnswers)).toBe(true)
-        expect(matchAnswer('axe', game.acceptedAnswers)).toBe(true)
+      if (game && game.questionType === 1) {
+        expect(game.question).toContain('What hero uses')
         found = true
         break
       }
     }
     expect(found).toBe(true)
   })
+})
 
-  it('question format is correct', () => {
+// ---------------------------------------------------------------------------
+// monster day question (type 2)
+// ---------------------------------------------------------------------------
+describe('monster day question (type 2)', () => {
+  it('generates valid monster day question', () => {
+    let found = false
+    for (let i = 0; i < 50; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'monsters')
+      const game = getActiveGameForTest('#test')
+      if (game && game.questionType === 2) {
+        expect(game.question).toContain('What day does')
+        expect(game.question).toContain('appear')
+        found = true
+        break
+      }
+    }
+    expect(found).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// tag question (type 3)
+// ---------------------------------------------------------------------------
+describe('tag question (type 3)', () => {
+  it('generates valid tag question', () => {
     let found = false
     for (let i = 0; i < 50; i++) {
       resetForTest()
       mockCreateTriviaGame.mockImplementation(() => i + 1)
       startTrivia('#test', 'items')
       const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 1) {
-        expect(game.question).toMatch(/Which item deals \d+ damage\?/)
+      if (game && game.questionType === 3) {
+        expect(game.question).toContain('Name an item with the')
+        expect(game.question).toContain('tag')
         found = true
         break
       }
@@ -452,82 +468,9 @@ describe('damage question (type 1)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// type 5: higher/lower
+// hero count question (type 4)
 // ---------------------------------------------------------------------------
-describe('higher/lower question (type 5)', () => {
-  it('question format and answer validity', () => {
-    let found = false
-    for (let i = 0; i < 100; i++) {
-      resetForTest()
-      mockCreateTriviaGame.mockImplementation(() => i + 1)
-      startTrivia('#test', 'items')
-      const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 5) {
-        expect(game.question).toContain('Higher or lower')
-        expect(game.question).toContain('damage')
-        expect(['higher', 'lower']).toContain(game.correctAnswer)
-        found = true
-        break
-      }
-    }
-    expect(found).toBe(true)
-  })
-
-  it('accepts h/l shorthand', () => {
-    let found = false
-    for (let i = 0; i < 100; i++) {
-      resetForTest()
-      mockCreateTriviaGame.mockImplementation(() => i + 1)
-      startTrivia('#test', 'items')
-      const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 5) {
-        const short = game.correctAnswer === 'higher' ? 'h' : 'l'
-        expect(matchAnswer(short, game.acceptedAnswers)).toBe(true)
-        found = true
-        break
-      }
-    }
-    expect(found).toBe(true)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// type 6: compare — no CooldownMax
-// ---------------------------------------------------------------------------
-describe('compare question (type 6)', () => {
-  it('never asks about cooldown', () => {
-    for (let i = 0; i < 100; i++) {
-      resetForTest()
-      mockCreateTriviaGame.mockImplementation(() => i + 1)
-      startTrivia('#test', 'items')
-      const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 6) {
-        expect(game.question).not.toContain('cooldown')
-      }
-    }
-  })
-
-  it('uses damage/shield/healing', () => {
-    const stats = new Set<string>()
-    for (let i = 0; i < 200; i++) {
-      resetForTest()
-      mockCreateTriviaGame.mockImplementation(() => i + 1)
-      startTrivia('#test', 'items')
-      const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 6) {
-        if (game.question.includes('damage')) stats.add('damage')
-        if (game.question.includes('shield')) stats.add('shield')
-        if (game.question.includes('healing')) stats.add('healing')
-      }
-    }
-    expect(stats.has('damage')).toBe(true)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// type 7: hero count
-// ---------------------------------------------------------------------------
-describe('hero count question (type 7)', () => {
+describe('hero count question (type 4)', () => {
   it('generates valid question', () => {
     let found = false
     for (let i = 0; i < 100; i++) {
@@ -535,7 +478,7 @@ describe('hero count question (type 7)', () => {
       mockCreateTriviaGame.mockImplementation(() => i + 1)
       startTrivia('#test', 'heroes')
       const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 7) {
+      if (game && game.questionType === 4) {
         expect(game.question).toContain('How many items does')
         expect(game.correctAnswer).toMatch(/^\d+$/)
         expect(matchAnswer(game.correctAnswer, game.acceptedAnswers)).toBe(true)

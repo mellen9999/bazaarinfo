@@ -91,22 +91,15 @@ mock.module('./trivia', () => ({
 const { handleCommand, parseArgs } = await import('./commands')
 
 // --- test fixtures ---
-function t() {
-  return { AbilityIds: [], AuraIds: [], OverrideAttributes: {}, ActiveTooltips: [] }
-}
-
 function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
   return {
-    Id: 'test-001',
     Type: 'Item',
-    Title: { Text: 'Boomerang' },
-    Description: null,
+    Title: 'Boomerang',
     Size: 'Medium',
     BaseTier: 'Bronze',
-    Tiers: { Bronze: t(), Silver: t(), Gold: t(), Diamond: t() },
-    BaseAttributes: { DamageAmount: 20, CooldownMax: 4000 },
+    Tiers: ['Bronze', 'Silver', 'Gold', 'Diamond'],
     Tooltips: [
-      { Content: { Text: 'Deal {DamageAmount} Damage' }, TooltipType: 'Active' },
+      { text: 'Deal {DamageAmount} Damage', type: 'Active' },
     ],
     TooltipReplacements: {
       '{DamageAmount}': { Fixed: 60 },
@@ -117,39 +110,27 @@ function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
     Heroes: ['Pygmalien'],
     Enchantments: {
       Fiery: {
-        Tags: ['Burn'],
-        HiddenTags: [],
-        Localization: {
-          Tooltips: [{ Content: { Text: 'Burn for {BurnAmount}' }, TooltipType: 'Active' }],
-        },
-        TooltipReplacements: {
+        tags: ['Burn'],
+        tooltips: [{ text: 'Burn for {BurnAmount}', type: 'Active' }],
+        tooltipReplacements: {
           '{BurnAmount}': { Bronze: 5, Silver: 10, Gold: 15, Diamond: 20 },
         },
-        DisplayTags: [],
       },
     },
-    Art: '',
-    ArtLarge: '',
-    ArtBlur: '',
-    Uri: '',
-    DroppedBy: null,
-    Quests: null,
-    Transform: null,
-    _originalTitleText: 'Boomerang',
+    Shortlink: 'https://bzdb.to/boomerang',
     ...overrides,
   }
 }
 
 const boomerang = makeCard()
 const shield = makeCard({
-  Id: 'test-002',
-  Title: { Text: 'Shield' },
+  Title: 'Shield',
   Size: 'Large',
-  BaseAttributes: { ShieldApplyAmount: 25, CooldownMax: 5000 },
-  Tooltips: [{ Content: { Text: 'Block damage' }, TooltipType: 'Passive' }],
+  Tooltips: [{ text: 'Block damage', type: 'Passive' }],
   TooltipReplacements: {},
   Heroes: ['Vanessa'],
   Enchantments: {},
+  Shortlink: 'https://bzdb.to/shield',
 })
 
 beforeEach(() => {
@@ -451,7 +432,7 @@ describe('!b item lookup', () => {
   })
 
   it('handles multi-word item names', async () => {
-    const tinfoil = makeCard({ Title: { Text: 'Tinfoil Hat' } })
+    const tinfoil = makeCard({ Title: 'Tinfoil Hat' })
     mockExact.mockImplementation((name) => name === 'tinfoil hat' ? tinfoil : undefined)
     const result = await handleCommand('!b tinfoil hat')
     expect(result).toContain('Tinfoil Hat [M]')
@@ -459,15 +440,22 @@ describe('!b item lookup', () => {
 
   it('falls back to monster if no item found', async () => {
     const lich: Monster = {
-      Id: 'lich-001', Type: 'CombatEncounter', Title: { Text: 'Lich' },
-      Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
-      Heroes: [], Uri: '',
-      MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [] },
+      Type: 'CombatEncounter', Title: 'Lich',
+      Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [],
+      MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [], skills: [] },
+      Shortlink: 'https://bzdb.to/lich',
     }
     mockFindMonster.mockImplementation((q) => q === 'lich' ? lich : undefined)
     const result = await handleCommand('!b lich')
     expect(result).toContain('Lich')
     expect(result).toContain('Day 5')
+  })
+
+  it('includes shortlink in item response', async () => {
+    mockExact.mockImplementation(() => boomerang)
+    const result = await handleCommand('!b boomerang')
+    expect(result).toContain('bzdb.to/boomerang')
   })
 })
 
@@ -515,7 +503,7 @@ describe('!b item + tier (any order)', () => {
   })
 
   it('multi-word item with tier at end', async () => {
-    const tinfoil = makeCard({ Title: { Text: 'Tinfoil Hat' } })
+    const tinfoil = makeCard({ Title: 'Tinfoil Hat' })
     mockExact.mockImplementation((name) => name === 'tinfoil hat' ? tinfoil : undefined)
     const result = await handleCommand('!b tinfoil hat gold')
     expect(result).toContain('Tinfoil Hat')
@@ -523,7 +511,7 @@ describe('!b item + tier (any order)', () => {
   })
 
   it('multi-word item with tier at start', async () => {
-    const tinfoil = makeCard({ Title: { Text: 'Tinfoil Hat' } })
+    const tinfoil = makeCard({ Title: 'Tinfoil Hat' })
     mockExact.mockImplementation((name) => name === 'tinfoil hat' ? tinfoil : undefined)
     const result = await handleCommand('!b gold tinfoil hat')
     expect(result).toContain('Tinfoil Hat')
@@ -531,14 +519,14 @@ describe('!b item + tier (any order)', () => {
   })
 
   it('multi-word item with tier in middle', async () => {
-    const tinfoil = makeCard({ Title: { Text: 'Tinfoil Hat' } })
+    const tinfoil = makeCard({ Title: 'Tinfoil Hat' })
     mockExact.mockImplementation((name) => name === 'tinfoil hat' ? tinfoil : undefined)
     const result = await handleCommand('!b tinfoil gold hat')
     expect(result).toContain('Tinfoil Hat')
   })
 
   it('does not eat non-tier last word as tier', async () => {
-    const hat = makeCard({ Title: { Text: 'Fancy Hat' } })
+    const hat = makeCard({ Title: 'Fancy Hat' })
     mockExact.mockImplementation((name) => name === 'fancy hat' ? hat : undefined)
     const result = await handleCommand('!b fancy hat')
     expect(result).toContain('Fancy Hat')
@@ -578,9 +566,8 @@ describe('!b enchantment (any order)', () => {
     const card = makeCard({
       Enchantments: {
         Icy: {
-          Tags: [], HiddenTags: [],
-          Localization: { Tooltips: [{ Content: { Text: 'Freeze' }, TooltipType: 'Passive' }] },
-          TooltipReplacements: {}, DisplayTags: [],
+          tags: [],
+          tooltips: [{ text: 'Freeze', type: 'Passive' }],
         },
       },
     })
@@ -596,12 +583,11 @@ describe('!b enchantment (any order)', () => {
 
   it('multi-word item after enchantment', async () => {
     const hat = makeCard({
-      Title: { Text: 'Tinfoil Hat' },
+      Title: 'Tinfoil Hat',
       Enchantments: {
         Fiery: {
-          Tags: [], HiddenTags: [],
-          Localization: { Tooltips: [{ Content: { Text: 'Burn it' }, TooltipType: 'Active' }] },
-          TooltipReplacements: {}, DisplayTags: [],
+          tags: [],
+          tooltips: [{ text: 'Burn it', type: 'Active' }],
         },
       },
     })
@@ -671,12 +657,11 @@ describe('!b enchant + tier (any order)', () => {
 
   it('multi-word item + enchant + tier all orderings', async () => {
     const hat = makeCard({
-      Title: { Text: 'Tinfoil Hat' },
+      Title: 'Tinfoil Hat',
       Enchantments: {
         Fiery: {
-          Tags: [], HiddenTags: [],
-          Localization: { Tooltips: [{ Content: { Text: 'Burn' }, TooltipType: 'Active' }] },
-          TooltipReplacements: {}, DisplayTags: [],
+          tags: [],
+          tooltips: [{ text: 'Burn', type: 'Active' }],
         },
       },
     })
@@ -703,9 +688,8 @@ describe('!b gold vs golden', () => {
     const card = makeCard({
       Enchantments: {
         Golden: {
-          Tags: ['Gold'], HiddenTags: [],
-          Localization: { Tooltips: [{ Content: { Text: 'Extra gold' }, TooltipType: 'Passive' }] },
-          TooltipReplacements: {}, DisplayTags: [],
+          tags: ['Gold'],
+          tooltips: [{ text: 'Extra gold', type: 'Passive' }],
         },
       },
     })
@@ -759,7 +743,7 @@ describe('!b hero', () => {
 
   it('truncates long hero output', async () => {
     const cards = Array.from({ length: 100 }, (_, i) =>
-      makeCard({ Title: { Text: 'Item' + 'X'.repeat(20) + i } }),
+      makeCard({ Title: 'Item' + 'X'.repeat(20) + i }),
     )
     mockByHero.mockImplementation(() => cards)
     const result = (await handleCommand('!b hero pyg'))!
@@ -773,10 +757,11 @@ describe('!b hero', () => {
 // ---------------------------------------------------------------------------
 describe('!b mob/monster', () => {
   const lich: Monster = {
-    Id: 'lich-001', Type: 'CombatEncounter', Title: { Text: 'Lich' },
-    Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
-    Heroes: [], Uri: '',
-    MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [] },
+    Type: 'CombatEncounter', Title: 'Lich',
+    Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+    Heroes: [],
+    MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [], skills: [] },
+    Shortlink: 'https://bzdb.to/lich',
   }
 
   it('mob prefix finds monster', async () => {
@@ -810,33 +795,37 @@ describe('!b mob/monster', () => {
 
   it('multi-word monster name', async () => {
     const dragon: Monster = {
-      Id: 'dragon-001', Type: 'CombatEncounter', Title: { Text: 'Fire Dragon' },
-      Description: null, Size: 'Large', Tags: [], DisplayTags: [], HiddenTags: [],
-      Heroes: [], Uri: '',
-      MonsterMetadata: { available: 'Rare', day: null, health: 500, board: [] },
+      Type: 'CombatEncounter', Title: 'Fire Dragon',
+      Size: 'Large', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [],
+      MonsterMetadata: { available: 'Rare', day: null, health: 500, board: [], skills: [] },
+      Shortlink: 'https://bzdb.to/fire-dragon',
     }
     mockFindMonster.mockImplementation((q) => q === 'fire dragon' ? dragon : undefined)
     expect(await handleCommand('!b mob fire dragon')).toContain('Fire Dragon')
   })
 
-  it('shows skill tooltips from board', async () => {
+  it('shows skill tooltips from skills array', async () => {
     const skillCard = makeCard({
-      Title: { Text: 'Ink Blast' },
-      Type: 'Item',
-      Tooltips: [{ Content: { Text: 'Deal {Dmg} damage to all' }, TooltipType: 'Active' }],
+      Title: 'Ink Blast',
+      Type: 'Skill',
+      Tooltips: [{ text: 'Deal {Dmg} damage to all', type: 'Active' }],
       TooltipReplacements: { '{Dmg}': { Bronze: 10, Gold: 30 } },
     })
     const boss: Monster = {
-      Id: 'boss-001', Type: 'CombatEncounter', Title: { Text: 'Octoboss' },
-      Description: null, Size: 'Large', Tags: [], DisplayTags: [], HiddenTags: [],
-      Heroes: [], Uri: '',
+      Type: 'CombatEncounter', Title: 'Octoboss',
+      Size: 'Large', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [],
       MonsterMetadata: {
         available: 'Always', day: 8, health: 500,
         board: [
-          { baseId: 'x', title: 'Sword', size: 'Small', tierOverride: 'Gold', type: 'Item', url: '', art: '', artBlur: '' },
-          { baseId: 'y', title: 'Ink Blast', size: 'Medium', tierOverride: 'Gold', type: 'Skill', url: '', art: '', artBlur: '' },
+          { title: 'Sword', tier: 'Gold', id: 'x' },
+        ],
+        skills: [
+          { title: 'Ink Blast', tier: 'Gold', id: 'y' },
         ],
       },
+      Shortlink: 'https://bzdb.to/octoboss',
     }
     mockFindMonster.mockImplementation(() => boss)
     mockFindCard.mockImplementation((name) => name === 'Ink Blast' ? skillCard : undefined)
@@ -845,21 +834,29 @@ describe('!b mob/monster', () => {
     expect(result).toContain('🟡Sword')
   })
 
-  it('shows skills without card data as regular entries', async () => {
+  it('shows skills without card data as plain entries', async () => {
     const boss: Monster = {
-      Id: 'boss-002', Type: 'CombatEncounter', Title: { Text: 'Mystery' },
-      Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
-      Heroes: [], Uri: '',
+      Type: 'CombatEncounter', Title: 'Mystery',
+      Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [],
       MonsterMetadata: {
         available: 'Always', day: 1, health: 50,
-        board: [
-          { baseId: 'z', title: 'Unknown Skill', size: 'Small', tierOverride: 'Bronze', type: 'Skill', url: '', art: '', artBlur: '' },
+        board: [],
+        skills: [
+          { title: 'Unknown Skill', tier: 'Bronze', id: 'z' },
         ],
       },
+      Shortlink: 'https://bzdb.to/mystery',
     }
     mockFindMonster.mockImplementation(() => boss)
     const result = (await handleCommand('!b mob mystery'))!
     expect(result).toContain('Unknown Skill')
+  })
+
+  it('includes shortlink in monster response', async () => {
+    mockFindMonster.mockImplementation(() => lich)
+    const result = await handleCommand('!b mob lich')
+    expect(result).toContain('bzdb.to/lich')
   })
 })
 
@@ -880,10 +877,10 @@ describe('!b edge cases', () => {
 
   it('output never exceeds 480 chars', async () => {
     const longCard = makeCard({
-      Title: { Text: 'A'.repeat(200) },
+      Title: 'A'.repeat(200),
       Tooltips: [
-        { Content: { Text: 'B'.repeat(200) }, TooltipType: 'Active' },
-        { Content: { Text: 'C'.repeat(200) }, TooltipType: 'Passive' },
+        { text: 'B'.repeat(200), type: 'Active' },
+        { text: 'C'.repeat(200), type: 'Passive' },
       ],
     })
     mockExact.mockImplementation(() => longCard)
@@ -904,7 +901,7 @@ describe('!b edge cases', () => {
   })
 
   it('strips quotes from input', async () => {
-    const eclipse = makeCard({ Title: { Text: 'The Eclipse' } })
+    const eclipse = makeCard({ Title: 'The Eclipse' })
     mockExact.mockImplementation((name) => name === 'the eclipse' ? eclipse : undefined)
     const result = await handleCommand('!b "the eclipse"')
     expect(result).toContain('The Eclipse')
@@ -926,21 +923,10 @@ describe('!b edge cases', () => {
 // Integration: verify format output structure
 // ---------------------------------------------------------------------------
 describe('!b output format integration', () => {
-  it('item output uses compact stat format', async () => {
+  it('item output shows tooltip text', async () => {
     mockExact.mockImplementation(() => boomerang)
     const result = (await handleCommand('!b boomerang'))!
-    expect(result).toContain('🗡️20')
-    expect(result).toContain('4s')
-    expect(result).not.toContain('DMG:')
-    expect(result).not.toContain('CD:')
-    expect(result).not.toContain('Buy:')
-  })
-
-  it('item output uses emoji stats', async () => {
-    mockExact.mockImplementation(() => boomerang)
-    const result = (await handleCommand('!b boomerang'))!
-    expect(result).toContain('🗡️20')
-    expect(result).toContain('🕐4s')
+    expect(result).toContain('Deal 60 Damage')
   })
 
   it('enchantment output includes tags and tooltip', async () => {
@@ -1006,10 +992,11 @@ describe('analytics logging', () => {
 
   it('logs hit on monster lookup via mob prefix', async () => {
     const lich: Monster = {
-      Id: 'lich-001', Type: 'CombatEncounter', Title: { Text: 'Lich' },
-      Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
-      Heroes: [], Uri: '',
-      MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [] },
+      Type: 'CombatEncounter', Title: 'Lich',
+      Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [],
+      MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [], skills: [] },
+      Shortlink: 'https://bzdb.to/lich',
     }
     mockFindMonster.mockImplementation(() => lich)
     await handleCommand('!b mob lich', { user: 'test' })
@@ -1065,10 +1052,11 @@ describe('analytics logging', () => {
 
   it('logs implicit monster match (no mob prefix)', async () => {
     const lich: Monster = {
-      Id: 'lich-001', Type: 'CombatEncounter', Title: { Text: 'Lich' },
-      Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
-      Heroes: [], Uri: '',
-      MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [] },
+      Type: 'CombatEncounter', Title: 'Lich',
+      Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+      Heroes: [],
+      MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [], skills: [] },
+      Shortlink: 'https://bzdb.to/lich',
     }
     mockFindMonster.mockImplementation(() => lich)
     await handleCommand('!b lich', { user: 'test' })
@@ -1222,16 +1210,18 @@ describe('!b tag', () => {
 // ---------------------------------------------------------------------------
 describe('!b day', () => {
   const lich: Monster = {
-    Id: 'lich-001', Type: 'CombatEncounter', Title: { Text: 'Lich' },
-    Description: null, Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
-    Heroes: [], Uri: '',
-    MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [] },
+    Type: 'CombatEncounter', Title: 'Lich',
+    Size: 'Medium', Tags: [], DisplayTags: [], HiddenTags: [],
+    Heroes: [],
+    MonsterMetadata: { available: 'Always', day: 5, health: 100, board: [], skills: [] },
+    Shortlink: 'https://bzdb.to/lich',
   }
   const dragon: Monster = {
-    Id: 'dragon-001', Type: 'CombatEncounter', Title: { Text: 'Dragon' },
-    Description: null, Size: 'Large', Tags: [], DisplayTags: [], HiddenTags: [],
-    Heroes: [], Uri: '',
-    MonsterMetadata: { available: 'Always', day: 5, health: 500, board: [] },
+    Type: 'CombatEncounter', Title: 'Dragon',
+    Size: 'Large', Tags: [], DisplayTags: [], HiddenTags: [],
+    Heroes: [],
+    MonsterMetadata: { available: 'Always', day: 5, health: 500, board: [], skills: [] },
+    Shortlink: 'https://bzdb.to/dragon',
   }
 
   it('lists monsters for a day', async () => {
@@ -1290,7 +1280,7 @@ describe('!b day', () => {
 // ---------------------------------------------------------------------------
 describe('!b skill', () => {
   it('finds skill by name', async () => {
-    const skill = makeCard({ Title: { Text: 'Ink Blast' }, Type: 'Skill' })
+    const skill = makeCard({ Title: 'Ink Blast', Type: 'Skill' })
     mockFindSkill.mockImplementation(() => skill)
     const result = await handleCommand('!b skill ink blast')
     expect(result).toContain('Ink Blast')
@@ -1302,14 +1292,14 @@ describe('!b skill', () => {
   })
 
   it('is case-insensitive keyword', async () => {
-    const skill = makeCard({ Title: { Text: 'Zap' }, Type: 'Skill' })
+    const skill = makeCard({ Title: 'Zap', Type: 'Skill' })
     mockFindSkill.mockImplementation(() => skill)
     expect(await handleCommand('!b SKILL zap')).toContain('Zap')
     expect(await handleCommand('!b Skill zap')).toContain('Zap')
   })
 
   it('logs hit on skill match', async () => {
-    const skill = makeCard({ Title: { Text: 'Zap' }, Type: 'Skill' })
+    const skill = makeCard({ Title: 'Zap', Type: 'Skill' })
     mockFindSkill.mockImplementation(() => skill)
     await handleCommand('!b skill zap', { user: 'test' })
     expect(mockLogCommand).toHaveBeenCalled()
@@ -1325,129 +1315,11 @@ describe('!b skill', () => {
   })
 
   it('appends @mention', async () => {
-    const skill = makeCard({ Title: { Text: 'Zap' }, Type: 'Skill' })
+    const skill = makeCard({ Title: 'Zap', Type: 'Skill' })
     mockFindSkill.mockImplementation(() => skill)
     const result = await handleCommand('!b skill zap @someone')
     expect(result).toContain('@someone')
     expect(result).toContain('Zap')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// !b quest
-// ---------------------------------------------------------------------------
-describe('!b quest', () => {
-  const questCard = makeCard({
-    Title: { Text: 'Dog' },
-    Quests: [
-      {
-        Entries: [{
-          Reward: {
-            Tiers: null,
-            Abilities: {},
-            Tags: [],
-            HiddenTags: [],
-            Localization: { Tooltips: [{ Content: { Text: 'This has +{aura.q1} Damage' }, TooltipType: 'Passive' }] },
-            TooltipReplacements: { '{aura.q1}': { Fixed: 200 } },
-            DisplayTags: [],
-          },
-          CompletionEffects: null,
-          Localization: { Tooltips: [{ Content: { Text: 'Sell 20 Food or Toys' }, TooltipType: 'Passive' }] },
-          IconKeyOverride: null,
-        }],
-      },
-      {
-        Entries: [{
-          Reward: {
-            Tiers: null,
-            Abilities: {},
-            Tags: [],
-            HiddenTags: [],
-            Localization: { Tooltips: [{ Content: { Text: 'This has +{aura.q2} Multicast' }, TooltipType: 'Passive' }] },
-            TooltipReplacements: { '{aura.q2}': { Fixed: 1 } },
-            DisplayTags: [],
-          },
-          CompletionEffects: null,
-          Localization: { Tooltips: [{ Content: { Text: 'Sell 40 Food or Toys' }, TooltipType: 'Passive' }] },
-          IconKeyOverride: null,
-        }],
-      },
-    ],
-  })
-
-  it('shows quests for item', async () => {
-    mockExact.mockImplementation(() => questCard)
-    const result = await handleCommand('!b quest dog')
-    expect(result).toContain('[Dog] Quests:')
-    expect(result).toContain('Sell 20 Food or Toys')
-    expect(result).toContain('+200 Damage')
-    expect(result).toContain('Sell 40 Food or Toys')
-    expect(result).toContain('+1 Multicast')
-  })
-
-  it('returns not found for unknown item', async () => {
-    const result = await handleCommand('!b quest xyznothing')
-    expect(result).toContain('no item found for xyznothing')
-  })
-
-  it('shows no quests message for item without quests', async () => {
-    mockExact.mockImplementation(() => boomerang)
-    const result = await handleCommand('!b quest boomerang')
-    expect(result).toContain('has no quests')
-  })
-
-  it('is case-insensitive keyword', async () => {
-    mockExact.mockImplementation(() => questCard)
-    expect(await handleCommand('!b QUEST dog')).toContain('Quests:')
-    expect(await handleCommand('!b Quest dog')).toContain('Quests:')
-  })
-
-  it('supports tier argument', async () => {
-    const tieredQuest = makeCard({
-      Title: { Text: 'Slate' },
-      Quests: [{
-        Entries: [{
-          Reward: {
-            Tiers: null,
-            Abilities: {},
-            Tags: [],
-            HiddenTags: [],
-            Localization: { Tooltips: [{ Content: { Text: 'Poison {ability.q1}' }, TooltipType: 'Passive' }] },
-            TooltipReplacements: { '{ability.q1}': { Bronze: 5, Silver: 10, Gold: 15, Diamond: 20 } },
-            DisplayTags: [],
-          },
-          CompletionEffects: null,
-          Localization: { Tooltips: [{ Content: { Text: 'Poison 30 times' }, TooltipType: 'Passive' }] },
-          IconKeyOverride: null,
-        }],
-      }],
-    })
-    mockExact.mockImplementation(() => tieredQuest)
-    const result = await handleCommand('!b quest slate gold')
-    expect(result).toContain('Poison 15')
-    expect(result).not.toContain('🟤')
-  })
-
-  it('logs hit on quest match', async () => {
-    mockExact.mockImplementation(() => questCard)
-    await handleCommand('!b quest dog', { user: 'test' })
-    expect(mockLogCommand).toHaveBeenCalled()
-  })
-
-  it('logs miss on quest miss', async () => {
-    await handleCommand('!b quest nothing', { user: 'test' })
-    expect(mockLogCommand).toHaveBeenCalledWith(
-      { user: 'test' },
-      'miss',
-      'nothing',
-    )
-  })
-
-  it('appends @mention', async () => {
-    mockExact.mockImplementation(() => questCard)
-    const result = await handleCommand('!b quest dog @viewer')
-    expect(result).toContain('@viewer')
-    expect(result).toContain('Quests:')
   })
 })
 
@@ -1462,7 +1334,6 @@ describe('usage string', () => {
     expect(result).toContain('skill')
     expect(result).toContain('tag')
     expect(result).toContain('day')
-    expect(result).toContain('quest')
     expect(result).toContain('enchants')
     expect(result).toContain('trivia')
     expect(result).toContain('score')

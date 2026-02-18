@@ -1,4 +1,4 @@
-import type { BazaarCard, TierName, ReplacementValue, Monster, Quest } from './types'
+import type { BazaarCard, TierName, ReplacementValue, Monster } from './types'
 
 const TIER_ORDER: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
 const TIER_EMOJI: Record<string, string> = {
@@ -15,7 +15,6 @@ function tierPrefix(tier?: TierName): string {
 
 export function truncate(str: string): string {
   if (str.length <= MAX_LEN) return str
-  // cut at last pipe separator or space before limit
   const cut = str.lastIndexOf(' | ', MAX_LEN - 4)
   if (cut > MAX_LEN * 0.5) return str.slice(0, cut) + '...'
   const space = str.lastIndexOf(' ', MAX_LEN - 4)
@@ -26,7 +25,6 @@ export function truncate(str: string): string {
 function resolveReplacement(val: ReplacementValue, tier?: TierName): string {
   if ('Fixed' in val) return String(val.Fixed)
   if (tier && tier in val) return String((val as Record<string, number>)[tier])
-  // show all tiers with emoji
   const parts = TIER_ORDER.filter((t) => t in val).map(
     (t) => `${TIER_EMOJI[t]}${(val as Record<string, number>)[t]}`,
   )
@@ -40,123 +38,57 @@ function resolveTooltip(text: string, replacements: Record<string, ReplacementVa
   })
 }
 
-function getAttributes(card: BazaarCard, tier?: TierName): Record<string, number> {
-  const base = { ...card.BaseAttributes }
-  if (tier && card.Tiers[tier]?.OverrideAttributes) {
-    Object.assign(base, card.Tiers[tier].OverrideAttributes)
-  }
-  return base
-}
-
-interface StatEntry {
-  key: string
-  emoji: string
-  format?: 'ms' | 'pct'
-  minShow?: number
-}
-
-const STAT_CONFIG: StatEntry[] = [
-  { key: 'DamageAmount', emoji: '🗡️' },
-  { key: 'ShieldApplyAmount', emoji: '🛡' },
-  { key: 'HealAmount', emoji: '💚' },
-  { key: 'BurnApplyAmount', emoji: '🔥' },
-  { key: 'PoisonApplyAmount', emoji: '🧪' },
-  { key: 'FreezeAmount', emoji: '🧊', format: 'ms' },
-  { key: 'SlowAmount', emoji: '🐌', format: 'ms' },
-  { key: 'HasteAmount', emoji: '⚡', format: 'ms' },
-  { key: 'RegenApplyAmount', emoji: '🌿' },
-  { key: 'Lifesteal', emoji: '🩸', format: 'pct' },
-  { key: 'CritChance', emoji: '🎯', format: 'pct' },
-  { key: 'Multicast', emoji: '🔁', minShow: 2 },
-  { key: 'AmmoMax', emoji: '🔋' },
-  { key: 'ChargeAmount', emoji: '⏳', format: 'ms' },
-  { key: 'CooldownMax', emoji: '🕐', format: 'ms' },
-]
-
-function fmtVal(v: number, format?: 'ms' | 'pct'): string {
-  if (format === 'ms') return v / 1000 + 's'
-  if (format === 'pct') return v + '%'
-  return String(v)
-}
-
-function formatStat(emoji: string, key: string, base: number, card: BazaarCard, tier?: TierName, format?: 'ms' | 'pct'): string {
-  const val = tier ? (getAttributes(card, tier)[key] ?? base) : base
-  if (tier) return `${emoji}${fmtVal(val, format)}`
-
-  // no tier specified — show tier range if values differ
-  const tierVals = TIER_ORDER
-    .filter((t) => t in card.Tiers)
-    .map((t) => card.Tiers[t]?.OverrideAttributes?.[key])
-    .filter((v) => v != null) as number[]
-
-  if (tierVals.length === 0 || tierVals.every((v) => v === base)) {
-    return `${emoji}${fmtVal(base, format)}`
-  }
-
-  const allVals = [base, ...tierVals]
-  const unique = [...new Set(allVals)]
-  return `${emoji}${unique.map((v) => fmtVal(v, format)).join('/')}`
-}
-
-function statLine(attrs: Record<string, number>, card: BazaarCard, tier?: TierName): string {
-  const s: string[] = []
-  for (const { key, emoji, format, minShow } of STAT_CONFIG) {
-    const val = attrs[key]
-    if (val == null) continue
-    if (minShow != null && val < minShow) continue
-    s.push(formatStat(emoji, key, val, card, tier, format))
-  }
-  return s.join(' ')
-}
-
 const SIZE_LABEL: Record<string, string> = { Small: 'S', Medium: 'M', Large: 'L' }
+
+function appendShortlink(text: string, shortlink: string): string {
+  const suffix = ` · ${shortlink.replace('https://', '')}`
+  if (text.length + suffix.length <= MAX_LEN) return text + suffix
+  return text
+}
 
 export function formatItem(card: BazaarCard, tier?: TierName): string {
   const prefix = tierPrefix(tier)
-  const name = card.Title.Text
+  const name = card.Title
   const size = SIZE_LABEL[card.Size] ? ` [${SIZE_LABEL[card.Size]}]` : ''
   const heroes = card.Heroes.map((h) => HERO_ABBREV[h] ?? h).join(', ')
   const abilities = card.Tooltips.map((t) =>
-    resolveTooltip(t.Content.Text, card.TooltipReplacements, tier),
+    resolveTooltip(t.text, card.TooltipReplacements, tier),
   )
-  const stats = statLine(getAttributes(card, tier), card, tier)
 
   const tags = card.DisplayTags?.length ? ` [${card.DisplayTags.join(', ')}]` : ''
 
-  const questHint = card.Quests?.length ? `!b quest ${name} for quests` : null
-
   const parts = [
     `${prefix}${name}${size}${heroes ? ` · ${heroes}` : ''}${tags}`,
-    stats || null,
     ...abilities,
-    questHint,
   ].filter(Boolean)
 
-  return truncate(parts.join(' | '))
+  const result = truncate(parts.join(' | '))
+  return appendShortlink(result, card.Shortlink)
 }
 
 export function formatTagResults(tag: string, cards: BazaarCard[]): string {
   if (cards.length === 0) return `no items found with tag ${tag}`
-  const names = cards.map((c) => c.Title.Text)
+  const names = cards.map((c) => c.Title)
   return truncate(`[${tag}] ${names.join(', ')}`)
 }
 
 export function formatDayResults(day: number, monsters: Monster[]): string {
   if (monsters.length === 0) return `no monsters found for day ${day}`
-  const entries = monsters.map((m) => `${m.Title.Text} (${m.MonsterMetadata.health}HP)`)
+  const entries = monsters.map((m) => `${m.Title} (${m.MonsterMetadata.health}HP)`)
   return truncate(`[Day ${day}] ${entries.join(', ')}`)
 }
 
 export function formatEnchantment(card: BazaarCard, enchName: string, tier?: TierName): string {
   const ench = card.Enchantments[enchName]
-  if (!ench) return `No "${enchName}" enchantment for ${card.Title.Text}`
+  if (!ench) return `No "${enchName}" enchantment for ${card.Title}`
 
-  const tooltips = ench.Localization.Tooltips.map((t) =>
-    resolveTooltip(t.Content.Text, ench.TooltipReplacements, tier),
+  const tooltips = ench.tooltips.map((t) =>
+    resolveTooltip(t.text, ench.tooltipReplacements ?? {}, tier),
   )
 
-  const tags = ench.Tags.length ? ` [${ench.Tags.join(', ')}]` : ''
-  return truncate(`${tierPrefix(tier)}[${card.Title.Text} - ${enchName}]${tags} ${tooltips.join(' | ')}`)
+  const tags = ench.tags?.length ? ` [${ench.tags.join(', ')}]` : ''
+  const result = truncate(`${tierPrefix(tier)}[${card.Title} - ${enchName}]${tags} ${tooltips.join(' | ')}`)
+  return appendShortlink(result, card.Shortlink)
 }
 
 export interface SkillDetail {
@@ -169,23 +101,16 @@ export function formatMonster(monster: Monster, skillDetails?: Map<string, Skill
   const day = meta.day != null ? `Day ${meta.day}` : meta.available || '?'
   const hp = meta.health
 
-  // separate items and skills
   const items: string[] = []
   const skills: string[] = []
   const itemCounts = new Map<string, number>()
   const itemLabels = new Map<string, string>()
 
   for (const b of meta.board) {
-    const key = `${b.title}|${b.tierOverride}`
-    const emoji = TIER_EMOJI[b.tierOverride] ?? ''
-
-    if (b.type === 'Skill' && skillDetails?.has(b.title)) {
-      const detail = skillDetails.get(b.title)!
-      skills.push(`${emoji}${b.title}: ${detail.tooltip}`)
-    } else {
-      itemCounts.set(key, (itemCounts.get(key) ?? 0) + 1)
-      if (!itemLabels.has(key)) itemLabels.set(key, `${emoji}${b.title}`)
-    }
+    const key = `${b.title}|${b.tier}`
+    const emoji = TIER_EMOJI[b.tier] ?? ''
+    itemCounts.set(key, (itemCounts.get(key) ?? 0) + 1)
+    if (!itemLabels.has(key)) itemLabels.set(key, `${emoji}${b.title}`)
   }
 
   for (const [key, label] of itemLabels) {
@@ -193,33 +118,22 @@ export function formatMonster(monster: Monster, skillDetails?: Map<string, Skill
     items.push(count > 1 ? `${label} x${count}` : label)
   }
 
+  for (const s of meta.skills) {
+    const emoji = TIER_EMOJI[s.tier] ?? ''
+    if (skillDetails?.has(s.title)) {
+      const detail = skillDetails.get(s.title)!
+      skills.push(`${emoji}${s.title}: ${detail.tooltip}`)
+    } else {
+      skills.push(`${emoji}${s.title}`)
+    }
+  }
+
   const parts = [
-    `${monster.Title.Text} · ${day} · ${hp}HP`,
+    `${monster.Title} · ${day} · ${hp}HP`,
     items.length ? items.join(', ') : null,
     ...skills,
   ].filter(Boolean)
 
-  return truncate(parts.join(' | '))
-}
-
-function formatQuestEntry(entry: Quest['Entries'][0], tier?: TierName): string | null {
-  const req = entry.Localization.Tooltips[0]?.Content.Text
-  if (!req) return null
-  const reward = entry.Reward.Localization.Tooltips
-    .map((t) => resolveTooltip(t.Content.Text, entry.Reward.TooltipReplacements, tier))
-    .join('; ')
-  return `${req} → ${reward}`
-}
-
-export function formatQuests(card: BazaarCard, tier?: TierName): string {
-  if (!card.Quests?.length) return `${card.Title.Text} has no quests`
-
-  const questGroups = card.Quests.map((q) => {
-    const entries = q.Entries.map((e) => formatQuestEntry(e, tier)).filter(Boolean)
-    if (!entries.length) return null
-    return entries.join(' OR ')
-  }).filter(Boolean)
-
-  if (questGroups.length === 0) return `${card.Title.Text} has no quests`
-  return truncate(`[${card.Title.Text}] Quests: ${questGroups.join(' | ')}`)
+  const result = truncate(parts.join(' | '))
+  return appendShortlink(result, monster.Shortlink)
 }

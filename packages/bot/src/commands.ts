@@ -1,4 +1,4 @@
-import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, formatQuests, truncate } from '@bazaarinfo/shared'
+import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, truncate } from '@bazaarinfo/shared'
 import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
@@ -63,7 +63,7 @@ export function parseArgs(words: string[]): ParsedArgs {
 let lobbyChannel = ''
 export function setLobbyChannel(name: string) { lobbyChannel = name }
 
-const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/quest/enchants/trivia/score/stats | bazaardb.gg'
+const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/enchants/trivia/score/stats | bazaardb.gg'
 const JOIN_USAGE = () => lobbyChannel ? ` | add bot: type !join in ${lobbyChannel}'s chat` : ''
 
 function logMiss(query: string, ctx: CommandContext) {
@@ -76,28 +76,23 @@ function logHit(type: string, query: string, match: string, ctx: CommandContext,
 
 function resolveSkills(monster: Monster): Map<string, SkillDetail> {
   const details = new Map<string, SkillDetail>()
-  for (const b of monster.MonsterMetadata.board) {
-    if (b.type !== 'Skill' || details.has(b.title)) continue
-    const card = store.findCard(b.title)
+  for (const s of monster.MonsterMetadata.skills) {
+    if (details.has(s.title)) continue
+    const card = store.findCard(s.title)
     if (!card || !card.Tooltips.length) continue
-    const tooltip = card.Tooltips.map((t) => t.Content.Text
+    const tooltip = card.Tooltips.map((t) => t.text
       .replace(/\{[^}]+\}/g, (match) => {
         const val = card.TooltipReplacements[match]
         if (!val) return match
         if ('Fixed' in val) return String(val.Fixed)
-        const tierVal = b.tierOverride in val ? (val as Record<string, number>)[b.tierOverride] : undefined
+        const tierVal = s.tier in val ? (val as Record<string, number>)[s.tier] : undefined
         return tierVal != null ? String(tierVal) : match
       }),
     ).join('; ')
-    details.set(b.title, { name: b.title, tooltip })
+    details.set(s.title, { name: s.title, tooltip })
   }
   return details
 }
-
-const ATTRIBUTION = ' | bazaardb.gg'
-const ATTRIB_INTERVAL = 10
-const ATTRIB_MARKER = '\x02'
-let commandCount = 0
 
 type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string | null | Promise<string | null>
 
@@ -106,7 +101,6 @@ const subcommands: [RegExp, SubHandler][] = [
   [/^hero$/i, () => 'usage: !b hero <name>'],
   [/^tag$/i, () => 'usage: !b tag <tagname>'],
   [/^skill$/i, () => 'usage: !b skill <name>'],
-  [/^quest$/i, () => 'usage: !b quest <item>'],
   [/^day$/i, () => 'usage: !b day <number>'],
   [/^(?:mob|monster)\s+(.+)$/i, (query, ctx, suffix) => {
     const monster = store.findMonster(query)
@@ -116,8 +110,8 @@ const subcommands: [RegExp, SubHandler][] = [
       if (suggestions.length) return `no monster found for "${query}" — try: ${suggestions.join(', ')}`
       return `no monster found for ${query}`
     }
-    logHit('mob', query, monster.Title.Text, ctx)
-    return ATTRIB_MARKER + formatMonster(monster, resolveSkills(monster)) + suffix
+    logHit('mob', query, monster.Title, ctx)
+    return formatMonster(monster, resolveSkills(monster)) + suffix
   }],
   [/^hero\s+(.+)$/i, (query, ctx, suffix) => {
     const resolved = store.findHeroName(query)
@@ -125,12 +119,12 @@ const subcommands: [RegExp, SubHandler][] = [
     if (items.length === 0) return `no items found for hero ${query}`
     const displayName = resolved ?? query
     logHit('hero', query, `${items.length} items`, ctx)
-    return ATTRIB_MARKER + truncate(`[${displayName}] ${items.map((i) => i.Title.Text).join(', ')}`) + suffix
+    return truncate(`[${displayName}] ${items.map((i) => i.Title).join(', ')}`) + suffix
   }],
   [/^enchant(?:s|ments)?$/i, (_query, ctx, suffix) => {
     const names = store.getEnchantments().map(capitalize)
     logHit('enchants', _query, `${names.length} enchants`, ctx)
-    return ATTRIB_MARKER + `Enchantments: ${names.join(', ')}` + suffix
+    return `Enchantments: ${names.join(', ')}` + suffix
   }],
   [/^tag\s+(.+)$/i, (query, ctx, suffix) => {
     const resolved = store.findTagName(query)
@@ -143,7 +137,7 @@ const subcommands: [RegExp, SubHandler][] = [
     }
     const displayTag = resolved ?? query
     logHit('tag', query, `${cards.length} items`, ctx)
-    return ATTRIB_MARKER + formatTagResults(displayTag, cards) + suffix
+    return formatTagResults(displayTag, cards) + suffix
   }],
   [/^day\s+(\d+)$/i, (query, ctx, suffix) => {
     const day = parseInt(query)
@@ -151,21 +145,13 @@ const subcommands: [RegExp, SubHandler][] = [
     const mobs = store.monstersByDay(day)
     if (mobs.length === 0) { logMiss(query, ctx); return `no monsters found for day ${day}` }
     logHit('day', query, `${mobs.length} monsters`, ctx)
-    return ATTRIB_MARKER + formatDayResults(day, mobs) + suffix
+    return formatDayResults(day, mobs) + suffix
   }],
   [/^skill\s+(.+)$/i, (query, ctx, suffix) => {
     const skill = store.findSkill(query)
     if (!skill) { logMiss(query, ctx); return `no skill found for ${query}` }
-    logHit('skill', query, skill.Title.Text, ctx)
-    return ATTRIB_MARKER + formatItem(skill) + suffix
-  }],
-  [/^quest\s+(.+)$/i, (query, ctx, suffix) => {
-    const words = query.split(/\s+/)
-    const { item, tier } = parseArgs(words)
-    const card = store.exact(item) ?? store.search(item, 1)[0]
-    if (!card) { logMiss(query, ctx); return `no item found for ${query}` }
-    logHit('quest', query, card.Title.Text, ctx, tier)
-    return ATTRIB_MARKER + formatQuests(card, tier) + suffix
+    logHit('skill', query, skill.Title, ctx)
+    return formatItem(skill) + suffix
   }],
   [/^trivia(?:\s+(items|heroes|monsters))?$/i, (query, ctx, suffix) => {
     if (!ctx.channel) return null
@@ -187,11 +173,11 @@ const subcommands: [RegExp, SubHandler][] = [
   }],
 ]
 
-function validateTier(card: { Tiers: Partial<Record<TierName, unknown>> }, tier?: TierName): { tier: TierName | undefined; note: string | null } {
+function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: TierName | undefined; note: string | null } {
   if (!tier) return { tier: undefined, note: null }
-  if (tier in card.Tiers) return { tier, note: null }
+  if (card.Tiers.includes(tier)) return { tier, note: null }
   // find highest available tier
-  const available = TIER_ORDER.filter((t) => t in card.Tiers)
+  const available = TIER_ORDER.filter((t) => card.Tiers.includes(t))
   const highest = available[available.length - 1]
   if (highest) return { tier: highest, note: `max tier is ${highest}` }
   return { tier: undefined, note: null }
@@ -206,8 +192,8 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   if (enchant) {
     const card = store.exact(query) ?? store.search(query, 1)[0]
     if (!card) { logMiss(query, ctx); return `no item found for ${query}` }
-    logHit('enchant', query, `${card.Title.Text}+${enchant}`, ctx, tier)
-    return ATTRIB_MARKER + formatEnchantment(card, enchant, tier) + suffix
+    logHit('enchant', query, `${card.Title}+${enchant}`, ctx, tier)
+    return formatEnchantment(card, enchant, tier) + suffix
   }
 
   // items first (exact then fuzzy) — !b mob exists for explicit monster lookups
@@ -223,17 +209,17 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     return titleWords.some((tw) => tw.length >= 3 && queryWords.includes(tw))
   }
 
-  if (card && isRelevantMatch(card.Title.Text)) {
+  if (card && isRelevantMatch(card.Title)) {
     const v = validateTier(card, tier)
-    logHit('item', query, card.Title.Text, ctx, v.tier)
+    logHit('item', query, card.Title, ctx, v.tier)
     const result = formatItem(card, v.tier)
-    return ATTRIB_MARKER + (v.note ? `${result} (${v.note})` : result) + suffix
+    return (v.note ? `${result} (${v.note})` : result) + suffix
   }
 
   const monster = store.findMonster(query)
-  if (monster && isRelevantMatch(monster.Title.Text)) {
-    logHit('mob', query, monster.Title.Text, ctx)
-    return ATTRIB_MARKER + formatMonster(monster, resolveSkills(monster)) + suffix
+  if (monster && isRelevantMatch(monster.Title)) {
+    logHit('mob', query, monster.Title, ctx)
+    return formatMonster(monster, resolveSkills(monster)) + suffix
   }
 
   // suggestions for short typo queries, silence for everything else
@@ -278,18 +264,5 @@ export async function handleCommand(text: string, ctx: CommandContext = {}): Pro
   const handler = commands[cmd.toLowerCase()]
   if (!handler) return null
 
-  let result = await handler(args.trim(), ctx)
-  if (!result) return null
-
-  // strip markers
-  const isData = result.startsWith(ATTRIB_MARKER)
-  if (isData) result = result.slice(1)
-
-  // attribute bazaardb.gg on data responses only, when it fits
-  if (isData && ++commandCount % ATTRIB_INTERVAL === 0) {
-    if (result.length + ATTRIBUTION.length <= 480) {
-      return result + ATTRIBUTION
-    }
-  }
-  return result
+  return handler(args.trim(), ctx)
 }

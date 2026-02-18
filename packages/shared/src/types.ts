@@ -1,101 +1,42 @@
-export interface TooltipText {
-  Text: string
-}
-
-export interface Tooltip {
-  Content: TooltipText
-  TooltipType: 'Active' | 'Passive'
-}
-
 export type TierName = 'Bronze' | 'Silver' | 'Gold' | 'Diamond' | 'Legendary'
-
-export interface TierData {
-  AbilityIds: string[]
-  AuraIds: string[]
-  OverrideAttributes: Record<string, number>
-  ActiveTooltips: number[]
-}
 
 export type ReplacementValue =
   | { Fixed: number }
   | Partial<Record<TierName, number>>
 
-export interface Enchantment {
-  Tags: string[]
-  HiddenTags: string[]
-  Localization: {
-    Tooltips: Tooltip[]
-  }
-  TooltipReplacements: Record<string, ReplacementValue>
-  DisplayTags: string[]
+export interface DumpTooltip {
+  text: string
+  type: string
 }
 
-export interface DropSource {
-  id: string
-  title: string
-  href: string
-  tier: string
-  available: boolean
+export interface DumpEnchantment {
+  tooltips: DumpTooltip[]
+  tooltipReplacements?: Record<string, ReplacementValue>
+  tags?: string[]
 }
 
 export type ItemSize = 'Small' | 'Medium' | 'Large'
 
-export interface QuestReward {
-  Tiers: Partial<Record<TierName, Record<string, number>>> | null
-  Abilities: Record<string, unknown>
-  Tags: string[]
-  HiddenTags: string[]
-  Localization: { Tooltips: Tooltip[] }
-  TooltipReplacements: Record<string, ReplacementValue>
-  DisplayTags: string[]
-}
-
-export interface QuestEntry {
-  Reward: QuestReward
-  CompletionEffects: unknown
-  Localization: { Tooltips: Tooltip[] }
-  IconKeyOverride: string | null
-}
-
-export interface Quest {
-  Entries: QuestEntry[]
-}
-
 export interface BazaarCard {
-  Id: string
-  Type: 'Item' | 'Skill' | 'Monster'
-  Title: TooltipText
-  Description: string | null
+  Type: 'Item' | 'Skill'
+  Title: string
   Size: ItemSize
   BaseTier: TierName
-  Tiers: Partial<Record<TierName, TierData>>
-  BaseAttributes: Record<string, number>
-  Tooltips: Tooltip[]
-  TooltipReplacements: Record<string, ReplacementValue>
-  DisplayTags: string[]
-  HiddenTags: string[]
-  Tags: string[]
+  Tiers: TierName[]
   Heroes: string[]
-  Enchantments: Record<string, Enchantment>
-  Art: string
-  ArtLarge: string
-  ArtBlur: string
-  Uri: string
-  DroppedBy: DropSource[] | null
-  Quests: Quest[]
-  Transform: unknown
-  _originalTitleText: string
+  Tags: string[]
+  HiddenTags: string[]
+  DisplayTags: string[]
+  Tooltips: DumpTooltip[]
+  TooltipReplacements: Record<string, ReplacementValue>
+  Enchantments: Record<string, DumpEnchantment>
+  Shortlink: string
 }
 
 export interface MonsterBoardEntry {
-  baseId: string
   title: string
-  size: ItemSize
-  tierOverride: TierName
-  type: 'Item' | 'Skill'
-  url: string
-  art: string
-  artBlur: string
+  tier: string
+  id: string
 }
 
 export interface MonsterMetadata {
@@ -103,20 +44,19 @@ export interface MonsterMetadata {
   day: number | null
   health: number
   board: MonsterBoardEntry[]
+  skills: MonsterBoardEntry[]
 }
 
 export interface Monster {
-  Id: string
   Type: 'CombatEncounter'
-  Title: TooltipText
-  Description: string | null
+  Title: string
   Size: ItemSize
   Tags: string[]
   DisplayTags: string[]
   HiddenTags: string[]
   Heroes: string[]
-  Uri: string
   MonsterMetadata: MonsterMetadata
+  Shortlink: string
 }
 
 export interface CardCache {

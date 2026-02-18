@@ -1,207 +1,107 @@
-import type { BazaarCard, Monster } from '@bazaarinfo/shared'
+import type { BazaarCard, Monster, CardCache, DumpTooltip, DumpEnchantment, ReplacementValue, TierName, MonsterBoardEntry } from '@bazaarinfo/shared'
 
-const BASE_URL = 'https://bazaardb.gg/search'
-const RSC_HEADERS = {
-  RSC: '1',
-  'User-Agent': 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)',
-  'Next-Router-State-Tree':
-    '%5B%22%22%2C%7B%22children%22%3A%5B%22search%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%5D%7D%5D%7D%2Cnull%2Cnull%2Ctrue%5D',
-}
+const DUMP_URL = 'https://bazaardb.gg/dump.json'
+const USER_AGENT = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
 
-const BATCH_SIZE = 5
-const DELAY_MS = 200
-const MAX_PAGES = 200
-
-// find matching close bracket/brace from `start`, respecting strings + escapes
-export function findJsonEnd(text: string, start: number): number {
-  const open = text[start]
-  const close = open === '[' ? ']' : '}'
-  let depth = 0
-  let inString = false
-  let escaped = false
-
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i]
-    if (escaped) { escaped = false; continue }
-    if (ch === '\\' && inString) { escaped = true; continue }
-    if (ch === '"') { inString = !inString; continue }
-    if (inString) continue
-    if (ch === '[' || ch === '{') depth++
-    else if (ch === ']' || ch === '}') {
-      depth--
-      if (depth === 0 && ch === close) return i
-    }
+interface DumpEntry {
+  Type: string
+  Title: string
+  Size: string
+  BaseTier: string
+  Heroes: string[]
+  Tags: string[]
+  HiddenTags: string[]
+  Tooltips: DumpTooltip[]
+  TooltipReplacements?: Record<string, ReplacementValue>
+  Tiers: string[]
+  Enchantments?: Record<string, DumpEnchantment>
+  MonsterMetadata?: {
+    available: string
+    day: number | null
+    health: number
+    board: MonsterBoardEntry[]
+    skills: MonsterBoardEntry[]
   }
-  return -1
+  Shortlink: string
 }
 
-export function extractPageCards(rscText: string): BazaarCard[] {
-  const marker = '"pageCards":'
-  const idx = rscText.indexOf(marker)
-  if (idx === -1) return []
+function computeDisplayTags(entry: DumpEntry): string[] {
+  return entry.Tags.filter((t) =>
+    !entry.HiddenTags.includes(t)
+    && t !== entry.Type
+    && t !== entry.Size
+    && !entry.Heroes.includes(t),
+  )
+}
 
-  const arrStart = rscText.indexOf('[', idx + marker.length)
-  if (arrStart === -1) return []
-
-  const end = findJsonEnd(rscText, arrStart)
-  if (end === -1) return []
-
-  try {
-    return JSON.parse(rscText.substring(arrStart, end + 1))
-  } catch (e) {
-    console.warn('warn: failed to parse pageCards JSON:', e)
-    return []
+function toCard(entry: DumpEntry): BazaarCard {
+  return {
+    Type: entry.Type as 'Item' | 'Skill',
+    Title: entry.Title,
+    Size: entry.Size as BazaarCard['Size'],
+    BaseTier: entry.BaseTier as TierName,
+    Tiers: entry.Tiers as TierName[],
+    Heroes: entry.Heroes,
+    Tags: entry.Tags,
+    HiddenTags: entry.HiddenTags,
+    DisplayTags: computeDisplayTags(entry),
+    Tooltips: entry.Tooltips ?? [],
+    TooltipReplacements: entry.TooltipReplacements ?? {},
+    Enchantments: entry.Enchantments ?? {},
+    Shortlink: entry.Shortlink,
   }
 }
 
-async function fetchPage(category: string, page: number): Promise<BazaarCard[]> {
-  const url = `${BASE_URL}?c=${category}&page=${page}`
-  const res = await fetch(url, { headers: RSC_HEADERS })
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
-  const text = await res.text()
-  return extractPageCards(text)
-}
-
-export interface ScrapeOptions {
-  category: string
-  totalPages: number
-  onProgress?: (done: number, total: number) => void
-}
-
-async function fetchPages(
-  category: string,
-  startPage: number,
-  endPage: number,
-  onProgress?: (done: number, total: number) => void,
-): Promise<BazaarCard[]> {
-  const total = endPage - startPage
-  const allCards: BazaarCard[] = []
-  let done = 0
-
-  for (let batch = startPage; batch < endPage; batch += BATCH_SIZE) {
-    const pages = Array.from(
-      { length: Math.min(BATCH_SIZE, endPage - batch) },
-      (_, i) => batch + i,
-    )
-
-    const results = await Promise.all(pages.map((p) => fetchPage(category, p)))
-    for (const cards of results) {
-      for (let i = 0; i < cards.length; i++) allCards.push(cards[i])
-    }
-
-    done += pages.length
-    onProgress?.(done, total)
-
-    if (batch + BATCH_SIZE < endPage) {
-      await new Promise((r) => setTimeout(r, DELAY_MS))
-    }
+function toMonster(entry: DumpEntry): Monster {
+  return {
+    Type: 'CombatEncounter',
+    Title: entry.Title,
+    Size: entry.Size as Monster['Size'],
+    Tags: entry.Tags,
+    DisplayTags: computeDisplayTags(entry),
+    HiddenTags: entry.HiddenTags,
+    Heroes: entry.Heroes,
+    MonsterMetadata: entry.MonsterMetadata!,
+    Shortlink: entry.Shortlink,
   }
-
-  return allCards
 }
 
-async function scrapeCategory(
-  category: string,
-  onProgress?: (done: number, total: number) => void,
-) {
-  const url = `${BASE_URL}?c=${category}&page=0`
-  const res = await fetch(url, { headers: RSC_HEADERS })
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
-  const text = await res.text()
+export async function scrapeDump(onProgress?: (msg: string) => void): Promise<CardCache> {
+  onProgress?.('fetching dump.json...')
+  const res = await fetch(DUMP_URL, {
+    headers: { 'User-Agent': USER_AGENT },
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status} fetching dump.json`)
 
-  const totalMatch = text.match(/"totalCards":(\d+)/)
-  if (!totalMatch) console.warn(`warn: could not parse totalCards for ${category}, paginating until empty`)
-  const total = totalMatch ? parseInt(totalMatch[1]) : 0
-  const totalPages = total ? Math.ceil(total / 10) : 0
+  const dump: Record<string, DumpEntry> = await res.json()
+  const entries = Object.values(dump)
+  onProgress?.(`parsed ${entries.length} entries`)
 
-  const firstPage = extractPageCards(text)
-  if (firstPage.length === 0) return { cards: [], total: 0 }
-
-  onProgress?.(1, totalPages || 1)
-
-  if (totalPages > 1) {
-    const rest = await fetchPages(category, 1, totalPages, (done, t) =>
-      onProgress?.(done + 1, totalPages),
-    )
-    return { cards: [...firstPage, ...rest], total }
-  }
-
-  // no totalCards — paginate until empty (capped for safety)
-  const allCards = [...firstPage]
-  let page = 1
-  while (page < MAX_PAGES) {
-    const cards = await fetchPage(category, page)
-    if (cards.length === 0) break
-    allCards.push(...cards)
-    page++
-    onProgress?.(page, page)
-    if (page > 1) await new Promise((r) => setTimeout(r, DELAY_MS))
-  }
-  if (page >= MAX_PAGES) console.warn(`warn: hit ${MAX_PAGES} page cap for ${category}`)
-  return { cards: allCards, total: allCards.length }
-}
-
-export async function scrapeItems(onProgress?: (done: number, total: number) => void) {
-  return scrapeCategory('items', onProgress)
-}
-
-export async function scrapeSkills(onProgress?: (done: number, total: number) => void) {
-  return scrapeCategory('skills', onProgress)
-}
-
-export function extractMonsters(rscText: string): Monster[] {
+  const items: BazaarCard[] = []
+  const skills: BazaarCard[] = []
   const monsters: Monster[] = []
-  const marker = '"Type":"CombatEncounter"'
-  let searchFrom = 0
-  while (true) {
-    const typeIdx = rscText.indexOf(marker, searchFrom)
-    if (typeIdx === -1) break
 
-    let start = typeIdx
-    while (start > 0 && rscText[start] !== '{') start--
-
-    const end = findJsonEnd(rscText, start)
-    if (end === -1) break
-
-    try {
-      monsters.push(JSON.parse(rscText.substring(start, end + 1)))
-    } catch (e) {
-      console.warn('warn: failed to parse monster JSON:', e)
-    }
-    searchFrom = end + 1
-  }
-  return monsters
-}
-
-export async function scrapeMonsters(onProgress?: (done: number, total: number) => void) {
-  const url = `${BASE_URL}?c=monsters&page=0`
-  const res = await fetch(url, { headers: RSC_HEADERS })
-  if (!res.ok) throw new Error(`HTTP ${res.status} for monsters`)
-  const text = await res.text()
-  const monsters = extractMonsters(text)
-
-  const totalMatch = text.match(/"totalCards":(\d+)/)
-  const total = totalMatch ? parseInt(totalMatch[1]) : 0
-  const totalPages = total ? Math.ceil(total / 10) : 0
-
-  onProgress?.(1, totalPages || 1)
-
-  if (totalPages > 1) {
-    for (let batch = 1; batch < totalPages; batch += BATCH_SIZE) {
-      const pages = Array.from(
-        { length: Math.min(BATCH_SIZE, totalPages - batch) },
-        (_, i) => batch + i,
-      )
-      const results = await Promise.all(pages.map(async (p) => {
-        const pageRes = await fetch(`${BASE_URL}?c=monsters&page=${p}`, { headers: RSC_HEADERS })
-        if (!pageRes.ok) return []
-        return extractMonsters(await pageRes.text())
-      }))
-      for (const pageMonsters of results) monsters.push(...pageMonsters)
-      onProgress?.(Math.min(batch + BATCH_SIZE, totalPages), totalPages)
-      if (batch + BATCH_SIZE < totalPages) await new Promise((r) => setTimeout(r, DELAY_MS))
+  for (const entry of entries) {
+    switch (entry.Type) {
+      case 'Item':
+        items.push(toCard(entry))
+        break
+      case 'Skill':
+        skills.push(toCard(entry))
+        break
+      case 'CombatEncounter':
+        monsters.push(toMonster(entry))
+        break
+      // EventEncounter ignored
     }
   }
 
-  return { monsters, total: monsters.length }
+  onProgress?.(`${items.length} items, ${skills.length} skills, ${monsters.length} monsters`)
+
+  return {
+    items,
+    skills,
+    monsters,
+    fetchedAt: new Date().toISOString(),
+  }
 }
