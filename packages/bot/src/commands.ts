@@ -211,11 +211,12 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     return formatEnchantment(card, enchant, tier) + suffix
   }
 
-  const exactCard = store.exact(query)
-  if (exactCard) {
-    const v = validateTier(exactCard, tier)
-    logHit('item', query, exactCard.Title.Text, ctx, v.tier)
-    const result = formatItem(exactCard, v.tier)
+  // items first (exact then fuzzy) — !b mob exists for explicit monster lookups
+  const card = store.exact(query) ?? store.search(query, 1)[0]
+  if (card) {
+    const v = validateTier(card, tier)
+    logHit('item', query, card.Title.Text, ctx, v.tier)
+    const result = formatItem(card, v.tier)
     return (v.note ? `${result} (${v.note})` : result) + suffix
   }
 
@@ -223,14 +224,6 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   if (monster) {
     logHit('mob', query, monster.Title.Text, ctx)
     return formatMonster(monster, resolveSkills(monster)) + suffix
-  }
-
-  const fuzzyCard = store.search(query, 1)[0]
-  if (fuzzyCard) {
-    const v = validateTier(fuzzyCard, tier)
-    logHit('item', query, fuzzyCard.Title.Text, ctx, v.tier)
-    const result = formatItem(fuzzyCard, v.tier)
-    return (v.note ? `${result} (${v.note})` : result) + suffix
   }
 
   // check suggestions first — short queries with suggestions are likely misspellings
