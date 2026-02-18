@@ -1,7 +1,25 @@
 import * as store from './store'
+import { ALIASES } from './store'
 import * as db from './db'
 import { log } from './log'
 import type { BazaarCard, Monster, ReplacementValue, TierName } from '@bazaarinfo/shared'
+
+// reverse alias map: "BLU-B33TL3" → ["beetle"], "BLK-SP1D3R" → ["spider"]
+const reverseAliases = new Map<string, string[]>()
+for (const [nick, title] of Object.entries(ALIASES)) {
+  const lower = title.toLowerCase()
+  if (!reverseAliases.has(lower)) reverseAliases.set(lower, [])
+  reverseAliases.get(lower)!.push(nick.toLowerCase())
+}
+
+function addNicknames(accepted: string[]): string[] {
+  const extra: string[] = []
+  for (const a of accepted) {
+    const nicks = reverseAliases.get(a)
+    if (nicks) extra.push(...nicks)
+  }
+  return extra.length > 0 ? [...accepted, ...extra] : accepted
+}
 
 const ROUND_DURATION = 30_000
 const COOLDOWN = 60_000
@@ -90,7 +108,7 @@ function genTagQuestion(): ReturnType<QuestionGen> {
   return {
     question: `Name an item with the "${tag}" tag`,
     answer: `any ${tag} item`,
-    accepted: validItems,
+    accepted: addNicknames(validItems),
     type: 2,
   }
 }
@@ -110,7 +128,7 @@ function genTooltipQuestion(): ReturnType<QuestionGen> {
   return {
     question: `Which item does this: ${abilities}`,
     answer: item.Title,
-    accepted: [item.Title.toLowerCase()],
+    accepted: addNicknames([item.Title.toLowerCase()]),
     type: 3,
   }
 }
@@ -124,7 +142,7 @@ function genMonsterBoardQuestion(): ReturnType<QuestionGen> {
   return {
     question: `Name an item on ${monster.Title}'s board`,
     answer: `any of: ${boardItems.slice(0, 5).join(', ')}`,
-    accepted: boardItems,
+    accepted: addNicknames(boardItems),
     type: 4,
   }
 }

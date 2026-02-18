@@ -7,7 +7,7 @@ import { log } from './log'
 export const CACHE_PATH = resolve(import.meta.dir, '../../../cache/items.json')
 
 // slang/common names → actual item names
-const ALIASES: Record<string, string> = {
+export const ALIASES: Record<string, string> = {
   beetle: 'BLU-B33TL3',
   wasp: 'GRN-W4SP',
   spider: 'BLK-SP1D3R',
