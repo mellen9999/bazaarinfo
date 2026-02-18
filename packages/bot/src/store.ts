@@ -75,6 +75,8 @@ function resolveAlias(query: string): string {
   return ALIASES[query.toLowerCase()] ?? query
 }
 
+const SCORE_GATE = 0.15
+
 export function search(query: string, limit = 5) {
   const resolved = resolveAlias(query)
   // try alias exact match first
@@ -82,7 +84,8 @@ export function search(query: string, limit = 5) {
     const aliased = findExact(allCards, resolved)
     if (aliased) return [aliased]
   }
-  const results = searchCards(index, resolved, limit)
+  const scored = searchCards(index, resolved, limit)
+  const results = scored.filter((r) => r.score <= SCORE_GATE).map((r) => r.item)
   // fallback to prefix match for short partial queries
   if (results.length === 0) return searchPrefix(allCards, resolved, limit)
   return results
@@ -132,3 +135,8 @@ export function monstersByDay(day: number): Monster[] {
 export function findSkill(query: string): BazaarCard | undefined {
   return findByTitle(skills, query)
 }
+
+export function getItems(): BazaarCard[] { return items }
+export function getMonsters(): Monster[] { return monsters }
+export function getSkills(): BazaarCard[] { return skills }
+export function getAllCards(): BazaarCard[] { return allCards }

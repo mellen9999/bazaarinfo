@@ -7,6 +7,9 @@ import { scheduleDaily } from './scheduler'
 import { scrapeItems, scrapeSkills, scrapeMonsters } from '@bazaarinfo/data'
 import type { CardCache } from '@bazaarinfo/shared'
 import * as channelStore from './channels'
+import * as db from './db'
+import { loadEmotes, startDailyRefresh, loadChannelEmotes } from './emotes'
+import { checkAnswer, isGameActive, setSay } from './trivia'
 import { log } from './log'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
@@ -87,6 +90,9 @@ try {
 
 await loadStore()
 
+// init db
+db.initDb()
+
 const doRefresh = () => refreshToken(CLIENT_ID, CLIENT_SECRET)
 
 // resolve user IDs
@@ -102,11 +108,23 @@ log(`bot: ${BOT_USERNAME} (${botUserId}), channels: ${channels.map((c) => `${c.n
 
 setLobbyChannel(BOT_USERNAME.toLowerCase())
 
+// load 7TV emotes
+loadEmotes(channels).catch((e) => log(`emote load error: ${e}`))
+startDailyRefresh(channels)
+
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
   async (channel, userId, username, text) => {
     try {
       if (userId === botUserId) return
+
+      // log every message to db
+      try { db.logChat(channel, username, text) } catch {}
+
+      // check trivia answers before command routing
+      if (isGameActive(channel)) {
+        checkAnswer(channel, username, text, (ch, msg) => client.say(ch, msg))
+      }
 
       // handle !join / !part only in bot's own channel to avoid collisions with other bots
       if (channel === BOT_USERNAME.toLowerCase()) {
@@ -122,6 +140,7 @@ const client = new TwitchClient(
             const info: ChannelInfo = { name: target, userId: targetId }
             await client.joinChannel(info)
             await channelStore.add(target)
+            loadChannelEmotes(target, targetId).catch(() => {})
             client.say(channel, `@${username} joined #${target}! type !b help in your chat`)
           } catch (e) {
             log(`join error for ${target}: ${e}`)
@@ -146,7 +165,7 @@ const client = new TwitchClient(
         }
       }
 
-      const response = handleCommand(text, { user: username, channel })
+      const response = await handleCommand(text, { user: username, channel })
       if (response) {
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
         client.say(channel, response)
@@ -158,6 +177,7 @@ const client = new TwitchClient(
 )
 
 client.setAuthRefresh(doRefresh)
+setSay((ch, msg) => client.say(ch, msg))
 
 // proactive token refresh every 30min
 setInterval(async () => {
@@ -173,12 +193,15 @@ setInterval(async () => {
 scheduleDaily(4, async () => {
   await refreshData()
   await reloadStore()
+  db.rollupDailyStats()
+  db.cleanOldData()
   log('daily refresh complete')
 })
 
 // graceful shutdown
 function shutdown() {
   log('shutting down...')
+  db.closeDb()
   client.close()
   process.exit(0)
 }
@@ -190,6 +213,7 @@ process.on('unhandledRejection', (e) => log('unhandled rejection:', e))
 setInterval(() => {
   if (Date.now() - client.lastActivity > 120_000) {
     log('health check failed — no eventsub activity for 2min, exiting')
+    db.closeDb()
     client.close()
     process.exit(1)
   }

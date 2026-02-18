@@ -1,19 +1,16 @@
 import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, formatQuests } from '@bazaarinfo/shared'
 import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
-import { appendFileSync } from 'fs'
-import { resolve } from 'path'
-import { homedir } from 'os'
+import * as db from './db'
+import { respond as aiRespond } from './ai'
+import { startTrivia, getTriviaScore, formatStats, formatTop } from './trivia'
 
-const MISS_LOG = resolve(homedir(), '.bazaarinfo-misses.log')
-const HIT_LOG = resolve(homedir(), '.bazaarinfo-hits.log')
-
-interface CommandContext {
+export interface CommandContext {
   user?: string
   channel?: string
 }
 
-type CommandHandler = (args: string, ctx: CommandContext) => string | null
+type CommandHandler = (args: string, ctx: CommandContext) => string | null | Promise<string | null>
 
 const TIERS = ['bronze', 'silver', 'gold', 'diamond', 'legendary']
 // fallback if store hasn't loaded yet
@@ -65,26 +62,15 @@ export function parseArgs(words: string[]): ParsedArgs {
 let lobbyChannel = ''
 export function setLobbyChannel(name: string) { lobbyChannel = name }
 
-const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/quest/enchants | bazaardb.gg'
+const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/quest/enchants/trivia/score/stats | bazaardb.gg'
 const JOIN_USAGE = () => lobbyChannel ? ` | add bot: type !join in ${lobbyChannel}'s chat` : ''
 
-function logMiss(query: string, ctx: CommandContext, prefix = '') {
-  const who = ctx.user ? ` user:${ctx.user}` : ''
-  const where = ctx.channel ? ` ch:${ctx.channel}` : ''
-  try { appendFileSync(MISS_LOG, `${new Date().toISOString()} ${prefix}${query}${who}${where}\n`) } catch {}
+function logMiss(query: string, ctx: CommandContext) {
+  try { db.logCommand(ctx, 'miss', query) } catch {}
 }
 
 function logHit(type: string, query: string, match: string, ctx: CommandContext, tier?: string) {
-  const parts = [
-    new Date().toISOString(),
-    `type:${type}`,
-    `q:${query}`,
-    `match:${match}`,
-    tier ? `tier:${tier}` : null,
-    ctx.user ? `user:${ctx.user}` : null,
-    ctx.channel ? `ch:${ctx.channel}` : null,
-  ].filter(Boolean).join(' ')
-  try { appendFileSync(HIT_LOG, parts + '\n') } catch {}
+  try { db.logCommand(ctx, type as any, query, match, tier) } catch {}
 }
 
 function resolveSkills(monster: Monster): Map<string, SkillDetail> {
@@ -111,12 +97,12 @@ const ATTRIBUTION = ' | bazaardb.gg'
 const ATTRIB_INTERVAL = 10
 let commandCount = 0
 
-type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string | null
+type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string | null | Promise<string | null>
 
 const subcommands: [RegExp, SubHandler][] = [
   [/^(?:mob|monster)\s+(.+)$/i, (query, ctx, suffix) => {
     const monster = store.findMonster(query)
-    if (!monster) { logMiss(query, ctx, 'mob:'); return `no monster found for ${query}` }
+    if (!monster) { logMiss(query, ctx); return `no monster found for ${query}` }
     logHit('mob', query, monster.Title.Text, ctx)
     return formatMonster(monster, resolveSkills(monster)) + suffix
   }],
@@ -134,7 +120,7 @@ const subcommands: [RegExp, SubHandler][] = [
   }],
   [/^tag\s+(.+)$/i, (query, ctx, suffix) => {
     const cards = store.byTag(query)
-    if (cards.length === 0) { logMiss(query, ctx, 'tag:'); return `no items found with tag ${query}` }
+    if (cards.length === 0) { logMiss(query, ctx); return `no items found with tag ${query}` }
     logHit('tag', query, `${cards.length} items`, ctx)
     return formatTagResults(query, cards) + suffix
   }],
@@ -142,13 +128,13 @@ const subcommands: [RegExp, SubHandler][] = [
     const day = parseInt(query)
     if (day < 1 || day > 10) return `day must be 1-10`
     const mobs = store.monstersByDay(day)
-    if (mobs.length === 0) { logMiss(query, ctx, 'day:'); return `no monsters found for day ${day}` }
+    if (mobs.length === 0) { logMiss(query, ctx); return `no monsters found for day ${day}` }
     logHit('day', query, `${mobs.length} monsters`, ctx)
     return formatDayResults(day, mobs) + suffix
   }],
   [/^skill\s+(.+)$/i, (query, ctx, suffix) => {
     const skill = store.findSkill(query)
-    if (!skill) { logMiss(query, ctx, 'skill:'); return `no skill found for ${query}` }
+    if (!skill) { logMiss(query, ctx); return `no skill found for ${query}` }
     logHit('skill', query, skill.Title.Text, ctx)
     return formatItem(skill) + suffix
   }],
@@ -156,13 +142,30 @@ const subcommands: [RegExp, SubHandler][] = [
     const words = query.split(/\s+/)
     const { item, tier } = parseArgs(words)
     const card = store.exact(item) ?? store.search(item, 1)[0]
-    if (!card) { logMiss(query, ctx, 'quest:'); return `no item found for ${query}` }
+    if (!card) { logMiss(query, ctx); return `no item found for ${query}` }
     logHit('quest', query, card.Title.Text, ctx, tier)
     return formatQuests(card, tier) + suffix
   }],
+  [/^trivia$/i, (_query, ctx, suffix) => {
+    if (!ctx.channel) return null
+    return startTrivia(ctx.channel) + suffix
+  }],
+  [/^score$/i, (_query, ctx, suffix) => {
+    if (!ctx.channel) return null
+    return getTriviaScore(ctx.channel) + suffix
+  }],
+  [/^stats(?:\s+@?(\S+))?$/i, (query, ctx, suffix) => {
+    const target = query || ctx.user
+    if (!target) return null
+    return formatStats(target) + suffix
+  }],
+  [/^top$/i, (_query, ctx, suffix) => {
+    if (!ctx.channel) return null
+    return formatTop(ctx.channel) + suffix
+  }],
 ]
 
-function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): string {
+async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string> {
   const words = cleanArgs.split(/\s+/)
   const { item: query, tier, enchant } = parseArgs(words)
 
@@ -193,11 +196,18 @@ function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): str
     return formatItem(fuzzyCard, tier) + suffix
   }
 
+  // AI fallback
+  const aiResponse = await aiRespond(cleanArgs, ctx)
+  if (aiResponse) {
+    logHit('ai', cleanArgs, 'ai', ctx)
+    return aiResponse + suffix
+  }
+
   logMiss(query, ctx)
   return `nothing found for ${query}`
 }
 
-function bazaarinfo(args: string, ctx: CommandContext): string | null {
+async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {
   const mentions = args.match(/@\w+/g) ?? []
   const cleanArgs = args.replace(/@\w+/g, '').replace(/["']/g, '').replace(/\s+/g, ' ').trim()
 
@@ -217,7 +227,7 @@ const commands: Record<string, CommandHandler> = {
   b: bazaarinfo,
 }
 
-export function handleCommand(text: string, ctx: CommandContext = {}): string | null {
+export async function handleCommand(text: string, ctx: CommandContext = {}): Promise<string | null> {
   const match = text.match(/^!(\w+)\s*(.*)$/)
   if (!match) return null
 
@@ -225,7 +235,7 @@ export function handleCommand(text: string, ctx: CommandContext = {}): string | 
   const handler = commands[cmd.toLowerCase()]
   if (!handler) return null
 
-  const result = handler(args.trim(), ctx)
+  const result = await handler(args.trim(), ctx)
   if (result && ++commandCount % ATTRIB_INTERVAL === 0) {
     return result + ATTRIBUTION
   }

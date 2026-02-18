@@ -1,5 +1,8 @@
 {
   "name": "bazaarinfo",
+  "scripts": {
+    "test": "bun test packages/shared/ packages/bot/src/commands.test.ts && bun test packages/bot/src/db.test.ts"
+  },
   "devDependencies": {
     "bun-types": "^1.3.9"
   },
