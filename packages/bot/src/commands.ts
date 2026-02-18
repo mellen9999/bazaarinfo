@@ -97,6 +97,7 @@ function resolveSkills(monster: Monster): Map<string, SkillDetail> {
 
 const ATTRIBUTION = ' | bazaardb.gg'
 const ATTRIB_INTERVAL = 10
+const ATTRIB_MARKER = '\x02'
 const AI_MARKER = '\x01'
 let commandCount = 0
 
@@ -118,7 +119,7 @@ const subcommands: [RegExp, SubHandler][] = [
       return `no monster found for ${query}`
     }
     logHit('mob', query, monster.Title.Text, ctx)
-    return formatMonster(monster, resolveSkills(monster)) + suffix
+    return ATTRIB_MARKER + formatMonster(monster, resolveSkills(monster)) + suffix
   }],
   [/^hero\s+(.+)$/i, (query, ctx, suffix) => {
     const resolved = store.findHeroName(query)
@@ -126,12 +127,12 @@ const subcommands: [RegExp, SubHandler][] = [
     if (items.length === 0) return `no items found for hero ${query}`
     const displayName = resolved ?? query
     logHit('hero', query, `${items.length} items`, ctx)
-    return truncate(`[${displayName}] ${items.map((i) => i.Title.Text).join(', ')}`) + suffix
+    return ATTRIB_MARKER + truncate(`[${displayName}] ${items.map((i) => i.Title.Text).join(', ')}`) + suffix
   }],
   [/^enchant(?:s|ments)?$/i, (_query, ctx, suffix) => {
     const names = store.getEnchantments().map(capitalize)
     logHit('enchants', _query, `${names.length} enchants`, ctx)
-    return `Enchantments: ${names.join(', ')}` + suffix
+    return ATTRIB_MARKER + `Enchantments: ${names.join(', ')}` + suffix
   }],
   [/^tag\s+(.+)$/i, (query, ctx, suffix) => {
     const resolved = store.findTagName(query)
@@ -144,7 +145,7 @@ const subcommands: [RegExp, SubHandler][] = [
     }
     const displayTag = resolved ?? query
     logHit('tag', query, `${cards.length} items`, ctx)
-    return formatTagResults(displayTag, cards) + suffix
+    return ATTRIB_MARKER + formatTagResults(displayTag, cards) + suffix
   }],
   [/^day\s+(\d+)$/i, (query, ctx, suffix) => {
     const day = parseInt(query)
@@ -152,13 +153,13 @@ const subcommands: [RegExp, SubHandler][] = [
     const mobs = store.monstersByDay(day)
     if (mobs.length === 0) { logMiss(query, ctx); return `no monsters found for day ${day}` }
     logHit('day', query, `${mobs.length} monsters`, ctx)
-    return formatDayResults(day, mobs) + suffix
+    return ATTRIB_MARKER + formatDayResults(day, mobs) + suffix
   }],
   [/^skill\s+(.+)$/i, (query, ctx, suffix) => {
     const skill = store.findSkill(query)
     if (!skill) { logMiss(query, ctx); return `no skill found for ${query}` }
     logHit('skill', query, skill.Title.Text, ctx)
-    return formatItem(skill) + suffix
+    return ATTRIB_MARKER + formatItem(skill) + suffix
   }],
   [/^quest\s+(.+)$/i, (query, ctx, suffix) => {
     const words = query.split(/\s+/)
@@ -166,7 +167,7 @@ const subcommands: [RegExp, SubHandler][] = [
     const card = store.exact(item) ?? store.search(item, 1)[0]
     if (!card) { logMiss(query, ctx); return `no item found for ${query}` }
     logHit('quest', query, card.Title.Text, ctx, tier)
-    return formatQuests(card, tier) + suffix
+    return ATTRIB_MARKER + formatQuests(card, tier) + suffix
   }],
   [/^trivia(?:\s+(items|heroes|monsters))?$/i, (query, ctx, suffix) => {
     if (!ctx.channel) return null
@@ -208,7 +209,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     const card = store.exact(query) ?? store.search(query, 1)[0]
     if (!card) { logMiss(query, ctx); return `no item found for ${query}` }
     logHit('enchant', query, `${card.Title.Text}+${enchant}`, ctx, tier)
-    return formatEnchantment(card, enchant, tier) + suffix
+    return ATTRIB_MARKER + formatEnchantment(card, enchant, tier) + suffix
   }
 
   // items first (exact then fuzzy) — !b mob exists for explicit monster lookups
@@ -217,13 +218,13 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     const v = validateTier(card, tier)
     logHit('item', query, card.Title.Text, ctx, v.tier)
     const result = formatItem(card, v.tier)
-    return (v.note ? `${result} (${v.note})` : result) + suffix
+    return ATTRIB_MARKER + (v.note ? `${result} (${v.note})` : result) + suffix
   }
 
   const monster = store.findMonster(query)
   if (monster) {
     logHit('mob', query, monster.Title.Text, ctx)
-    return formatMonster(monster, resolveSkills(monster)) + suffix
+    return ATTRIB_MARKER + formatMonster(monster, resolveSkills(monster)) + suffix
   }
 
   // check suggestions first — short queries with suggestions are likely misspellings
@@ -280,15 +281,19 @@ export async function handleCommand(text: string, ctx: CommandContext = {}): Pro
   let result = await handler(args.trim(), ctx)
   if (!result) return null
 
-  // strip AI marker and skip attribution for AI responses
+  // strip markers
   const isAi = result.startsWith(AI_MARKER)
-  if (isAi) result = result.slice(1)
+  const isData = result.startsWith(ATTRIB_MARKER)
+  if (isAi || isData) result = result.slice(1)
 
   // tag the user so responses are attributed in busy chat
   if (ctx.user) result = `${result} @${ctx.user}`
 
-  if (!isAi && ++commandCount % ATTRIB_INTERVAL === 0) {
-    return result + ATTRIBUTION
+  // attribute bazaardb.gg on data responses only, when it fits
+  if (isData && ++commandCount % ATTRIB_INTERVAL === 0) {
+    if (result.length + ATTRIBUTION.length <= 480) {
+      return result + ATTRIBUTION
+    }
   }
   return result
 }
