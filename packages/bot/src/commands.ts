@@ -213,8 +213,19 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   // items first (exact then fuzzy) — !b mob exists for explicit monster lookups
+  const wordCount = cleanArgs.split(/\s+/).length
   const card = store.exact(query) ?? store.search(query, 1)[0]
-  if (card) {
+
+  // for conversational queries (>3 words), only accept fuzzy match if the item title
+  // shares a meaningful word with the query — prevents "right" matching "Right Eye"
+  const isRelevantMatch = (title: string) => {
+    if (wordCount <= 3) return true
+    const titleWords = title.toLowerCase().split(/\s+/)
+    const queryWords = query.toLowerCase().split(/\s+/)
+    return titleWords.some((tw) => tw.length >= 3 && queryWords.includes(tw))
+  }
+
+  if (card && isRelevantMatch(card.Title.Text)) {
     const v = validateTier(card, tier)
     logHit('item', query, card.Title.Text, ctx, v.tier)
     const result = formatItem(card, v.tier)
@@ -222,14 +233,13 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   const monster = store.findMonster(query)
-  if (monster) {
+  if (monster && isRelevantMatch(monster.Title.Text)) {
     logHit('mob', query, monster.Title.Text, ctx)
     return ATTRIB_MARKER + formatMonster(monster, resolveSkills(monster)) + suffix
   }
 
   // check suggestions first — short queries with suggestions are likely misspellings
   const suggestions = store.suggest(query, 3)
-  const wordCount = cleanArgs.split(/\s+/).length
 
   if (suggestions.length > 0 && wordCount <= 2) {
     logMiss(query, ctx)
