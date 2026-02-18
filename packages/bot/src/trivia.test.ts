@@ -22,30 +22,44 @@ function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
 }
 
 // --- test data ---
+// need 5+ items per tag for fair-difficulty tag questions (TAG_MIN=5)
 const sword = makeCard({
-  Title: 'Sword', Heroes: ['Vanessa'], HiddenTags: ['Weapon'], Size: 'Small',
-  Enchantments: { Fiery: { tooltips: [{ text: 'Burn', type: 'Active' }], tags: ['Burn'] } },
+  Title: 'Sword', Heroes: ['Vanessa'], HiddenTags: ['Weapon'],
+  Tooltips: [{ text: 'Deal {DamageAmount} Damage', type: 'Active' }],
+  TooltipReplacements: { '{DamageAmount}': { Fixed: 10 } },
 })
-const axe = makeCard({
-  Title: 'Axe', Heroes: ['Dooley'], HiddenTags: ['Weapon'], Size: 'Large',
-  Enchantments: { Heavy: { tooltips: [{ text: 'Slow', type: 'Active' }], tags: ['Slow'] } },
-})
-const dagger = makeCard({ Title: 'Dagger', Heroes: ['Vanessa'], HiddenTags: ['Weapon', 'Crit'], Size: 'Small' })
-const towerShield = makeCard({ Title: 'Tower Shield', Heroes: ['Dooley'], HiddenTags: ['Shield'], Size: 'Large' })
-const beetle = makeCard({ Title: 'BLU-B33TL3', Heroes: ['Pygmalien'], HiddenTags: ['Tech'] })
-const healSalve = makeCard({ Title: 'Healing Salve', Heroes: ['Stelle'], HiddenTags: ['Heal'] })
-const allItems = [sword, axe, dagger, towerShield, beetle, healSalve]
+const axe = makeCard({ Title: 'Axe', Heroes: ['Dooley'], HiddenTags: ['Weapon'] })
+const dagger = makeCard({ Title: 'Dagger', Heroes: ['Vanessa'], HiddenTags: ['Weapon', 'Crit'] })
+const towerShield = makeCard({ Title: 'Tower Shield', Heroes: ['Dooley'], HiddenTags: ['Shield'] })
+const beetle = makeCard({ Title: 'BLU-B33TL3', Heroes: ['Pygmalien'], HiddenTags: ['Weapon'] })
+const healSalve = makeCard({ Title: 'Healing Salve', Heroes: ['Stelle'], HiddenTags: ['Weapon'] })
+const mace = makeCard({ Title: 'Mace', Heroes: ['Dooley'], HiddenTags: ['Weapon'] })
+const allItems = [sword, axe, dagger, towerShield, beetle, healSalve, mace]
 
 const spider: Monster = {
   Type: 'CombatEncounter', Title: 'BLK-SP1D3R', Size: 'Medium',
   Tags: [], DisplayTags: [], HiddenTags: [], Heroes: [],
-  MonsterMetadata: { available: 'Always', day: 3, health: 150, board: [], skills: [] },
+  MonsterMetadata: {
+    available: 'Always', day: 3, health: 150,
+    board: [
+      { title: 'Web Shot', tier: 'Bronze', id: 'b1' },
+      { title: 'Fang', tier: 'Bronze', id: 'b2' },
+    ],
+    skills: [],
+  },
   Shortlink: 'https://bzdb.to/spider',
 }
 const dragon: Monster = {
   Type: 'CombatEncounter', Title: 'Dragon', Size: 'Medium',
   Tags: [], DisplayTags: [], HiddenTags: [], Heroes: [],
-  MonsterMetadata: { available: 'Always', day: 7, health: 500, board: [], skills: [] },
+  MonsterMetadata: {
+    available: 'Always', day: 7, health: 500,
+    board: [
+      { title: 'Fire Breath', tier: 'Gold', id: 'b3' },
+      { title: 'Scale Armor', tier: 'Gold', id: 'b4' },
+    ],
+    skills: [],
+  },
   Shortlink: 'https://bzdb.to/dragon',
 }
 const allMonsters = [spider, dragon]
@@ -276,7 +290,7 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([3, 5, 6]).toContain(t) // tag, size, enchantment
+      expect([2, 3]).toContain(t) // tag, tooltip
     }
   })
 
@@ -290,7 +304,7 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([1, 4]).toContain(t) // type 1 = hero, type 4 = hero count
+      expect([1]).toContain(t) // type 1 = hero
     }
   })
 
@@ -304,7 +318,7 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([2, 7]).toContain(t) // monster day, monster HP
+      expect([4]).toContain(t) // monster board
     }
   })
 
@@ -317,7 +331,7 @@ describe('startTrivia', () => {
       const game = getActiveGameForTest('#test')
       if (game) types.add(game.questionType)
     }
-    expect(types.size).toBeGreaterThanOrEqual(5)
+    expect(types.size).toBeGreaterThanOrEqual(3)
   })
 })
 
@@ -430,31 +444,9 @@ describe('hero question (type 1)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// monster day question (type 2)
+// tag question (type 2)
 // ---------------------------------------------------------------------------
-describe('monster day question (type 2)', () => {
-  it('generates valid monster day question', () => {
-    let found = false
-    for (let i = 0; i < 50; i++) {
-      resetForTest()
-      mockCreateTriviaGame.mockImplementation(() => i + 1)
-      startTrivia('#test', 'monsters')
-      const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 2) {
-        expect(game.question).toContain('What day does')
-        expect(game.question).toContain('appear')
-        found = true
-        break
-      }
-    }
-    expect(found).toBe(true)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// tag question (type 3)
-// ---------------------------------------------------------------------------
-describe('tag question (type 3)', () => {
+describe('tag question (type 2)', () => {
   it('generates valid tag question', () => {
     let found = false
     for (let i = 0; i < 50; i++) {
@@ -462,7 +454,7 @@ describe('tag question (type 3)', () => {
       mockCreateTriviaGame.mockImplementation(() => i + 1)
       startTrivia('#test', 'items')
       const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 3) {
+      if (game && game.questionType === 2) {
         expect(game.question).toContain('Name an item with the')
         expect(game.question).toContain('tag')
         found = true
@@ -474,20 +466,36 @@ describe('tag question (type 3)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// hero count question (type 4)
+// tooltip question (type 3)
 // ---------------------------------------------------------------------------
-describe('hero count question (type 4)', () => {
-  it('generates valid question', () => {
+describe('tooltip question (type 3)', () => {
+  it('generates valid tooltip question', () => {
     let found = false
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 50; i++) {
       resetForTest()
       mockCreateTriviaGame.mockImplementation(() => i + 1)
-      startTrivia('#test', 'heroes')
+      startTrivia('#test', 'items')
       const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 4) {
-        expect(game.question).toContain('How many items does')
-        expect(game.correctAnswer).toMatch(/^\d+$/)
-        expect(matchAnswer(game.correctAnswer, game.acceptedAnswers)).toBe(true)
+      if (game && game.questionType === 3) {
+        expect(game.question).toContain('Which item does this:')
+        expect(game.acceptedAnswers.length).toBe(1)
+        found = true
+        break
+      }
+    }
+    expect(found).toBe(true)
+  })
+
+  it('resolves tooltip placeholders', () => {
+    let found = false
+    for (let i = 0; i < 50; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'items')
+      const game = getActiveGameForTest('#test')
+      if (game && game.questionType === 3) {
+        // should not contain unresolved {placeholders}
+        expect(game.question).not.toContain('{')
         found = true
         break
       }
@@ -497,81 +505,20 @@ describe('hero count question (type 4)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// size question (type 5)
+// monster board question (type 4)
 // ---------------------------------------------------------------------------
-describe('size question (type 5)', () => {
-  it('generates valid size question', () => {
+describe('monster board question (type 4)', () => {
+  it('generates valid monster board question', () => {
     let found = false
-    for (let i = 0; i < 100; i++) {
-      resetForTest()
-      mockCreateTriviaGame.mockImplementation(() => i + 1)
-      startTrivia('#test', 'items')
-      const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 5) {
-        expect(game.question).toContain('What size is')
-        expect(['small', 'medium', 'large']).toContain(game.acceptedAnswers[0])
-        found = true
-        break
-      }
-    }
-    expect(found).toBe(true)
-  })
-
-  it('accepts abbreviations', () => {
-    let found = false
-    for (let i = 0; i < 100; i++) {
-      resetForTest()
-      mockCreateTriviaGame.mockImplementation(() => i + 1)
-      startTrivia('#test', 'items')
-      const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 5) {
-        const abbrev: Record<string, string> = { small: 's', medium: 'm', large: 'l' }
-        expect(matchAnswer(abbrev[game.acceptedAnswers[0]], game.acceptedAnswers)).toBe(true)
-        found = true
-        break
-      }
-    }
-    expect(found).toBe(true)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// enchantment question (type 6)
-// ---------------------------------------------------------------------------
-describe('enchantment question (type 6)', () => {
-  it('generates valid enchantment question', () => {
-    let found = false
-    for (let i = 0; i < 100; i++) {
-      resetForTest()
-      mockCreateTriviaGame.mockImplementation(() => i + 1)
-      startTrivia('#test', 'items')
-      const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 6) {
-        expect(game.question).toContain('Name an enchantment for')
-        expect(game.acceptedAnswers.length).toBeGreaterThan(0)
-        found = true
-        break
-      }
-    }
-    expect(found).toBe(true)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// monster HP question (type 7)
-// ---------------------------------------------------------------------------
-describe('monster HP question (type 7)', () => {
-  it('generates valid HP question', () => {
-    let found = false
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 50; i++) {
       resetForTest()
       mockCreateTriviaGame.mockImplementation(() => i + 1)
       startTrivia('#test', 'monsters')
       const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 7) {
-        expect(game.question).toContain('How much HP does')
-        expect(game.correctAnswer).toMatch(/\d+ HP/)
-        expect(matchAnswer(game.acceptedAnswers[0], game.acceptedAnswers)).toBe(true)
+      if (game && game.questionType === 4) {
+        expect(game.question).toContain('Name an item on')
+        expect(game.question).toContain('board')
+        expect(game.acceptedAnswers.length).toBeGreaterThanOrEqual(2)
         found = true
         break
       }
@@ -688,6 +635,6 @@ describe('question variety', () => {
       const game = getActiveGameForTest('#test')
       if (game) types.push(game.questionType)
     }
-    expect(new Set(types).size).toBeGreaterThan(3)
+    expect(new Set(types).size).toBeGreaterThanOrEqual(3)
   })
 })

@@ -1,7 +1,7 @@
 import * as store from './store'
 import * as db from './db'
 import { log } from './log'
-import type { BazaarCard, Monster } from '@bazaarinfo/shared'
+import type { BazaarCard, Monster, ReplacementValue, TierName } from '@bazaarinfo/shared'
 
 const ROUND_DURATION = 30_000
 const COOLDOWN = 60_000
@@ -38,9 +38,29 @@ function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
 }
 
+const FAKE_HEROES = new Set(['Common', '???'])
+const TAG_MIN = 5
+const TAG_MAX = 50
+
+// resolve tooltip placeholders to Bronze-tier values
+function resolveTooltip(text: string, replacements: Record<string, ReplacementValue>): string {
+  return text.replace(/\{[^}]+\}/g, (match) => {
+    const val = replacements[match]
+    if (!val) return match
+    if ('Fixed' in val) return String(val.Fixed)
+    const tierOrder: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
+    for (const t of tierOrder) {
+      if (t in val) return String((val as Record<string, number>)[t])
+    }
+    return match
+  })
+}
+
 // type 1: what hero uses item?
 function genHeroQuestion(): ReturnType<QuestionGen> {
-  const items = store.getItems().filter((c) => c.Heroes.length === 1)
+  const items = store.getItems().filter((c) =>
+    c.Heroes.length === 1 && !FAKE_HEROES.has(c.Heroes[0]),
+  )
   if (items.length === 0) return null
   const item = pickRandom(items)
   const hero = item.Heroes[0]
@@ -52,112 +72,76 @@ function genHeroQuestion(): ReturnType<QuestionGen> {
   }
 }
 
-// type 2: what day does monster appear?
-function genMonsterDayQuestion(): ReturnType<QuestionGen> {
-  const monsters = store.getMonsters().filter((m) => m.MonsterMetadata.day != null)
-  if (monsters.length === 0) return null
-  const monster = pickRandom(monsters)
-  const day = String(monster.MonsterMetadata.day)
-  return {
-    question: `What day does ${monster.Title} appear?`,
-    answer: `Day ${day}`,
-    accepted: [day, `day ${day}`],
-    type: 2,
-  }
-}
-
-// type 3: name an item with tag X
+// type 2: name an item with tag X (filtered to fair difficulty)
 function genTagQuestion(): ReturnType<QuestionGen> {
-  const items = store.getItems().filter((c) => c.HiddenTags.length > 0)
-  if (items.length === 0) return null
-  const item = pickRandom(items)
-  const tag = pickRandom(item.HiddenTags)
-  const validItems = store.getItems()
-    .filter((c) => c.HiddenTags.some((t) => t.toLowerCase() === tag.toLowerCase()))
-    .map((c) => c.Title.toLowerCase())
+  // build tag→items map, filter to tags with 5-50 items
+  const tagMap = new Map<string, string[]>()
+  for (const item of store.getItems()) {
+    for (const tag of item.HiddenTags) {
+      if (!tagMap.has(tag)) tagMap.set(tag, [])
+      tagMap.get(tag)!.push(item.Title.toLowerCase())
+    }
+  }
+  const fairTags = [...tagMap.entries()].filter(
+    ([, items]) => items.length >= TAG_MIN && items.length <= TAG_MAX,
+  )
+  if (fairTags.length === 0) return null
+  const [tag, validItems] = pickRandom(fairTags)
   return {
     question: `Name an item with the "${tag}" tag`,
     answer: `any ${tag} item`,
     accepted: validItems,
+    type: 2,
+  }
+}
+
+// type 3: which item has these abilities? (tooltip → item)
+function genTooltipQuestion(): ReturnType<QuestionGen> {
+  const items = store.getItems().filter((c) =>
+    c.Tooltips.length > 0 && !FAKE_HEROES.has(c.Heroes[0]),
+  )
+  if (items.length === 0) return null
+  const item = pickRandom(items)
+  const abilities = item.Tooltips
+    .map((t) => resolveTooltip(t.text, item.TooltipReplacements))
+    .join(' | ')
+  // skip if too long for chat or still has unresolved placeholders
+  if (abilities.length > 200 || abilities.includes('{')) return null
+  return {
+    question: `Which item does this: ${abilities}`,
+    answer: item.Title,
+    accepted: [item.Title.toLowerCase()],
     type: 3,
   }
 }
 
-// type 4: how many items does hero have?
-function genHeroCountQuestion(): ReturnType<QuestionGen> {
-  const heroNames = store.getHeroNames()
-  if (heroNames.length === 0) return null
-  const hero = pickRandom(heroNames)
-  const items = store.getItems().filter((c) => c.Heroes.some((h) => h.toLowerCase() === hero.toLowerCase()))
-  if (items.length === 0) return null
-  const count = String(items.length)
+// type 4: name an item on monster's board
+function genMonsterBoardQuestion(): ReturnType<QuestionGen> {
+  const monsters = store.getMonsters().filter((m) => m.MonsterMetadata.board.length >= 2)
+  if (monsters.length === 0) return null
+  const monster = pickRandom(monsters)
+  const boardItems = [...new Set(monster.MonsterMetadata.board.map((b) => b.title.toLowerCase()))]
   return {
-    question: `How many items does ${hero} have?`,
-    answer: count,
-    accepted: [count],
+    question: `Name an item on ${monster.Title}'s board`,
+    answer: `any of: ${boardItems.slice(0, 5).join(', ')}`,
+    accepted: boardItems,
     type: 4,
   }
 }
 
-// type 5: what size is item X?
-function genSizeQuestion(): ReturnType<QuestionGen> {
-  const sized = store.getItems().filter((c) => ['Small', 'Medium', 'Large'].includes(c.Size))
-  if (sized.length === 0) return null
-  const item = pickRandom(sized)
-  const size = item.Size
-  const abbrev: Record<string, string> = { Small: 's', Medium: 'm', Large: 'l' }
-  return {
-    question: `What size is ${item.Title}?`,
-    answer: size,
-    accepted: [size.toLowerCase(), abbrev[size]],
-    type: 5,
-  }
-}
-
-// type 6: name an enchantment for item X
-function genEnchantmentQuestion(): ReturnType<QuestionGen> {
-  const enchanted = store.getItems().filter((c) => Object.keys(c.Enchantments).length > 0)
-  if (enchanted.length === 0) return null
-  const item = pickRandom(enchanted)
-  const enchNames = Object.keys(item.Enchantments).map((e) => e.toLowerCase())
-  return {
-    question: `Name an enchantment for ${item.Title}`,
-    answer: `any of: ${Object.keys(item.Enchantments).join(', ')}`,
-    accepted: enchNames,
-    type: 6,
-  }
-}
-
-// type 7: how much HP does monster X have?
-function genMonsterHPQuestion(): ReturnType<QuestionGen> {
-  const withHP = store.getMonsters().filter((m) => m.MonsterMetadata.health > 0)
-  if (withHP.length === 0) return null
-  const monster = pickRandom(withHP)
-  const hp = String(monster.MonsterMetadata.health)
-  return {
-    question: `How much HP does ${monster.Title} have?`,
-    answer: `${hp} HP`,
-    accepted: [hp, `${hp}hp`, `${hp} hp`],
-    type: 7,
-  }
-}
-
 const generators: QuestionGen[] = [
-  genHeroQuestion,        // 0
-  genMonsterDayQuestion,  // 1
-  genTagQuestion,         // 2
-  genHeroCountQuestion,   // 3
-  genSizeQuestion,        // 4
-  genEnchantmentQuestion, // 5
-  genMonsterHPQuestion,   // 6
+  genHeroQuestion,          // 0
+  genTagQuestion,           // 1
+  genTooltipQuestion,       // 2
+  genMonsterBoardQuestion,  // 3
 ]
 
 type TriviaCategory = 'items' | 'heroes' | 'monsters'
 
 const CATEGORY_GENERATORS: Record<TriviaCategory, number[]> = {
-  items: [2, 4, 5],         // tag, size, enchantment
-  heroes: [0, 3],            // hero question, hero count
-  monsters: [1, 6],          // monster day, monster HP
+  items: [1, 2],             // tag, tooltip
+  heroes: [0],               // hero
+  monsters: [3],             // monster board
 }
 
 function pickQuestionType(category?: TriviaCategory): number {
