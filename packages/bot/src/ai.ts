@@ -104,18 +104,30 @@ function buildContext(query: string, channel: string, user: string): {
   contextSummary: string
 } {
   // search for relevant items/monsters — full query + individual words
-  const STOP_WORDS = new Set(['is', 'the', 'a', 'an', 'it', 'in', 'on', 'to', 'for', 'of', 'do', 'does', 'how', 'what', 'which', 'who', 'why', 'can', 'should', 'would', 'could', 'with', 'my', 'i', 'me', 'and', 'or', 'but', 'not', 'no', 'vs', 'good', 'bad', 'best', 'worst', 'any', 'get', 'use', 'like', 'about', 'that', 'this', 'from'])
+  const STOP_WORDS = new Set(['is', 'the', 'a', 'an', 'it', 'in', 'on', 'to', 'for', 'of', 'do', 'does', 'how', 'what', 'which', 'who', 'why', 'can', 'should', 'would', 'could', 'with', 'my', 'i', 'me', 'and', 'or', 'but', 'not', 'no', 'vs', 'good', 'bad', 'best', 'worst', 'any', 'get', 'use', 'like', 'about', 'that', 'this', 'from', 'beat', 'counter', 'against', 'fight'])
   const seen = new Set<string>()
   const items: BazaarCard[] = []
-  for (const r of store.search(query, 5)) {
+  const MAX_ITEMS = 3
+  for (const r of store.search(query, MAX_ITEMS)) {
     if (!seen.has(r.Id)) { seen.add(r.Id); items.push(r) }
   }
   const queryWords = query.toLowerCase().split(/\s+/)
   // search individual words to catch items buried in natural language
   for (const word of queryWords) {
-    if (items.length >= 5) break
+    if (items.length >= MAX_ITEMS) break
     if (word.length < 3 || STOP_WORDS.has(word)) continue
-    for (const r of store.search(word, 3)) {
+    for (const r of store.search(word, 2)) {
+      if (items.length >= MAX_ITEMS) break
+      if (!seen.has(r.Id)) { seen.add(r.Id); items.push(r) }
+    }
+  }
+  // also search by hero name for hero-specific queries
+  for (const word of queryWords) {
+    if (items.length >= MAX_ITEMS) break
+    if (word.length < 3 || STOP_WORDS.has(word)) continue
+    const heroItems = store.byHero(word)
+    for (const r of heroItems.slice(0, MAX_ITEMS)) {
+      if (items.length >= MAX_ITEMS) break
       if (!seen.has(r.Id)) { seen.add(r.Id); items.push(r) }
     }
   }
@@ -160,23 +172,21 @@ function buildContext(query: string, channel: string, user: string): {
 
   const system = `You are BazaarInfo, a Bazaar card game expert in Twitch chat. ${CHAR_LIMIT} char HARD LIMIT.
 
-ACCURACY IS EVERYTHING:
-- ONLY state facts that appear in the provided [Relevant Items] or [Relevant Monsters] data. Quote real stats.
-- If no item/monster data is provided, or the data doesn't answer the question, say you don't have that info. Be brief and honest — don't guess, don't pad, don't theorize.
-- NEVER invent items, stats, abilities, interactions, or strategies. If you're not sure, say so.
-- ${hasData ? 'Item/monster data IS provided below — use it.' : 'No item/monster data matched this query — you have NO game data to reference. Do NOT pretend you do.'}
+ABSOLUTE RULES — BREAK THESE AND YOU FAIL:
+1. Your ONLY source of truth is the [Relevant Items] and [Relevant Monsters] data below. NOTHING ELSE.
+2. NEVER state ANY fact about game mechanics, item interactions, strategies, synergies, or how things work unless it's written verbatim in the tooltip text provided.
+3. If the data doesn't contain the answer, say "don't have data on that" — do NOT fill in gaps with general knowledge or reasoning. You know NOTHING about The Bazaar except what's in the provided data.
+4. NEVER reference items from the data that the user didn't ask about. The data may contain multiple items — only discuss the one(s) relevant to the query.
+5. ${hasData ? 'Item/monster data IS provided below.' : 'No data matched this query. You have NOTHING to reference.'}
 
-TONE:
-- Sound like a knowledgeable player, not a bot. Short, direct, no filler.
-- No "yo!", "let me know!", "hope that helps!", or customer-service energy.
-- If the query is gibberish, a typo, or trolling — roast them in one line. Don't try to be helpful about nonsense.
-- If it's a real question with data available, give a real answer citing specific stats.
-- Match chat energy. Chill if chill, meme if memeing.
-- Don't ask clarifying questions — work with what you have or say you don't know.
+RESPONSE STYLE:
+- Be concise. Stats + tooltip info, done. No theorycrafting, no "it depends", no strategy advice beyond what tooltips say.
+- If no items/monsters match AND the query looks like gibberish, a typo, or trolling — roast them in one witty line. Have fun with it.
+- If no data matches but it's a real question — just say you don't have that data. Keep it short.
+- No "yo!", "hope that helps!", "let me know!". Sound like a player, not a bot.
+- Match chat energy. Don't ask clarifying questions.
 
-EMOTES:
-- Most responses should have ZERO emotes.
-- Only use one if it genuinely lands as a punchline or reaction. Never decorative.${emoteList}`
+EMOTES: Most responses need ZERO. Only use one if it genuinely lands as a punchline.${emoteList}`
 
   const parts = []
   if (itemContext) parts.push(`[Relevant Items]\n${itemContext}`)

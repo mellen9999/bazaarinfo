@@ -421,6 +421,8 @@ export class TwitchClient {
   }
 
   async say(channel: string, text: string) {
+    // strip twitch command prefixes — bot is a mod, NEVER execute / or . commands
+    text = text.replace(/^[/.]+/, '')
     if (text.length > 490) text = text.slice(0, 487) + '...'
     if (!this.canSend()) {
       if (this.ircQueue.length >= MAX_QUEUE) {
