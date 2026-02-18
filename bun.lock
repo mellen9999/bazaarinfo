@@ -14,6 +14,7 @@
       "dependencies": {
         "@bazaarinfo/data": "workspace:*",
         "@bazaarinfo/shared": "workspace:*",
+        "fuse.js": "^7.1.0",
       },
     },
     "packages/data": {

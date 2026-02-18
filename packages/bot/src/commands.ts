@@ -97,6 +97,7 @@ function resolveSkills(monster: Monster): Map<string, SkillDetail> {
 
 const ATTRIBUTION = ' | bazaardb.gg'
 const ATTRIB_INTERVAL = 10
+const AI_MARKER = '\x01'
 let commandCount = 0
 
 type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string | null | Promise<string | null>
@@ -231,7 +232,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   const aiResponse = await aiRespond(cleanArgs, ctx)
   if (aiResponse) {
     logHit('ai', cleanArgs, 'ai', ctx)
-    return aiResponse + suffix
+    return AI_MARKER + aiResponse + suffix
   }
 
   logMiss(query, ctx)
@@ -261,15 +262,26 @@ const commands: Record<string, CommandHandler> = {
 }
 
 export async function handleCommand(text: string, ctx: CommandContext = {}): Promise<string | null> {
-  const match = text.match(/^!(\w+)\s*(.*)$/)
+  // strip leading @mention so !b works in Twitch replies
+  const cleaned = text.replace(/^@\w+\s+/, '')
+  const match = cleaned.match(/^!(\w+)\s*(.*)$/)
   if (!match) return null
 
   const [, cmd, args] = match
   const handler = commands[cmd.toLowerCase()]
   if (!handler) return null
 
-  const result = await handler(args.trim(), ctx)
-  if (result && ++commandCount % ATTRIB_INTERVAL === 0) {
+  let result = await handler(args.trim(), ctx)
+  if (!result) return null
+
+  // strip AI marker and skip attribution for AI responses
+  const isAi = result.startsWith(AI_MARKER)
+  if (isAi) result = result.slice(1)
+
+  // tag the user so responses are attributed in busy chat
+  if (ctx.user) result = `${result} @${ctx.user}`
+
+  if (!isAi && ++commandCount % ATTRIB_INTERVAL === 0) {
     return result + ATTRIBUTION
   }
   return result
