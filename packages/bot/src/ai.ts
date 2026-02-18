@@ -61,6 +61,18 @@ function recordUsage(user: string, channel: string) {
   channelAsks.set(channel, times)
 }
 
+function resolveTooltipText(text: string, replacements: Record<string, import('@bazaarinfo/shared').ReplacementValue>): string {
+  return text.replace(/\{[^}]+\}/g, (match) => {
+    const val = replacements[match]
+    if (!val) return match
+    if ('Fixed' in val) return String(val.Fixed)
+    // show all tier values: "2/3" for Gold:2,Diamond:3
+    const tierOrder = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
+    const entries = tierOrder.filter((t) => t in val).map((t) => (val as Record<string, number>)[t])
+    return entries.join('/') || match
+  })
+}
+
 function serializeItem(card: BazaarCard): string {
   const statNames: Record<string, string> = {
     DamageAmount: 'Damage', ShieldApplyAmount: 'Shield', HealAmount: 'Heal',
@@ -71,7 +83,9 @@ function serializeItem(card: BazaarCard): string {
   const attrs = Object.entries(card.BaseAttributes)
     .map(([k, v]) => `${statNames[k] ?? k}: ${v}`)
     .join(', ')
-  const tooltips = card.Tooltips.map((t) => t.Content.Text).join('; ')
+  const tooltips = card.Tooltips
+    .map((t) => resolveTooltipText(t.Content.Text, card.TooltipReplacements))
+    .join('; ')
   const heroes = card.Heroes.join(', ')
   return `Item "${card.Title.Text}" [size ${card.Size}] — Heroes: ${heroes || 'any'} | ${attrs} | ${tooltips}`
 }
