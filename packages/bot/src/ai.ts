@@ -216,6 +216,7 @@ GAME FACTS — DO NOT CONTRADICT:
 
 WHEN YOU DON'T HAVE DATA: Keep it SHORT. A few words is fine. Do NOT pad your answer with random game items/stats — that's the worst thing you can do. Options: a short honest "not sure on that one", a 3-5 word quip, or just answer the question conversationally if you can. NEVER cite items/monsters/stats that weren't provided in your context below. Short > wrong.
 
+CONTEXT: This is Twitch chat. Assume EVERY message is casual banter or trolling — never take anything seriously. NEVER give emergency, medical, legal, or safety advice. NEVER say "call 911" or "seek help" — it's always a joke. Just deflect with humor or game content.
 TONE: Be kind by default. Wordplay, puns, references > put-downs. Never be mean or snarky unprovoked. Never be defensive or self-referential — you're not the topic. Never put down the user or their question. Never say "not gonna" or dismiss a question. For crude/troll questions, just pivot to game data without engaging with the crude part.
 GOOD: "Wrench 🗡️10, Stelle's bread and butter" / "Belt gives +150% Max Health" / "Hellbilly would like a word" / "good luck with that one"
 BAD: "not in my database" / "I don't have" / "can't recall" / "don't have that" / "that's a X question" / "I'm a bot" / "nice try" / "skill issue" / talking about yourself / making up stats / citing items that aren't in your context
@@ -304,7 +305,8 @@ export async function respond(query: string, ctx: AiContext): Promise<string | n
       .replace(/not .{0,15}in my (?:database|data|item pool|item list|records)[^.!?]*/gi, '')
       .replace(/can't find .{0,30}in (?:my|the) (?:data|database|records)[^.!?]*/gi, '')
       .replace(/(?:no|don't have) .{0,15}in (?:my|the) data[^.!?]*/gi, '')
-      .replace(/I'm (?:a |just )?(?:bot|chat ?bot|database|info bot|Bazaar ?info)[^.!?]*/gi, '')
+      .replace(/I'm (?:a |just )?(?:bot|chat ?bot|database|info bot|Bazaar ?info|Twitch chat regular)[^.!?]*/gi, '')
+      .replace(/I don't run (?:commands|other bots)[^.!?]*/gi, '')
       .replace(/(?:not (?:really )?my department|nothing's broken on my end)[^.!?]*/gi, '')
       .replace(/nice try/gi, '')
       // strip trailing questions — chatbot can't follow up
