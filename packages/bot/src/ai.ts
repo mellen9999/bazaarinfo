@@ -212,11 +212,11 @@ GAME FACTS — DO NOT CONTRADICT:
 - Kripp (nl_Kripp) is a Twitch streamer who PLAYS the game. He did NOT create or build it.
 - Never credit Kripp, any streamer, or any chatter with creating The Bazaar.
 
-WHEN YOU DON'T HAVE DATA: NEVER admit you don't know. NEVER hedge, apologize, or disclaim. Do NOT randomly cite game items/monsters that aren't relevant to the question — that's worse than no answer. Instead: make a witty one-liner, crack a joke, give a playful hot take about the topic, or drop a relevant emote. Keep it conversational and fun. One confident quip > a forced game reference. Examples: "that's above my pay grade" / "bold question for Twitch chat" / "ask again after day 10".
+WHEN YOU DON'T HAVE DATA: Keep it SHORT. A few words is fine. Do NOT pad your answer with random game items/stats — that's the worst thing you can do. Options: a short honest "not sure on that one", a 3-5 word quip, or just answer the question conversationally if you can. NEVER cite items/monsters/stats that weren't provided in your context below. Short > wrong.
 
 TONE: Be kind by default. Wordplay, puns, references > put-downs. Never be mean or snarky unprovoked. Never be defensive or self-referential — you're not the topic. Never put down the user or their question. Never say "not gonna" or dismiss a question. For crude/troll questions, just pivot to game data without engaging with the crude part.
 GOOD: "Wrench 🗡️10, Stelle's bread and butter" / "Belt gives +150% Max Health" / "Hellbilly would like a word" / "good luck with that one"
-BAD: "not in my database" / "not sure" / "I don't know" / "I don't have" / "can't recall" / "don't have that" / "that's a X question" / "I'm a bot" / "nice try" / "skill issue" / ANY hedging or disclaiming / talking about yourself / making up stats
+BAD: "not in my database" / "I don't have" / "can't recall" / "don't have that" / "that's a X question" / "I'm a bot" / "nice try" / "skill issue" / talking about yourself / making up stats / citing items that aren't in your context
 
 STAT FORMAT: Always use emoji for stats: 🗡️=damage 🛡=shield 💚=heal 🔥=burn 🧪=poison 🕐=cooldown 🔋=ammo. Always use seconds not milliseconds (9s not 9000ms). Include the item name.
 LENGTH: 1-2 sentences max. Be complete — finish your thought. Never cut yourself off. Keep it punchy but don't sacrifice clarity for brevity.
@@ -297,25 +297,11 @@ export async function respond(query: string, ctx: AiContext): Promise<string | n
       .replace(/\bchief\b/gi, '')
       .replace(/\bskill issue\b/gi, '')
       .replace(/\bnah\b/gi, '')
+      // strip bot self-references — always immersion-breaking
       .replace(/not .{0,15}in my (?:database|data|item pool|item list|records)[^.!?]*/gi, '')
       .replace(/can't find .{0,30}in (?:my|the) (?:data|database|records)[^.!?]*/gi, '')
-      .replace(/can't speak to\b[^.!?]*/gi, '')
-      .replace(/not ringing (?:any |a )bells?\b[^.!?]*/gi, '')
-      .replace(/not .{0,10}my lane[^.!?]*/gi, '')
-      .replace(/not sure [^.!?]*/gi, '')
-      .replace(/I don't (?:know|have)\b[^.!?]*/gi, '')
-      .replace(/don't have .{0,30}(?:locked|data|info|details|dates|numbers|in my)[^.!?]*/gi, '')
-      .replace(/(?:Hmm|Ah),?\s*that's a .{0,30}question[^.!?]*/gi, '')
-      .replace(/can't (?:recall|remember|say|confirm|math|calculate)\b[^.!?]*/gi, '')
       .replace(/(?:no|don't have) .{0,15}in (?:my|the) data[^.!?]*/gi, '')
-      .replace(/(?:I haven't|haven't) (?:catalogued|logged|tracked|recorded)\b[^.!?]*/gi, '')
-      .replace(/(?:something|thing) I'm blanking on[^.!?]*/gi, '')
-      .replace(/(?:could be|might be) (?:something|a .{0,20}) I(?:'m| am) (?:missing|blanking|forgetting)[^.!?]*/gi, '')
       .replace(/nice try/gi, '')
-      .replace(/I actually\b/gi, '')
-      .replace(/unlike some\b/gi, '')
-      .replace(/I'm here for\b[^.!?]*/gi, '')
-      .replace(/I appreciate the creativity[^.!?]*/gi, '')
       // strip trailing questions — chatbot can't follow up
       .replace(/\s+(?:What|Which|How|Where|Who|Do you|Are you|Want|Would you|Should)[^.!]*\?$/gi, '')
       // strip markdown formatting (Twitch doesn't render it)
