@@ -155,8 +155,9 @@ const subcommands: [RegExp, SubHandler][] = [
   }],
   [/^trivia(?:\s+(items|heroes|monsters))?$/i, (query, ctx, suffix) => {
     if (!ctx.channel) return null
-    const category = query?.toLowerCase() as 'items' | 'heroes' | 'monsters' | undefined
-    return startTrivia(ctx.channel, category || undefined) + suffix
+    const validCategories = new Set(['items', 'heroes', 'monsters'])
+    const category = validCategories.has(query?.toLowerCase()) ? query.toLowerCase() as 'items' | 'heroes' | 'monsters' : undefined
+    return startTrivia(ctx.channel, category) + suffix
   }],
   [/^score$/i, (_query, ctx, suffix) => {
     if (!ctx.channel) return null
