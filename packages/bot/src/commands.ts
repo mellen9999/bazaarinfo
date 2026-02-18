@@ -2,7 +2,6 @@ import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatD
 import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
-import { respond as aiRespond } from './ai'
 import { startTrivia, getTriviaScore, formatStats, formatTop } from './trivia'
 
 const TIER_ORDER: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
@@ -98,7 +97,6 @@ function resolveSkills(monster: Monster): Map<string, SkillDetail> {
 const ATTRIBUTION = ' | bazaardb.gg'
 const ATTRIB_INTERVAL = 10
 const ATTRIB_MARKER = '\x02'
-const AI_MARKER = '\x01'
 let commandCount = 0
 
 type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string | null | Promise<string | null>
@@ -238,25 +236,16 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     return ATTRIB_MARKER + formatMonster(monster, resolveSkills(monster)) + suffix
   }
 
-  // check suggestions first — short queries with suggestions are likely misspellings
+  // suggestions for short typo queries, silence for everything else
   const suggestions = store.suggest(query, 3)
 
-  if (suggestions.length > 0 && wordCount <= 2) {
-    logMiss(query, ctx)
-    return `nothing found for "${query}" — try: ${suggestions.join(', ')}`
-  }
-
-  // AI fallback for longer/conversational queries
-  const aiResponse = await aiRespond(cleanArgs, ctx)
-  if (aiResponse) {
-    logHit('ai', cleanArgs, 'ai', ctx)
-    return AI_MARKER + aiResponse + suffix
-  }
-
   logMiss(query, ctx)
-  const displayQuery = query.length > 30 ? query.slice(0, 30).trim() + '...' : query
-  if (suggestions.length) return `nothing found for "${displayQuery}" — try: ${suggestions.join(', ')}`
-  return `nothing found for ${displayQuery}`
+  if (suggestions.length > 0 && wordCount <= 2) {
+    return `nothing found for "${query}" — try: ${suggestions.join(', ')}` + suffix
+  }
+
+  // silent miss — no response reduces spam
+  return null
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {
@@ -293,9 +282,8 @@ export async function handleCommand(text: string, ctx: CommandContext = {}): Pro
   if (!result) return null
 
   // strip markers
-  const isAi = result.startsWith(AI_MARKER)
   const isData = result.startsWith(ATTRIB_MARKER)
-  if (isAi || isData) result = result.slice(1)
+  if (isData) result = result.slice(1)
 
   // attribute bazaardb.gg on data responses only, when it fits
   if (isData && ++commandCount % ATTRIB_INTERVAL === 0) {

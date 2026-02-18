@@ -445,9 +445,9 @@ describe('!b item lookup', () => {
     expect(mockSearch).toHaveBeenCalledWith('boomrang', 1)
   })
 
-  it('returns not found when no match at all', async () => {
+  it('returns null (silent miss) when no match at all', async () => {
     const result = await handleCommand('!b xyznonexistent')
-    expect(result).toContain('nothing found for xyznonexistent')
+    expect(result).toBeNull()
   })
 
   it('handles multi-word item names', async () => {
@@ -613,12 +613,12 @@ describe('!b enchantment (any order)', () => {
 
   it('single word alone is item lookup not enchant', async () => {
     const result = await handleCommand('!b fiery')
-    expect(result).toContain('nothing found for fiery')
+    expect(result).toBeNull()
   })
 
   it('single word alone is item lookup not enchant (toxic)', async () => {
     const result = await handleCommand('!b toxic')
-    expect(result).toContain('nothing found for toxic')
+    expect(result).toBeNull()
   })
 })
 
@@ -869,7 +869,7 @@ describe('!b mob/monster', () => {
 describe('!b edge cases', () => {
   it('handles single character input', async () => {
     const result = await handleCommand('!b x')
-    expect(result).toContain('nothing found for x')
+    expect(result).toBeNull()
   })
 
   it('handles extra whitespace between words', async () => {
