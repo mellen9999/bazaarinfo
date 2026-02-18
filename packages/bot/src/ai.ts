@@ -57,12 +57,18 @@ function recordUsage(user: string, channel: string) {
 }
 
 function serializeItem(card: BazaarCard): string {
+  const statNames: Record<string, string> = {
+    DamageAmount: 'Damage', ShieldApplyAmount: 'Shield', HealAmount: 'Heal',
+    CooldownMax: 'Cooldown', BurnApplyAmount: 'Burn', PoisonApplyAmount: 'Poison',
+    FreezeApplyAmount: 'Freeze', CritChance: 'Crit%', SlowAmount: 'Slow',
+    HasteAmount: 'Haste', AmmoMax: 'Ammo', LifestealAmount: 'Lifesteal',
+  }
   const attrs = Object.entries(card.BaseAttributes)
-    .map(([k, v]) => `${k}:${v}`)
-    .join(',')
+    .map(([k, v]) => `${statNames[k] ?? k}: ${v}`)
+    .join(', ')
   const tooltips = card.Tooltips.map((t) => t.Content.Text).join('; ')
-  const heroes = card.Heroes.join(',')
-  return `${card.Title.Text} [${card.Size}] Heroes:${heroes || 'any'} | Stats:${attrs} | ${tooltips}`
+  const heroes = card.Heroes.join(', ')
+  return `Item "${card.Title.Text}" [size ${card.Size}] — Heroes: ${heroes || 'any'} | ${attrs} | ${tooltips}`
 }
 
 function resolveMonsterSkills(monster: Monster): Map<string, SkillDetail> {
@@ -89,7 +95,7 @@ function serializeMonster(monster: Monster): string {
   const meta = monster.MonsterMetadata
   const skills = resolveMonsterSkills(monster)
   const skillTexts = [...skills.values()].map((s) => `${s.name}: ${s.tooltip}`).join('; ')
-  return `${monster.Title.Text} Day:${meta.day ?? '?'} HP:${meta.health} | Skills: ${skillTexts || 'none'}`
+  return `Monster "${monster.Title.Text}" — appears on day ${meta.day ?? '?'}, has ${meta.health} HP. Skills: ${skillTexts || 'none'}`
 }
 
 function buildContext(query: string, channel: string, user: string): {
@@ -113,10 +119,15 @@ function buildContext(query: string, channel: string, user: string): {
       if (!seen.has(r.Id)) { seen.add(r.Id); items.push(r) }
     }
   }
-  const monsters = queryWords
-    .map((w) => store.findMonster(w))
-    .filter((m): m is Monster => m != null)
-    .slice(0, 2)
+  // search monsters — try full query first, then individual words, dedup by title
+  const monsterSeen = new Set<string>()
+  const monsters: Monster[] = []
+  const tryMonster = (q: string) => {
+    const m = store.findMonster(q)
+    if (m && !monsterSeen.has(m.Title.Text)) { monsterSeen.add(m.Title.Text); monsters.push(m) }
+  }
+  tryMonster(query)
+  for (const w of queryWords) { if (monsters.length < 3) tryMonster(w) }
 
   const itemContext = items.map(serializeItem).join('\n')
   const monsterContext = monsters.map(serializeMonster).join('\n')
