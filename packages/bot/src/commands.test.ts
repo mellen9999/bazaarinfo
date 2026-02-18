@@ -15,6 +15,11 @@ const mockGetItems = mock<() => BazaarCard[]>(() => [])
 const mockGetMonsters = mock<() => Monster[]>(() => [])
 const mockGetSkills = mock<() => BazaarCard[]>(() => [])
 const mockGetAllCards = mock<() => BazaarCard[]>(() => [])
+const mockFindHeroName = mock<(query: string) => string | undefined>(() => undefined)
+const mockFindTagName = mock<(query: string) => string | undefined>(() => undefined)
+const mockSuggest = mock<(query: string, limit?: number) => string[]>(() => [])
+const mockGetHeroNames = mock<() => string[]>(() => [])
+const mockGetTagNames = mock<() => string[]>(() => [])
 
 mock.module('./store', () => ({
   exact: mockExact,
@@ -30,6 +35,11 @@ mock.module('./store', () => ({
   getMonsters: mockGetMonsters,
   getSkills: mockGetSkills,
   getAllCards: mockGetAllCards,
+  findHeroName: mockFindHeroName,
+  findTagName: mockFindTagName,
+  suggest: mockSuggest,
+  getHeroNames: mockGetHeroNames,
+  getTagNames: mockGetTagNames,
 }))
 
 // --- mock db ---
@@ -72,6 +82,10 @@ mock.module('./trivia', () => ({
   checkAnswer: mock(() => {}),
   isGameActive: mock(() => false),
   setSay: mock(() => {}),
+  matchAnswer: mock(() => false),
+  looksLikeAnswer: mock(() => true),
+  resetForTest: mock(() => {}),
+  getActiveGameForTest: mock(() => undefined),
 }))
 
 const { handleCommand, parseArgs } = await import('./commands')
@@ -155,9 +169,15 @@ beforeEach(() => {
   mockByTag.mockReset()
   mockMonstersByDay.mockReset()
   mockFindSkill.mockReset()
+  mockFindHeroName.mockReset()
+  mockFindTagName.mockReset()
+  mockSuggest.mockReset()
   mockByTag.mockImplementation(() => [])
   mockMonstersByDay.mockImplementation(() => [])
   mockFindSkill.mockImplementation(() => undefined)
+  mockFindHeroName.mockImplementation(() => undefined)
+  mockFindTagName.mockImplementation(() => undefined)
+  mockSuggest.mockImplementation(() => [])
 })
 
 // ---------------------------------------------------------------------------

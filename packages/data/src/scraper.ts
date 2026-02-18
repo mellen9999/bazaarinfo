@@ -13,7 +13,7 @@ const DELAY_MS = 200
 const MAX_PAGES = 200
 
 // find matching close bracket/brace from `start`, respecting strings + escapes
-function findJsonEnd(text: string, start: number): number {
+export function findJsonEnd(text: string, start: number): number {
   const open = text[start]
   const close = open === '[' ? ']' : '}'
   let depth = 0
@@ -35,7 +35,7 @@ function findJsonEnd(text: string, start: number): number {
   return -1
 }
 
-function extractPageCards(rscText: string): BazaarCard[] {
+export function extractPageCards(rscText: string): BazaarCard[] {
   const marker = '"pageCards":'
   const idx = rscText.indexOf(marker)
   if (idx === -1) return []
@@ -149,7 +149,7 @@ export async function scrapeSkills(onProgress?: (done: number, total: number) =>
   return scrapeCategory('skills', onProgress)
 }
 
-function extractMonsters(rscText: string): Monster[] {
+export function extractMonsters(rscText: string): Monster[] {
   const monsters: Monster[] = []
   const marker = '"Type":"CombatEncounter"'
   let searchFrom = 0

@@ -1,6 +1,6 @@
 import type { BazaarCard, CardCache, Monster } from '@bazaarinfo/shared'
 import { buildIndex, searchCards, findExact, searchPrefix } from '@bazaarinfo/shared'
-import type Fuse from 'fuse.js'
+import Fuse from 'fuse.js'
 import { resolve } from 'path'
 import { log } from './log'
 
@@ -23,7 +23,10 @@ let skills: BazaarCard[] = []
 let monsters: Monster[] = []
 let allCards: BazaarCard[] = []
 let index: Fuse<BazaarCard>
+let monsterIndex: Fuse<Monster>
 let enchantmentNames: string[] = []
+let heroNames: string[] = []
+let tagNames: string[] = []
 
 function dedup<T extends { Id: string }>(cards: T[]): T[] {
   const seen = new Set<string>()
@@ -40,6 +43,11 @@ function loadCache(cache: CardCache) {
   monsters = dedup(cache.monsters ?? [])
   allCards = [...items, ...skills]
   index = buildIndex(allCards)
+  monsterIndex = new Fuse(monsters, {
+    keys: [{ name: 'Title.Text', weight: 1 }],
+    threshold: 0.3,
+    includeScore: true,
+  })
 
   // extract all enchantment names from item data
   const enchSet = new Set<string>()
@@ -47,6 +55,20 @@ function loadCache(cache: CardCache) {
     if (item.Enchantments) for (const key of Object.keys(item.Enchantments)) enchSet.add(key.toLowerCase())
   }
   enchantmentNames = [...enchSet].sort()
+
+  // extract distinct hero names
+  const heroSet = new Set<string>()
+  for (const card of allCards) {
+    for (const h of card.Heroes) heroSet.add(h)
+  }
+  heroNames = [...heroSet].sort()
+
+  // extract distinct tag names
+  const tagSet = new Set<string>()
+  for (const card of items) {
+    for (const t of card.HiddenTags) tagSet.add(t)
+  }
+  tagNames = [...tagSet].sort()
 }
 
 export async function loadStore() {
@@ -96,8 +118,24 @@ export function exact(name: string) {
   return findExact(allCards, resolved)
 }
 
+function findInList(list: string[], query: string): string | undefined {
+  const lower = query.toLowerCase()
+  return list.find((n) => n.toLowerCase() === lower)
+    ?? list.find((n) => n.toLowerCase().startsWith(lower))
+    ?? list.find((n) => n.toLowerCase().includes(lower))
+}
+
+export function findHeroName(query: string): string | undefined {
+  return findInList(heroNames, query)
+}
+
+export function findTagName(query: string): string | undefined {
+  return findInList(tagNames, query)
+}
+
 export function byHero(hero: string) {
-  const lower = hero.toLowerCase()
+  const resolved = findHeroName(hero) ?? hero
+  const lower = resolved.toLowerCase()
   return allCards.filter((i) => i.Heroes.some((h) => h.toLowerCase() === lower))
 }
 
@@ -113,7 +151,12 @@ function findByTitle<T extends { Title: { Text: string } }>(list: T[], query: st
 }
 
 export function findMonster(query: string): Monster | undefined {
-  return findByTitle(monsters, query)
+  const byTitle = findByTitle(monsters, query)
+  if (byTitle) return byTitle
+  // fuse fallback for typos
+  const results = monsterIndex.search(query, { limit: 1 })
+  if (results.length > 0 && (results[0].score ?? 1) <= 0.3) return results[0].item
+  return undefined
 }
 
 export function findCard(name: string): BazaarCard | undefined {
@@ -122,7 +165,8 @@ export function findCard(name: string): BazaarCard | undefined {
 }
 
 export function byTag(tag: string): BazaarCard[] {
-  const lower = tag.toLowerCase()
+  const resolved = findTagName(tag) ?? tag
+  const lower = resolved.toLowerCase()
   return items.filter((c) =>
     c.HiddenTags.some((t) => t.toLowerCase() === lower),
   )
@@ -136,6 +180,16 @@ export function findSkill(query: string): BazaarCard | undefined {
   return findByTitle(skills, query)
 }
 
+const SUGGEST_GATE = 0.4
+
+export function suggest(query: string, limit = 3): string[] {
+  const resolved = resolveAlias(query)
+  const scored = searchCards(index, resolved, limit)
+  return scored.filter((r) => r.score <= SUGGEST_GATE).map((r) => r.item.Title.Text)
+}
+
+export function getHeroNames(): string[] { return heroNames }
+export function getTagNames(): string[] { return tagNames }
 export function getItems(): BazaarCard[] { return items }
 export function getMonsters(): Monster[] { return monsters }
 export function getSkills(): BazaarCard[] { return skills }

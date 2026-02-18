@@ -5,6 +5,8 @@ import * as db from './db'
 import { respond as aiRespond } from './ai'
 import { startTrivia, getTriviaScore, formatStats, formatTop } from './trivia'
 
+const TIER_ORDER: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
+
 export interface CommandContext {
   user?: string
   channel?: string
@@ -102,15 +104,22 @@ type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string
 const subcommands: [RegExp, SubHandler][] = [
   [/^(?:mob|monster)\s+(.+)$/i, (query, ctx, suffix) => {
     const monster = store.findMonster(query)
-    if (!monster) { logMiss(query, ctx); return `no monster found for ${query}` }
+    if (!monster) {
+      logMiss(query, ctx)
+      const suggestions = store.suggest(query, 3)
+      if (suggestions.length) return `no monster found for "${query}" — try: ${suggestions.join(', ')}`
+      return `no monster found for ${query}`
+    }
     logHit('mob', query, monster.Title.Text, ctx)
     return formatMonster(monster, resolveSkills(monster)) + suffix
   }],
   [/^hero\s+(.+)$/i, (query, ctx, suffix) => {
+    const resolved = store.findHeroName(query)
     const items = store.byHero(query)
     if (items.length === 0) return `no items found for hero ${query}`
+    const displayName = resolved ?? query
     logHit('hero', query, `${items.length} items`, ctx)
-    const result = `[${query}] ${items.map((i) => i.Title.Text).join(', ')}` + suffix
+    const result = `[${displayName}] ${items.map((i) => i.Title.Text).join(', ')}` + suffix
     return result.length > 480 ? result.slice(0, 477) + '...' : result
   }],
   [/^enchant(?:s|ments)?$/i, (_query, ctx, suffix) => {
@@ -119,10 +128,17 @@ const subcommands: [RegExp, SubHandler][] = [
     return `Enchantments: ${names.join(', ')}` + suffix
   }],
   [/^tag\s+(.+)$/i, (query, ctx, suffix) => {
+    const resolved = store.findTagName(query)
     const cards = store.byTag(query)
-    if (cards.length === 0) { logMiss(query, ctx); return `no items found with tag ${query}` }
+    if (cards.length === 0) {
+      logMiss(query, ctx)
+      const suggestions = store.suggest(query, 3)
+      if (suggestions.length) return `no items found with tag "${query}" — try: ${suggestions.join(', ')}`
+      return `no items found with tag ${query}`
+    }
+    const displayTag = resolved ?? query
     logHit('tag', query, `${cards.length} items`, ctx)
-    return formatTagResults(query, cards) + suffix
+    return formatTagResults(displayTag, cards) + suffix
   }],
   [/^day\s+(\d+)$/i, (query, ctx, suffix) => {
     const day = parseInt(query)
@@ -146,9 +162,10 @@ const subcommands: [RegExp, SubHandler][] = [
     logHit('quest', query, card.Title.Text, ctx, tier)
     return formatQuests(card, tier) + suffix
   }],
-  [/^trivia$/i, (_query, ctx, suffix) => {
+  [/^trivia(?:\s+(items|heroes|monsters))?$/i, (query, ctx, suffix) => {
     if (!ctx.channel) return null
-    return startTrivia(ctx.channel) + suffix
+    const category = query?.toLowerCase() as 'items' | 'heroes' | 'monsters' | undefined
+    return startTrivia(ctx.channel, category || undefined) + suffix
   }],
   [/^score$/i, (_query, ctx, suffix) => {
     if (!ctx.channel) return null
@@ -165,6 +182,16 @@ const subcommands: [RegExp, SubHandler][] = [
   }],
 ]
 
+function validateTier(card: { Tiers: Partial<Record<TierName, unknown>> }, tier?: TierName): { tier: TierName | undefined; note: string | null } {
+  if (!tier) return { tier: undefined, note: null }
+  if (tier in card.Tiers) return { tier, note: null }
+  // find highest available tier
+  const available = TIER_ORDER.filter((t) => t in card.Tiers)
+  const highest = available[available.length - 1]
+  if (highest) return { tier: highest, note: `max tier is ${highest}` }
+  return { tier: undefined, note: null }
+}
+
 async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string> {
   const words = cleanArgs.split(/\s+/)
   const { item: query, tier, enchant } = parseArgs(words)
@@ -180,8 +207,10 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 
   const exactCard = store.exact(query)
   if (exactCard) {
-    logHit('item', query, exactCard.Title.Text, ctx, tier)
-    return formatItem(exactCard, tier) + suffix
+    const v = validateTier(exactCard, tier)
+    logHit('item', query, exactCard.Title.Text, ctx, v.tier)
+    const result = formatItem(exactCard, v.tier)
+    return (v.note ? `${result} (${v.note})` : result) + suffix
   }
 
   const monster = store.findMonster(query)
@@ -192,8 +221,10 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 
   const fuzzyCard = store.search(query, 1)[0]
   if (fuzzyCard) {
-    logHit('item', query, fuzzyCard.Title.Text, ctx, tier)
-    return formatItem(fuzzyCard, tier) + suffix
+    const v = validateTier(fuzzyCard, tier)
+    logHit('item', query, fuzzyCard.Title.Text, ctx, v.tier)
+    const result = formatItem(fuzzyCard, v.tier)
+    return (v.note ? `${result} (${v.note})` : result) + suffix
   }
 
   // AI fallback
@@ -204,6 +235,8 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   logMiss(query, ctx)
+  const suggestions = store.suggest(query, 3)
+  if (suggestions.length) return `nothing found for "${query}" — try: ${suggestions.join(', ')}`
   return `nothing found for ${query}`
 }
 

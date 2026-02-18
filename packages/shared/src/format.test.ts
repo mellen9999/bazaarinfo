@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { formatItem, formatEnchantment, formatTagResults, formatDayResults, formatQuests } from './format'
-import type { BazaarCard, TierName, Monster } from './types'
+import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, formatQuests } from './format'
+import type { BazaarCard, TierName, Monster, SkillDetail } from './types'
 
 function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
   return {
@@ -649,6 +649,100 @@ describe('formatQuests', () => {
     })
     const result = formatQuests(card)
     expect(result).toContain('Buy 6 Poison items → Poison 3 OR Buy 6 Burn items → Burn 3')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatMonster
+// ---------------------------------------------------------------------------
+describe('formatMonster', () => {
+  function makeMonster(overrides: Partial<Monster> = {}): Monster {
+    return {
+      Id: 'mon-001',
+      Type: 'CombatEncounter',
+      Title: { Text: 'BLK-SP1D3R' },
+      Description: null,
+      Size: 'Medium',
+      Tags: [],
+      DisplayTags: [],
+      HiddenTags: [],
+      Heroes: [],
+      Uri: '',
+      MonsterMetadata: {
+        available: 'Always',
+        day: 3,
+        health: 150,
+        board: [],
+      },
+      ...overrides,
+    }
+  }
+
+  it('shows name, day, and HP', () => {
+    const result = formatMonster(makeMonster())
+    expect(result).toContain('BLK-SP1D3R · Day 3 · 150HP')
+  })
+
+  it('shows available string when day is null', () => {
+    const m = makeMonster({
+      MonsterMetadata: { available: 'Event Only', day: null, health: 200, board: [] },
+    })
+    const result = formatMonster(m)
+    expect(result).toContain('Event Only')
+    expect(result).not.toContain('Day')
+  })
+
+  it('shows items from board', () => {
+    const m = makeMonster({
+      MonsterMetadata: {
+        available: 'Always', day: 5, health: 300,
+        board: [
+          { baseId: 'i1', title: 'Sword', size: 'Small', tierOverride: 'Gold', type: 'Item', url: '', art: '', artBlur: '' },
+          { baseId: 'i2', title: 'Shield', size: 'Medium', tierOverride: 'Silver', type: 'Item', url: '', art: '', artBlur: '' },
+        ],
+      },
+    })
+    const result = formatMonster(m)
+    expect(result).toContain('🟡Sword')
+    expect(result).toContain('⚪Shield')
+  })
+
+  it('deduplicates items with count', () => {
+    const entry = { baseId: 'i1', title: 'Sword', size: 'Small' as const, tierOverride: 'Gold' as const, type: 'Item' as const, url: '', art: '', artBlur: '' }
+    const m = makeMonster({
+      MonsterMetadata: { available: 'Always', day: 5, health: 300, board: [entry, entry, entry] },
+    })
+    const result = formatMonster(m)
+    expect(result).toContain('🟡Sword x3')
+  })
+
+  it('shows skills with tooltips', () => {
+    const m = makeMonster({
+      MonsterMetadata: {
+        available: 'Always', day: 2, health: 100,
+        board: [
+          { baseId: 's1', title: 'Web Shot', size: 'Small', tierOverride: 'Bronze', type: 'Skill', url: '', art: '', artBlur: '' },
+        ],
+      },
+    })
+    const skills = new Map<string, SkillDetail>([
+      ['Web Shot', { name: 'Web Shot', tooltip: 'Slows enemy by 2s' }],
+    ])
+    const result = formatMonster(m, skills)
+    expect(result).toContain('Web Shot: Slows enemy by 2s')
+  })
+
+  it('truncates at 480 chars', () => {
+    const board = Array.from({ length: 50 }, (_, i) => ({
+      baseId: `i${i}`, title: `VeryLongItemName${i}`, size: 'Small' as const,
+      tierOverride: 'Gold' as const, type: 'Item' as const, url: '', art: '', artBlur: '',
+    }))
+    const m = makeMonster({
+      MonsterMetadata: { available: 'Always', day: 1, health: 999, board },
+    })
+    const result = formatMonster(m)
+    expect(result.length).toBeLessThanOrEqual(480)
+    expect(result).toEndWith('...')
   })
 })
 

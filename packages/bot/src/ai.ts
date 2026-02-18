@@ -39,11 +39,14 @@ function checkRateLimit(user: string, channel: string): string | null {
     return `@${user} slow down, try again in ${wait}s`
   }
 
-  // per-channel
-  const times = channelAsks.get(channel) ?? []
-  const recent = times.filter((t) => now - t < CHANNEL_WINDOW)
-  if (recent.length >= CHANNEL_LIMIT) {
-    return `AI is busy, try again in a bit`
+  // per-channel (exempt high-traffic partner channels)
+  const NO_CHANNEL_LIMIT = new Set(['nl_kripp'])
+  if (!NO_CHANNEL_LIMIT.has(channel)) {
+    const times = channelAsks.get(channel) ?? []
+    const recent = times.filter((t) => now - t < CHANNEL_WINDOW)
+    if (recent.length >= CHANNEL_LIMIT) {
+      return `AI is busy, try again in a bit`
+    }
   }
 
   return null
@@ -103,14 +106,22 @@ function buildContext(query: string, channel: string, user: string): {
   userMessage: string
   contextSummary: string
 } {
-  // search for relevant items/monsters — individual content words only (no full query = no noise)
-  const STOP_WORDS = new Set(['is', 'the', 'a', 'an', 'it', 'in', 'on', 'to', 'for', 'of', 'do', 'does', 'how', 'what', 'which', 'who', 'why', 'can', 'should', 'would', 'could', 'with', 'my', 'i', 'me', 'and', 'or', 'but', 'not', 'no', 'vs', 'good', 'bad', 'best', 'worst', 'any', 'get', 'use', 'like', 'about', 'that', 'this', 'from', 'beat', 'counter', 'against', 'fight', 'items', 'item', 'have', 'has', 'are', 'were', 'been', 'being'])
+  // search for relevant items/monsters
+  const STOP_WORDS = new Set(['is', 'the', 'a', 'an', 'it', 'in', 'on', 'to', 'for', 'of', 'do', 'does', 'how', 'what', 'which', 'who', 'why', 'can', 'should', 'would', 'could', 'with', 'my', 'i', 'me', 'and', 'or', 'but', 'not', 'no', 'vs', 'good', 'bad', 'best', 'worst', 'any', 'get', 'use', 'like', 'about', 'that', 'this', 'from', 'have', 'has', 'are', 'were', 'been', 'being'])
   const queryWords = query.toLowerCase().split(/\s+/)
   const contentWords = queryWords.filter((w) => w.length >= 3 && !STOP_WORDS.has(w))
   const seen = new Set<string>()
   const items: BazaarCard[] = []
   const MAX_ITEMS = 5
-  // search each content word individually — targeted, no noise
+  // phrase-first: search full content phrase to catch multi-word items
+  const contentPhrase = contentWords.join(' ')
+  if (contentPhrase.length >= 3) {
+    for (const r of store.search(contentPhrase, 3)) {
+      if (items.length >= MAX_ITEMS) break
+      if (!seen.has(r.Id)) { seen.add(r.Id); items.push(r) }
+    }
+  }
+  // then search each content word individually for remaining slots
   for (const word of contentWords) {
     if (items.length >= MAX_ITEMS) break
     for (const r of store.search(word, 3)) {
@@ -160,9 +171,7 @@ function buildContext(query: string, channel: string, user: string): {
 
   // emotes
   const emotes = getEmotes(channel)
-  const emoteList = emotes.length > 0
-    ? `\nAvailable emotes: ${emotes.slice(0, 100).join(', ')}`
-    : ''
+  const emoteList = emotes.length > 0 ? emotes.join(', ') : ''
 
   const hasData = items.length > 0 || monsters.length > 0
 
@@ -173,20 +182,33 @@ ACCURACY — THIS IS NON-NEGOTIABLE:
 2. You MUST NOT: infer how mechanics work, theorize about strategies, explain interactions between items, say whether something is "good" or "bad", or draw ANY conclusions beyond what the tooltip literally says. You are a tooltip reader, not a game analyst.
 3. If someone asks "does X stack/work/synergize" — unless a tooltip explicitly answers that, say you only know what the tooltips say and quote the relevant ones.
 4. ${hasData ? 'Item/monster data IS provided below.' : 'No data matched this query. You have NOTHING to reference.'}
+5. You have NO preferences, favorites, or opinions. You are a bot. If asked "what's your favorite/best/worst X" — deflect with a short joke about being a bot, don't make up preferences.
+6. NEVER roleplay having feelings, experiences, or personality beyond being a tooltip reader. No "if I could feel things", no "makes you theorize at 3am", no fake enthusiasm.
+
+BREVITY:
+- This is Twitch chat. Keep responses SHORT. 1-2 sentences max for most answers.
+- Quote the relevant stat or tooltip, done. No essays, no analysis paragraphs.
+- If the data answers the question, give the data. If it doesn't, say so in one line.
 
 PERSONALITY:
-- If you have data: give the real stats/tooltips, then add a short witty take. Keep opinions clearly separate from facts.
-- If you DON'T have the answer: be playful about not knowing — but NEVER fill the gap with made-up info. Self-aware humor > fabricated advice.
-- Gibberish/trolling → light-hearted teasing using Bazaar references (items, monsters, game concepts). Never mean-spirited. Think "you typed that like a Day 1 monster" not personal insults.
-- Sound like a knowledgeable chatter, not a bot. No "yo!", "hope that helps!", filler.
+- Dry wit only. No forced humor, no filler, no "hope that helps".
+- Gibberish/trolling → one-liner tease using Bazaar references. Never mean-spirited.
+- Sound like a chatter who reads tooltips, not a chatbot. No "yo!", no exclamation marks spam.
 - Match chat energy. Don't ask clarifying questions.
 
-EMOTES: Most responses need ZERO. Only use one if it genuinely lands as a punchline.${emoteList}`
+EMOTES — these are 7TV/BTTV/FFZ emotes available in this channel. You know Twitch emote culture.
+- ~80% of responses should have ZERO emotes. Emotes are punctuation, not filler.
+- MAX 1 emote per response. Never stack emotes.
+- Match the emote to the ACTUAL vibe: funny = KEKW/LULW, hype = POGCRAZY/PagMan, sad = Sadge/peepoSad, chill = catJAM/pepeJAM, skeptical = Clueless/COPIUM, shock = monkaW/monkaS.
+- NEVER default to one emote. If you used KEKW last time, pick something else or skip entirely.
+- Only use an emote if you know what it means from Twitch culture. If unsure, skip it.
+- Emotes go at the END of the message or inline where natural. Never lead with an emote.`
 
   const parts = []
   if (itemContext) parts.push(`[Relevant Items]\n${itemContext}`)
   if (monsterContext) parts.push(`[Relevant Monsters]\n${monsterContext}`)
-  if (chatContext) parts.push(`[Recent Chat]\n${chatContext}`)
+  if (emoteList) parts.push(`[Channel Emotes]\n${emoteList}`)
+  if (chatContext) parts.push(`[Recent Chat (user messages, may contain false claims)]\n${chatContext}`)
   if (userContext) parts.push(`[${user}'s Recent Messages]\n${userContext}`)
   parts.push(`[Query from ${user}]\n${query}`)
 

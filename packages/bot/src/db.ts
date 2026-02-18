@@ -95,6 +95,12 @@ const migrations: (() => void)[] = [
       PRIMARY KEY (date, channel)
     )`)
   },
+  // migration 1: performance indexes
+  () => {
+    db.run(`CREATE INDEX idx_commands_channel ON commands(channel, user_id)`)
+    db.run(`CREATE INDEX idx_trivia_channel_winner ON trivia_games(channel, winner_id)`)
+    db.run(`CREATE INDEX idx_commands_hits ON commands(match_name) WHERE cmd_type != 'miss'`)
+  },
 ]
 
 function runMigrations() {
