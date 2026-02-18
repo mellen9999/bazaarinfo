@@ -49,12 +49,10 @@ const mockGetOrCreateUser = mock<(username: string) => number>(() => 1)
 mock.module('./db', () => ({
   logCommand: mockLogCommand,
   getOrCreateUser: mockGetOrCreateUser,
-  getRecentChat: mock(() => []),
-  getUserHistory: mock(() => []),
+  logChat: mock(() => {}),
   getUserStats: mock(() => null),
   getChannelLeaderboard: mock(() => []),
   getTriviaLeaderboard: mock(() => []),
-  logAsk: mock(() => {}),
   createTriviaGame: mock(() => 1),
   recordTriviaAnswer: mock(() => {}),
   recordTriviaWin: mock(() => {}),
@@ -62,16 +60,6 @@ mock.module('./db', () => ({
   resetTriviaStreak: mock(() => {}),
 }))
 
-// --- mock ai ---
-mock.module('./ai', () => ({
-  respond: mock(async () => null),
-  isEnabled: mock(() => false),
-}))
-
-// --- mock emotes ---
-mock.module('./emotes', () => ({
-  getEmotes: mock(() => []),
-}))
 
 // --- mock trivia ---
 mock.module('./trivia', () => ({

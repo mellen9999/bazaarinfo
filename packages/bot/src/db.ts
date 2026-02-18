@@ -8,7 +8,7 @@ const DB_PATH = resolve(homedir(), '.bazaarinfo.db')
 
 let db: Database
 
-type CmdType = 'item' | 'enchant' | 'mob' | 'hero' | 'skill' | 'tag' | 'day' | 'quest' | 'ai' | 'miss'
+type CmdType = 'item' | 'enchant' | 'mob' | 'hero' | 'skill' | 'tag' | 'day' | 'miss'
 
 const migrations: (() => void)[] = [
   // migration 0: initial schema
@@ -233,36 +233,6 @@ export function logChat(channel: string, username: string, message: string) {
   )
 }
 
-export function logAsk(
-  ctx: { user?: string; channel?: string },
-  query: string,
-  contextSummary: string,
-  response: string,
-  tokensUsed: number,
-  latencyMs: number,
-) {
-  const userId = ctx.user ? getOrCreateUser(ctx.user) : null
-  db.run(
-    'INSERT INTO ask_queries (user_id, channel, query, context_summary, response, tokens_used, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [userId, ctx.channel ?? null, query, contextSummary, response, tokensUsed, latencyMs],
-  )
-  if (userId) {
-    db.run('UPDATE users SET ask_count = ask_count + 1 WHERE id = ?', [userId])
-  }
-}
-
-export function getRecentChat(channel: string, limit = 20): { username: string; message: string; created_at: string }[] {
-  return db.query(
-    'SELECT username, message, created_at FROM chat_messages WHERE channel = ? ORDER BY id DESC LIMIT ?',
-  ).all(channel, limit) as { username: string; message: string; created_at: string }[]
-}
-
-export function getUserHistory(username: string, limit = 10): { channel: string; message: string; created_at: string }[] {
-  return db.query(
-    'SELECT channel, message, created_at FROM chat_messages WHERE username = ? ORDER BY id DESC LIMIT ?',
-  ).all(username.toLowerCase(), limit) as { channel: string; message: string; created_at: string }[]
-}
-
 export interface UserStats {
   username: string
   total_commands: number
@@ -271,7 +241,6 @@ export interface UserStats {
   trivia_streak: number
   trivia_best_streak: number
   trivia_fastest_ms: number | null
-  ask_count: number
   first_seen: string
   favorite_item: string | null
 }
@@ -296,7 +265,6 @@ export function getUserStats(username: string): UserStats | null {
     trivia_streak: user.trivia_streak,
     trivia_best_streak: user.trivia_best_streak,
     trivia_fastest_ms: user.trivia_fastest_ms,
-    ask_count: user.ask_count,
     first_seen: user.first_seen,
     favorite_item: fav?.match_name ?? null,
   }
@@ -409,10 +377,6 @@ export function rollupDailyStats() {
     SELECT COUNT(*) FROM trivia_games WHERE date(started_at) = daily_stats.date AND trivia_games.channel = daily_stats.channel
   ) WHERE date = ?`, [dateStr])
 
-  // ask count
-  db.run(`UPDATE daily_stats SET ask_queries = (
-    SELECT COUNT(*) FROM ask_queries WHERE date(created_at) = daily_stats.date AND ask_queries.channel = daily_stats.channel
-  ) WHERE date = ?`, [dateStr])
 }
 
 export function cleanOldData() {
@@ -424,6 +388,5 @@ export function cleanOldData() {
   db.run('DELETE FROM chat_messages WHERE created_at < ?', [cutoffStr])
   db.run('DELETE FROM trivia_answers WHERE game_id IN (SELECT id FROM trivia_games WHERE started_at < ?)', [cutoffStr])
   db.run('DELETE FROM trivia_games WHERE started_at < ?', [cutoffStr])
-  db.run('DELETE FROM ask_queries WHERE created_at < ?', [cutoffStr])
   log('cleaned data older than 90 days')
 }

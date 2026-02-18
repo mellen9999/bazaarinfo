@@ -66,17 +66,11 @@ function toMonster(entry: DumpEntry): Monster {
   }
 }
 
-export async function scrapeDump(onProgress?: (msg: string) => void): Promise<CardCache> {
-  onProgress?.('fetching dump.json...')
-  const res = await fetch(DUMP_URL, {
-    headers: { 'User-Agent': USER_AGENT },
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status} fetching dump.json`)
+const MAX_RETRIES = 3
+const RETRY_DELAYS = [1000, 2000, 4000]
 
-  const dump: Record<string, DumpEntry> = await res.json()
+function parseDump(dump: Record<string, DumpEntry>): CardCache {
   const entries = Object.values(dump)
-  onProgress?.(`parsed ${entries.length} entries`)
-
   const items: BazaarCard[] = []
   const skills: BazaarCard[] = []
   const monsters: Monster[] = []
@@ -92,16 +86,38 @@ export async function scrapeDump(onProgress?: (msg: string) => void): Promise<Ca
       case 'CombatEncounter':
         monsters.push(toMonster(entry))
         break
-      // EventEncounter ignored
     }
   }
 
-  onProgress?.(`${items.length} items, ${skills.length} skills, ${monsters.length} monsters`)
+  return { items, skills, monsters, fetchedAt: new Date().toISOString() }
+}
 
-  return {
-    items,
-    skills,
-    monsters,
-    fetchedAt: new Date().toISOString(),
+export async function scrapeDump(onProgress?: (msg: string) => void): Promise<CardCache> {
+  let lastErr: Error | undefined
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      onProgress?.(attempt > 0 ? `fetching dump.json (retry ${attempt}/${MAX_RETRIES - 1})...` : 'fetching dump.json...')
+      const res = await fetch(DUMP_URL, {
+        headers: { 'User-Agent': USER_AGENT },
+        signal: AbortSignal.timeout(30_000),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+      const dump: Record<string, DumpEntry> = await res.json()
+      const cache = parseDump(dump)
+      onProgress?.(`${cache.items.length} items, ${cache.skills.length} skills, ${cache.monsters.length} monsters`)
+      return cache
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e))
+      onProgress?.(`fetch failed: ${lastErr.message}`)
+      if (attempt < MAX_RETRIES - 1) {
+        const delay = RETRY_DELAYS[attempt]
+        onProgress?.(`retrying in ${delay / 1000}s...`)
+        await new Promise((r) => setTimeout(r, delay))
+      }
+    }
   }
+
+  throw new Error(`dump.json fetch failed after ${MAX_RETRIES} attempts: ${lastErr?.message}`)
 }

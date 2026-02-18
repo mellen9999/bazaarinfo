@@ -99,19 +99,65 @@ function genHeroCountQuestion(): ReturnType<QuestionGen> {
   }
 }
 
+// type 5: what size is item X?
+function genSizeQuestion(): ReturnType<QuestionGen> {
+  const sized = store.getItems().filter((c) => ['Small', 'Medium', 'Large'].includes(c.Size))
+  if (sized.length === 0) return null
+  const item = pickRandom(sized)
+  const size = item.Size
+  const abbrev: Record<string, string> = { Small: 's', Medium: 'm', Large: 'l' }
+  return {
+    question: `What size is ${item.Title}?`,
+    answer: size,
+    accepted: [size.toLowerCase(), abbrev[size]],
+    type: 5,
+  }
+}
+
+// type 6: name an enchantment for item X
+function genEnchantmentQuestion(): ReturnType<QuestionGen> {
+  const enchanted = store.getItems().filter((c) => Object.keys(c.Enchantments).length > 0)
+  if (enchanted.length === 0) return null
+  const item = pickRandom(enchanted)
+  const enchNames = Object.keys(item.Enchantments).map((e) => e.toLowerCase())
+  return {
+    question: `Name an enchantment for ${item.Title}`,
+    answer: `any of: ${Object.keys(item.Enchantments).join(', ')}`,
+    accepted: enchNames,
+    type: 6,
+  }
+}
+
+// type 7: how much HP does monster X have?
+function genMonsterHPQuestion(): ReturnType<QuestionGen> {
+  const withHP = store.getMonsters().filter((m) => m.MonsterMetadata.health > 0)
+  if (withHP.length === 0) return null
+  const monster = pickRandom(withHP)
+  const hp = String(monster.MonsterMetadata.health)
+  return {
+    question: `How much HP does ${monster.Title} have?`,
+    answer: `${hp} HP`,
+    accepted: [hp, `${hp}hp`, `${hp} hp`],
+    type: 7,
+  }
+}
+
 const generators: QuestionGen[] = [
   genHeroQuestion,        // 0
   genMonsterDayQuestion,  // 1
   genTagQuestion,         // 2
   genHeroCountQuestion,   // 3
+  genSizeQuestion,        // 4
+  genEnchantmentQuestion, // 5
+  genMonsterHPQuestion,   // 6
 ]
 
 type TriviaCategory = 'items' | 'heroes' | 'monsters'
 
 const CATEGORY_GENERATORS: Record<TriviaCategory, number[]> = {
-  items: [2],              // tag
-  heroes: [0, 3],          // hero question, hero count
-  monsters: [1],           // monster day
+  items: [2, 4, 5],         // tag, size, enchantment
+  heroes: [0, 3],            // hero question, hero count
+  monsters: [1, 6],          // monster day, monster HP
 }
 
 function pickQuestionType(category?: TriviaCategory): number {
@@ -281,7 +327,6 @@ export function formatStats(username: string): string {
     if (stats.trivia_best_streak > 0) parts.push(`streak:${stats.trivia_best_streak}`)
     if (stats.trivia_fastest_ms) parts.push(`fastest:${(stats.trivia_fastest_ms / 1000).toFixed(1)}s`)
   }
-  if (stats.ask_count > 0) parts.push(`asks:${stats.ask_count}`)
   if (stats.favorite_item) parts.push(`fav:${stats.favorite_item}`)
   parts.push(`since:${stats.first_seen.slice(0, 10)}`)
   return parts.join(' | ')

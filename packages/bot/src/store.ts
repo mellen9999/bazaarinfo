@@ -1,11 +1,10 @@
-import type { BazaarCard, CardCache, Monster, RedditCache, RedditPost } from '@bazaarinfo/shared'
+import type { BazaarCard, CardCache, Monster } from '@bazaarinfo/shared'
 import { buildIndex, searchCards, findExact, searchPrefix } from '@bazaarinfo/shared'
 import Fuse from 'fuse.js'
 import { resolve } from 'path'
 import { log } from './log'
 
 export const CACHE_PATH = resolve(import.meta.dir, '../../../cache/items.json')
-export const REDDIT_CACHE_PATH = resolve(import.meta.dir, '../../../cache/reddit.json')
 
 // slang/common names → actual item names
 const ALIASES: Record<string, string> = {
@@ -28,7 +27,6 @@ let monsterIndex: Fuse<Monster>
 let enchantmentNames: string[] = []
 let heroNames: string[] = []
 let tagNames: string[] = []
-let redditPosts: RedditPost[] = []
 
 function dedup<T extends { Title: string }>(cards: T[]): T[] {
   const seen = new Set<string>()
@@ -208,42 +206,6 @@ export function suggest(query: string, limit = 3): string[] {
   const scored = searchCards(index, resolved, limit)
   return scored.filter((r) => r.score <= SUGGEST_GATE).map((r) => r.item.Title)
 }
-
-export async function loadRedditCache() {
-  try {
-    const cache: RedditCache = await Bun.file(REDDIT_CACHE_PATH).json()
-    redditPosts = cache.posts
-    log(`loaded ${redditPosts.length} reddit posts (cached ${cache.fetchedAt})`)
-  } catch {
-    redditPosts = []
-  }
-}
-
-export async function reloadRedditCache() {
-  await loadRedditCache()
-}
-
-const USEFUL_FLAIRS = new Set(['Discussion', 'Meta', 'Question', 'Suggestion', 'Official Update', ':logo: Official Update'])
-const NOISE_FLAIRS = new Set(['Meme', 'Shitpost', 'Fan Art', 'Cosplay', 'Fan Video'])
-
-export function searchRedditPosts(query: string, limit = 5): RedditPost[] {
-  const words = query.toLowerCase().split(/\s+/).filter((w) => w.length >= 3)
-  if (words.length === 0) return []
-  return redditPosts
-    .filter((p) => !NOISE_FLAIRS.has(p.flair))
-    .map((p) => {
-      const text = `${p.title} ${p.body}`.toLowerCase()
-      const hits = words.filter((w) => text.includes(w)).length
-      const flairBonus = USEFUL_FLAIRS.has(p.flair) ? 1 : 0
-      return { post: p, score: hits + flairBonus }
-    })
-    .filter((r) => r.score > 0)
-    .sort((a, b) => b.score - a.score || b.post.score - a.post.score)
-    .slice(0, limit)
-    .map((r) => r.post)
-}
-
-export function getRedditPosts(): RedditPost[] { return redditPosts }
 
 export function getHeroNames(): string[] { return heroNames }
 export function getTagNames(): string[] { return tagNames }

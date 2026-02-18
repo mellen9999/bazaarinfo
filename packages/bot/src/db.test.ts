@@ -44,25 +44,6 @@ describe('db', () => {
     expect(stats!.total_commands).toBe(2)
   })
 
-  it('logs and retrieves chat messages', () => {
-    db.logChat('testchannel', 'alice', 'hello world')
-    db.logChat('testchannel', 'bob', 'hi alice')
-    db.logChat('testchannel', 'alice', 'how are you')
-
-    const recent = db.getRecentChat('testchannel', 10)
-    expect(recent.length).toBe(3)
-    expect(recent[0].message).toBe('how are you')
-  })
-
-  it('gets user history', () => {
-    db.logChat('ch1', 'alice', 'msg1')
-    db.logChat('ch2', 'alice', 'msg2')
-    db.logChat('ch1', 'bob', 'msg3')
-
-    const history = db.getUserHistory('alice', 10)
-    expect(history.length).toBe(2)
-  })
-
   it('returns null for unknown user stats', () => {
     const stats = db.getUserStats('nobody')
     expect(stats).toBeNull()
@@ -130,13 +111,6 @@ describe('db', () => {
     stats = db.getUserStats('streaker')
     expect(stats!.trivia_streak).toBe(0)
     expect(stats!.trivia_best_streak).toBe(3)
-  })
-
-  it('ask logging works', () => {
-    db.logAsk({ user: 'alice', channel: 'test' }, 'what is', 'ctx', 'response', 100, 500)
-
-    const stats = db.getUserStats('alice')
-    expect(stats!.ask_count).toBe(1)
   })
 
   it('trivia leaderboard works', () => {

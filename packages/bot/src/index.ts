@@ -1,15 +1,13 @@
 import { TwitchClient, getUserId } from './twitch'
 import type { ChannelInfo } from './twitch'
-import { loadStore, reloadStore, loadRedditCache, reloadRedditCache, CACHE_PATH, REDDIT_CACHE_PATH } from './store'
+import { loadStore, reloadStore, CACHE_PATH } from './store'
 import { handleCommand, setLobbyChannel } from './commands'
 import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily } from './scheduler'
-import { scrapeDump, scrapeReddit } from '@bazaarinfo/data'
+import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
-import { loadEmotes, startDailyRefresh, loadChannelEmotes } from './emotes'
 import { checkAnswer, isGameActive, setSay } from './trivia'
-import { record as recordChat } from './chatbuf'
 import { log } from './log'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
@@ -55,15 +53,6 @@ async function refreshData() {
 
   log(`scraped ${cache.items.length} items, ${cache.skills.length} skills, ${cache.monsters.length} monsters`)
   await Bun.write(CACHE_PATH, JSON.stringify(cache, null, 2))
-
-  // reddit meta — separate try so card scrape isn't affected
-  try {
-    const reddit = await scrapeReddit()
-    await Bun.write(REDDIT_CACHE_PATH, JSON.stringify(reddit, null, 2))
-    log(`scraped ${reddit.posts.length} reddit posts`)
-  } catch (e) {
-    log(`reddit scrape failed (non-fatal): ${e}`)
-  }
 }
 
 try {
@@ -84,7 +73,6 @@ try {
 }
 
 await loadStore()
-await loadRedditCache()
 
 // init db
 db.initDb()
@@ -104,18 +92,12 @@ log(`bot: ${BOT_USERNAME} (${botUserId}), channels: ${channels.map((c) => `${c.n
 
 setLobbyChannel(BOT_USERNAME.toLowerCase())
 
-// load 7TV emotes
-loadEmotes(channels).catch((e) => log(`emote load error: ${e}`))
-startDailyRefresh(channels)
-
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
   async (channel, userId, username, text) => {
     try {
       if (userId === botUserId) return
 
-      // log to in-memory buffer (for AI context) + db (for persistence)
-      recordChat(channel, username, text)
       try { db.logChat(channel, username, text) } catch {}
 
       // check trivia answers before command routing
@@ -137,7 +119,6 @@ const client = new TwitchClient(
             const info: ChannelInfo = { name: target, userId: targetId }
             await client.joinChannel(info)
             await channelStore.add(target)
-            loadChannelEmotes(target, targetId).catch(() => {})
             client.say(channel, `@${username} joined #${target}! type !b help in your chat`)
           } catch (e) {
             log(`join error for ${target}: ${e}`)
@@ -190,7 +171,6 @@ setInterval(async () => {
 scheduleDaily(4, async () => {
   await refreshData()
   await reloadStore()
-  await reloadRedditCache()
   db.rollupDailyStats()
   db.cleanOldData()
   log('daily refresh complete')
