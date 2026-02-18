@@ -336,9 +336,16 @@ describe('parseArgs', () => {
     expect(result.item).toBe('red rocket')
   })
 
-  it('extracts 3-char prefix as enchant ("tox" matches "toxic")', () => {
+  it('rejects short prefix too far from enchant name ("tox" != "toxic")', () => {
     mockGetEnchantments.mockImplementation(() => ['toxic'])
     const result = parseArgs(['tox', 'boomerang'])
+    expect(result.enchant).toBeUndefined()
+    expect(result.item).toBe('tox boomerang')
+  })
+
+  it('accepts prefix within 80% of enchant name ("toxi" matches "toxic")', () => {
+    mockGetEnchantments.mockImplementation(() => ['toxic'])
+    const result = parseArgs(['toxi', 'boomerang'])
     expect(result.enchant).toBe('Toxic')
     expect(result.item).toBe('boomerang')
   })

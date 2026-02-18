@@ -45,12 +45,12 @@ export function parseArgs(words: string[]): ParsedArgs {
   }
 
   // extract enchantment from any position if other words remain for item
-  // require 3+ chars for prefix match to prevent "to"→toxic, "re"→restorative, etc.
+  // require exact match or prefix within 2 chars of full name to avoid "shield"→"shielded"
   if (remaining.length > 1) {
     for (let i = 0; i < remaining.length; i++) {
       const lower = remaining[i].toLowerCase()
       const matches = enchList.filter((e) => e.startsWith(lower))
-      if (matches.length === 1 && (lower === matches[0] || lower.length >= 3)) {
+      if (matches.length === 1 && (lower === matches[0] || (lower.length >= 3 && lower.length >= matches[0].length * 0.8))) {
         enchant = capitalize(matches[0])
         remaining.splice(i, 1)
         break

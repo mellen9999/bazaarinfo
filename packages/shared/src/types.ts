@@ -125,3 +125,17 @@ export interface CardCache {
   monsters: Monster[]
   fetchedAt: string
 }
+
+export interface RedditPost {
+  id: string
+  title: string
+  body: string
+  score: number
+  url: string
+  createdAt: number
+}
+
+export interface RedditCache {
+  posts: RedditPost[]
+  fetchedAt: string
+}

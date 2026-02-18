@@ -1,10 +1,10 @@
 import { TwitchClient, getUserId } from './twitch'
 import type { ChannelInfo } from './twitch'
-import { loadStore, reloadStore, CACHE_PATH } from './store'
+import { loadStore, reloadStore, loadRedditCache, reloadRedditCache, CACHE_PATH, REDDIT_CACHE_PATH } from './store'
 import { handleCommand, setLobbyChannel } from './commands'
 import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily } from './scheduler'
-import { scrapeItems, scrapeSkills, scrapeMonsters } from '@bazaarinfo/data'
+import { scrapeItems, scrapeSkills, scrapeMonsters, scrapeReddit } from '@bazaarinfo/data'
 import type { CardCache } from '@bazaarinfo/shared'
 import * as channelStore from './channels'
 import * as db from './db'
@@ -72,6 +72,15 @@ async function refreshData() {
     fetchedAt: new Date().toISOString(),
   }
   await Bun.write(CACHE_PATH, JSON.stringify(cache, null, 2))
+
+  // reddit meta — separate try so card scrape isn't affected
+  try {
+    const reddit = await scrapeReddit()
+    await Bun.write(REDDIT_CACHE_PATH, JSON.stringify(reddit, null, 2))
+    log(`scraped ${reddit.posts.length} reddit posts`)
+  } catch (e) {
+    log(`reddit scrape failed (non-fatal): ${e}`)
+  }
 }
 
 try {
@@ -92,6 +101,7 @@ try {
 }
 
 await loadStore()
+await loadRedditCache()
 
 // init db
 db.initDb()
@@ -197,6 +207,7 @@ setInterval(async () => {
 scheduleDaily(4, async () => {
   await refreshData()
   await reloadStore()
+  await reloadRedditCache()
   db.rollupDailyStats()
   db.cleanOldData()
   log('daily refresh complete')
