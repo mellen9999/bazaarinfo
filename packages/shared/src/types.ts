@@ -133,6 +133,7 @@ export interface RedditPost {
   score: number
   url: string
   createdAt: number
+  flair: string
 }
 
 export interface RedditCache {

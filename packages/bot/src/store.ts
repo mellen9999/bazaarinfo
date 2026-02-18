@@ -220,17 +220,22 @@ export async function reloadRedditCache() {
   await loadRedditCache()
 }
 
+const USEFUL_FLAIRS = new Set(['Discussion', 'Meta', 'Question', 'Suggestion', 'Official Update', ':logo: Official Update'])
+const NOISE_FLAIRS = new Set(['Meme', 'Shitpost', 'Fan Art', 'Cosplay', 'Fan Video'])
+
 export function searchRedditPosts(query: string, limit = 5): RedditPost[] {
   const words = query.toLowerCase().split(/\s+/).filter((w) => w.length >= 3)
   if (words.length === 0) return []
   return redditPosts
+    .filter((p) => !NOISE_FLAIRS.has(p.flair))
     .map((p) => {
       const text = `${p.title} ${p.body}`.toLowerCase()
       const hits = words.filter((w) => text.includes(w)).length
-      return { post: p, hits }
+      const flairBonus = USEFUL_FLAIRS.has(p.flair) ? 1 : 0
+      return { post: p, score: hits + flairBonus }
     })
-    .filter((r) => r.hits > 0)
-    .sort((a, b) => b.hits - a.hits || b.post.score - a.post.score)
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score || b.post.score - a.post.score)
     .slice(0, limit)
     .map((r) => r.post)
 }
