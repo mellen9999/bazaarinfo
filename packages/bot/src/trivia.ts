@@ -227,6 +227,8 @@ function looksLikeAnswer(text: string, game: TriviaState): boolean {
   if (text.startsWith('!')) return false
   // skip pure URL messages
   if (/^https?:\/\/\S+$/i.test(text)) return false
+  // skip long messages — likely normal chat, not trivia answers
+  if (text.length > 50) return false
   const lower = text.toLowerCase()
   // for numeric answers (day questions, count questions), allow short
   if (game.acceptedAnswers.some((a) => /^\d+$/.test(a)) && /\d/.test(lower)) return true

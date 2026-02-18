@@ -1,4 +1,4 @@
-import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, formatQuests } from '@bazaarinfo/shared'
+import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, formatQuests, truncate } from '@bazaarinfo/shared'
 import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
@@ -103,6 +103,12 @@ let commandCount = 0
 type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string | null | Promise<string | null>
 
 const subcommands: [RegExp, SubHandler][] = [
+  [/^(?:mob|monster)$/i, () => 'usage: !b mob <name>'],
+  [/^hero$/i, () => 'usage: !b hero <name>'],
+  [/^tag$/i, () => 'usage: !b tag <tagname>'],
+  [/^skill$/i, () => 'usage: !b skill <name>'],
+  [/^quest$/i, () => 'usage: !b quest <item>'],
+  [/^day$/i, () => 'usage: !b day <number>'],
   [/^(?:mob|monster)\s+(.+)$/i, (query, ctx, suffix) => {
     const monster = store.findMonster(query)
     if (!monster) {
@@ -120,8 +126,7 @@ const subcommands: [RegExp, SubHandler][] = [
     if (items.length === 0) return `no items found for hero ${query}`
     const displayName = resolved ?? query
     logHit('hero', query, `${items.length} items`, ctx)
-    const result = `[${displayName}] ${items.map((i) => i.Title.Text).join(', ')}` + suffix
-    return result.length > 480 ? result.slice(0, 477) + '...' : result
+    return truncate(`[${displayName}] ${items.map((i) => i.Title.Text).join(', ')}`) + suffix
   }],
   [/^enchant(?:s|ments)?$/i, (_query, ctx, suffix) => {
     const names = store.getEnchantments().map(capitalize)
@@ -143,7 +148,7 @@ const subcommands: [RegExp, SubHandler][] = [
   }],
   [/^day\s+(\d+)$/i, (query, ctx, suffix) => {
     const day = parseInt(query)
-    if (day < 1 || day > 10) return `day must be 1-10`
+    if (day < 1 || day > 99) return `invalid day number`
     const mobs = store.monstersByDay(day)
     if (mobs.length === 0) { logMiss(query, ctx); return `no monsters found for day ${day}` }
     logHit('day', query, `${mobs.length} monsters`, ctx)
@@ -228,7 +233,16 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     return (v.note ? `${result} (${v.note})` : result) + suffix
   }
 
-  // AI fallback
+  // check suggestions first — short queries with suggestions are likely misspellings
+  const suggestions = store.suggest(query, 3)
+  const wordCount = cleanArgs.split(/\s+/).length
+
+  if (suggestions.length > 0 && wordCount <= 2) {
+    logMiss(query, ctx)
+    return `nothing found for "${query}" — try: ${suggestions.join(', ')}`
+  }
+
+  // AI fallback for longer/conversational queries
   const aiResponse = await aiRespond(cleanArgs, ctx)
   if (aiResponse) {
     logHit('ai', cleanArgs, 'ai', ctx)
@@ -236,7 +250,6 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   logMiss(query, ctx)
-  const suggestions = store.suggest(query, 3)
   if (suggestions.length) return `nothing found for "${query}" — try: ${suggestions.join(', ')}`
   return `nothing found for ${query}`
 }

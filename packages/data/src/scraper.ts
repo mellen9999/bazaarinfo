@@ -173,11 +173,35 @@ export function extractMonsters(rscText: string): Monster[] {
   return monsters
 }
 
-export async function scrapeMonsters() {
+export async function scrapeMonsters(onProgress?: (done: number, total: number) => void) {
   const url = `${BASE_URL}?c=monsters&page=0`
   const res = await fetch(url, { headers: RSC_HEADERS })
   if (!res.ok) throw new Error(`HTTP ${res.status} for monsters`)
   const text = await res.text()
   const monsters = extractMonsters(text)
+
+  const totalMatch = text.match(/"totalCards":(\d+)/)
+  const total = totalMatch ? parseInt(totalMatch[1]) : 0
+  const totalPages = total ? Math.ceil(total / 10) : 0
+
+  onProgress?.(1, totalPages || 1)
+
+  if (totalPages > 1) {
+    for (let batch = 1; batch < totalPages; batch += BATCH_SIZE) {
+      const pages = Array.from(
+        { length: Math.min(BATCH_SIZE, totalPages - batch) },
+        (_, i) => batch + i,
+      )
+      const results = await Promise.all(pages.map(async (p) => {
+        const pageRes = await fetch(`${BASE_URL}?c=monsters&page=${p}`, { headers: RSC_HEADERS })
+        if (!pageRes.ok) return []
+        return extractMonsters(await pageRes.text())
+      }))
+      for (const pageMonsters of results) monsters.push(...pageMonsters)
+      onProgress?.(Math.min(batch + BATCH_SIZE, totalPages), totalPages)
+      if (batch + BATCH_SIZE < totalPages) await new Promise((r) => setTimeout(r, DELAY_MS))
+    }
+  }
+
   return { monsters, total: monsters.length }
 }

@@ -13,7 +13,7 @@ function tierPrefix(tier?: TierName): string {
   return tier ? `${TIER_EMOJI[tier]} ` : ''
 }
 
-function truncate(str: string): string {
+export function truncate(str: string): string {
   if (str.length <= MAX_LEN) return str
   // cut at last pipe separator or space before limit
   const cut = str.lastIndexOf(' | ', MAX_LEN - 4)

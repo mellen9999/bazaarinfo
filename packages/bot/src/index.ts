@@ -10,6 +10,7 @@ import * as channelStore from './channels'
 import * as db from './db'
 import { loadEmotes, startDailyRefresh, loadChannelEmotes } from './emotes'
 import { checkAnswer, isGameActive, setSay } from './trivia'
+import { record as recordChat } from './chatbuf'
 import { log } from './log'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
@@ -54,7 +55,9 @@ async function refreshData() {
   const skillsScrape = scrapeSkills((done, pages) => {
     if (done % 5 === 0) log(`skills scrape: ${done}/${pages}`)
   })
-  const monstersScrape = scrapeMonsters()
+  const monstersScrape = scrapeMonsters((done, pages) => {
+    if (done % 5 === 0) log(`monsters scrape: ${done}/${pages}`)
+  })
 
   const [items, skills, monstersResult] = await Promise.race([
     Promise.all([itemsScrape, skillsScrape, monstersScrape]),
@@ -118,7 +121,8 @@ const client = new TwitchClient(
     try {
       if (userId === botUserId) return
 
-      // log every message to db
+      // log to in-memory buffer (for AI context) + db (for persistence)
+      recordChat(channel, username, text)
       try { db.logChat(channel, username, text) } catch {}
 
       // check trivia answers before command routing

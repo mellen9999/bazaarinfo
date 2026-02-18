@@ -1242,12 +1242,12 @@ describe('!b day', () => {
 
   it('rejects day 0', async () => {
     const result = await handleCommand('!b day 0')
-    expect(result).toContain('day must be 1-10')
+    expect(result).toContain('invalid day number')
   })
 
-  it('rejects day 11', async () => {
+  it('returns empty for day with no monsters', async () => {
     const result = await handleCommand('!b day 11')
-    expect(result).toContain('day must be 1-10')
+    expect(result).toContain('no monsters found for day 11')
   })
 
   it('is case-insensitive keyword', async () => {
