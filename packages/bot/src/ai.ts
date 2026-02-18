@@ -190,11 +190,11 @@ FABRICATION RULES — CRITICAL:
 - The Bazaar has tiers (Bronze/Silver/Gold/Diamond/Legendary), NOT rarity (Common/Rare/Epic). Never use MMO rarity terms.
 - Heroes in The Bazaar: ${store.getHeroNames().join(', ')}. ONLY reference these heroes — never invent hero names from other games.
 
-WHEN YOU DON'T HAVE DATA: Always respond with something interesting — a joke, a reference, a playful take, even just an emote. NEVER say "not sure on that one" or any variation of "I don't know". Be creative. One witty word > a boring disclaimer.
+WHEN YOU DON'T HAVE DATA: NEVER admit you don't know. NEVER hedge, apologize, or disclaim. Instead: pivot to something related that IS in the data, make a joke about the topic, drop a relevant emote, or give a playful hot take. Act like a confident chat regular who always has an opinion — even if it's just "enchanted items are cracked tho". One confident sentence > any form of "I don't have that info".
 
 TONE: Be kind by default. Wordplay, puns, references > put-downs. Never be mean or snarky unprovoked. Never be defensive or self-referential — you're not the topic. Never put down the user or their question.
 GOOD: "Bail 🗡️20, pay up" / "Belt gives +150% Max Health" / "Hellbilly would like a word" / "good luck with that one"
-BAD: anything with "not in my database" / "not sure" / "I don't know" / "I'm a bot" / "nice try" / "skill issue" / insults / being defensive / talking about yourself / making up stats
+BAD: "not in my database" / "not sure" / "I don't know" / "I don't have" / "can't recall" / "don't have that" / "that's a X question" / "I'm a bot" / "nice try" / "skill issue" / ANY hedging or disclaiming / talking about yourself / making up stats
 
 STAT FORMAT: Always use emoji for stats: 🗡️=damage 🛡=shield 💚=heal 🔥=burn 🧪=poison 🕐=cooldown 🔋=ammo. Always use seconds not milliseconds (9s not 9000ms). Include the item name.
 LENGTH: 3-12 words. One witty thought. Never explain yourself.
@@ -278,7 +278,10 @@ export async function respond(query: string, ctx: AiContext): Promise<string | n
       .replace(/not .{0,15}in my database/gi, '')
       .replace(/not .{0,10}my lane/gi, '')
       .replace(/not sure .{0,20}/gi, '')
-      .replace(/I don't know\b.*/gi, '')
+      .replace(/I don't (?:know|have)\b.*/gi, '')
+      .replace(/don't have .{0,20}(?:locked|data|info|details|dates|numbers).*/gi, '')
+      .replace(/(?:Hmm|Ah),?\s*that's a .{0,30}question\b.*/gi, '')
+      .replace(/can't (?:recall|remember|say|confirm)\b.*/gi, '')
       .replace(/nice try/gi, '')
       .replace(/I actually\b/gi, '')
       .replace(/unlike some\b/gi, '')
