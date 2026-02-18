@@ -254,8 +254,9 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   logMiss(query, ctx)
-  if (suggestions.length) return `nothing found for "${query}" — try: ${suggestions.join(', ')}`
-  return `nothing found for ${query}`
+  const displayQuery = query.length > 30 ? query.slice(0, 30).trim() + '...' : query
+  if (suggestions.length) return `nothing found for "${displayQuery}" — try: ${suggestions.join(', ')}`
+  return `nothing found for ${displayQuery}`
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {
