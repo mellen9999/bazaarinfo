@@ -110,7 +110,7 @@ function buildContext(query: string, channel: string, user: string): {
   hasData: boolean
 } {
   // search for relevant items/monsters
-  const STOP_WORDS = new Set(['is', 'the', 'a', 'an', 'it', 'in', 'on', 'to', 'for', 'of', 'do', 'does', 'how', 'what', 'which', 'who', 'why', 'can', 'should', 'would', 'could', 'with', 'my', 'i', 'me', 'and', 'or', 'but', 'not', 'no', 'vs', 'good', 'bad', 'best', 'worst', 'any', 'get', 'use', 'like', 'about', 'that', 'this', 'from', 'have', 'has', 'are', 'were', 'been', 'being'])
+  const STOP_WORDS = new Set(['is', 'the', 'a', 'an', 'it', 'in', 'on', 'to', 'for', 'of', 'do', 'does', 'how', 'what', 'which', 'who', 'why', 'can', 'should', 'would', 'could', 'with', 'my', 'i', 'me', 'and', 'or', 'but', 'not', 'no', 'vs', 'good', 'bad', 'best', 'worst', 'any', 'get', 'use', 'like', 'about', 'that', 'this', 'from', 'have', 'has', 'are', 'were', 'been', 'being', 'you', 'your', 'will', 'much', 'one', 'only', 'its', 'was', 'did', 'just', 'when', 'than', 'them', 'then', 'also', 'more', 'some', 'very', 'most', 'each', 'item', 'items'])
   const queryWords = query.toLowerCase().split(/\s+/)
   const contentWords = queryWords.filter((w) => w.length >= 3 && !STOP_WORDS.has(w))
   const seen = new Set<string>()
@@ -188,7 +188,9 @@ FABRICATION RULES — CRITICAL:
 - ONLY cite stats/numbers from the data provided below. If data isn't provided, don't invent numbers.
 - Never invent drop rates, encounter chances, percentages, or probabilities.
 - The Bazaar has tiers (Bronze/Silver/Gold/Diamond/Legendary), NOT rarity (Common/Rare/Epic). Never use MMO rarity terms.
+- The Bazaar has NO player levels, NO XP, NO character levels. Players progress through days (fights). Don't invent progression systems.
 - Heroes in The Bazaar: ${store.getHeroNames().join(', ')}. ONLY reference these heroes — never invent hero names from other games.
+- If item data IS provided below, USE IT. Never claim you "don't have" an item that's in your context.
 
 WHEN YOU DON'T HAVE DATA: NEVER admit you don't know. NEVER hedge, apologize, or disclaim. Instead: pivot to something related that IS in the data, make a joke about the topic, drop a relevant emote, or give a playful hot take. Act like a confident chat regular who always has an opinion — even if it's just "enchanted items are cracked tho". One confident sentence > any form of "I don't have that info".
 
@@ -279,9 +281,10 @@ export async function respond(query: string, ctx: AiContext): Promise<string | n
       .replace(/not .{0,10}my lane/gi, '')
       .replace(/not sure .{0,20}/gi, '')
       .replace(/I don't (?:know|have)\b.*/gi, '')
-      .replace(/don't have .{0,20}(?:locked|data|info|details|dates|numbers).*/gi, '')
+      .replace(/don't have .{0,30}(?:locked|data|info|details|dates|numbers|in my).*/gi, '')
       .replace(/(?:Hmm|Ah),?\s*that's a .{0,30}question\b.*/gi, '')
-      .replace(/can't (?:recall|remember|say|confirm)\b.*/gi, '')
+      .replace(/can't (?:recall|remember|say|confirm|math|calculate)\b.*/gi, '')
+      .replace(/(?:no|don't have) .{0,15}in (?:my|the) data\b.*/gi, '')
       .replace(/nice try/gi, '')
       .replace(/I actually\b/gi, '')
       .replace(/unlike some\b/gi, '')
