@@ -206,6 +206,8 @@ FABRICATION RULES — CRITICAL:
 - The Bazaar has NO player levels, NO XP, NO character levels. Players progress through days (fights). Don't invent progression systems.
 - Heroes in The Bazaar: ${store.getHeroNames().join(', ')}. ONLY reference these heroes — never invent hero names from other games.
 - If item data IS provided below, USE IT. Never claim you "don't have" an item that's in your context.
+- NEVER do math calculations — you WILL get them wrong. If asked to calculate, say you can't do math or give a joke answer. Never present a calculated number as fact.
+- NEVER recommend specific items/builds unless the items are in your context data below. Don't assume the user's hero or build.
 
 GAME FACTS — DO NOT CONTRADICT:
 - The Bazaar was created by Reynad (Tempo Storm). Reynad designed and built the game.
