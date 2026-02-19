@@ -87,6 +87,8 @@ export class TwitchClient {
   private keepaliveMs = 15_000
   private closing = false
   private ircReady = false
+  private ircPingTimeout: Timer | null = null
+  private ircReconnecting = false
   private ircQueue: { channel: string; text: string }[] = []
   private sendTimes: number[] = []
   private readonly SEND_LIMIT = 90
@@ -124,6 +126,7 @@ export class TwitchClient {
   close() {
     this.closing = true
     if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
+    if (this.ircPingTimeout) clearTimeout(this.ircPingTimeout)
     this.eventsub?.close()
     this.irc?.close()
     log('connections closed')
@@ -267,6 +270,11 @@ export class TwitchClient {
 
   private connectIrc() {
     this.ircReady = false
+    this.ircReconnecting = false
+    // close old socket if still lingering
+    if (this.irc) {
+      try { this.irc.onclose = null; this.irc.close() } catch {}
+    }
     this.irc = new WebSocket(IRC_URL)
 
     this.irc.onopen = () => {
@@ -281,7 +289,10 @@ export class TwitchClient {
         const msg = parseIrcLine(line)
         switch (msg.type) {
           case 'ping':
-            this.ircSend(`PONG ${msg.payload}`)
+            if (!this.ircSend(`PONG ${msg.payload}`)) {
+              log('irc PONG failed, socket dead — reconnecting')
+              this.irc?.close()
+            }
             break
           case 'welcome':
             this.ircBackoff = BACKOFF_BASE
@@ -299,16 +310,27 @@ export class TwitchClient {
             log('irc notice:', line)
             break
         }
+        this.resetIrcPingTimeout()
       }
     }
 
     this.irc.onclose = (ev) => {
       log(`irc closed: ${ev.code} ${ev.reason}`)
       this.ircReady = false
+      if (this.ircPingTimeout) clearTimeout(this.ircPingTimeout)
       this.reconnectIrc()
     }
 
     this.irc.onerror = (ev) => log('irc error:', ev)
+  }
+
+  // Twitch sends PING every ~5min. If we hear nothing for 6min, connection is dead.
+  private resetIrcPingTimeout() {
+    if (this.ircPingTimeout) clearTimeout(this.ircPingTimeout)
+    this.ircPingTimeout = setTimeout(() => {
+      log('irc ping timeout (6min no data) — reconnecting')
+      this.irc?.close()
+    }, 360_000)
   }
 
   private async handleIrcAuthFailure() {
@@ -331,6 +353,8 @@ export class TwitchClient {
   }
 
   private reconnectIrc() {
+    if (this.ircReconnecting) return
+    this.ircReconnecting = true
     this.reconnectWithBackoff('irc', () => this.ircBackoff, (n) => { this.ircBackoff = n }, () => this.connectIrc())
   }
 
