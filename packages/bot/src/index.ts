@@ -8,7 +8,7 @@ import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay } from './trivia'
-import { invalidatePromptCache } from './ai'
+import { invalidatePromptCache, initSummarizer } from './ai'
 import { refreshRedditDigest } from './reddit'
 import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes } from './emotes'
@@ -107,6 +107,9 @@ Promise.all([
 
 // load reddit digest (non-blocking)
 refreshRedditDigest().catch((e) => log(`reddit digest load failed: ${e}`))
+
+// init rolling chat summarizer
+initSummarizer()
 
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },

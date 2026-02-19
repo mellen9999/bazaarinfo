@@ -2,7 +2,8 @@ import type { BazaarCard, Monster, TierName } from '@bazaarinfo/shared'
 import * as store from './store'
 import { getRedditDigest } from './reddit'
 import * as db from './db'
-import { getRecent } from './chatbuf'
+import { getRecent, getSummary, getActiveThreads, setSummarizer } from './chatbuf'
+import type { ChatEntry } from './chatbuf'
 import { getEmotesForChannel } from './emotes'
 import { getChannelStyle, getUserContext, getRegularsInChat } from './style'
 import { log } from './log'
@@ -271,6 +272,48 @@ export function sanitize(text: string): { text: string; mentions: string[] } {
   return { text: s.trim(), mentions }
 }
 
+// --- rolling summary ---
+
+async function summarizeChat(channel: string, recent: ChatEntry[], prev: string): Promise<string> {
+  if (!API_KEY) return prev
+  const chatLines = recent.map((m) => `${m.user}: ${m.text}`).join('\n')
+  const prompt = [
+    prev ? `Previous summary: ${prev}\n` : '',
+    `Recent chat in #${channel}:\n${chatLines}\n`,
+    'Write a 1-2 sentence summary of what\'s happening in this stream/chat.',
+    'Include: topics discussed, jokes/memes, notable moments, mood.',
+    'Be specific — names, items, events. Under 200 chars. No markdown.',
+  ].join('')
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 80,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) return prev
+    const data = await res.json() as { content: { type: string; text?: string }[] }
+    const text = data.content?.find((b) => b.type === 'text')?.text?.trim()
+    if (text) log(`summary #${channel}: ${text}`)
+    return text || prev
+  } catch {
+    return prev
+  }
+}
+
+export function initSummarizer() {
+  setSummarizer(summarizeChat)
+}
+
 // --- main entry ---
 
 export interface AiContext {
@@ -291,7 +334,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
     if (cd > 0) return { text: `${cd}s`, mentions: [] }
   }
 
-  const chatContext = getRecent(ctx.channel, 15)
+  const chatContext = getRecent(ctx.channel, 30)
   const chatStr = chatContext.length > 0
     ? chatContext.map((m) => `${m.user}: ${m.text}`).join('\n')
     : ''
@@ -300,6 +343,16 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   const emoteLine = emotes.length > 0 ? `\nAvailable emotes: ${emotes.join(' ')}` : ''
   const styleLine = getChannelStyle(ctx.channel)
   const contextLine = styleLine ? `\nChannel: ${styleLine}` : ''
+
+  // rolling stream summary
+  const summary = getSummary(ctx.channel)
+  const summaryLine = summary ? `\nStream so far: ${summary}` : ''
+
+  // active conversation threads
+  const threads = getActiveThreads(ctx.channel)
+  const threadLine = threads.length > 0
+    ? `\nActive convos: ${threads.map((t) => `${t.users.join('+')} re: ${t.topic}`).join(' | ')}`
+    : ''
 
   // who's asking + who's in recent chat
   const askerProfile = getUserContext(ctx.user, ctx.channel)
@@ -311,10 +364,12 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
     : ''
 
   const userMessage = [
+    summaryLine,
     chatStr ? `Recent chat:\n${chatStr}\n` : '',
     `Question from ${ctx.user}: ${query}`,
     askerLine,
     regularsLine,
+    threadLine,
     contextLine,
     emoteLine,
   ].filter(Boolean).join('')
