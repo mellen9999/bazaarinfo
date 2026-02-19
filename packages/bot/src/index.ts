@@ -9,6 +9,7 @@ import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay } from './trivia'
 import { invalidatePromptCache } from './ai'
+import { refreshRedditDigest } from './reddit'
 import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes } from './emotes'
 import { preloadStyles } from './style'
@@ -104,6 +105,9 @@ Promise.all([
   preloadStyles(channels.map((c) => c.name))
 }).catch((e) => log(`style preload failed: ${e}`))
 
+// load reddit digest (non-blocking)
+refreshRedditDigest().catch((e) => log(`reddit digest load failed: ${e}`))
+
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
   async (channel, userId, username, text, badges) => {
@@ -187,6 +191,7 @@ scheduleDaily(4, async () => {
     await refreshData()
     await reloadStore()
     invalidatePromptCache()
+    await refreshRedditDigest()
   } catch (e) {
     log(`daily data refresh failed: ${e}`)
   }

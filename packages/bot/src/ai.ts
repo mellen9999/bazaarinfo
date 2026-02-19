@@ -1,5 +1,6 @@
 import type { BazaarCard, Monster, TierName } from '@bazaarinfo/shared'
 import * as store from './store'
+import { getRedditDigest } from './reddit'
 import * as db from './db'
 import { getRecent } from './chatbuf'
 import { getEmotesForChannel } from './emotes'
@@ -216,7 +217,7 @@ function buildSystemPrompt(): string {
   const heroes = store.getHeroNames().join(', ')
   const tags = store.getTagNames().join(', ')
 
-  cachedSystemPrompt = [
+  const lines = [
     'Bazaar expert. Twitch chat regular. Reynad\'s card game, Kripp plays it.',
     '',
     'Style: terse stat-sheet for game questions, not sentences. Use | separators. Names + numbers, skip filler.',
@@ -238,7 +239,12 @@ function buildSystemPrompt(): string {
     '',
     `Heroes: ${heroes}`,
     `Tags: ${tags}`,
-  ].join('\n')
+  ]
+
+  const digest = getRedditDigest()
+  if (digest) lines.push('', `Community buzz (r/PlayTheBazaar): ${digest}`)
+
+  cachedSystemPrompt = lines.join('\n')
   return cachedSystemPrompt
 }
 
