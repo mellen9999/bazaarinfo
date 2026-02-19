@@ -17,11 +17,6 @@ export interface CommandContext {
 type CommandHandler = (args: string, ctx: CommandContext) => string | null | Promise<string | null>
 
 const TIERS = ['bronze', 'silver', 'gold', 'diamond', 'legendary']
-// fallback if store hasn't loaded yet
-const ENCHANTMENTS_FALLBACK = [
-  'golden', 'heavy', 'icy', 'turbo', 'shielded', 'toxic',
-  'fiery', 'deadly', 'radiant', 'obsidian', 'restorative', 'aegis',
-]
 
 function capitalize(s: string): string {
   return s[0].toUpperCase() + s.slice(1)
@@ -34,7 +29,7 @@ interface ParsedArgs {
 }
 
 export function parseArgs(words: string[]): ParsedArgs {
-  const enchList = store.getEnchantments().length > 0 ? store.getEnchantments() : ENCHANTMENTS_FALLBACK
+  const enchList = store.getEnchantments()
   const remaining = [...words]
   let tier: TierName | undefined
   let enchant: string | undefined

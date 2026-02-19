@@ -131,7 +131,10 @@ beforeEach(() => {
   mockFindCard.mockReset()
   mockExact.mockImplementation(() => undefined)
   mockSearch.mockImplementation(() => [])
-  mockGetEnchantments.mockImplementation(() => [])
+  mockGetEnchantments.mockImplementation(() => [
+    'golden', 'heavy', 'icy', 'turbo', 'shielded', 'toxic',
+    'fiery', 'deadly', 'radiant', 'obsidian', 'restorative', 'aegis',
+  ])
   mockByHero.mockImplementation(() => [])
   mockFindMonster.mockImplementation(() => undefined)
   mockFindCard.mockImplementation(() => undefined)

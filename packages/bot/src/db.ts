@@ -1,7 +1,7 @@
 import { Database, type Statement } from 'bun:sqlite'
 import { homedir } from 'os'
 import { resolve } from 'path'
-import { existsSync, readFileSync, renameSync } from 'fs'
+
 import { log } from './log'
 
 const DB_PATH = resolve(homedir(), '.bazaarinfo.db')
@@ -305,63 +305,6 @@ function runMigrations() {
   if (current >= 0) log(`db schema at version ${current}`)
 }
 
-function migrateOldLogs() {
-  const hitsPath = resolve(homedir(), '.bazaarinfo-hits.log')
-  const missesPath = resolve(homedir(), '.bazaarinfo-misses.log')
-
-  const insertCmd = db.prepare(
-    'INSERT INTO commands (user_id, channel, cmd_type, query, match_name, tier, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  )
-
-  if (existsSync(hitsPath)) {
-    try {
-      const lines = readFileSync(hitsPath, 'utf-8').split('\n').filter(Boolean)
-      let imported = 0
-      db.transaction(() => {
-        for (const line of lines) {
-          const ts = line.match(/^(\S+)/)?.[1]
-          const type = line.match(/type:(\S+)/)?.[1]
-          const q = line.match(/q:(\S+)/)?.[1]
-          const match = line.match(/match:(\S+)/)?.[1]
-          const tier = line.match(/tier:(\S+)/)?.[1]
-          const user = line.match(/user:(\S+)/)?.[1]
-          const ch = line.match(/ch:(\S+)/)?.[1]
-          const userId = user ? getOrCreateUser(user) : null
-          insertCmd.run(userId, ch ?? null, type ?? 'item', q ?? null, match ?? null, tier ?? null, ts ?? new Date().toISOString())
-          imported++
-        }
-      })()
-      renameSync(hitsPath, hitsPath + '.migrated')
-      log(`migrated ${imported} hit log entries`)
-    } catch (e) {
-      log(`hit log migration error: ${e}`)
-    }
-  }
-
-  if (existsSync(missesPath)) {
-    try {
-      const lines = readFileSync(missesPath, 'utf-8').split('\n').filter(Boolean)
-      let imported = 0
-      db.transaction(() => {
-        for (const line of lines) {
-          const ts = line.match(/^(\S+)/)?.[1]
-          const rest = line.slice(ts?.length ?? 0).trim()
-          const user = rest.match(/user:(\S+)/)?.[1]
-          const ch = rest.match(/ch:(\S+)/)?.[1]
-          const query = rest.replace(/user:\S+/g, '').replace(/ch:\S+/g, '').trim()
-          const userId = user ? getOrCreateUser(user) : null
-          insertCmd.run(userId, ch ?? null, 'miss', query || null, null, null, ts ?? new Date().toISOString())
-          imported++
-        }
-      })()
-      renameSync(missesPath, missesPath + '.migrated')
-      log(`migrated ${imported} miss log entries`)
-    } catch (e) {
-      log(`miss log migration error: ${e}`)
-    }
-  }
-}
-
 export function initDb(path?: string) {
   db = new Database(path ?? DB_PATH)
   db.run('PRAGMA journal_mode = WAL')
@@ -369,7 +312,6 @@ export function initDb(path?: string) {
   db.run('PRAGMA busy_timeout = 5000')
   runMigrations()
   prepareStatements()
-  if (!path) migrateOldLogs()
 }
 
 export function closeDb() {
@@ -500,39 +442,6 @@ export function resetTriviaStreak(userId: number) {
 
 export function getTriviaLeaderboard(channel: string, limit = 5): { username: string; trivia_wins: number }[] {
   return stmts.triviaLeaderboard.all(channel, limit) as { username: string; trivia_wins: number }[]
-}
-
-// daily rollup + retention
-export function rollupDailyStats() {
-  const yesterday = new Date()
-  yesterday.setDate(yesterday.getDate() - 1)
-  const dateStr = yesterday.toISOString().slice(0, 10)
-
-  db.run(`INSERT OR REPLACE INTO daily_stats (date, channel, total_commands, unique_users, hits, misses, trivia_games, ask_queries)
-    SELECT
-      date(created_at) as date,
-      channel,
-      COUNT(*) as total_commands,
-      COUNT(DISTINCT user_id) as unique_users,
-      SUM(CASE WHEN cmd_type != 'miss' THEN 1 ELSE 0 END) as hits,
-      SUM(CASE WHEN cmd_type = 'miss' THEN 1 ELSE 0 END) as misses,
-      0 as trivia_games,
-      0 as ask_queries
-    FROM commands
-    WHERE date(created_at) = ?
-    GROUP BY date(created_at), channel`,
-  [dateStr])
-
-  // trivia count
-  db.run(`UPDATE daily_stats SET trivia_games = (
-    SELECT COUNT(*) FROM trivia_games WHERE date(started_at) = daily_stats.date AND trivia_games.channel = daily_stats.channel
-  ) WHERE date = ?`, [dateStr])
-
-}
-
-export function cleanOldData() {
-  // keep everything — all chat, commands, trivia retained forever
-  log('data retention: keeping all records')
 }
 
 // channel chat style profile

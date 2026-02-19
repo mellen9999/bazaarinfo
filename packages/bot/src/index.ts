@@ -188,8 +188,6 @@ scheduleDaily(4, async () => {
   } catch (e) {
     log(`daily data refresh failed: ${e}`)
   }
-  try { db.rollupDailyStats() } catch (e) { log(`daily rollup failed: ${e}`) }
-  try { db.cleanOldData() } catch (e) { log(`daily cleanup failed: ${e}`) }
   try {
     await refreshGlobalEmotes()
     // refresh all currently joined channels, not just startup list
