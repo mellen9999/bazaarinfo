@@ -97,11 +97,11 @@ setLobbyChannel(BOT_USERNAME.toLowerCase())
 
 // load emotes then preload style cache (non-blocking)
 Promise.all([
-  refreshGlobalEmotes().catch(() => {}),
-  ...channels.map((ch) => refreshChannelEmotes(ch.name, ch.userId).catch(() => {})),
+  refreshGlobalEmotes().catch((e) => log(`global emote load failed: ${e}`)),
+  ...channels.map((ch) => refreshChannelEmotes(ch.name, ch.userId).catch((e) => log(`emote load failed for #${ch.name}: ${e}`))),
 ]).then(() => {
   preloadStyles(channels.map((c) => c.name))
-}).catch(() => {})
+}).catch((e) => log(`style preload failed: ${e}`))
 
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
@@ -182,12 +182,20 @@ setInterval(async () => {
 
 // daily data refresh at 4am PT
 scheduleDaily(4, async () => {
-  await refreshData()
-  await reloadStore()
-  db.rollupDailyStats()
-  db.cleanOldData()
-  await refreshGlobalEmotes()
-  for (const ch of channels) await refreshChannelEmotes(ch.name, ch.userId)
+  try {
+    await refreshData()
+    await reloadStore()
+  } catch (e) {
+    log(`daily data refresh failed: ${e}`)
+  }
+  try { db.rollupDailyStats() } catch (e) { log(`daily rollup failed: ${e}`) }
+  try { db.cleanOldData() } catch (e) { log(`daily cleanup failed: ${e}`) }
+  try {
+    await refreshGlobalEmotes()
+    // refresh all currently joined channels, not just startup list
+    const currentChannels = client.getChannels()
+    for (const ch of currentChannels) await refreshChannelEmotes(ch.name, ch.userId)
+  } catch (e) { log(`daily emote refresh failed: ${e}`) }
   log('daily refresh complete')
 })
 

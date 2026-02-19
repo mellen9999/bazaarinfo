@@ -208,7 +208,7 @@ function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: Tie
   return { tier: undefined, note: null }
 }
 
-async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string> {
+async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string | null> {
   const words = cleanArgs.split(/\s+/)
   const { item: query, tier, enchant } = parseArgs(words)
 
@@ -222,7 +222,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   // items first (exact then fuzzy) — !b mob exists for explicit monster lookups
-  const wordCount = cleanArgs.split(/\s+/).length
+  const wordCount = words.length
   const card = store.exact(query) ?? store.search(query, 1)[0]
 
   // for conversational queries (>3 words), only accept fuzzy match if the item title
@@ -256,11 +256,16 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   // AI fallback on miss
-  const aiResponse = await aiRespond(cleanArgs, ctx)
-  if (aiResponse) {
+  const aiResult = await aiRespond(cleanArgs, ctx)
+  if (aiResult) {
     logHit('ai', cleanArgs, 'ai', ctx)
-    const tag = ctx.user ? ` @${ctx.user}` : ''
-    return aiResponse + tag + suffix
+    // collect all mentions: asker + AI-generated + original message, dedupe, append at end
+    const allMentions = new Set<string>()
+    if (ctx.user) allMentions.add(`@${ctx.user}`)
+    for (const m of aiResult.mentions) allMentions.add(m)
+    for (const m of (suffix.match(/@\w+/g) ?? [])) allMentions.add(m.toLowerCase())
+    const tags = allMentions.size > 0 ? ' ' + [...allMentions].join(' ') : ''
+    return aiResult.text + tags
   }
 
   return null
@@ -268,7 +273,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {
   const mentions = args.match(/@\w+/g) ?? []
-  const cleanArgs = args.replace(/@\w+/g, '').replace(/["']/g, '').replace(/\s+/g, ' ').trim()
+  const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
 
   if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
 

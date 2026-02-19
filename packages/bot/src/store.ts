@@ -86,7 +86,8 @@ function loadCache(cache: CardCache) {
   skills = dedup(cache.skills ?? [])
   monsters = dedup(cache.monsters ?? [])
   allCards = [...items, ...skills]
-  titleMap = buildTitleMap(allCards)
+  // build title map with skills first so items take priority on collision
+  titleMap = buildTitleMap([...skills, ...items])
   index = buildIndex(allCards)
   monsterIndex = new Fuse(monsters, {
     keys: [{ name: 'Title', weight: 1 }],

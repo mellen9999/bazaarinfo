@@ -168,7 +168,8 @@ export class TwitchClient {
         this.onMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, e.message.text, badges)
       }
     } else if (type === 'session_reconnect') {
-      const newUrl = msg.payload.session.reconnect_url
+      const newUrl = msg.payload.session?.reconnect_url
+      if (!newUrl) { log('session_reconnect missing url, ignoring'); return }
       log('eventsub reconnecting to', newUrl)
       const oldWs = this.eventsub
       this.eventsub = this.wireEventSub(new WebSocket(newUrl))
@@ -361,6 +362,10 @@ export class TwitchClient {
     return this.config.channels.some((c) => c.name === name)
   }
 
+  getChannels(): ChannelInfo[] {
+    return this.config.channels
+  }
+
   async joinChannel(channel: ChannelInfo) {
     if (this.config.channels.some((c) => c.name === channel.name)) return
     this.config.channels.push(channel)
@@ -425,7 +430,7 @@ export class TwitchClient {
 
   async say(channel: string, text: string) {
     // strip twitch command prefixes — bot is a mod, NEVER execute / or . commands
-    text = text.replace(/^[/.]+/, '')
+    text = text.replace(/^[/.]/, '')
     if (text.length > 490) text = text.slice(0, 487) + '...'
     if (!this.canSend()) {
       if (this.ircQueue.length >= MAX_QUEUE) {
@@ -453,7 +458,7 @@ export async function getUserId(
   login: string,
   onAuthFailure?: AuthRefreshFn,
 ): Promise<string> {
-  const res = await fetchWithTimeout(`${HELIX_URL}/users?login=${login}`, {
+  const res = await fetchWithTimeout(`${HELIX_URL}/users?login=${encodeURIComponent(login)}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       'Client-Id': clientId,

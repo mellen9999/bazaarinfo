@@ -40,7 +40,8 @@ function resolveTooltip(text: string, replacements: Record<string, ReplacementVa
 
 const SIZE_LABEL: Record<string, string> = { Small: 'S', Medium: 'M', Large: 'L' }
 
-function appendShortlink(text: string, shortlink: string): string {
+function appendShortlink(text: string, shortlink?: string): string {
+  if (!shortlink) return text
   const suffix = ` · ${shortlink.replace('https://', '')}`
   if (text.length + suffix.length <= MAX_LEN) return text + suffix
   return text

@@ -53,9 +53,9 @@ export async function refreshGlobalEmotes() {
   const fetched = await fetch7TVGlobal()
   if (fetched.length > 0) {
     globalEmotes = fetched
+    lastGlobalFetch = Date.now()
     log(`loaded ${globalEmotes.length} 7TV global emotes`)
   }
-  lastGlobalFetch = Date.now()
 }
 
 export async function refreshChannelEmotes(channel: string, channelId: string) {

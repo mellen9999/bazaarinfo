@@ -5,14 +5,25 @@ import { log } from './log'
 import type { BazaarCard, Monster, ReplacementValue, TierName } from '@bazaarinfo/shared'
 
 // reverse alias map: "BLU-B33TL3" → ["beetle"], "BLK-SP1D3R" → ["spider"]
-const reverseAliases = new Map<string, string[]>()
-for (const [nick, title] of Object.entries(ALIASES)) {
-  const lower = title.toLowerCase()
-  if (!reverseAliases.has(lower)) reverseAliases.set(lower, [])
-  reverseAliases.get(lower)!.push(nick.toLowerCase())
+function buildReverseAliases(): Map<string, string[]> {
+  const map = new Map<string, string[]>()
+  // static aliases
+  for (const [nick, title] of Object.entries(ALIASES)) {
+    const lower = title.toLowerCase()
+    if (!map.has(lower)) map.set(lower, [])
+    map.get(lower)!.push(nick.toLowerCase())
+  }
+  // dynamic aliases
+  for (const [nick, title] of store.getDynamicAliases?.() ?? []) {
+    const lower = title.toLowerCase()
+    if (!map.has(lower)) map.set(lower, [])
+    map.get(lower)!.push(nick.toLowerCase())
+  }
+  return map
 }
 
 function addNicknames(accepted: string[]): string[] {
+  const reverseAliases = buildReverseAliases()
   const extra: string[] = []
   for (const a of accepted) {
     const nicks = reverseAliases.get(a)

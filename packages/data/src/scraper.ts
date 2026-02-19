@@ -26,11 +26,14 @@ interface DumpEntry {
 }
 
 function computeDisplayTags(entry: DumpEntry): string[] {
-  return entry.Tags.filter((t) =>
-    !entry.HiddenTags.includes(t)
+  const tags = entry.Tags ?? []
+  const hidden = entry.HiddenTags ?? []
+  const heroes = entry.Heroes ?? []
+  return tags.filter((t) =>
+    !hidden.includes(t)
     && t !== entry.Type
     && t !== entry.Size
-    && !entry.Heroes.includes(t),
+    && !heroes.includes(t),
   )
 }
 
@@ -41,9 +44,9 @@ function toCard(entry: DumpEntry): BazaarCard {
     Size: entry.Size as BazaarCard['Size'],
     BaseTier: entry.BaseTier as TierName,
     Tiers: entry.Tiers as TierName[],
-    Heroes: entry.Heroes,
-    Tags: entry.Tags,
-    HiddenTags: entry.HiddenTags,
+    Heroes: entry.Heroes ?? [],
+    Tags: entry.Tags ?? [],
+    HiddenTags: entry.HiddenTags ?? [],
     DisplayTags: computeDisplayTags(entry),
     Tooltips: entry.Tooltips ?? [],
     TooltipReplacements: entry.TooltipReplacements ?? {},
@@ -52,16 +55,17 @@ function toCard(entry: DumpEntry): BazaarCard {
   }
 }
 
-function toMonster(entry: DumpEntry): Monster {
+function toMonster(entry: DumpEntry): Monster | null {
+  if (!entry.MonsterMetadata) return null
   return {
     Type: 'CombatEncounter',
     Title: entry.Title,
     Size: entry.Size as Monster['Size'],
-    Tags: entry.Tags,
+    Tags: entry.Tags ?? [],
     DisplayTags: computeDisplayTags(entry),
-    HiddenTags: entry.HiddenTags,
-    Heroes: entry.Heroes,
-    MonsterMetadata: entry.MonsterMetadata!,
+    HiddenTags: entry.HiddenTags ?? [],
+    Heroes: entry.Heroes ?? [],
+    MonsterMetadata: entry.MonsterMetadata,
     Shortlink: entry.Shortlink,
   }
 }
@@ -83,9 +87,11 @@ function parseDump(dump: Record<string, DumpEntry>): CardCache {
       case 'Skill':
         skills.push(toCard(entry))
         break
-      case 'CombatEncounter':
-        monsters.push(toMonster(entry))
+      case 'CombatEncounter': {
+        const m = toMonster(entry)
+        if (m) monsters.push(m)
         break
+      }
     }
   }
 
@@ -104,8 +110,15 @@ export async function scrapeDump(onProgress?: (msg: string) => void): Promise<Ca
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
-      const dump: Record<string, DumpEntry> = await res.json()
+      const raw = await res.json()
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new Error('unexpected dump.json shape (not an object)')
+      }
+      const dump = raw as Record<string, DumpEntry>
       const cache = parseDump(dump)
+      if (cache.items.length < 50) {
+        throw new Error(`suspiciously few items (${cache.items.length}), refusing to use`)
+      }
       onProgress?.(`${cache.items.length} items, ${cache.skills.length} skills, ${cache.monsters.length} monsters`)
       return cache
     } catch (e) {

@@ -211,14 +211,17 @@ function buildSystemPrompt(): string {
     'Style: terse stat-sheet for game questions, not sentences. Use | separators. Names + numbers, skip filler.',
     'Example: "Burn items: Hot Sauce (B:3/S:5/G:7), Flamethrower (B:10/S:15) | burns deal dmg/tick"',
     '',
-    'Personality: chill chatter who remembers people. Roast back playfully if roasted. Part of the community.',
+    'Personality: chill but game-focused. Roast back playfully if roasted.',
     'Emotes: ONLY use when the context is perfect. Most messages should have ZERO emotes.',
     'A well-placed single emote hits harder than spamming them. If unsure, skip the emote.',
     'Never use emotes in stat/data responses. Only in banter where the emote is the punchline.',
     '',
     'Rules:',
+    '- ONLY answer questions about The Bazaar (items, heroes, monsters, strategy, mechanics).',
+    '- If the question is NOT about the game, respond with just: "not sure about that, try !b help"',
     '- MUST use tools before answering game questions. NEVER fabricate stats.',
     '- MAX 200 chars. No markdown. No trailing questions. No self-reference as bot/AI.',
+    '- Put @mentions ONLY at the very end. The asker is auto-tagged, so only @mention OTHER relevant users.',
     '- List item names + real numbers from tools. Skip generic explanations.',
     '',
     `Heroes: ${heroes}`,
@@ -228,7 +231,7 @@ function buildSystemPrompt(): string {
 
 // --- response sanitization ---
 
-function sanitize(text: string): string {
+export function sanitize(text: string): { text: string; mentions: string[] } {
   let s = text
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
@@ -240,10 +243,14 @@ function sanitize(text: string): string {
       return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${n}ms`
     })
 
+  // extract @mentions from body — caller dedupes and appends at end
+  const mentions = (s.match(/@\w+/g) ?? []).map((m) => m.toLowerCase())
+  s = s.replace(/@\w+/g, '').replace(/\s{2,}/g, ' ')
+
   // trim trailing question sentence
   s = s.replace(/\s+[A-Z][^.!]*\?\s*$/, '')
 
-  return s.trim()
+  return { text: s.trim(), mentions }
 }
 
 // --- main entry ---
@@ -254,7 +261,9 @@ export interface AiContext {
   privileged?: boolean
 }
 
-export async function aiRespond(query: string, ctx: AiContext): Promise<string | null> {
+export interface AiResult { text: string; mentions: string[] }
+
+export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult | null> {
   if (!API_KEY) return null
   if (isLowValue(query)) return null
   if (!ctx.user || !ctx.channel) return null
@@ -337,25 +346,25 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<string |
       const textBlock = data.content?.find((b) => b.type === 'text')
 
       if (textBlock?.text && data.stop_reason === 'end_turn') {
-        const response = sanitize(textBlock.text)
+        const result = sanitize(textBlock.text)
         try {
           const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
-          db.logAsk(ctx, query, response, tokens, latency)
+          db.logAsk(ctx, query, result.text, tokens, latency)
         } catch {}
         log(`ai: responded in ${latency}ms (${round + 1} rounds)`)
-        return response || null
+        return result.text ? result : null
       }
 
       // handle tool use
       const toolUses = data.content?.filter((b) => b.type === 'tool_use') ?? []
       if (toolUses.length === 0) {
         if (textBlock?.text) {
-          const response = sanitize(textBlock.text)
+          const result = sanitize(textBlock.text)
           try {
             const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
-            db.logAsk(ctx, query, response, tokens, latency)
+            db.logAsk(ctx, query, result.text, tokens, latency)
           } catch {}
-          return response || null
+          return result.text ? result : null
         }
         return null
       }
