@@ -496,9 +496,8 @@ export function addAlias(alias: string, target: string, addedBy?: string) {
 }
 
 export function removeAlias(alias: string): boolean {
-  stmts.deleteAlias.run(alias.toLowerCase())
-  const row = db.query('SELECT changes() as c').get() as { c: number } | null
-  return (row?.c ?? 0) > 0
+  const result = stmts.deleteAlias.run(alias.toLowerCase())
+  return result.changes > 0
 }
 
 export function getAllAliases(): { alias: string; target: string; added_by: string | null }[] {

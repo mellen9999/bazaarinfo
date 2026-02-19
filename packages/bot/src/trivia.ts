@@ -3,7 +3,7 @@ import { ALIASES } from './store'
 import * as db from './db'
 import { log } from './log'
 import { resolveTooltip } from '@bazaarinfo/shared'
-import type { BazaarCard, Monster, TierName } from '@bazaarinfo/shared'
+import type { Monster } from '@bazaarinfo/shared'
 
 let reverseAliasCache: Map<string, string[]> | null = null
 

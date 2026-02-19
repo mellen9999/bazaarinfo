@@ -126,8 +126,6 @@ export async function refreshRedditDigest(): Promise<void> {
 
     // top 3 most-discussed for comment fetching
     const discussed = [...allPosts].sort((a, b) => b.num_comments - a.num_comments).slice(0, 3)
-    const commentIds = new Set(discussed.map((p) => p.id))
-
     const commentMap = new Map<string, RedditComment[]>()
     for (const post of discussed) {
       try {

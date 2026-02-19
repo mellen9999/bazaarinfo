@@ -14,7 +14,6 @@ const mockFindSkill = mock<(query: string) => BazaarCard | undefined>(() => unde
 const mockGetItems = mock<() => BazaarCard[]>(() => [])
 const mockGetMonsters = mock<() => Monster[]>(() => [])
 const mockGetSkills = mock<() => BazaarCard[]>(() => [])
-const mockGetAllCards = mock<() => BazaarCard[]>(() => [])
 const mockFindHeroName = mock<(query: string) => string | undefined>(() => undefined)
 const mockFindTagName = mock<(query: string) => string | undefined>(() => undefined)
 const mockSuggest = mock<(query: string, limit?: number) => string[]>(() => [])
@@ -34,7 +33,6 @@ mock.module('./store', () => ({
   getItems: mockGetItems,
   getMonsters: mockGetMonsters,
   getSkills: mockGetSkills,
-  getAllCards: mockGetAllCards,
   findHeroName: mockFindHeroName,
   findTagName: mockFindTagName,
   suggest: mockSuggest,

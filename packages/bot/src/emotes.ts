@@ -63,7 +63,3 @@ export function getEmotesForChannel(channel: string): string[] {
   mergedCache.set(channel, merged)
   return merged
 }
-
-export function needsGlobalRefresh(): boolean {
-  return Date.now() - lastGlobalFetch > REFRESH_INTERVAL
-}

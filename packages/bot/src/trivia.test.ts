@@ -117,7 +117,6 @@ mock.module('./store', () => ({
   getMonsters: mock(() => allMonsters),
   getHeroNames: mock(() => ['Vanessa', 'Dooley', 'Pygmalien', 'Stelle', 'Jules']),
   getSkills: mock(() => allSkills),
-  getAllCards: mock(() => [...allItems, ...allSkills]),
   exact: mock(() => undefined),
   search: mock(() => []),
   findMonster: mock(() => undefined),

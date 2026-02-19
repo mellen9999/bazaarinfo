@@ -260,7 +260,6 @@ export function getTagNames(): string[] { return tagNames }
 export function getItems(): BazaarCard[] { return items }
 export function getMonsters(): Monster[] { return monsters }
 export function getSkills(): BazaarCard[] { return skills }
-export function getAllCards(): BazaarCard[] { return allCards }
 
 export function addDynamicAlias(alias: string, target: string, addedBy?: string) {
   db.addAlias(alias, target, addedBy)

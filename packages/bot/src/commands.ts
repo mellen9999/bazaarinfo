@@ -211,15 +211,14 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   // items first (exact then fuzzy) — !b mob exists for explicit monster lookups
-  const wordCount = words.length
   const card = store.exact(query) ?? store.search(query, 1)[0]
 
   // for conversational queries (>3 words), only accept fuzzy match if the item title
   // shares a meaningful word with the query — prevents "right" matching "Right Eye"
+  const queryWords = query.toLowerCase().split(/\s+/)
   const isRelevantMatch = (title: string) => {
-    if (wordCount <= 3) return true
+    if (queryWords.length <= 3) return true
     const titleWords = title.toLowerCase().split(/\s+/)
-    const queryWords = query.toLowerCase().split(/\s+/)
     return titleWords.some((tw) => tw.length >= 3 && queryWords.includes(tw))
   }
 
