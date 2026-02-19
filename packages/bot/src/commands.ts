@@ -239,7 +239,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   const suggestions = store.suggest(query, 3)
 
   logMiss(query, ctx)
-  if (suggestions.length > 0 && wordCount <= 2) {
+  if (suggestions.length > 0 && queryWords.length <= 2) {
     return `nothing found for "${query}" — try: ${suggestions.join(', ')}` + suffix
   }
 
