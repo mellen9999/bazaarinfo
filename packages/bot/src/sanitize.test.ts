@@ -86,6 +86,12 @@ describe('sanitize', () => {
     expect(sanitize('took 50ms').text).toBe('took 50ms')
   })
 
+  it('strips verbal tics', () => {
+    expect(sanitize('respect the commitment but Birdge is the purest form').text).toBe('but Birdge is the purest form')
+    expect(sanitize('thats just how it goes in chat').text).toBe('in chat')
+    expect(sanitize('chats been absolutely unhinged today').text).toBe('today')
+  })
+
   it('handles empty string', () => {
     expect(sanitize('').text).toBe('')
   })

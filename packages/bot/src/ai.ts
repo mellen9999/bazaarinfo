@@ -319,6 +319,7 @@ const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|d
 const BANNED_FILLER = /\b(lol|lmao|haha)\s*$/i
 const SELF_REF = /\b(im a bot|as a bot|im just a bot|cant actually|i cant actually)\b/i
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
+const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chats been (absolutely )?unhinged)\b/gi
 
 export function sanitize(text: string, asker?: string): { text: string; mentions: string[] } {
   let s = text
@@ -339,6 +340,8 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
   // strip narration ("X just asked about Y" / "is asking me to")
   s = s.replace(NARRATION, '')
   s = s.replace(BANNED_FILLER, '')
+  // strip verbal tics haiku loves
+  s = s.replace(VERBAL_TICS, '').replace(/\s{2,}/g, ' ')
 
   // reject responses that self-reference being a bot
   if (SELF_REF.test(s)) return { text: '', mentions: [] }
