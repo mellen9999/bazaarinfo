@@ -14,7 +14,7 @@ const MAX_TOKENS = 250
 const TIMEOUT = 15_000
 const MAX_ROUNDS = 3
 const EXEMPT_USERS = new Set(['mellen', 'tidolar', 'oliyoun', 'luna_bright', 'deadlockb'])
-const AI_CHANNELS = new Set(['nl_kripp'])
+const AI_CHANNELS = new Set(['nl_kripp', 'mellen'])
 
 // --- rate limiting (in-memory) ---
 
