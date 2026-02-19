@@ -1,11 +1,10 @@
-import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, truncate } from '@bazaarinfo/shared'
+import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, truncate, resolveTooltip, TIER_ORDER } from '@bazaarinfo/shared'
 import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop } from './trivia'
 import { aiRespond } from './ai'
 
-const TIER_ORDER: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
 const ALIAS_ADMINS = new Set(['tidolar'])
 
 export interface CommandContext {
@@ -78,14 +77,8 @@ function resolveSkills(monster: Monster): Map<string, SkillDetail> {
     if (details.has(s.title)) continue
     const card = store.findCard(s.title)
     if (!card || !card.Tooltips.length) continue
-    const tooltip = card.Tooltips.map((t) => t.text
-      .replace(/\{[^}]+\}/g, (match) => {
-        const val = card.TooltipReplacements[match]
-        if (!val) return match
-        if ('Fixed' in val) return String(val.Fixed)
-        const tierVal = s.tier in val ? (val as Record<string, number>)[s.tier] : undefined
-        return tierVal != null ? String(tierVal) : match
-      }),
+    const tooltip = card.Tooltips.map((t) =>
+      resolveTooltip(t.text, card.TooltipReplacements, s.tier as TierName),
     ).join('; ')
     details.set(s.title, { name: s.title, tooltip })
   }

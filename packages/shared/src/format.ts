@@ -1,6 +1,6 @@
 import type { BazaarCard, TierName, ReplacementValue, Monster } from './types'
 
-const TIER_ORDER: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
+export const TIER_ORDER: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
 const TIER_EMOJI: Record<string, string> = {
   Bronze: '🟤', Silver: '⚪', Gold: '🟡', Diamond: '💎', Legendary: '🟣',
 }
@@ -31,7 +31,7 @@ function resolveReplacement(val: ReplacementValue, tier?: TierName): string {
   return parts.join('/') || '?'
 }
 
-function resolveTooltip(text: string, replacements: Record<string, ReplacementValue>, tier?: TierName): string {
+export function resolveTooltip(text: string, replacements: Record<string, ReplacementValue>, tier?: TierName): string {
   return text.replace(/\{[^}]+\}/g, (match) => {
     const val = replacements[match]
     return val ? resolveReplacement(val, tier) : match

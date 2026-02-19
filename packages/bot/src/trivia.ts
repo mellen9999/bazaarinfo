@@ -2,7 +2,8 @@ import * as store from './store'
 import { ALIASES } from './store'
 import * as db from './db'
 import { log } from './log'
-import type { BazaarCard, Monster, ReplacementValue, TierName } from '@bazaarinfo/shared'
+import { resolveTooltip } from '@bazaarinfo/shared'
+import type { BazaarCard, Monster, TierName } from '@bazaarinfo/shared'
 
 // reverse alias map: "BLU-B33TL3" → ["beetle"], "BLK-SP1D3R" → ["spider"]
 function buildReverseAliases(): Map<string, string[]> {
@@ -71,20 +72,6 @@ const FAKE_HEROES = new Set(['Common', '???'])
 const TAG_MIN = 5
 const TAG_MAX = 50
 
-// resolve tooltip placeholders to Bronze-tier values
-function resolveTooltip(text: string, replacements: Record<string, ReplacementValue>): string {
-  return text.replace(/\{[^}]+\}/g, (match) => {
-    const val = replacements[match]
-    if (!val) return match
-    if ('Fixed' in val) return String(val.Fixed)
-    const tierOrder: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
-    for (const t of tierOrder) {
-      if (t in val) return String((val as Record<string, number>)[t])
-    }
-    return match
-  })
-}
-
 // type 1: what hero uses item?
 function genHeroQuestion(): ReturnType<QuestionGen> {
   const items = store.getItems().filter((c) =>
@@ -132,7 +119,7 @@ function genTooltipQuestion(): ReturnType<QuestionGen> {
   if (items.length === 0) return null
   const item = pickRandom(items)
   const abilities = item.Tooltips
-    .map((t) => resolveTooltip(t.text, item.TooltipReplacements))
+    .map((t) => resolveTooltip(t.text, item.TooltipReplacements, item.Tiers[0]))
     .join(' | ')
   // skip if too long for chat or still has unresolved placeholders
   if (abilities.length > 200 || abilities.includes('{')) return null
@@ -268,7 +255,7 @@ function genHeroSkillQuestion(): ReturnType<QuestionGen> {
   if (heroSkills.length === 0) return null
   const skill = pickRandom(heroSkills)
   const desc = skill.Tooltips
-    .map((t) => resolveTooltip(t.text, skill.TooltipReplacements))
+    .map((t) => resolveTooltip(t.text, skill.TooltipReplacements, skill.Tiers[0]))
     .join(' | ')
   if (desc.length > 200 || desc.includes('{')) return null
   const hero = skill.Heroes[0]
