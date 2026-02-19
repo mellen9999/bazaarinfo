@@ -4,7 +4,7 @@ import { getRedditDigest } from './reddit'
 import * as db from './db'
 import { getRecent, getSummary, getActiveThreads, setSummarizer } from './chatbuf'
 import type { ChatEntry } from './chatbuf'
-import { getEmotesForChannel } from './emotes'
+import { formatEmotesForAI } from './emotes'
 import { getChannelStyle, getUserContext, getRegularsInChat } from './style'
 import { log } from './log'
 
@@ -247,9 +247,9 @@ function buildSystemPrompt(): string {
     '',
 
     // EMOTES
-    'Emotes in "Available emotes" are IMAGES. Most messages need zero.',
-    'Max one, at the end. Good for: jokes (Kappa, Keepo), sarcasm (Copium, Clueless), hype (PogU, Pog, PogChamp, POGGERS), pain (Sadge, PepeHands).',
-    'Bad emote usage: forced, every message, start of message, multiple in a row.',
+    'Emotes are IMAGES organized by mood below. Pick by matching the emotional moment.',
+    'Most messages need zero. Max one, at the end. The right emote at the right time > spamming.',
+    'Bad: forced, every message, start of message, multiple. Good: a well-placed punchline.',
     '',
 
     // OUTPUT RULES
@@ -377,8 +377,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
     ? chatContext.map((m) => `${m.user}: ${m.text}`).join('\n')
     : ''
 
-  const emotes = getEmotesForChannel(ctx.channel)
-  const emoteLine = emotes.length > 0 ? `\nAvailable emotes: ${emotes.join(' ')}` : ''
+  const emoteLine = '\n' + formatEmotesForAI(ctx.channel)
   const styleLine = getChannelStyle(ctx.channel)
   const contextLine = styleLine ? `\nChannel: ${styleLine}` : ''
 
