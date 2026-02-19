@@ -335,9 +335,10 @@ export class TwitchClient {
     while (this.ircQueue.length > 0 && this.canSend()) {
       const { channel, text } = this.ircQueue.shift()!
       this.sendTimes.push(Date.now())
-      const sent = await this.helixSend(channel, text)
-      if (!sent && this.ircReady) {
+      if (this.ircReady) {
         this.ircSend(`PRIVMSG #${channel} :${text}`)
+      } else {
+        await this.helixSend(channel, text)
       }
     }
     if (this.ircQueue.length > 0) {
@@ -436,11 +437,12 @@ export class TwitchClient {
       return
     }
     this.sendTimes.push(Date.now())
-    // prefer helix api (explicit error feedback, bot badge support)
-    const sent = await this.helixSend(channel, text)
-    if (!sent && this.ircReady) {
-      log(`helix failed, falling back to irc for #${channel}`)
+    // prefer IRC (instant WebSocket) over Helix (HTTP round-trip)
+    if (this.ircReady) {
       this.ircSend(`PRIVMSG #${channel} :${text}`)
+    } else {
+      const sent = await this.helixSend(channel, text)
+      if (!sent) log(`helix send failed for #${channel}, irc not ready`)
     }
   }
 }

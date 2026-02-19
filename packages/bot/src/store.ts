@@ -1,5 +1,5 @@
 import type { BazaarCard, CardCache, Monster } from '@bazaarinfo/shared'
-import { buildIndex, searchCards, findExact, searchPrefix } from '@bazaarinfo/shared'
+import { buildIndex, buildTitleMap, searchCards, findExact, searchPrefix } from '@bazaarinfo/shared'
 import Fuse from 'fuse.js'
 import { resolve } from 'path'
 import { log } from './log'
@@ -65,6 +65,7 @@ let items: BazaarCard[] = []
 let skills: BazaarCard[] = []
 let monsters: Monster[] = []
 let allCards: BazaarCard[] = []
+let titleMap: Map<string, BazaarCard> = new Map()
 let index: Fuse<BazaarCard>
 let monsterIndex: Fuse<Monster>
 let enchantmentNames: string[] = []
@@ -85,6 +86,7 @@ function loadCache(cache: CardCache) {
   skills = dedup(cache.skills ?? [])
   monsters = dedup(cache.monsters ?? [])
   allCards = [...items, ...skills]
+  titleMap = buildTitleMap(allCards)
   index = buildIndex(allCards)
   monsterIndex = new Fuse(monsters, {
     keys: [{ name: 'Title', weight: 1 }],
@@ -151,7 +153,7 @@ export function search(query: string, limit = 5) {
   const resolved = resolveAlias(query)
   // try alias exact match first
   if (resolved !== query) {
-    const aliased = findExact(allCards, resolved)
+    const aliased = findExact(allCards, resolved, titleMap)
     if (aliased) return [aliased]
   }
   const scored = searchCards(index, resolved, limit * 2)
@@ -172,7 +174,7 @@ export function search(query: string, limit = 5) {
 
 export function exact(name: string) {
   const resolved = resolveAlias(name)
-  return findExact(allCards, resolved)
+  return findExact(allCards, resolved, titleMap)
 }
 
 // includes but only at word boundaries — "book" matches "Spell Book" not "Zookeeper"
@@ -224,8 +226,7 @@ export function findMonster(query: string): Monster | undefined {
 }
 
 export function findCard(name: string): BazaarCard | undefined {
-  const lower = name.toLowerCase()
-  return allCards.find((c) => c.Title.toLowerCase() === lower)
+  return titleMap.get(name.toLowerCase())
 }
 
 export function byTag(tag: string): BazaarCard[] {

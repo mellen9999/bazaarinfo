@@ -259,7 +259,8 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   const aiResponse = await aiRespond(cleanArgs, ctx)
   if (aiResponse) {
     logHit('ai', cleanArgs, 'ai', ctx)
-    return aiResponse + suffix
+    const tag = ctx.user ? ` @${ctx.user}` : ''
+    return aiResponse + tag + suffix
   }
 
   return null

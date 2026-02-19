@@ -1,4 +1,4 @@
-import { Database } from 'bun:sqlite'
+import { Database, type Statement } from 'bun:sqlite'
 import { homedir } from 'os'
 import { resolve } from 'path'
 import { existsSync, readFileSync, renameSync } from 'fs'
@@ -9,6 +9,178 @@ const DB_PATH = resolve(homedir(), '.bazaarinfo.db')
 let db: Database
 
 type CmdType = 'item' | 'enchant' | 'mob' | 'hero' | 'skill' | 'tag' | 'day' | 'miss' | 'ai'
+
+// --- prepared statements (initialized after migrations) ---
+
+let stmts: {
+  upsertUser: Statement
+  selectUserId: Statement
+  insertCommand: Statement
+  incrUserCommands: Statement
+  insertChat: Statement
+  insertAsk: Statement
+  incrUserAsks: Statement
+  selectUser: Statement
+  selectUserFav: Statement
+  channelLeaderboard: Statement
+  popularItems: Statement
+  insertTriviaGame: Statement
+  lastInsertId: Statement
+  insertTriviaAnswer: Statement
+  updateTriviaWin: Statement
+  updateTriviaUserWin: Statement
+  incrTriviaAttempt: Statement
+  resetTriviaStreak: Statement
+  triviaLeaderboard: Statement
+  channelMessages: Statement
+  userMessages: Statement
+  userTopItems: Statement
+  channelRegulars: Statement
+  insertAlias: Statement
+  deleteAlias: Statement
+  selectAliases: Statement
+}
+
+function prepareStatements() {
+  stmts = {
+    upsertUser: db.prepare(
+      `INSERT INTO users (username) VALUES (?) ON CONFLICT(username) DO UPDATE SET last_seen = datetime('now')`,
+    ),
+    selectUserId: db.prepare('SELECT id FROM users WHERE username = ?'),
+    insertCommand: db.prepare(
+      'INSERT INTO commands (user_id, channel, cmd_type, query, match_name, tier) VALUES (?, ?, ?, ?, ?, ?)',
+    ),
+    incrUserCommands: db.prepare('UPDATE users SET total_commands = total_commands + 1 WHERE id = ?'),
+    insertChat: db.prepare(
+      'INSERT INTO chat_messages (channel, username, message) VALUES (?, ?, ?)',
+    ),
+    insertAsk: db.prepare(
+      'INSERT INTO ask_queries (user_id, channel, query, response, tokens_used, latency_ms) VALUES (?, ?, ?, ?, ?, ?)',
+    ),
+    incrUserAsks: db.prepare('UPDATE users SET ask_count = ask_count + 1 WHERE id = ?'),
+    selectUser: db.prepare('SELECT * FROM users WHERE username = ?'),
+    selectUserFav: db.prepare(
+      `SELECT match_name, COUNT(*) as cnt FROM commands
+       WHERE user_id = ? AND match_name IS NOT NULL
+       GROUP BY match_name ORDER BY cnt DESC LIMIT 1`,
+    ),
+    channelLeaderboard: db.prepare(
+      `SELECT u.username, COUNT(*) as total_commands FROM commands c
+       JOIN users u ON c.user_id = u.id
+       WHERE c.channel = ?
+       GROUP BY c.user_id ORDER BY total_commands DESC LIMIT ?`,
+    ),
+    popularItems: db.prepare(
+      `SELECT match_name, COUNT(*) as cnt FROM commands
+       WHERE match_name IS NOT NULL AND cmd_type != 'miss'
+       GROUP BY match_name ORDER BY cnt DESC LIMIT ?`,
+    ),
+    insertTriviaGame: db.prepare(
+      'INSERT INTO trivia_games (channel, question_type, question_text, correct_answer) VALUES (?, ?, ?, ?)',
+    ),
+    lastInsertId: db.prepare('SELECT last_insert_rowid() as id'),
+    insertTriviaAnswer: db.prepare(
+      'INSERT INTO trivia_answers (game_id, user_id, answer_text, is_correct, answer_time_ms) VALUES (?, ?, ?, ?, ?)',
+    ),
+    updateTriviaWin: db.prepare(
+      'UPDATE trivia_games SET winner_id = ?, answer_time_ms = ?, participant_count = ? WHERE id = ?',
+    ),
+    updateTriviaUserWin: db.prepare(
+      `UPDATE users SET
+        trivia_wins = trivia_wins + 1,
+        trivia_streak = trivia_streak + 1,
+        trivia_best_streak = MAX(trivia_best_streak, trivia_streak + 1),
+        trivia_fastest_ms = CASE
+          WHEN trivia_fastest_ms IS NULL THEN ?
+          WHEN ? < trivia_fastest_ms THEN ?
+          ELSE trivia_fastest_ms
+        END
+      WHERE id = ?`,
+    ),
+    incrTriviaAttempt: db.prepare('UPDATE users SET trivia_attempts = trivia_attempts + 1 WHERE id = ?'),
+    resetTriviaStreak: db.prepare('UPDATE users SET trivia_streak = 0 WHERE id = ?'),
+    triviaLeaderboard: db.prepare(
+      `SELECT u.username, u.trivia_wins FROM users u
+       JOIN trivia_games tg ON tg.winner_id = u.id
+       WHERE tg.channel = ? AND u.trivia_wins > 0
+       GROUP BY u.id ORDER BY u.trivia_wins DESC LIMIT ?`,
+    ),
+    channelMessages: db.prepare(
+      'SELECT message FROM chat_messages WHERE channel = ? ORDER BY created_at DESC LIMIT ?',
+    ),
+    userMessages: db.prepare(
+      'SELECT message FROM chat_messages WHERE LOWER(username) = ? AND channel = ? ORDER BY created_at DESC LIMIT ?',
+    ),
+    userTopItems: db.prepare(
+      `SELECT match_name, COUNT(*) as cnt FROM commands c
+       JOIN users u ON c.user_id = u.id
+       WHERE LOWER(u.username) = ? AND c.match_name IS NOT NULL AND c.cmd_type != 'miss'
+       GROUP BY c.match_name ORDER BY cnt DESC LIMIT ?`,
+    ),
+    channelRegulars: db.prepare(
+      `SELECT username, COUNT(*) as msgs FROM chat_messages
+       WHERE channel = ? GROUP BY LOWER(username) ORDER BY msgs DESC LIMIT ?`,
+    ),
+    insertAlias: db.prepare('INSERT OR REPLACE INTO aliases (alias, target, added_by) VALUES (?, ?, ?)'),
+    deleteAlias: db.prepare('DELETE FROM aliases WHERE alias = ?'),
+    selectAliases: db.prepare('SELECT alias, target, added_by FROM aliases ORDER BY alias'),
+  }
+}
+
+// --- user ID cache ---
+
+const userIdCache = new Map<string, number>()
+
+// --- deferred write queue ---
+
+type WriteOp =
+  | { type: 'chat'; channel: string; username: string; message: string }
+  | { type: 'command'; userId: number | null; channel: string | null; cmdType: string; query: string | null; matchName: string | null; tier: string | null }
+  | { type: 'ask'; userId: number | null; channel: string | null; query: string; response: string | null; tokens: number | null; latency: number | null }
+  | { type: 'incr_commands'; userId: number }
+  | { type: 'incr_asks'; userId: number }
+
+const writeQueue: WriteOp[] = []
+let flushTimer: Timer | null = null
+const FLUSH_INTERVAL = 100 // flush every 100ms
+
+function scheduleFlush() {
+  if (flushTimer) return
+  flushTimer = setTimeout(flushWrites, FLUSH_INTERVAL)
+}
+
+export function flushWrites() {
+  flushTimer = null
+  if (writeQueue.length === 0) return
+  const batch = writeQueue.splice(0)
+  try {
+    db.transaction(() => {
+      for (const op of batch) {
+        switch (op.type) {
+          case 'chat':
+            stmts.insertChat.run(op.channel, op.username, op.message)
+            break
+          case 'command':
+            stmts.insertCommand.run(op.userId, op.channel, op.cmdType, op.query, op.matchName, op.tier)
+            break
+          case 'ask':
+            stmts.insertAsk.run(op.userId, op.channel, op.query, op.response, op.tokens, op.latency)
+            break
+          case 'incr_commands':
+            stmts.incrUserCommands.run(op.userId)
+            break
+          case 'incr_asks':
+            stmts.incrUserAsks.run(op.userId)
+            break
+        }
+      }
+    })()
+  } catch (e) {
+    log(`flush error: ${e}`)
+  }
+}
+
+// --- migrations ---
 
 const migrations: (() => void)[] = [
   // migration 0: initial schema
@@ -193,12 +365,17 @@ function migrateOldLogs() {
 export function initDb(path?: string) {
   db = new Database(path ?? DB_PATH)
   db.run('PRAGMA journal_mode = WAL')
+  db.run('PRAGMA synchronous = NORMAL')
   db.run('PRAGMA busy_timeout = 5000')
   runMigrations()
+  prepareStatements()
   if (!path) migrateOldLogs()
 }
 
 export function closeDb() {
+  // flush pending writes before closing
+  if (flushTimer) clearTimeout(flushTimer)
+  flushWrites()
   db?.close()
 }
 
@@ -210,11 +387,15 @@ export function getDb(): Database {
 
 export function getOrCreateUser(username: string): number {
   const lower = username.toLowerCase()
-  db.run(
-    `INSERT INTO users (username) VALUES (?) ON CONFLICT(username) DO UPDATE SET last_seen = datetime('now')`,
-    [lower],
-  )
-  const row = db.query('SELECT id FROM users WHERE username = ?').get(lower) as { id: number }
+  const cached = userIdCache.get(lower)
+  if (cached !== undefined) {
+    // still upsert for last_seen, but skip the SELECT
+    stmts.upsertUser.run(lower)
+    return cached
+  }
+  stmts.upsertUser.run(lower)
+  const row = stmts.selectUserId.get(lower) as { id: number }
+  userIdCache.set(lower, row.id)
   return row.id
 }
 
@@ -226,20 +407,22 @@ export function logCommand(
   tier?: string,
 ) {
   const userId = ctx.user ? getOrCreateUser(ctx.user) : null
-  db.run(
-    'INSERT INTO commands (user_id, channel, cmd_type, query, match_name, tier) VALUES (?, ?, ?, ?, ?, ?)',
-    [userId, ctx.channel ?? null, cmdType, query ?? null, matchName ?? null, tier ?? null],
-  )
-  if (userId) {
-    db.run('UPDATE users SET total_commands = total_commands + 1 WHERE id = ?', [userId])
-  }
+  writeQueue.push({
+    type: 'command',
+    userId,
+    channel: ctx.channel ?? null,
+    cmdType,
+    query: query ?? null,
+    matchName: matchName ?? null,
+    tier: tier ?? null,
+  })
+  if (userId) writeQueue.push({ type: 'incr_commands', userId })
+  scheduleFlush()
 }
 
 export function logChat(channel: string, username: string, message: string) {
-  db.run(
-    'INSERT INTO chat_messages (channel, username, message) VALUES (?, ?, ?)',
-    [channel, username.toLowerCase(), message],
-  )
+  writeQueue.push({ type: 'chat', channel, username: username.toLowerCase(), message })
+  scheduleFlush()
 }
 
 export interface UserStats {
@@ -255,16 +438,10 @@ export interface UserStats {
 }
 
 export function getUserStats(username: string): UserStats | null {
-  const user = db.query(
-    'SELECT * FROM users WHERE username = ?',
-  ).get(username.toLowerCase()) as (UserStats & { id: number }) | null
+  const user = stmts.selectUser.get(username.toLowerCase()) as (UserStats & { id: number }) | null
   if (!user) return null
 
-  const fav = db.query(
-    `SELECT match_name, COUNT(*) as cnt FROM commands
-     WHERE user_id = ? AND match_name IS NOT NULL
-     GROUP BY match_name ORDER BY cnt DESC LIMIT 1`,
-  ).get(user.id) as { match_name: string; cnt: number } | null
+  const fav = stmts.selectUserFav.get(user.id) as { match_name: string; cnt: number } | null
 
   return {
     username: user.username,
@@ -280,20 +457,11 @@ export function getUserStats(username: string): UserStats | null {
 }
 
 export function getChannelLeaderboard(channel: string, limit = 5): { username: string; total_commands: number }[] {
-  return db.query(
-    `SELECT u.username, COUNT(*) as total_commands FROM commands c
-     JOIN users u ON c.user_id = u.id
-     WHERE c.channel = ?
-     GROUP BY c.user_id ORDER BY total_commands DESC LIMIT ?`,
-  ).all(channel, limit) as { username: string; total_commands: number }[]
+  return stmts.channelLeaderboard.all(channel, limit) as { username: string; total_commands: number }[]
 }
 
 export function getPopularItems(limit = 10): { match_name: string; cnt: number }[] {
-  return db.query(
-    `SELECT match_name, COUNT(*) as cnt FROM commands
-     WHERE match_name IS NOT NULL AND cmd_type != 'miss'
-     GROUP BY match_name ORDER BY cnt DESC LIMIT ?`,
-  ).all(limit) as { match_name: string; cnt: number }[]
+  return stmts.popularItems.all(limit) as { match_name: string; cnt: number }[]
 }
 
 // trivia helpers
@@ -303,11 +471,8 @@ export function createTriviaGame(
   questionText: string,
   correctAnswer: string,
 ): number {
-  db.run(
-    'INSERT INTO trivia_games (channel, question_type, question_text, correct_answer) VALUES (?, ?, ?, ?)',
-    [channel, questionType, questionText, correctAnswer],
-  )
-  return (db.query('SELECT last_insert_rowid() as id').get() as { id: number }).id
+  stmts.insertTriviaGame.run(channel, questionType, questionText, correctAnswer)
+  return (stmts.lastInsertId.get() as { id: number }).id
 }
 
 export function recordTriviaAnswer(
@@ -317,47 +482,24 @@ export function recordTriviaAnswer(
   isCorrect: boolean,
   answerTimeMs: number,
 ) {
-  db.run(
-    'INSERT INTO trivia_answers (game_id, user_id, answer_text, is_correct, answer_time_ms) VALUES (?, ?, ?, ?, ?)',
-    [gameId, userId, answerText, isCorrect ? 1 : 0, answerTimeMs],
-  )
+  stmts.insertTriviaAnswer.run(gameId, userId, answerText, isCorrect ? 1 : 0, answerTimeMs)
 }
 
 export function recordTriviaWin(gameId: number, userId: number, answerTimeMs: number, participantCount: number) {
-  db.run(
-    'UPDATE trivia_games SET winner_id = ?, answer_time_ms = ?, participant_count = ? WHERE id = ?',
-    [userId, answerTimeMs, participantCount, gameId],
-  )
-  db.run(
-    `UPDATE users SET
-      trivia_wins = trivia_wins + 1,
-      trivia_streak = trivia_streak + 1,
-      trivia_best_streak = MAX(trivia_best_streak, trivia_streak + 1),
-      trivia_fastest_ms = CASE
-        WHEN trivia_fastest_ms IS NULL THEN ?
-        WHEN ? < trivia_fastest_ms THEN ?
-        ELSE trivia_fastest_ms
-      END
-    WHERE id = ?`,
-    [answerTimeMs, answerTimeMs, answerTimeMs, userId],
-  )
+  stmts.updateTriviaWin.run(userId, answerTimeMs, participantCount, gameId)
+  stmts.updateTriviaUserWin.run(answerTimeMs, answerTimeMs, answerTimeMs, userId)
 }
 
 export function recordTriviaAttempt(userId: number) {
-  db.run('UPDATE users SET trivia_attempts = trivia_attempts + 1 WHERE id = ?', [userId])
+  stmts.incrTriviaAttempt.run(userId)
 }
 
 export function resetTriviaStreak(userId: number) {
-  db.run('UPDATE users SET trivia_streak = 0 WHERE id = ?', [userId])
+  stmts.resetTriviaStreak.run(userId)
 }
 
 export function getTriviaLeaderboard(channel: string, limit = 5): { username: string; trivia_wins: number }[] {
-  return db.query(
-    `SELECT u.username, u.trivia_wins FROM users u
-     JOIN trivia_games tg ON tg.winner_id = u.id
-     WHERE tg.channel = ? AND u.trivia_wins > 0
-     GROUP BY u.id ORDER BY u.trivia_wins DESC LIMIT ?`,
-  ).all(channel, limit) as { username: string; trivia_wins: number }[]
+  return stmts.triviaLeaderboard.all(channel, limit) as { username: string; trivia_wins: number }[]
 }
 
 // daily rollup + retention
@@ -395,38 +537,26 @@ export function cleanOldData() {
 
 // channel chat style profile
 export function getChannelMessages(channel: string, limit = 5000): string[] {
-  const rows = db.query(
-    'SELECT message FROM chat_messages WHERE channel = ? ORDER BY created_at DESC LIMIT ?',
-  ).all(channel, limit) as { message: string }[]
+  const rows = stmts.channelMessages.all(channel, limit) as { message: string }[]
   return rows.map((r) => r.message)
 }
 
 // per-user chat messages
 export function getUserMessages(username: string, channel: string, limit = 500): string[] {
-  const rows = db.query(
-    'SELECT message FROM chat_messages WHERE LOWER(username) = ? AND channel = ? ORDER BY created_at DESC LIMIT ?',
-  ).all(username.toLowerCase(), channel, limit) as { message: string }[]
+  const rows = stmts.userMessages.all(username.toLowerCase(), channel, limit) as { message: string }[]
   return rows.map((r) => r.message)
 }
 
 // user's top looked-up items
 export function getUserTopItems(username: string, limit = 5): string[] {
   const lower = username.toLowerCase()
-  const rows = db.query(
-    `SELECT match_name, COUNT(*) as cnt FROM commands c
-     JOIN users u ON c.user_id = u.id
-     WHERE LOWER(u.username) = ? AND c.match_name IS NOT NULL AND c.cmd_type != 'miss'
-     GROUP BY c.match_name ORDER BY cnt DESC LIMIT ?`,
-  ).all(lower, limit) as { match_name: string; cnt: number }[]
+  const rows = stmts.userTopItems.all(lower, limit) as { match_name: string; cnt: number }[]
   return rows.map((r) => r.match_name)
 }
 
 // channel regulars (by message count)
 export function getChannelRegulars(channel: string, limit = 20): { username: string; msgs: number }[] {
-  return db.query(
-    `SELECT username, COUNT(*) as msgs FROM chat_messages
-     WHERE channel = ? GROUP BY LOWER(username) ORDER BY msgs DESC LIMIT ?`,
-  ).all(channel, limit) as { username: string; msgs: number }[]
+  return stmts.channelRegulars.all(channel, limit) as { username: string; msgs: number }[]
 }
 
 // ai ask logging
@@ -438,21 +568,22 @@ export function logAsk(
   latencyMs?: number,
 ) {
   const userId = ctx.user ? getOrCreateUser(ctx.user) : null
-  db.run(
-    'INSERT INTO ask_queries (user_id, channel, query, response, tokens_used, latency_ms) VALUES (?, ?, ?, ?, ?, ?)',
-    [userId, ctx.channel ?? null, query, response, tokensUsed ?? null, latencyMs ?? null],
-  )
-  if (userId) {
-    db.run('UPDATE users SET ask_count = ask_count + 1 WHERE id = ?', [userId])
-  }
+  writeQueue.push({
+    type: 'ask',
+    userId,
+    channel: ctx.channel ?? null,
+    query,
+    response,
+    tokens: tokensUsed ?? null,
+    latency: latencyMs ?? null,
+  })
+  if (userId) writeQueue.push({ type: 'incr_asks', userId })
+  scheduleFlush()
 }
 
 // alias helpers
 export function addAlias(alias: string, target: string, addedBy?: string) {
-  db.run(
-    'INSERT OR REPLACE INTO aliases (alias, target, added_by) VALUES (?, ?, ?)',
-    [alias.toLowerCase(), target, addedBy ?? null],
-  )
+  stmts.insertAlias.run(alias.toLowerCase(), target, addedBy ?? null)
 }
 
 export function removeAlias(alias: string): boolean {
@@ -461,7 +592,7 @@ export function removeAlias(alias: string): boolean {
 }
 
 export function getAllAliases(): { alias: string; target: string; added_by: string | null }[] {
-  return db.query('SELECT alias, target, added_by FROM aliases ORDER BY alias').all() as {
+  return stmts.selectAliases.all() as {
     alias: string
     target: string
     added_by: string | null

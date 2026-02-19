@@ -126,3 +126,8 @@ function ensureCache(channel: string) {
     lastRefresh.set(channel, now)
   }
 }
+
+export function preloadStyles(channels: string[]) {
+  for (const ch of channels) ensureCache(ch)
+  log(`preloaded style cache for ${channels.length} channels`)
+}

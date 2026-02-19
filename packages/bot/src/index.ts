@@ -10,6 +10,7 @@ import * as db from './db'
 import { checkAnswer, isGameActive, setSay } from './trivia'
 import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes } from './emotes'
+import { preloadStyles } from './style'
 import { log } from './log'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
@@ -94,9 +95,13 @@ log(`bot: ${BOT_USERNAME} (${botUserId}), channels: ${channels.map((c) => `${c.n
 
 setLobbyChannel(BOT_USERNAME.toLowerCase())
 
-// load emotes (non-blocking)
-refreshGlobalEmotes().catch(() => {})
-for (const ch of channels) refreshChannelEmotes(ch.name, ch.userId).catch(() => {})
+// load emotes then preload style cache (non-blocking)
+Promise.all([
+  refreshGlobalEmotes().catch(() => {}),
+  ...channels.map((ch) => refreshChannelEmotes(ch.name, ch.userId).catch(() => {})),
+]).then(() => {
+  preloadStyles(channels.map((c) => c.name))
+}).catch(() => {})
 
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },

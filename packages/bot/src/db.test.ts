@@ -38,6 +38,7 @@ describe('db', () => {
   it('logs commands and increments user total', () => {
     db.logCommand({ user: 'alice', channel: 'bob' }, 'item', 'boomerang', 'Boomerang', 'Gold')
     db.logCommand({ user: 'alice', channel: 'bob' }, 'miss', 'xyzfake')
+    db.flushWrites()
 
     const stats = db.getUserStats('alice')
     expect(stats).toBeTruthy()
@@ -53,6 +54,7 @@ describe('db', () => {
     db.logCommand({ user: 'alice' }, 'item', 'boom', 'Boomerang')
     db.logCommand({ user: 'alice' }, 'item', 'boom', 'Boomerang')
     db.logCommand({ user: 'alice' }, 'item', 'shield', 'Shield')
+    db.flushWrites()
 
     const stats = db.getUserStats('alice')
     expect(stats!.favorite_item).toBe('Boomerang')
@@ -62,6 +64,7 @@ describe('db', () => {
     db.logCommand({ user: 'alice', channel: 'test' }, 'item', 'a', 'A')
     db.logCommand({ user: 'alice', channel: 'test' }, 'item', 'b', 'B')
     db.logCommand({ user: 'bob', channel: 'test' }, 'item', 'c', 'C')
+    db.flushWrites()
 
     const leaders = db.getChannelLeaderboard('test', 5)
     expect(leaders.length).toBe(2)
@@ -74,6 +77,7 @@ describe('db', () => {
     db.logCommand({ user: 'b' }, 'item', 'q', 'Boomerang')
     db.logCommand({ user: 'c' }, 'item', 'q', 'Shield')
     db.logCommand({ user: 'd' }, 'miss', 'xyz')
+    db.flushWrites()
 
     const popular = db.getPopularItems(5)
     expect(popular[0].match_name).toBe('Boomerang')

@@ -30,7 +30,14 @@ export function searchPrefix(cards: BazaarCard[], query: string, limit = 5): Baz
     .slice(0, limit)
 }
 
-export function findExact(cards: BazaarCard[], name: string) {
+export function buildTitleMap(cards: BazaarCard[]): Map<string, BazaarCard> {
+  const map = new Map<string, BazaarCard>()
+  for (const c of cards) map.set(c.Title.toLowerCase(), c)
+  return map
+}
+
+export function findExact(cards: BazaarCard[], name: string, titleMap?: Map<string, BazaarCard>) {
+  if (titleMap) return titleMap.get(name.toLowerCase())
   const lower = name.toLowerCase()
   return cards.find((c) => c.Title.toLowerCase() === lower)
 }
