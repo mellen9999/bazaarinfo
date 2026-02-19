@@ -8,7 +8,7 @@ const DB_PATH = resolve(homedir(), '.bazaarinfo.db')
 
 let db: Database
 
-type CmdType = 'item' | 'enchant' | 'mob' | 'hero' | 'skill' | 'tag' | 'day' | 'miss'
+type CmdType = 'item' | 'enchant' | 'mob' | 'hero' | 'skill' | 'tag' | 'day' | 'miss' | 'ai'
 
 const migrations: (() => void)[] = [
   // migration 0: initial schema
@@ -389,15 +389,26 @@ export function rollupDailyStats() {
 }
 
 export function cleanOldData() {
-  const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - 90)
-  const cutoffStr = cutoff.toISOString()
+  // keep everything — all chat, commands, trivia retained forever
+  log('data retention: keeping all records')
+}
 
-  db.run('DELETE FROM commands WHERE created_at < ?', [cutoffStr])
-  db.run('DELETE FROM chat_messages WHERE created_at < ?', [cutoffStr])
-  db.run('DELETE FROM trivia_answers WHERE game_id IN (SELECT id FROM trivia_games WHERE started_at < ?)', [cutoffStr])
-  db.run('DELETE FROM trivia_games WHERE started_at < ?', [cutoffStr])
-  log('cleaned data older than 90 days')
+// ai ask logging
+export function logAsk(
+  ctx: { user?: string; channel?: string },
+  query: string,
+  response: string | null,
+  tokensUsed?: number,
+  latencyMs?: number,
+) {
+  const userId = ctx.user ? getOrCreateUser(ctx.user) : null
+  db.run(
+    'INSERT INTO ask_queries (user_id, channel, query, response, tokens_used, latency_ms) VALUES (?, ?, ?, ?, ?, ?)',
+    [userId, ctx.channel ?? null, query, response, tokensUsed ?? null, latencyMs ?? null],
+  )
+  if (userId) {
+    db.run('UPDATE users SET ask_count = ask_count + 1 WHERE id = ?', [userId])
+  }
 }
 
 // alias helpers

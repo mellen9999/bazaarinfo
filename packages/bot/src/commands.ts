@@ -3,6 +3,7 @@ import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop } from './trivia'
+import { aiRespond } from './ai'
 
 const TIER_ORDER: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
 const ALIAS_ADMINS = new Set(['tidolar'])
@@ -10,6 +11,7 @@ const ALIAS_ADMINS = new Set(['tidolar'])
 export interface CommandContext {
   user?: string
   channel?: string
+  privileged?: boolean
 }
 
 type CommandHandler = (args: string, ctx: CommandContext) => string | null | Promise<string | null>
@@ -253,7 +255,13 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     return `nothing found for "${query}" — try: ${suggestions.join(', ')}` + suffix
   }
 
-  // silent miss — no response reduces spam
+  // AI fallback on miss
+  const aiResponse = await aiRespond(cleanArgs, ctx)
+  if (aiResponse) {
+    logHit('ai', cleanArgs, 'ai', ctx)
+    return aiResponse + suffix
+  }
+
   return null
 }
 

@@ -8,6 +8,7 @@ import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay } from './trivia'
+import * as chatbuf from './chatbuf'
 import { log } from './log'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
@@ -94,11 +95,12 @@ setLobbyChannel(BOT_USERNAME.toLowerCase())
 
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
-  async (channel, userId, username, text) => {
+  async (channel, userId, username, text, badges) => {
     try {
       if (userId === botUserId) return
 
       try { db.logChat(channel, username, text) } catch {}
+      chatbuf.record(channel, username, text)
 
       // check trivia answers before command routing
       if (isGameActive(channel)) {
@@ -143,7 +145,8 @@ const client = new TwitchClient(
         }
       }
 
-      const response = await handleCommand(text, { user: username, channel })
+      const privileged = badges.some((b) => b === 'subscriber' || b === 'moderator' || b === 'broadcaster' || b === 'vip')
+      const response = await handleCommand(text, { user: username, channel, privileged })
       if (response) {
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
         client.say(channel, response)

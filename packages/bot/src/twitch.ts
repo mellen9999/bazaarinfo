@@ -24,6 +24,7 @@ interface EventSubMessage {
       chatter_user_id: string
       chatter_user_login: string
       message: { text: string }
+      badges?: { set_id: string; id: string }[]
     }
   }
 }
@@ -49,7 +50,7 @@ export interface TwitchConfig {
   channels: ChannelInfo[]
 }
 
-export type MessageHandler = (channel: string, userId: string, username: string, text: string) => void
+export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[]) => void
 
 export type AuthRefreshFn = () => Promise<string>
 
@@ -163,7 +164,8 @@ export class TwitchClient {
       this.resetKeepalive()
       if (msg.metadata.subscription_type === 'channel.chat.message') {
         const e = msg.payload.event
-        this.onMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, e.message.text)
+        const badges = (e.badges ?? []).map((b: { set_id: string }) => b.set_id)
+        this.onMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, e.message.text, badges)
       }
     } else if (type === 'session_reconnect') {
       const newUrl = msg.payload.session.reconnect_url
