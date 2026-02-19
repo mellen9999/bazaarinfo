@@ -279,6 +279,7 @@ function buildSystemPrompt(): string {
 // haiku ignores prompt-level bans, so we enforce in code
 const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so)\b,?\s*/i
 const BANNED_FILLER = /\b(lol|lmao|haha)\s*$/i
+const SELF_REF = /\b(im a bot|as a bot|im just a bot|cant actually|i cant actually)\b/i
 
 export function sanitize(text: string, asker?: string): { text: string; mentions: string[] } {
   let s = text
@@ -295,6 +296,9 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
   // strip banned opener words and trailing filler (haiku cant resist these)
   s = s.replace(BANNED_OPENERS, '')
   s = s.replace(BANNED_FILLER, '')
+
+  // reject responses that self-reference being a bot
+  if (SELF_REF.test(s)) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
@@ -393,21 +397,10 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
     ? `\nActive convos: ${threads.map((t) => `${t.users.join('+')} re: ${t.topic}`).join(' | ')}`
     : ''
 
-  // who's asking + who's in recent chat
-  const askerProfile = getUserContext(ctx.user, ctx.channel)
-  const askerLine = askerProfile ? `\nAsker (${ctx.user}): ${askerProfile}` : ''
-
-  const recentUsers = [...new Set(chatContext.map((m) => m.user))]
-  const regularsLine = recentUsers.length > 0
-    ? `\nPeople in chat: ${getRegularsInChat(recentUsers, ctx.channel)}`
-    : ''
-
   const userMessage = [
     summaryLine,
     chatStr ? `Recent chat:\n${chatStr}\n` : '',
     `${ctx.user}: ${query}`,
-    askerLine,
-    regularsLine,
     threadLine,
     contextLine,
     emoteLine,
