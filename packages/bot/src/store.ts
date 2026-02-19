@@ -3,6 +3,7 @@ import { buildIndex, searchCards, findExact, searchPrefix } from '@bazaarinfo/sh
 import Fuse from 'fuse.js'
 import { resolve } from 'path'
 import { log } from './log'
+import * as db from './db'
 
 export const CACHE_PATH = resolve(import.meta.dir, '../../../cache/items.json')
 
@@ -46,6 +47,18 @@ export const ALIASES: Record<string, string> = {
   blueprint: 'Schematics',
   blueprints: 'Schematics',
   'gravity well': 'Unstable Grav Well',
+}
+
+const dynamicAliases = new Map<string, string>()
+
+function loadDynamicAliases() {
+  dynamicAliases.clear()
+  try {
+    for (const row of db.getAllAliases()) {
+      dynamicAliases.set(row.alias, row.target)
+    }
+    if (dynamicAliases.size > 0) log(`loaded ${dynamicAliases.size} dynamic aliases`)
+  } catch {}
 }
 
 let items: BazaarCard[] = []
@@ -112,6 +125,7 @@ export async function loadStore() {
     process.exit(1)
   }
   loadCache(cache)
+  loadDynamicAliases()
   log(`loaded ${items.length} items + ${skills.length} skills + ${monsters.length} monsters (cached ${cache.fetchedAt})`)
 }
 
@@ -119,6 +133,7 @@ export async function reloadStore() {
   try {
     const cache: CardCache = await Bun.file(CACHE_PATH).json()
     loadCache(cache)
+    loadDynamicAliases()
     log(`reloaded ${items.length} items + ${skills.length} skills + ${monsters.length} monsters (cached ${cache.fetchedAt})`)
   } catch (e) {
     log(`reload failed, keeping existing data: ${e}`)
@@ -126,7 +141,8 @@ export async function reloadStore() {
 }
 
 function resolveAlias(query: string): string {
-  return ALIASES[query.toLowerCase()] ?? query
+  const lower = query.toLowerCase()
+  return dynamicAliases.get(lower) ?? ALIASES[lower] ?? query
 }
 
 const SCORE_GATE = 0.15
@@ -243,3 +259,18 @@ export function getItems(): BazaarCard[] { return items }
 export function getMonsters(): Monster[] { return monsters }
 export function getSkills(): BazaarCard[] { return skills }
 export function getAllCards(): BazaarCard[] { return allCards }
+
+export function addDynamicAlias(alias: string, target: string, addedBy?: string) {
+  db.addAlias(alias, target, addedBy)
+  dynamicAliases.set(alias.toLowerCase(), target)
+}
+
+export function removeDynamicAlias(alias: string): boolean {
+  const removed = db.removeAlias(alias)
+  dynamicAliases.delete(alias.toLowerCase())
+  return removed
+}
+
+export function getDynamicAliases(): Map<string, string> {
+  return dynamicAliases
+}

@@ -5,6 +5,7 @@ import * as db from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop } from './trivia'
 
 const TIER_ORDER: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
+const ALIAS_ADMINS = new Set(['tidolar'])
 
 export interface CommandContext {
   user?: string
@@ -96,7 +97,28 @@ function resolveSkills(monster: Monster): Map<string, SkillDetail> {
 
 type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string | null | Promise<string | null>
 
+const RESERVED_SUBS = new Set([
+  'mob', 'monster', 'hero', 'tag', 'skill', 'day', 'enchants', 'enchantments',
+  'trivia', 'score', 'stats', 'top', 'alias', 'help', 'info',
+])
+
 const subcommands: [RegExp, SubHandler][] = [
+  [/^alias$/i, (_q, ctx) => {
+    if (!ctx.user || !ALIAS_ADMINS.has(ctx.user)) return 'alias management is restricted'
+    return 'usage: !b alias <slang> = <item> | !b alias del <slang> | !b alias list'
+  }],
+  [/^alias\s+list$/i, (_q, ctx) => {
+    if (!ctx.user || !ALIAS_ADMINS.has(ctx.user)) return 'alias management is restricted'
+    const aliases = store.getDynamicAliases()
+    if (aliases.size === 0) return 'no dynamic aliases set'
+    const entries = [...aliases.entries()].map(([k, v]) => `${k}→${v}`)
+    return truncate(`aliases: ${entries.join(', ')}`)
+  }],
+  [/^alias\s+del\s+(.+)$/i, (query, ctx) => {
+    if (!ctx.user || !ALIAS_ADMINS.has(ctx.user)) return 'alias management is restricted'
+    const removed = store.removeDynamicAlias(query)
+    return removed ? `removed alias "${query}"` : `no alias found for "${query}"`
+  }],
   [/^(?:mob|monster)$/i, () => 'usage: !b mob <name>'],
   [/^hero$/i, () => 'usage: !b hero <name>'],
   [/^tag$/i, () => 'usage: !b tag <tagname>'],
@@ -242,6 +264,19 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
 
   const suffix = mentions.length ? ' ' + mentions.join(' ') : ''
+
+  // alias add: !b alias <slang> = <target>
+  const aliasAdd = cleanArgs.match(/^alias\s+(.+?)\s*=\s*(.+)$/i)
+  if (aliasAdd) {
+    if (!ctx.user || !ALIAS_ADMINS.has(ctx.user)) return 'alias management is restricted'
+    const aliasKey = aliasAdd[1].trim().toLowerCase()
+    const targetQuery = aliasAdd[2].trim()
+    if (RESERVED_SUBS.has(aliasKey)) return `"${aliasKey}" is a reserved command name`
+    const match = store.exact(targetQuery) ?? store.search(targetQuery, 1)[0]
+    if (!match) return `no item found for "${targetQuery}"`
+    store.addDynamicAlias(aliasKey, match.Title, ctx.user)
+    return `alias set: ${aliasKey} → ${match.Title}`
+  }
 
   for (const [pattern, handler] of subcommands) {
     const match = cleanArgs.match(pattern)

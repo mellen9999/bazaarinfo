@@ -101,6 +101,15 @@ const migrations: (() => void)[] = [
     db.run(`CREATE INDEX idx_trivia_channel_winner ON trivia_games(channel, winner_id)`)
     db.run(`CREATE INDEX idx_commands_hits ON commands(match_name) WHERE cmd_type != 'miss'`)
   },
+  // migration 2: dynamic aliases
+  () => {
+    db.run(`CREATE TABLE aliases (
+      alias TEXT PRIMARY KEY COLLATE NOCASE,
+      target TEXT NOT NULL,
+      added_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+  },
 ]
 
 function runMigrations() {
@@ -389,4 +398,25 @@ export function cleanOldData() {
   db.run('DELETE FROM trivia_answers WHERE game_id IN (SELECT id FROM trivia_games WHERE started_at < ?)', [cutoffStr])
   db.run('DELETE FROM trivia_games WHERE started_at < ?', [cutoffStr])
   log('cleaned data older than 90 days')
+}
+
+// alias helpers
+export function addAlias(alias: string, target: string, addedBy?: string) {
+  db.run(
+    'INSERT OR REPLACE INTO aliases (alias, target, added_by) VALUES (?, ?, ?)',
+    [alias.toLowerCase(), target, addedBy ?? null],
+  )
+}
+
+export function removeAlias(alias: string): boolean {
+  const result = db.run('DELETE FROM aliases WHERE alias = ?', [alias.toLowerCase()])
+  return result.changes > 0
+}
+
+export function getAllAliases(): { alias: string; target: string; added_by: string | null }[] {
+  return db.query('SELECT alias, target, added_by FROM aliases ORDER BY alias').all() as {
+    alias: string
+    target: string
+    added_by: string | null
+  }[]
 }
