@@ -25,10 +25,23 @@ export const ALIASES: Record<string, string> = {
   'speed core': 'Companion Core',
   'haste core': 'Companion Core',
   'crit core': 'Critical Core',
+  'damage core': 'Combat Core',
+  'weapon core': 'Weaponized Core',
+  'destroy core': 'Oblivion Core',
+  'regen core': 'Primal Core',
+  'lava core': 'Magma Core',
   // punny/stylized names people won't guess
   'tommy gun': 'Tommoo Gun',
   pterodactyl: 'Terry-Dactyl',
   ptero: 'Terry-Dactyl',
+  bulldozer: 'Bill Dozer',
+  penguin: 'PenFT',
+  'mama saur': 'Momma-Saur',
+  'swiss army knife': 'Chris Army Knife',
+  // community shorthand (confirmed from player discussions)
+  oj: 'Orange Julian',
+  bob: 'Beast of Burden',
+  eels: 'Electric Eels',
   // common alternate names
   blueprint: 'Schematics',
   blueprints: 'Schematics',
