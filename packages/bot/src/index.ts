@@ -168,6 +168,7 @@ const client = new TwitchClient(
       if (response) {
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
         client.say(channel, response)
+        chatbuf.record(channel, BOT_USERNAME, response)
       }
     } catch (e) {
       log(`handler error: ${e}`)
