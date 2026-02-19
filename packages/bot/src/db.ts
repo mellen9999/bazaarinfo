@@ -393,6 +393,42 @@ export function cleanOldData() {
   log('data retention: keeping all records')
 }
 
+// channel chat style profile
+export function getChannelMessages(channel: string, limit = 5000): string[] {
+  const rows = db.query(
+    'SELECT message FROM chat_messages WHERE channel = ? ORDER BY created_at DESC LIMIT ?',
+  ).all(channel, limit) as { message: string }[]
+  return rows.map((r) => r.message)
+}
+
+// per-user chat messages
+export function getUserMessages(username: string, channel: string, limit = 500): string[] {
+  const rows = db.query(
+    'SELECT message FROM chat_messages WHERE LOWER(username) = ? AND channel = ? ORDER BY created_at DESC LIMIT ?',
+  ).all(username.toLowerCase(), channel, limit) as { message: string }[]
+  return rows.map((r) => r.message)
+}
+
+// user's top looked-up items
+export function getUserTopItems(username: string, limit = 5): string[] {
+  const lower = username.toLowerCase()
+  const rows = db.query(
+    `SELECT match_name, COUNT(*) as cnt FROM commands c
+     JOIN users u ON c.user_id = u.id
+     WHERE LOWER(u.username) = ? AND c.match_name IS NOT NULL AND c.cmd_type != 'miss'
+     GROUP BY c.match_name ORDER BY cnt DESC LIMIT ?`,
+  ).all(lower, limit) as { match_name: string; cnt: number }[]
+  return rows.map((r) => r.match_name)
+}
+
+// channel regulars (by message count)
+export function getChannelRegulars(channel: string, limit = 20): { username: string; msgs: number }[] {
+  return db.query(
+    `SELECT username, COUNT(*) as msgs FROM chat_messages
+     WHERE channel = ? GROUP BY LOWER(username) ORDER BY msgs DESC LIMIT ?`,
+  ).all(channel, limit) as { username: string; msgs: number }[]
+}
+
 // ai ask logging
 export function logAsk(
   ctx: { user?: string; channel?: string },

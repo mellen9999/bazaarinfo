@@ -9,6 +9,7 @@ import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay } from './trivia'
 import * as chatbuf from './chatbuf'
+import { refreshGlobalEmotes, refreshChannelEmotes } from './emotes'
 import { log } from './log'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
@@ -93,6 +94,10 @@ log(`bot: ${BOT_USERNAME} (${botUserId}), channels: ${channels.map((c) => `${c.n
 
 setLobbyChannel(BOT_USERNAME.toLowerCase())
 
+// load emotes (non-blocking)
+refreshGlobalEmotes().catch(() => {})
+for (const ch of channels) refreshChannelEmotes(ch.name, ch.userId).catch(() => {})
+
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
   async (channel, userId, username, text, badges) => {
@@ -176,6 +181,8 @@ scheduleDaily(4, async () => {
   await reloadStore()
   db.rollupDailyStats()
   db.cleanOldData()
+  await refreshGlobalEmotes()
+  for (const ch of channels) await refreshChannelEmotes(ch.name, ch.userId)
   log('daily refresh complete')
 })
 

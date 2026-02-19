@@ -2,6 +2,8 @@ import type { BazaarCard, Monster, TierName } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
 import { getRecent } from './chatbuf'
+import { getEmotesForChannel } from './emotes'
+import { getChannelStyle, getUserContext, getRegularsInChat } from './style'
 import { log } from './log'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
@@ -204,13 +206,20 @@ function buildSystemPrompt(): string {
   const tags = store.getTagNames().join(', ')
 
   return [
-    'You are a knowledgeable expert on The Bazaar, a card game created by Reynad (also played by Kripp).',
-    'Answer questions in Twitch chat style — concise, casual, helpful.',
+    'Bazaar expert. Twitch chat regular. Reynad\'s card game, Kripp plays it.',
+    '',
+    'Style: terse stat-sheet for game questions, not sentences. Use | separators. Names + numbers, skip filler.',
+    'Example: "Burn items: Hot Sauce (B:3/S:5/G:7), Flamethrower (B:10/S:15) | burns deal dmg/tick"',
+    '',
+    'Personality: chill chatter who remembers people. Roast back playfully if roasted. Part of the community.',
+    'Emotes: ONLY use when the context is perfect. Most messages should have ZERO emotes.',
+    'A well-placed single emote hits harder than spamming them. If unsure, skip the emote.',
+    'Never use emotes in stat/data responses. Only in banter where the emote is the punchline.',
     '',
     'Rules:',
-    '- MUST use tools to look up data before answering. NEVER fabricate stats, numbers, or item details.',
-    '- Keep responses under 200 chars when possible. No markdown. No trailing questions. No self-reference as bot or AI.',
-    '- Cite actual numbers from tool results. If tools return no data, say you couldn\'t find it.',
+    '- MUST use tools before answering game questions. NEVER fabricate stats.',
+    '- MAX 200 chars. No markdown. No trailing questions. No self-reference as bot/AI.',
+    '- List item names + real numbers from tools. Skip generic explanations.',
     '',
     `Heroes: ${heroes}`,
     `Tags: ${tags}`,
@@ -257,9 +266,28 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<string |
     ? chatContext.map((m) => `${m.user}: ${m.text}`).join('\n')
     : ''
 
-  const userMessage = chatStr
-    ? `Recent chat:\n${chatStr}\n\nQuestion from ${ctx.user}: ${query}`
-    : `Question from ${ctx.user}: ${query}`
+  const emotes = getEmotesForChannel(ctx.channel)
+  const emoteLine = emotes.length > 0 ? `\nAvailable emotes: ${emotes.join(' ')}` : ''
+  const styleLine = getChannelStyle(ctx.channel)
+  const contextLine = styleLine ? `\nChannel: ${styleLine}` : ''
+
+  // who's asking + who's in recent chat
+  const askerProfile = getUserContext(ctx.user, ctx.channel)
+  const askerLine = askerProfile ? `\nAsker (${ctx.user}): ${askerProfile}` : ''
+
+  const recentUsers = [...new Set(chatContext.map((m) => m.user))]
+  const regularsLine = recentUsers.length > 0
+    ? `\nPeople in chat: ${getRegularsInChat(recentUsers, ctx.channel)}`
+    : ''
+
+  const userMessage = [
+    chatStr ? `Recent chat:\n${chatStr}\n` : '',
+    `Question from ${ctx.user}: ${query}`,
+    askerLine,
+    regularsLine,
+    contextLine,
+    emoteLine,
+  ].filter(Boolean).join('')
 
   const systemPrompt = buildSystemPrompt()
 
