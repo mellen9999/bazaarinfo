@@ -322,10 +322,12 @@ export class TwitchClient {
     }
   }
 
-  private ircSend(msg: string) {
+  private ircSend(msg: string): boolean {
     if (this.irc?.readyState === WebSocket.OPEN) {
       this.irc.send(msg + '\r\n')
+      return true
     }
+    return false
   }
 
   private reconnectIrc() {
@@ -336,8 +338,8 @@ export class TwitchClient {
     while (this.ircQueue.length > 0 && this.canSend()) {
       const { channel, text } = this.ircQueue.shift()!
       this.sendTimes.push(Date.now())
-      if (this.ircReady) {
-        this.ircSend(`PRIVMSG #${channel} :${text}`)
+      if (this.ircReady && this.ircSend(`PRIVMSG #${channel} :${text}`)) {
+        // sent via IRC
       } else {
         await this.helixSend(channel, text)
       }
@@ -443,8 +445,8 @@ export class TwitchClient {
     }
     this.sendTimes.push(Date.now())
     // prefer IRC (instant WebSocket) over Helix (HTTP round-trip)
-    if (this.ircReady) {
-      this.ircSend(`PRIVMSG #${channel} :${text}`)
+    if (this.ircReady && this.ircSend(`PRIVMSG #${channel} :${text}`)) {
+      // sent via IRC
     } else {
       const sent = await this.helixSend(channel, text)
       if (!sent) log(`helix send failed for #${channel}, irc not ready`)
