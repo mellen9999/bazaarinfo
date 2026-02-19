@@ -16,6 +16,23 @@ export const ALIASES: Record<string, string> = {
   ufo: 'Boosted Saucer',
   saucer: 'Boosted Saucer',
   pyg: 'Pygmalien',
+  // core items by mechanic tag (title doesn't hint at the tag)
+  'flying core': 'Launcher Core',
+  'flight core': 'Launcher Core',
+  'fire core': 'Ignition Core',
+  'burn core': 'Ignition Core',
+  'shield core': 'Armored Core',
+  'speed core': 'Companion Core',
+  'haste core': 'Companion Core',
+  'crit core': 'Critical Core',
+  // punny/stylized names people won't guess
+  'tommy gun': 'Tommoo Gun',
+  pterodactyl: 'Terry-Dactyl',
+  ptero: 'Terry-Dactyl',
+  // common alternate names
+  blueprint: 'Schematics',
+  blueprints: 'Schematics',
+  'gravity well': 'Unstable Grav Well',
 }
 
 let items: BazaarCard[] = []
