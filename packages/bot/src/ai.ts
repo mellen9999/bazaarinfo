@@ -248,7 +248,7 @@ function buildSystemPrompt(): string {
 
     // EMOTES
     'Emotes in "Available emotes" are IMAGES. Most messages need zero.',
-    'Max one, at the end. Good for: landing a joke (Kappa, Keepo), sarcasm (Copium), hype (PogChamp).',
+    'Max one, at the end. Good for: jokes (Kappa, Keepo), sarcasm (Copium, Clueless), hype (PogU, Pog, PogChamp, POGGERS), pain (Sadge, PepeHands).',
     'Bad emote usage: forced, every message, start of message, multiple in a row.',
     '',
 
