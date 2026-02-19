@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { sanitize } from './ai'
+import { sanitize, getBrevity, recordUsage } from './ai'
 
 describe('sanitize', () => {
   it('strips markdown bold', () => {
@@ -93,5 +93,32 @@ describe('sanitize', () => {
   it('handles string that is only a banned opener', () => {
     const r = sanitize('alright so')
     expect(r.text).toBe('')
+  })
+})
+
+describe('getBrevity', () => {
+  it('returns 0 for first-time user', () => {
+    expect(getBrevity('newuser_' + Date.now())).toBe(0)
+  })
+
+  it('escalates with repeated use', () => {
+    const user = 'spammer_' + Date.now()
+    // 0 history = normal
+    expect(getBrevity(user)).toBe(0)
+    recordUsage(user) // 1 entry
+    // 1 entry - 1 = still 0 (first use is free)
+    expect(getBrevity(user)).toBe(0)
+    recordUsage(user) // 2 entries
+    expect(getBrevity(user)).toBe(1)
+    recordUsage(user) // 3 entries
+    expect(getBrevity(user)).toBe(2)
+    recordUsage(user) // 4 entries
+    expect(getBrevity(user)).toBe(3)
+  })
+
+  it('caps at 3', () => {
+    const user = 'maxcap_' + Date.now()
+    for (let i = 0; i < 10; i++) recordUsage(user)
+    expect(getBrevity(user)).toBe(3)
   })
 })

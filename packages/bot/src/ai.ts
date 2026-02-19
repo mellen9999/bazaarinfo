@@ -42,6 +42,35 @@ function checkRateLimit(user: string, channel: string): number {
   return 0
 }
 
+// --- frequency-based brevity (heavy users get shorter responses) ---
+
+const userHistory = new Map<string, number[]>()
+const BREVITY_WINDOW = 10 * 60_000 // 10 min window
+
+/** returns a brevity level 0-3 based on recent usage. 0 = normal, 3 = ultra terse */
+export function getBrevity(user: string): number {
+  const now = Date.now()
+  const times = (userHistory.get(user) ?? []).filter((t) => now - t < BREVITY_WINDOW)
+  userHistory.set(user, times)
+  // 1st use = 0, 2nd = 1, 3rd = 2, 4+ = 3
+  return Math.min(3, Math.max(0, times.length - 1))
+}
+
+export function recordUsage(user: string) {
+  const now = Date.now()
+  const times = (userHistory.get(user) ?? []).filter((t) => now - t < BREVITY_WINDOW)
+  times.push(now)
+  userHistory.set(user, times)
+}
+
+const BREVITY_TOKENS = [150, 100, 70, 50] as const
+const BREVITY_HINTS = [
+  '',
+  '\n(keep it short, ~100 chars)',
+  '\n(be terse. ~60 chars max.)',
+  '\n(ultra brief. one punchy line. 40 chars.)',
+] as const
+
 // --- low-value filter ---
 
 function isLowValue(query: string): boolean {
@@ -408,6 +437,9 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
     ? `\nActive convos: ${threads.map((t) => `${t.users.join('+')} re: ${t.topic}`).join(' | ')}`
     : ''
 
+  const brevity = getBrevity(ctx.user)
+  recordUsage(ctx.user)
+
   const userMessage = [
     summaryLine,
     chatStr ? `Recent chat:\n${chatStr}\n` : '',
@@ -415,6 +447,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
     threadLine,
     contextLine,
     emoteLine,
+    BREVITY_HINTS[brevity],
   ].filter(Boolean).join('')
 
   const systemPrompt = buildSystemPrompt()
@@ -429,7 +462,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 
       const body: Record<string, unknown> = {
         model: MODEL,
-        max_tokens: MAX_TOKENS,
+        max_tokens: BREVITY_TOKENS[brevity],
         system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
         messages,
       }
