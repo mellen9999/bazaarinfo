@@ -71,6 +71,7 @@ mock.module('./trivia', () => ({
   isGameActive: mock(() => false),
   setSay: mock(() => {}),
   matchAnswer: mock(() => false),
+  invalidateAliasCache: mock(() => {}),
   looksLikeAnswer: mock(() => true),
   resetForTest: mock(() => {}),
   getActiveGameForTest: mock(() => undefined),

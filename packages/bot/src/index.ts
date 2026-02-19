@@ -8,6 +8,7 @@ import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay } from './trivia'
+import { invalidatePromptCache } from './ai'
 import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes } from './emotes'
 import { preloadStyles } from './style'
@@ -185,6 +186,7 @@ scheduleDaily(4, async () => {
   try {
     await refreshData()
     await reloadStore()
+    invalidatePromptCache()
   } catch (e) {
     log(`daily data refresh failed: ${e}`)
   }

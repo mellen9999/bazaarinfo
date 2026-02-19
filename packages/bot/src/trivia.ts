@@ -5,8 +5,15 @@ import { log } from './log'
 import { resolveTooltip } from '@bazaarinfo/shared'
 import type { BazaarCard, Monster, TierName } from '@bazaarinfo/shared'
 
+let reverseAliasCache: Map<string, string[]> | null = null
+
+export function invalidateAliasCache() {
+  reverseAliasCache = null
+}
+
 // reverse alias map: "BLU-B33TL3" → ["beetle"], "BLK-SP1D3R" → ["spider"]
 function buildReverseAliases(): Map<string, string[]> {
+  if (reverseAliasCache) return reverseAliasCache
   const map = new Map<string, string[]>()
   // static aliases
   for (const [nick, title] of Object.entries(ALIASES)) {
@@ -20,6 +27,7 @@ function buildReverseAliases(): Map<string, string[]> {
     if (!map.has(lower)) map.set(lower, [])
     map.get(lower)!.push(nick.toLowerCase())
   }
+  reverseAliasCache = map
   return map
 }
 
@@ -54,7 +62,7 @@ interface TriviaState {
 
 const activeGames = new Map<string, TriviaState>()
 const lastGameEnd = new Map<string, number>()
-const recentTypes: number[] = []
+const recentTypes = new Map<string, number[]>()
 let globalSay: SayFn = () => {}
 
 export function setSay(fn: SayFn) {
@@ -311,11 +319,12 @@ const CATEGORY_GENERATORS: Record<TriviaCategory, number[]> = {
   monsters: [3, 6, 9],          // board item, day, monster skill
 }
 
-function pickQuestionType(category?: TriviaCategory): number {
+function pickQuestionType(channel: string, category?: TriviaCategory): number {
+  const recent = recentTypes.get(channel) ?? []
   const allowedIndices = category ? CATEGORY_GENERATORS[category] : generators.map((_, i) => i)
   const available = allowedIndices
     .filter((i) => {
-      const recentCount = recentTypes.filter((t) => t === i).length
+      const recentCount = recent.filter((t) => t === i).length
       return recentCount < 2
     })
 
@@ -369,15 +378,17 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
   let q: ReturnType<QuestionGen> = null
   let attempts = 0
   while (!q && attempts < 20) {
-    const typeIdx = pickQuestionType(category)
+    const typeIdx = pickQuestionType(channel, category)
     q = generators[typeIdx]()
     attempts++
   }
   if (!q) return `couldn't generate a question, try again`
 
-  // track recent types
-  recentTypes.push(q.type)
-  if (recentTypes.length > RECENT_BUFFER_SIZE) recentTypes.shift()
+  // track recent types per-channel
+  const recent = recentTypes.get(channel) ?? []
+  recent.push(q.type)
+  if (recent.length > RECENT_BUFFER_SIZE) recent.shift()
+  recentTypes.set(channel, recent)
 
   const gameId = db.createTriviaGame(channel, q.type, q.question, q.answer)
 
@@ -496,7 +507,7 @@ export { matchAnswer, looksLikeAnswer }
 export function resetForTest() {
   activeGames.clear()
   lastGameEnd.clear()
-  recentTypes.length = 0
+  recentTypes.clear()
 }
 
 export function getActiveGameForTest(channel: string) {

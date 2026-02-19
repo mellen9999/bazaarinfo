@@ -203,13 +203,20 @@ function executeTool(name: string, input: Record<string, unknown>): string {
   }
 }
 
-// --- system prompt ---
+// --- system prompt (cached, invalidated on daily reload) ---
+
+let cachedSystemPrompt = ''
+
+export function invalidatePromptCache() {
+  cachedSystemPrompt = ''
+}
 
 function buildSystemPrompt(): string {
+  if (cachedSystemPrompt) return cachedSystemPrompt
   const heroes = store.getHeroNames().join(', ')
   const tags = store.getTagNames().join(', ')
 
-  return [
+  cachedSystemPrompt = [
     'Bazaar expert. Twitch chat regular. Reynad\'s card game, Kripp plays it.',
     '',
     'Style: terse stat-sheet for game questions, not sentences. Use | separators. Names + numbers, skip filler.',
@@ -232,6 +239,7 @@ function buildSystemPrompt(): string {
     `Heroes: ${heroes}`,
     `Tags: ${tags}`,
   ].join('\n')
+  return cachedSystemPrompt
 }
 
 // --- response sanitization ---

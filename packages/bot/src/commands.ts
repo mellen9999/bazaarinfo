@@ -2,7 +2,7 @@ import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatD
 import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
-import { startTrivia, getTriviaScore, formatStats, formatTop } from './trivia'
+import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
 import { aiRespond } from './ai'
 
 const ALIAS_ADMINS = new Set(['tidolar'])
@@ -107,6 +107,7 @@ const subcommands: [RegExp, SubHandler][] = [
   [/^alias\s+del\s+(.+)$/i, (query, ctx) => {
     if (!ctx.user || !ALIAS_ADMINS.has(ctx.user)) return 'alias management is restricted'
     const removed = store.removeDynamicAlias(query)
+    if (removed) invalidateAliasCache()
     return removed ? `removed alias "${query}"` : `no alias found for "${query}"`
   }],
   [/^(?:mob|monster)$/i, () => 'usage: !b mob <name>'],
@@ -277,6 +278,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     const match = store.exact(targetQuery) ?? store.search(targetQuery, 1)[0]
     if (!match) return `no item found for "${targetQuery}"`
     store.addDynamicAlias(aliasKey, match.Title, ctx.user)
+    invalidateAliasCache()
     return `alias set: ${aliasKey} → ${match.Title}`
   }
 

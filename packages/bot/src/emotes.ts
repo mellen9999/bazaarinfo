@@ -1,10 +1,7 @@
 import { log } from './log'
 
-interface SevenTVEmote {
-  name: string
-}
-
 const channelEmotes = new Map<string, string[]>()
+const mergedCache = new Map<string, string[]>()
 let globalEmotes: string[] = []
 let lastGlobalFetch = 0
 const REFRESH_INTERVAL = 24 * 60 * 60_000 // 1 day
@@ -41,6 +38,7 @@ export async function refreshGlobalEmotes() {
   if (fetched.length > 0) {
     globalEmotes = fetched
     lastGlobalFetch = Date.now()
+    mergedCache.clear()
     log(`loaded ${globalEmotes.length} 7TV global emotes`)
   }
 }
@@ -52,13 +50,18 @@ export async function refreshChannelEmotes(channel: string, channelId: string) {
   )
   if (fetched.length > 0) {
     channelEmotes.set(channel, fetched)
+    mergedCache.delete(channel)
     log(`loaded ${fetched.length} 7TV emotes for #${channel}`)
   }
 }
 
 export function getEmotesForChannel(channel: string): string[] {
+  const cached = mergedCache.get(channel)
+  if (cached) return cached
   const ch = channelEmotes.get(channel) ?? []
-  return [...new Set([...KNOWN_GLOBALS, ...globalEmotes, ...ch])]
+  const merged = [...new Set([...KNOWN_GLOBALS, ...globalEmotes, ...ch])]
+  mergedCache.set(channel, merged)
+  return merged
 }
 
 export function needsGlobalRefresh(): boolean {
