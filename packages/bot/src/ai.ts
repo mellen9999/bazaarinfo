@@ -21,18 +21,22 @@ const USER_COOLDOWN = 30_000
 const CHANNEL_LIMIT = 20
 const CHANNEL_WINDOW = 5 * 60_000
 
-function checkRateLimit(user: string, channel: string): boolean {
+/** returns 0 if allowed, or remaining cooldown seconds */
+function checkRateLimit(user: string, channel: string): number {
   const now = Date.now()
   const last = userLastAsk.get(user)
-  if (last && now - last < USER_COOLDOWN) return false
+  if (last && now - last < USER_COOLDOWN) return Math.ceil((USER_COOLDOWN - (now - last)) / 1000)
 
   const times = channelAsks.get(channel) ?? []
   const recent = times.filter((t) => now - t < CHANNEL_WINDOW)
-  if (recent.length >= CHANNEL_LIMIT) return false
+  if (recent.length >= CHANNEL_LIMIT) {
+    const oldest = recent[0]
+    return Math.ceil((CHANNEL_WINDOW - (now - oldest)) / 1000)
+  }
 
   userLastAsk.set(user, now)
   channelAsks.set(channel, [...recent, now])
-  return true
+  return 0
 }
 
 // --- low-value filter ---
@@ -269,7 +273,10 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (isLowValue(query)) return null
   if (!ctx.user || !ctx.channel) return null
   const exempt = ctx.privileged || EXEMPT_USERS.has(ctx.user)
-  if (!exempt && !checkRateLimit(ctx.user, ctx.channel)) return null
+  if (!exempt) {
+    const cd = checkRateLimit(ctx.user, ctx.channel)
+    if (cd > 0) return { text: `${cd}s`, mentions: [] }
+  }
 
   const chatContext = getRecent(ctx.channel, 15)
   const chatStr = chatContext.length > 0
