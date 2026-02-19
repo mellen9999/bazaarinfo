@@ -23,34 +23,21 @@ const KNOWN_GLOBALS = [
   'pepega', 'WideHardo', '5Head', '3Head', 'pepeDS', 'RainTime',
 ]
 
-async function fetch7TVGlobal(): Promise<string[]> {
+async function fetch7TV(url: string, extract: (data: any) => { name: string }[]): Promise<string[]> {
   try {
-    const res = await fetch('https://7tv.io/v3/emote-sets/global', {
-      signal: AbortSignal.timeout(10_000),
-    })
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) })
     if (!res.ok) return []
-    const data = await res.json() as { emotes?: { name: string }[] }
-    return (data.emotes ?? []).map((e) => e.name)
-  } catch {
-    return []
-  }
-}
-
-async function fetch7TVChannel(channelId: string): Promise<string[]> {
-  try {
-    const res = await fetch(`https://7tv.io/v3/users/twitch/${channelId}`, {
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (!res.ok) return []
-    const data = await res.json() as { emote_set?: { emotes?: { name: string }[] } }
-    return (data.emote_set?.emotes ?? []).map((e) => e.name)
+    return extract(await res.json()).map((e) => e.name)
   } catch {
     return []
   }
 }
 
 export async function refreshGlobalEmotes() {
-  const fetched = await fetch7TVGlobal()
+  const fetched = await fetch7TV(
+    'https://7tv.io/v3/emote-sets/global',
+    (d) => d.emotes ?? [],
+  )
   if (fetched.length > 0) {
     globalEmotes = fetched
     lastGlobalFetch = Date.now()
@@ -59,7 +46,10 @@ export async function refreshGlobalEmotes() {
 }
 
 export async function refreshChannelEmotes(channel: string, channelId: string) {
-  const fetched = await fetch7TVChannel(channelId)
+  const fetched = await fetch7TV(
+    `https://7tv.io/v3/users/twitch/${channelId}`,
+    (d) => d.emote_set?.emotes ?? [],
+  )
   if (fetched.length > 0) {
     channelEmotes.set(channel, fetched)
     log(`loaded ${fetched.length} 7TV emotes for #${channel}`)
