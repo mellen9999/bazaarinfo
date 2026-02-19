@@ -23,7 +23,6 @@ let stmts: {
   selectUser: Statement
   selectUserFav: Statement
   channelLeaderboard: Statement
-  popularItems: Statement
   insertTriviaGame: Statement
   lastInsertId: Statement
   insertTriviaAnswer: Statement
@@ -70,11 +69,6 @@ function prepareStatements() {
        WHERE c.channel = ?
        GROUP BY c.user_id ORDER BY total_commands DESC LIMIT ?`,
     ),
-    popularItems: db.prepare(
-      `SELECT match_name, COUNT(*) as cnt FROM commands
-       WHERE match_name IS NOT NULL AND cmd_type != 'miss'
-       GROUP BY match_name ORDER BY cnt DESC LIMIT ?`,
-    ),
     insertTriviaGame: db.prepare(
       'INSERT INTO trivia_games (channel, question_type, question_text, correct_answer) VALUES (?, ?, ?, ?)',
     ),
@@ -100,10 +94,10 @@ function prepareStatements() {
     incrTriviaAttempt: db.prepare('UPDATE users SET trivia_attempts = trivia_attempts + 1 WHERE id = ?'),
     resetTriviaStreak: db.prepare('UPDATE users SET trivia_streak = 0 WHERE id = ?'),
     triviaLeaderboard: db.prepare(
-      `SELECT u.username, u.trivia_wins FROM users u
+      `SELECT u.username, COUNT(*) as trivia_wins FROM users u
        JOIN trivia_games tg ON tg.winner_id = u.id
-       WHERE tg.channel = ? AND u.trivia_wins > 0
-       GROUP BY u.id ORDER BY u.trivia_wins DESC LIMIT ?`,
+       WHERE tg.channel = ?
+       GROUP BY u.id ORDER BY trivia_wins DESC LIMIT ?`,
     ),
     channelMessages: db.prepare(
       'SELECT message FROM chat_messages WHERE channel = ? ORDER BY created_at DESC LIMIT ?',
@@ -402,9 +396,6 @@ export function getChannelLeaderboard(channel: string, limit = 5): { username: s
   return stmts.channelLeaderboard.all(channel, limit) as { username: string; total_commands: number }[]
 }
 
-export function getPopularItems(limit = 10): { match_name: string; cnt: number }[] {
-  return stmts.popularItems.all(limit) as { match_name: string; cnt: number }[]
-}
 
 // trivia helpers
 export function createTriviaGame(

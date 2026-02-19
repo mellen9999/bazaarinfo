@@ -1,7 +1,7 @@
 {
   "name": "bazaarinfo",
   "scripts": {
-    "test": "bun test packages/shared/ packages/data/ packages/bot/src/commands.test.ts && bun test packages/bot/src/trivia.test.ts && bun test packages/bot/src/db.test.ts"
+    "test": "bun test packages/shared/ packages/data/ packages/bot/src/commands.test.ts && bun test packages/bot/src/trivia.test.ts && bun test packages/bot/src/db.test.ts && bun test packages/bot/src/sanitize.test.ts"
   },
   "devDependencies": {
     "bun-types": "^1.3.9"

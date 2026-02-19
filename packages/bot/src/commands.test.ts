@@ -59,6 +59,14 @@ mock.module('./db', () => ({
 }))
 
 
+// --- mock ai ---
+mock.module('./ai', () => ({
+  aiRespond: mock(() => null),
+  initSummarizer: mock(() => {}),
+  invalidatePromptCache: mock(() => {}),
+  sanitize: mock((t: string) => ({ text: t, mentions: [] })),
+}))
+
 // --- mock trivia ---
 mock.module('./trivia', () => ({
   startTrivia: mock(() => 'Trivia! test question (30s to answer)'),

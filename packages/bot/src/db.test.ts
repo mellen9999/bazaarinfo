@@ -72,18 +72,6 @@ describe('db', () => {
     expect(leaders[0].total_commands).toBe(2)
   })
 
-  it('popular items works', () => {
-    db.logCommand({ user: 'a' }, 'item', 'q', 'Boomerang')
-    db.logCommand({ user: 'b' }, 'item', 'q', 'Boomerang')
-    db.logCommand({ user: 'c' }, 'item', 'q', 'Shield')
-    db.logCommand({ user: 'd' }, 'miss', 'xyz')
-    db.flushWrites()
-
-    const popular = db.getPopularItems(5)
-    expect(popular[0].match_name).toBe('Boomerang')
-    expect(popular[0].cnt).toBe(2)
-  })
-
   it('trivia lifecycle works', () => {
     const gameId = db.createTriviaGame('test', 1, 'Which item?', 'Boomerang')
     expect(gameId).toBeGreaterThan(0)

@@ -279,7 +279,8 @@ describe('looksLikeAnswer', () => {
 
   it('filters 1-2 char noise when answers are long', () => {
     expect(looksLikeAnswer('hi', game({ acceptedAnswers: ['boomerang'] }))).toBe(false)
-    expect(looksLikeAnswer('lol', game({ acceptedAnswers: ['boomerang'] }))).toBe(true) // 3 chars = ok
+    expect(looksLikeAnswer('lol', game({ acceptedAnswers: ['boomerang'] }))).toBe(false) // chat noise
+    expect(looksLikeAnswer('axe', game({ acceptedAnswers: ['boomerang'] }))).toBe(true) // 3 chars real word = ok
   })
 
   it('allows short input when accepted answers are short', () => {

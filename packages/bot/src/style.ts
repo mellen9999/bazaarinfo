@@ -99,23 +99,7 @@ export function getChannelStyle(channel: string): string {
   return styleCache.get(channel)?.profile ?? ''
 }
 
-export function getUserContext(username: string, channel: string): string {
-  ensureCache(channel)
-  return styleCache.get(channel)?.regulars.get(username.toLowerCase()) ?? ''
-}
 
-export function getRegularsInChat(usernames: string[], channel: string): string {
-  ensureCache(channel)
-  const cache = styleCache.get(channel)
-  if (!cache) return ''
-
-  const profiles: string[] = []
-  for (const u of usernames) {
-    const p = cache.regulars.get(u.toLowerCase())
-    if (p) profiles.push(`${u}: ${p}`)
-  }
-  return profiles.slice(0, 5).join(' | ')
-}
 
 function ensureCache(channel: string) {
   const now = Date.now()

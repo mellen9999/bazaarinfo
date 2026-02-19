@@ -5,12 +5,12 @@ import * as db from './db'
 import { getRecent, getSummary, getActiveThreads, setSummarizer } from './chatbuf'
 import type { ChatEntry } from './chatbuf'
 import { formatEmotesForAI } from './emotes'
-import { getChannelStyle, getUserContext, getRegularsInChat } from './style'
+import { getChannelStyle } from './style'
 import { log } from './log'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
-const MAX_TOKENS = 250
+const MAX_TOKENS = 150
 const TIMEOUT = 15_000
 const MAX_ROUNDS = 3
 const EXEMPT_USERS = new Set(['mellen', 'tidolar', 'oliyoun', 'luna_bright', 'deadlockb'])
@@ -234,6 +234,15 @@ function buildSystemPrompt(): string {
     'The goal is: every response should sound like it came from the most interesting person in chat.',
     '',
 
+    // CRITICAL ANTI-PATTERNS (these make you sound like a bot)
+    'NEVER narrate what someone asked. "X just asked about Y" / "looks like youre asking" = instant cringe.',
+    'NEVER repeat the same callback more than once per conversation. If you already mentioned something, move on.',
+    'NEVER open with "alright", "look", "ok so", "man", "dude" — you do this constantly, stop.',
+    'NEVER commentate on chat like a sports announcer ("chats been unhinged", "the natural evolution").',
+    'NEVER say "respect the commitment" or "thats just how it goes" — these are your verbal tics.',
+    'Just respond to the person directly. Skip the preamble. Skip the meta-commentary.',
+    '',
+
     // VOICE
     'lowercase. dry wit. opinionated. you sound like you\'ve played 500 hours of this game.',
     'you can be sarcastic, blunt, warm, conspiratorial, deadpan — whatever the moment calls for.',
@@ -255,7 +264,8 @@ function buildSystemPrompt(): string {
 
     // OUTPUT RULES
     'Your output goes DIRECTLY into Twitch chat. never output thoughts or reasoning.',
-    'Max 250 chars (well under twitchs limit). no markdown. no trailing questions.',
+    'HARD LIMIT: 200 chars. Seriously. Count them. Most messages should be 80-150 chars.',
+    'No markdown. No trailing questions.',
     'Never use the askers name — they get auto-tagged at the end.',
     '@mention OTHERS only, at the end.',
     '',
@@ -273,9 +283,10 @@ function buildSystemPrompt(): string {
 // --- response sanitization ---
 
 // haiku ignores prompt-level bans, so we enforce in code
-const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so)\b,?\s*/i
+const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|dude)\b,?\s*/i
 const BANNED_FILLER = /\b(lol|lmao|haha)\s*$/i
 const SELF_REF = /\b(im a bot|as a bot|im just a bot|cant actually|i cant actually)\b/i
+const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 
 export function sanitize(text: string, asker?: string): { text: string; mentions: string[] } {
   let s = text
@@ -291,6 +302,10 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
 
   // strip banned opener words and trailing filler (haiku cant resist these)
   s = s.replace(BANNED_OPENERS, '')
+  // re-strip in case "alright so look," left a second opener
+  s = s.replace(BANNED_OPENERS, '')
+  // strip narration ("X just asked about Y" / "is asking me to")
+  s = s.replace(NARRATION, '')
   s = s.replace(BANNED_FILLER, '')
 
   // reject responses that self-reference being a bot

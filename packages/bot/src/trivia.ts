@@ -345,6 +345,15 @@ function matchAnswer(cleaned: string, accepted: string[]): boolean {
 
 // filter out obvious non-answers (random chat, emotes, short noise)
 // called on raw trimmed text (before lowercase/punctuation stripping)
+// common chat noise that should never count as trivia attempts
+const CHAT_NOISE = new Set([
+  'gg', 'ez', 'lol', 'lmao', 'pog', 'kek', 'rip', 'oof', 'bruh', 'cope',
+  'true', 'based', 'real', 'ratio', 'nice', 'nah', 'yep', 'yea', 'yeah',
+  'nope', 'same', 'omg', 'wow', 'hype', 'lets go', 'sadge', 'copium',
+  'kekw', 'pepega', 'monkas', 'poggers', 'lul', 'omegalul', 'xd', 'f',
+  'w', 'l', 'hi', 'hey', 'yo', 'sup', 'bye',
+])
+
 function looksLikeAnswer(text: string, game: TriviaState): boolean {
   if (text.length < MIN_ANSWER_LENGTH) return false
   // skip messages that start with ! (bot commands)
@@ -353,7 +362,9 @@ function looksLikeAnswer(text: string, game: TriviaState): boolean {
   if (/^https?:\/\/\S+$/i.test(text)) return false
   // skip long messages — likely normal chat, not trivia answers
   if (text.length > 50) return false
-  const lower = text.toLowerCase()
+  const lower = text.toLowerCase().trim()
+  // skip common chat noise
+  if (CHAT_NOISE.has(lower)) return false
   // for numeric answers (day questions, count questions), allow short
   if (game.acceptedAnswers.some((a) => /^\d+$/.test(a)) && /\d/.test(lower)) return true
   // skip very short messages (1-2 chars) unless they could be answers
