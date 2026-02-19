@@ -262,8 +262,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     return aiResult.text + tags
   }
 
-  // static fallback when AI is unavailable
-  return `not an item — try !b help for commands` + suffix
+  return `nothing found for "${query}"` + suffix
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {
