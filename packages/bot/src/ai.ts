@@ -273,7 +273,10 @@ function buildSystemPrompt(): string {
 
 // --- response sanitization ---
 
-export function sanitize(text: string): { text: string; mentions: string[] } {
+// haiku ignores prompt-level bans, so we enforce in code
+const BANNED_OPENERS = /^(yo|hey|sup)\b,?\s*/i
+
+export function sanitize(text: string, asker?: string): { text: string; mentions: string[] } {
   let s = text
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
@@ -284,6 +287,14 @@ export function sanitize(text: string): { text: string; mentions: string[] } {
       const ms = parseInt(n)
       return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${n}ms`
     })
+
+  // strip banned opener words (haiku cant resist these)
+  s = s.replace(BANNED_OPENERS, '')
+
+  // strip asker's name from body — they get auto-tagged at the end
+  if (asker) {
+    s = s.replace(new RegExp(`\\b${asker}\\b,?\\s*`, 'gi'), '')
+  }
 
   // extract @mentions from body — caller dedupes and appends at end
   const mentions = (s.match(/@\w+/g) ?? []).map((m) => m.toLowerCase())
@@ -389,7 +400,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   const userMessage = [
     summaryLine,
     chatStr ? `Recent chat:\n${chatStr}\n` : '',
-    `Question from ${ctx.user}: ${query}`,
+    `${ctx.user}: ${query}`,
     askerLine,
     regularsLine,
     threadLine,
@@ -445,7 +456,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
       const textBlock = data.content?.find((b) => b.type === 'text')
 
       if (textBlock?.text && data.stop_reason === 'end_turn') {
-        const result = sanitize(textBlock.text)
+        const result = sanitize(textBlock.text, ctx.user)
         try {
           const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
           db.logAsk(ctx, query, result.text, tokens, latency)
@@ -458,7 +469,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
       const toolUses = data.content?.filter((b) => b.type === 'tool_use') ?? []
       if (toolUses.length === 0) {
         if (textBlock?.text) {
-          const result = sanitize(textBlock.text)
+          const result = sanitize(textBlock.text, ctx.user)
           try {
             const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
             db.logAsk(ctx, query, result.text, tokens, latency)
