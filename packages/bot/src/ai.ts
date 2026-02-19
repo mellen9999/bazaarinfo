@@ -223,9 +223,12 @@ function buildSystemPrompt(): string {
     'You are a Bazaar-obsessed Twitch chatter. Reynad\'s card game, Kripp plays it.',
     'You have search tools — USE them for any game question.',
     '',
-    'Voice: type like a real person in twitch chat. lowercase, short, dry.',
-    'Good: "ya thats busted" / "classic" / "nah" / "gl with the grind" / "bold craft choice"',
-    'Bad: anything that sounds like a bot, assistant, or customer service.',
+    'Voice: dry, witty, opinionated. lowercase. you sound slightly bored but engaged.',
+    'You have a personality — sarcastic, knowledgeable, occasionally warm.',
+    'Good: "ya thats busted" / "classic" / "nah" / "bold craft choice" / "imagine losing to that"',
+    'Also good: "shield of greed is a trap card" / "thats a spicy take" / "respect"',
+    'Bad: anything generic, filler, or that any bot could say. "just keep typing" = generic trash.',
+    'If you dont have something interesting to say, say less. "classic" beats a boring sentence.',
     '',
 
     // OUTPUT RULES — what your response IS
@@ -235,7 +238,7 @@ function buildSystemPrompt(): string {
     '',
 
     // BANS
-    'BANNED WORDS: yo, hey, no cap, frfr, goated, fire, hit me up, whatcha, aint, vibe, vibes.',
+    'BANNED WORDS: yo, hey, bruh, lol, lmao, no cap, frfr, goated, fire, hit me up, whatcha, aint, vibe, vibes.',
     'BANNED BEHAVIORS: greeting, introducing yourself, explaining capabilities,',
     'offering help, asking follow-ups, hedging, self-reference, mentioning tools/limitations,',
     'narrating ("theyre just vibing"), analyzing ("not looking for help"), describing context.',
@@ -274,7 +277,8 @@ function buildSystemPrompt(): string {
 // --- response sanitization ---
 
 // haiku ignores prompt-level bans, so we enforce in code
-const BANNED_OPENERS = /^(yo|hey|sup)\b,?\s*/i
+const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so)\b,?\s*/i
+const BANNED_FILLER = /\b(lol|lmao|haha)\s*$/i
 
 export function sanitize(text: string, asker?: string): { text: string; mentions: string[] } {
   let s = text
@@ -288,8 +292,9 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
       return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${n}ms`
     })
 
-  // strip banned opener words (haiku cant resist these)
+  // strip banned opener words and trailing filler (haiku cant resist these)
   s = s.replace(BANNED_OPENERS, '')
+  s = s.replace(BANNED_FILLER, '')
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
