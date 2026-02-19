@@ -247,10 +247,16 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   const aiResult = await aiRespond(cleanArgs, ctx)
   if (aiResult) {
     logHit('ai', cleanArgs, 'ai', ctx)
-    // collect all mentions: asker + AI-generated + original message, dedupe, append at end
+    // collect mentions: AI-generated + original message, dedupe, append at end
+    // skip @asker if their name already appears in the response body
     const allMentions = new Set<string>()
-    if (ctx.user) allMentions.add(`@${ctx.user}`)
-    for (const m of aiResult.mentions) allMentions.add(m)
+    const textLower = aiResult.text.toLowerCase()
+    const userLower = ctx.user?.toLowerCase() ?? ''
+    const alreadyNamed = userLower && new RegExp(`\\b${userLower}\\b`).test(textLower)
+    if (ctx.user && !alreadyNamed) allMentions.add(`@${ctx.user}`)
+    for (const m of aiResult.mentions) {
+      if (m.toLowerCase() !== `@${userLower}`) allMentions.add(m)
+    }
     for (const m of (suffix.match(/@\w+/g) ?? [])) allMentions.add(m.toLowerCase())
     const tags = allMentions.size > 0 ? ' ' + [...allMentions].join(' ') : ''
     return aiResult.text + tags
