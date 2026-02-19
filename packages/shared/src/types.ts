@@ -35,7 +35,7 @@ export interface BazaarCard {
 
 export interface MonsterBoardEntry {
   title: string
-  tier: string
+  tier: TierName
   id: string
 }
 

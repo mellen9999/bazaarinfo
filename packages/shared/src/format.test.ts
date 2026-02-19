@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults } from './format'
-import type { BazaarCard, TierName, Monster, SkillDetail } from './types'
+import type { BazaarCard, TierName, Monster } from './types'
+import type { SkillDetail } from './format'
 
 function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
   return {

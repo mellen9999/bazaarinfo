@@ -122,7 +122,7 @@ function genTagQuestion(): ReturnType<QuestionGen> {
 // type 3: which item has these abilities? (tooltip → item)
 function genTooltipQuestion(): ReturnType<QuestionGen> {
   const items = store.getItems().filter((c) =>
-    c.Tooltips.length > 0 && !FAKE_HEROES.has(c.Heroes[0]),
+    c.Tooltips.length > 0 && c.Heroes.length > 0 && !FAKE_HEROES.has(c.Heroes[0]),
   )
   if (items.length === 0) return null
   const item = pickRandom(items)

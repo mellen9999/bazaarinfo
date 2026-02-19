@@ -1,7 +1,10 @@
-import type { BazaarCard, Monster, CardCache, DumpTooltip, DumpEnchantment, ReplacementValue, TierName, MonsterBoardEntry } from '@bazaarinfo/shared'
+import type { BazaarCard, Monster, CardCache, DumpTooltip, DumpEnchantment, ReplacementValue, TierName, ItemSize, MonsterBoardEntry } from '@bazaarinfo/shared'
 
 const DUMP_URL = 'https://bazaardb.gg/dump.json'
 const USER_AGENT = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
+
+const VALID_TIERS = new Set<string>(['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary'])
+const VALID_SIZES = new Set<string>(['Small', 'Medium', 'Large'])
 
 interface DumpEntry {
   Type: string
@@ -37,13 +40,23 @@ function computeDisplayTags(entry: DumpEntry): string[] {
   )
 }
 
+function validTier(t: string): TierName {
+  if (!VALID_TIERS.has(t)) throw new Error(`unknown tier: ${t}`)
+  return t as TierName
+}
+
+function validSize(s: string): ItemSize {
+  if (!VALID_SIZES.has(s)) throw new Error(`unknown size: ${s}`)
+  return s as ItemSize
+}
+
 function toCard(entry: DumpEntry): BazaarCard {
   return {
     Type: entry.Type as 'Item' | 'Skill',
     Title: entry.Title,
-    Size: entry.Size as BazaarCard['Size'],
-    BaseTier: entry.BaseTier as TierName,
-    Tiers: entry.Tiers as TierName[],
+    Size: validSize(entry.Size),
+    BaseTier: validTier(entry.BaseTier),
+    Tiers: entry.Tiers.map(validTier),
     Heroes: entry.Heroes ?? [],
     Tags: entry.Tags ?? [],
     HiddenTags: entry.HiddenTags ?? [],
@@ -60,7 +73,7 @@ function toMonster(entry: DumpEntry): Monster | null {
   return {
     Type: 'CombatEncounter',
     Title: entry.Title,
-    Size: entry.Size as Monster['Size'],
+    Size: validSize(entry.Size),
     Tags: entry.Tags ?? [],
     DisplayTags: computeDisplayTags(entry),
     HiddenTags: entry.HiddenTags ?? [],
@@ -98,6 +111,10 @@ function parseDump(dump: Record<string, DumpEntry>): CardCache {
   return { items, skills, monsters, fetchedAt: new Date().toISOString() }
 }
 
+// exported for testing
+export { computeDisplayTags, toCard, toMonster, parseDump }
+export type { DumpEntry }
+
 export async function scrapeDump(onProgress?: (msg: string) => void): Promise<CardCache> {
   let lastErr: Error | undefined
 
@@ -110,7 +127,9 @@ export async function scrapeDump(onProgress?: (msg: string) => void): Promise<Ca
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
-      const raw = await res.json()
+      const text = await res.text()
+      let raw: unknown
+      try { raw = JSON.parse(text) } catch { throw new Error('response body was not valid JSON') }
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
         throw new Error('unexpected dump.json shape (not an object)')
       }

@@ -18,6 +18,7 @@ type CommandHandler = (args: string, ctx: CommandContext) => string | null | Pro
 const TIERS = ['bronze', 'silver', 'gold', 'diamond', 'legendary']
 
 function capitalize(s: string): string {
+  if (!s) return s
   return s[0].toUpperCase() + s.slice(1)
 }
 

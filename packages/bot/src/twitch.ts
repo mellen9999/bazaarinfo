@@ -155,8 +155,8 @@ export class TwitchClient {
     const type = msg.metadata?.message_type
 
     if (type === 'session_welcome') {
-      this.sessionId = msg.payload.session.id
-      this.keepaliveMs = (msg.payload.session.keepalive_timeout_seconds ?? 10) * 1000
+      this.sessionId = msg.payload.session?.id ?? ''
+      this.keepaliveMs = (msg.payload.session?.keepalive_timeout_seconds ?? 10) * 1000
       log(`eventsub connected, session: ${this.sessionId}`)
       this.eventsubBackoff = BACKOFF_BASE // reset on success
       await this.subscribeAll()

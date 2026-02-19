@@ -182,7 +182,8 @@ export function exact(name: string) {
 function wordIncludes(text: string, query: string): boolean {
   if (query.length < 3) return false
   const idx = text.indexOf(query)
-  return idx > 0 && /[\s\-']/.test(text[idx - 1])
+  if (idx < 0) return false
+  return idx === 0 || /[\s\-']/.test(text[idx - 1])
 }
 
 function findInList(list: string[], query: string): string | undefined {

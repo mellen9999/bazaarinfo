@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { buildIndex, searchCards } from './search'
+import { buildIndex, searchCards, searchPrefix, buildTitleMap, findExact } from './search'
 import type { BazaarCard } from './types'
 
 function makeCard(title: string): BazaarCard {
@@ -91,5 +91,58 @@ describe('searchCards score gate', () => {
   it('garbage query returns empty after gate', () => {
     const results = gatedSearch('xyzgarbage')
     expect(results).toHaveLength(0)
+  })
+})
+
+describe('searchPrefix', () => {
+  it('matches by title prefix', () => {
+    const results = searchPrefix(cards, 'boom')
+    expect(results).toHaveLength(1)
+    expect(results[0].Title).toBe('Boomerang')
+  })
+
+  it('is case insensitive', () => {
+    const results = searchPrefix(cards, 'ROCK')
+    expect(results).toHaveLength(1)
+    expect(results[0].Title).toBe('Rocket Boots')
+  })
+
+  it('returns empty for no match', () => {
+    expect(searchPrefix(cards, 'zzz')).toHaveLength(0)
+  })
+
+  it('respects limit', () => {
+    const manyCards = [makeCard('Axe A'), makeCard('Axe B'), makeCard('Axe C')]
+    const results = searchPrefix(manyCards, 'axe', 2)
+    expect(results).toHaveLength(2)
+  })
+})
+
+describe('buildTitleMap + findExact', () => {
+  it('findExact with titleMap', () => {
+    const map = buildTitleMap(cards)
+    const result = findExact(cards, 'Boomerang', map)
+    expect(result?.Title).toBe('Boomerang')
+  })
+
+  it('findExact is case insensitive', () => {
+    const map = buildTitleMap(cards)
+    expect(findExact(cards, 'SHIELD', map)?.Title).toBe('Shield')
+  })
+
+  it('findExact without titleMap (linear scan)', () => {
+    const result = findExact(cards, 'Horse Shoe')
+    expect(result?.Title).toBe('Horse Shoe')
+  })
+
+  it('findExact returns undefined for no match', () => {
+    const map = buildTitleMap(cards)
+    expect(findExact(cards, 'nonexistent', map)).toBeUndefined()
+  })
+
+  it('buildTitleMap overwrites duplicate titles (last wins)', () => {
+    const dupes = [makeCard('Sword'), makeCard('Sword')]
+    const map = buildTitleMap(dupes)
+    expect(map.size).toBe(1)
   })
 })

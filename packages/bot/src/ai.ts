@@ -355,8 +355,8 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
   const mentions = (s.match(/@\w+/g) ?? []).map((m) => m.toLowerCase())
   s = s.replace(/@\w+/g, '').replace(/\s{2,}/g, ' ')
 
-  // trim trailing question sentence
-  s = s.replace(/\s+[A-Z][^.!]*\?\s*$/, '')
+  // trim trailing question sentence (only short trailing questions to avoid eating real content)
+  s = s.replace(/\s+[A-Z][^.!]{0,60}\?\s*$/, '')
 
   return { text: s.trim(), mentions }
 }
