@@ -104,18 +104,16 @@ export function formatMonster(monster: Monster, skillDetails?: Map<string, Skill
 
   const items: string[] = []
   const skills: string[] = []
-  const itemCounts = new Map<string, number>()
-  const itemLabels = new Map<string, string>()
+  const boardGroups = new Map<string, { label: string; count: number }>()
 
   for (const b of meta.board) {
     const key = `${b.title}|${b.tier}`
-    const emoji = TIER_EMOJI[b.tier] ?? ''
-    itemCounts.set(key, (itemCounts.get(key) ?? 0) + 1)
-    if (!itemLabels.has(key)) itemLabels.set(key, `${emoji}${b.title}`)
+    const existing = boardGroups.get(key)
+    if (existing) existing.count++
+    else boardGroups.set(key, { label: `${TIER_EMOJI[b.tier] ?? ''}${b.title}`, count: 1 })
   }
 
-  for (const [key, label] of itemLabels) {
-    const count = itemCounts.get(key)!
+  for (const { label, count } of boardGroups.values()) {
     items.push(count > 1 ? `${label} x${count}` : label)
   }
 
