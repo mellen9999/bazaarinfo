@@ -23,18 +23,64 @@ function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
 
 // --- test data ---
 // need 5+ items per tag for fair-difficulty tag questions (TAG_MIN=5)
+// need 5+ same hero+size for type 5, 3+ same hero+displaytag for type 6
+// need 5+ items with same mechanic keyword for type 8
 const sword = makeCard({
-  Title: 'Sword', Heroes: ['Vanessa'], HiddenTags: ['Weapon'],
+  Title: 'Sword', Heroes: ['Vanessa'], HiddenTags: ['Weapon'], DisplayTags: ['Weapon'],
   Tooltips: [{ text: 'Deal {DamageAmount} Damage', type: 'Active' }],
   TooltipReplacements: { '{DamageAmount}': { Fixed: 10 } },
 })
-const axe = makeCard({ Title: 'Axe', Heroes: ['Dooley'], HiddenTags: ['Weapon'] })
-const dagger = makeCard({ Title: 'Dagger', Heroes: ['Vanessa'], HiddenTags: ['Weapon', 'Crit'] })
-const towerShield = makeCard({ Title: 'Tower Shield', Heroes: ['Dooley'], HiddenTags: ['Shield'] })
+const axe = makeCard({
+  Title: 'Axe', Heroes: ['Dooley'], HiddenTags: ['Weapon'],
+  Tooltips: [{ text: 'Shield {Amount}', type: 'Active' }],
+  TooltipReplacements: { '{Amount}': { Fixed: 5 } },
+})
+const dagger = makeCard({
+  Title: 'Dagger', Heroes: ['Vanessa'], HiddenTags: ['Weapon', 'Crit'], DisplayTags: ['Weapon'],
+  Tooltips: [{ text: 'Shield {Amount}', type: 'Active' }],
+  TooltipReplacements: { '{Amount}': { Fixed: 8 } },
+})
+const towerShield = makeCard({
+  Title: 'Tower Shield', Heroes: ['Dooley'], HiddenTags: ['Shield'],
+  Tooltips: [{ text: 'Shield {Amount}', type: 'Active' }],
+  TooltipReplacements: { '{Amount}': { Fixed: 20 } },
+})
 const beetle = makeCard({ Title: 'BLU-B33TL3', Heroes: ['Pygmalien'], HiddenTags: ['Weapon'] })
-const healSalve = makeCard({ Title: 'Healing Salve', Heroes: ['Stelle'], HiddenTags: ['Weapon'] })
-const mace = makeCard({ Title: 'Mace', Heroes: ['Dooley'], HiddenTags: ['Weapon'] })
-const allItems = [sword, axe, dagger, towerShield, beetle, healSalve, mace]
+const healSalve = makeCard({
+  Title: 'Healing Salve', Heroes: ['Vanessa'], HiddenTags: ['Weapon'], DisplayTags: ['Weapon'],
+  Tooltips: [{ text: 'Shield {Amount}', type: 'Active' }],
+  TooltipReplacements: { '{Amount}': { Fixed: 15 } },
+})
+const mace = makeCard({
+  Title: 'Mace', Heroes: ['Dooley'], HiddenTags: ['Weapon'],
+  Tooltips: [{ text: 'Shield {Amount}', type: 'Active' }],
+  TooltipReplacements: { '{Amount}': { Fixed: 10 } },
+})
+// extra Vanessa Medium items for hero+size (need 5+)
+const crossbow = makeCard({
+  Title: 'Crossbow', Heroes: ['Vanessa'], HiddenTags: ['Weapon'], DisplayTags: ['Weapon'],
+  Tooltips: [{ text: 'Slow {Amount}', type: 'Active' }],
+  TooltipReplacements: { '{Amount}': { Fixed: 3 } },
+})
+const net = makeCard({
+  Title: 'Net', Heroes: ['Vanessa'], HiddenTags: ['Weapon'], DisplayTags: ['Weapon'],
+  Tooltips: [{ text: 'Freeze for {Amount}s', type: 'Active' }],
+  TooltipReplacements: { '{Amount}': { Fixed: 2 } },
+})
+const allItems = [sword, axe, dagger, towerShield, beetle, healSalve, mace, crossbow, net]
+
+// skill fixtures for type 9
+const skillFireImmunity = makeCard({
+  Type: 'Skill', Title: 'Fire Immunity', Heroes: ['Jules'],
+  Tooltips: [{ text: 'Your items are immune to Burn', type: 'Passive' }],
+  TooltipReplacements: {},
+})
+const skillSwiftFlight = makeCard({
+  Type: 'Skill', Title: 'Swift Flight', Heroes: ['Stelle'],
+  Tooltips: [{ text: 'Your Flying items gain Haste', type: 'Passive' }],
+  TooltipReplacements: {},
+})
+const allSkills = [skillFireImmunity, skillSwiftFlight]
 
 const spider: Monster = {
   Type: 'CombatEncounter', Title: 'BLK-SP1D3R', Size: 'Medium',
@@ -45,7 +91,7 @@ const spider: Monster = {
       { title: 'Web Shot', tier: 'Bronze', id: 'b1' },
       { title: 'Fang', tier: 'Bronze', id: 'b2' },
     ],
-    skills: [],
+    skills: [{ title: 'Venomous', tier: 'Bronze', id: 's1' }],
   },
   Shortlink: 'https://bzdb.to/spider',
 }
@@ -58,7 +104,7 @@ const dragon: Monster = {
       { title: 'Fire Breath', tier: 'Gold', id: 'b3' },
       { title: 'Scale Armor', tier: 'Gold', id: 'b4' },
     ],
-    skills: [],
+    skills: [{ title: 'Fire Aura', tier: 'Gold', id: 's2' }],
   },
   Shortlink: 'https://bzdb.to/dragon',
 }
@@ -69,9 +115,9 @@ mock.module('./store', () => ({
   ALIASES: { beetle: 'BLU-B33TL3', spider: 'BLK-SP1D3R' },
   getItems: mock(() => allItems),
   getMonsters: mock(() => allMonsters),
-  getHeroNames: mock(() => ['Vanessa', 'Dooley', 'Pygmalien', 'Stelle']),
-  getSkills: mock(() => []),
-  getAllCards: mock(() => allItems),
+  getHeroNames: mock(() => ['Vanessa', 'Dooley', 'Pygmalien', 'Stelle', 'Jules']),
+  getSkills: mock(() => allSkills),
+  getAllCards: mock(() => [...allItems, ...allSkills]),
   exact: mock(() => undefined),
   search: mock(() => []),
   findMonster: mock(() => undefined),
@@ -291,13 +337,13 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([2, 3]).toContain(t) // tag, tooltip
+      expect([2, 3, 5, 6, 8]).toContain(t)
     }
   })
 
   it('heroes category generates hero types', () => {
     const types = new Set<number>()
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 50; i++) {
       resetForTest()
       mockCreateTriviaGame.mockImplementation(() => i + 1)
       startTrivia('#test', 'heroes')
@@ -305,13 +351,13 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([1]).toContain(t) // type 1 = hero
+      expect([1, 9]).toContain(t)
     }
   })
 
   it('monsters category generates monster types', () => {
     const types = new Set<number>()
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 50; i++) {
       resetForTest()
       mockCreateTriviaGame.mockImplementation(() => i + 1)
       startTrivia('#test', 'monsters')
@@ -319,7 +365,7 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([4]).toContain(t) // monster board
+      expect([4, 7, 10]).toContain(t)
     }
   })
 
@@ -332,7 +378,7 @@ describe('startTrivia', () => {
       const game = getActiveGameForTest('#test')
       if (game) types.add(game.questionType)
     }
-    expect(types.size).toBeGreaterThanOrEqual(3)
+    expect(types.size).toBeGreaterThanOrEqual(5)
   })
 })
 
@@ -529,6 +575,225 @@ describe('monster board question (type 4)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// hero+size question (type 5)
+// ---------------------------------------------------------------------------
+describe('hero+size question (type 5)', () => {
+  it('generates valid hero+size question', () => {
+    let found = false
+    for (let i = 0; i < 100; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'items')
+      const game = getActiveGameForTest('#test')
+      if (game && game.questionType === 5) {
+        expect(game.question).toMatch(/Name a (Small|Medium|Large) \w+ item/)
+        expect(game.acceptedAnswers.length).toBeGreaterThanOrEqual(5)
+        found = true
+        break
+      }
+    }
+    expect(found).toBe(true)
+  })
+
+  it('accepted answers are lowercase item names', () => {
+    let found = false
+    for (let i = 0; i < 100; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'items')
+      const game = getActiveGameForTest('#test')
+      if (game && game.questionType === 5) {
+        for (const a of game.acceptedAnswers) {
+          expect(a).toBe(a.toLowerCase())
+        }
+        found = true
+        break
+      }
+    }
+    expect(found).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// hero+displaytag question (type 6)
+// ---------------------------------------------------------------------------
+describe('hero+displaytag question (type 6)', () => {
+  it('generates valid hero+tag question', () => {
+    let found = false
+    for (let i = 0; i < 100; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'items')
+      const game = getActiveGameForTest('#test')
+      if (game && game.questionType === 6) {
+        expect(game.question).toMatch(/Name a \w+ \w+/)
+        expect(game.acceptedAnswers.length).toBeGreaterThanOrEqual(3)
+        found = true
+        break
+      }
+    }
+    expect(found).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// monster day question (type 7)
+// ---------------------------------------------------------------------------
+describe('monster day question (type 7)', () => {
+  it('generates valid monster day question', () => {
+    let found = false
+    for (let i = 0; i < 100; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'monsters')
+      const game = getActiveGameForTest('#test')
+      if (game && game.questionType === 7) {
+        expect(game.question).toContain('What day do you fight')
+        found = true
+        break
+      }
+    }
+    expect(found).toBe(true)
+  })
+
+  it('accepts both numeric and "day N" format', () => {
+    let found = false
+    for (let i = 0; i < 100; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'monsters')
+      const game = getActiveGameForTest('#test')
+      if (game && game.questionType === 7) {
+        // accepted should contain both "3" and "day 3" (or "7" and "day 7")
+        const numeric = game.acceptedAnswers.find((a: string) => /^\d+$/.test(a))
+        const dayFmt = game.acceptedAnswers.find((a: string) => /^day \d+$/.test(a))
+        expect(numeric).toBeDefined()
+        expect(dayFmt).toBeDefined()
+        found = true
+        break
+      }
+    }
+    expect(found).toBe(true)
+  })
+
+  it('answer displays as Day N', () => {
+    let found = false
+    for (let i = 0; i < 100; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'monsters')
+      const game = getActiveGameForTest('#test')
+      if (game && game.questionType === 7) {
+        expect(game.correctAnswer).toMatch(/^Day \d+$/)
+        found = true
+        break
+      }
+    }
+    expect(found).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// mechanic question (type 8)
+// ---------------------------------------------------------------------------
+describe('mechanic question (type 8)', () => {
+  it('generates valid mechanic question', () => {
+    let found = false
+    for (let i = 0; i < 100; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'items')
+      const game = getActiveGameForTest('#test')
+      if (game && game.questionType === 8) {
+        expect(game.question).toContain('Name an item that')
+        expect(game.acceptedAnswers.length).toBeGreaterThanOrEqual(5)
+        found = true
+        break
+      }
+    }
+    expect(found).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// hero skill question (type 9)
+// ---------------------------------------------------------------------------
+describe('hero skill question (type 9)', () => {
+  it('generates valid hero skill question', () => {
+    let found = false
+    for (let i = 0; i < 100; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'heroes')
+      const game = getActiveGameForTest('#test')
+      if (game && game.questionType === 9) {
+        expect(game.question).toContain('Which hero has the skill:')
+        expect(game.acceptedAnswers.length).toBe(1)
+        found = true
+        break
+      }
+    }
+    expect(found).toBe(true)
+  })
+
+  it('answer is a hero name', () => {
+    let found = false
+    for (let i = 0; i < 100; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'heroes')
+      const game = getActiveGameForTest('#test')
+      if (game && game.questionType === 9) {
+        expect(['Jules', 'Stelle']).toContain(game.correctAnswer)
+        found = true
+        break
+      }
+    }
+    expect(found).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// monster skill question (type 10)
+// ---------------------------------------------------------------------------
+describe('monster skill question (type 10)', () => {
+  it('generates valid monster skill question', () => {
+    let found = false
+    for (let i = 0; i < 100; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'monsters')
+      const game = getActiveGameForTest('#test')
+      if (game && game.questionType === 10) {
+        expect(game.question).toContain('Which monster has the skill')
+        expect(game.acceptedAnswers.length).toBeGreaterThanOrEqual(1)
+        found = true
+        break
+      }
+    }
+    expect(found).toBe(true)
+  })
+
+  it('accepted answers are lowercase monster names', () => {
+    let found = false
+    for (let i = 0; i < 100; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'monsters')
+      const game = getActiveGameForTest('#test')
+      if (game && game.questionType === 10) {
+        for (const a of game.acceptedAnswers) {
+          expect(a).toBe(a.toLowerCase())
+        }
+        found = true
+        break
+      }
+    }
+    expect(found).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // stylized names
 // ---------------------------------------------------------------------------
 describe('stylized name matching', () => {
@@ -678,6 +943,6 @@ describe('question variety', () => {
       const game = getActiveGameForTest('#test')
       if (game) types.push(game.questionType)
     }
-    expect(new Set(types).size).toBeGreaterThanOrEqual(3)
+    expect(new Set(types).size).toBeGreaterThanOrEqual(5)
   })
 })

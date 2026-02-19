@@ -147,19 +147,170 @@ function genMonsterBoardQuestion(): ReturnType<QuestionGen> {
   }
 }
 
+// type 5: name a [Size] [Hero] item
+function genHeroSizeQuestion(): ReturnType<QuestionGen> {
+  const valid = store.getItems().filter((c) =>
+    c.Heroes.length === 1 && !FAKE_HEROES.has(c.Heroes[0]),
+  )
+  const comboMap = new Map<string, string[]>()
+  for (const item of valid) {
+    const key = `${item.Heroes[0]}|${item.Size}`
+    if (!comboMap.has(key)) comboMap.set(key, [])
+    comboMap.get(key)!.push(item.Title.toLowerCase())
+  }
+  const combos = [...comboMap.entries()].filter(([, items]) => items.length >= 5)
+  if (combos.length === 0) return null
+  const [key, items] = pickRandom(combos)
+  const [hero, size] = key.split('|')
+  return {
+    question: `Name a ${size} ${hero} item`,
+    answer: `any ${size} ${hero} item`,
+    accepted: addNicknames(items),
+    type: 5,
+  }
+}
+
+// type 6: name a [Hero] [DisplayTag]
+function genHeroTagQuestion(): ReturnType<QuestionGen> {
+  const valid = store.getItems().filter((c) =>
+    c.Heroes.length === 1 && !FAKE_HEROES.has(c.Heroes[0]) && c.DisplayTags.length > 0,
+  )
+  const comboMap = new Map<string, string[]>()
+  for (const item of valid) {
+    for (const tag of item.DisplayTags) {
+      const key = `${item.Heroes[0]}|${tag}`
+      if (!comboMap.has(key)) comboMap.set(key, [])
+      comboMap.get(key)!.push(item.Title.toLowerCase())
+    }
+  }
+  const combos = [...comboMap.entries()].filter(([, items]) => items.length >= 3 && items.length <= 30)
+  if (combos.length === 0) return null
+  const [key, items] = pickRandom(combos)
+  const [hero, tag] = key.split('|')
+  return {
+    question: `Name a ${hero} ${tag}`,
+    answer: `any ${hero} ${tag}`,
+    accepted: addNicknames(items),
+    type: 6,
+  }
+}
+
+// type 7: what day do you fight [Monster]?
+function genMonsterDayQuestion(): ReturnType<QuestionGen> {
+  const valid = store.getMonsters().filter((m) => m.MonsterMetadata.day !== null)
+  if (valid.length === 0) return null
+  const monster = pickRandom(valid)
+  const day = String(monster.MonsterMetadata.day)
+  return {
+    question: `What day do you fight ${monster.Title}?`,
+    answer: `Day ${day}`,
+    accepted: [day, `day ${day}`],
+    type: 7,
+  }
+}
+
+// type 8: name an item that [mechanic]s
+const MECHANIC_VERBS: Record<string, string> = {
+  Freeze: 'Freezes',
+  Burn: 'Burns',
+  Poison: 'Poisons',
+  Shield: 'Shields',
+  Heal: 'Heals',
+  Slow: 'Slows',
+  Haste: 'gives Haste',
+  Crit: 'Crits',
+  Ammo: 'uses Ammo',
+  Destroy: 'Destroys',
+  Regen: 'Regens',
+}
+
+function genMechanicQuestion(): ReturnType<QuestionGen> {
+  const mechMap = new Map<string, string[]>()
+  for (const item of store.getItems()) {
+    for (const t of item.Tooltips) {
+      for (const keyword of Object.keys(MECHANIC_VERBS)) {
+        if (t.text.includes(keyword)) {
+          if (!mechMap.has(keyword)) mechMap.set(keyword, [])
+          const lower = item.Title.toLowerCase()
+          if (!mechMap.get(keyword)!.includes(lower)) mechMap.get(keyword)!.push(lower)
+        }
+      }
+    }
+  }
+  const fair = [...mechMap.entries()].filter(([, items]) => items.length >= 5)
+  if (fair.length === 0) return null
+  const [keyword, items] = pickRandom(fair)
+  const verb = MECHANIC_VERBS[keyword]
+  return {
+    question: `Name an item that ${verb}`,
+    answer: `any item that ${verb}`,
+    accepted: addNicknames(items),
+    type: 8,
+  }
+}
+
+// type 9: which hero has the skill: [desc]?
+function genHeroSkillQuestion(): ReturnType<QuestionGen> {
+  const heroSkills = store.getSkills().filter((s) =>
+    s.Heroes.length === 1 && !FAKE_HEROES.has(s.Heroes[0]) && s.Tooltips.length > 0,
+  )
+  if (heroSkills.length === 0) return null
+  const skill = pickRandom(heroSkills)
+  const desc = skill.Tooltips
+    .map((t) => resolveTooltip(t.text, skill.TooltipReplacements))
+    .join(' | ')
+  if (desc.length > 200 || desc.includes('{')) return null
+  const hero = skill.Heroes[0]
+  return {
+    question: `Which hero has the skill: ${desc}`,
+    answer: hero,
+    accepted: [hero.toLowerCase()],
+    type: 9,
+  }
+}
+
+// type 10: which monster has [Skill]?
+function genMonsterSkillQuestion(): ReturnType<QuestionGen> {
+  const valid = store.getMonsters().filter((m) => m.MonsterMetadata.skills.length > 0)
+  if (valid.length === 0) return null
+  const skillMap = new Map<string, string[]>()
+  for (const m of valid) {
+    for (const s of m.MonsterMetadata.skills) {
+      if (!skillMap.has(s.title)) skillMap.set(s.title, [])
+      const lower = m.Title.toLowerCase()
+      if (!skillMap.get(s.title)!.includes(lower)) skillMap.get(s.title)!.push(lower)
+    }
+  }
+  const skills = [...skillMap.entries()].filter(([, ms]) => ms.length <= 5)
+  if (skills.length === 0) return null
+  const [skillName, ms] = pickRandom(skills)
+  return {
+    question: `Which monster has the skill "${skillName}"?`,
+    answer: ms.length === 1 ? ms[0] : `any of: ${ms.join(', ')}`,
+    accepted: addNicknames(ms),
+    type: 10,
+  }
+}
+
 const generators: QuestionGen[] = [
   genHeroQuestion,          // 0
   genTagQuestion,           // 1
   genTooltipQuestion,       // 2
   genMonsterBoardQuestion,  // 3
+  genHeroSizeQuestion,      // 4
+  genHeroTagQuestion,       // 5
+  genMonsterDayQuestion,    // 6
+  genMechanicQuestion,      // 7
+  genHeroSkillQuestion,     // 8
+  genMonsterSkillQuestion,  // 9
 ]
 
 type TriviaCategory = 'items' | 'heroes' | 'monsters'
 
 const CATEGORY_GENERATORS: Record<TriviaCategory, number[]> = {
-  items: [1, 2],             // tag, tooltip
-  heroes: [0],               // hero
-  monsters: [3],             // monster board
+  items: [1, 2, 4, 5, 7],       // tag, tooltip, hero+size, hero+tag, mechanic
+  heroes: [0, 8],                // hero-from-item, hero-from-skill
+  monsters: [3, 6, 9],          // board item, day, monster skill
 }
 
 function pickQuestionType(category?: TriviaCategory): number {
