@@ -204,37 +204,47 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
     byMood.set(mood, [...pinned, ...rest])
   }
 
-  // high-value moods get more slots — these are the ones chatters actually use expressively
+  // spotlight: detailed descriptions for rotating selection
   const MOOD_BUDGET: Record<string, number> = {
     love: 5, funny: 4, hype: 4, sad: 3, happy: 3, greeting: 3,
     sarcasm: 3, dance: 2, cute: 2, celebration: 2, chad: 2,
     shock: 2, scared: 2, thinking: 2, rage: 2, cringe: 2,
     cool: 1, confused: 1, neutral: 1,
   }
-  const MAX_TOTAL = 45
-  let total = 0
+  const MAX_SPOTLIGHT = 45
+  let spotlightTotal = 0
   const lines: string[] = []
-  // sort moods by budget (high-value first) to guarantee they get slots
   const sortedMoods = [...byMood.keys()].sort((a, b) => (MOOD_BUDGET[b] ?? 1) - (MOOD_BUDGET[a] ?? 1))
+
   for (const mood of sortedMoods) {
-    if (total >= MAX_TOTAL) break
+    const entries = byMood.get(mood)!
     const budget = MOOD_BUDGET[mood] ?? 1
-    const take = Math.min(budget, MAX_TOTAL - total)
-    const entries = byMood.get(mood)!.slice(0, take)
-    lines.push(`  ${mood}: ${entries.join(' ')}`)
-    total += entries.length
+    const take = Math.min(budget, MAX_SPOTLIGHT - spotlightTotal)
+
+    // spotlight entries with full descriptions
+    const spotlight = entries.slice(0, take)
+    // remaining entries — names only (model knows most from name alone)
+    const rest = entries.slice(take).map((e) => e.split('(')[0])
+
+    let line = `  ${mood}: ${spotlight.join(' ')}`
+    if (rest.length > 0) line += ` | also: ${rest.join(' ')}`
+    lines.push(line)
+    spotlightTotal += spotlight.length
   }
 
-  if (overlays.length > 0 && total < MAX_TOTAL) {
-    // shuffle overlays too
+  if (overlays.length > 0) {
     for (let i = overlays.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [overlays[i], overlays[j]] = [overlays[j], overlays[i]]
     }
-    lines.push(`  [OVERLAYS — combine with another emote]: ${overlays.slice(0, 5).join(' ')}`)
+    const spotlightOv = overlays.slice(0, 5)
+    const restOv = overlays.slice(5).map((e) => e.split('(')[0])
+    let line = `  [OVERLAYS — combine with another emote]: ${spotlightOv.join(' ')}`
+    if (restOv.length > 0) line += ` | also: ${restOv.join(' ')}`
+    lines.push(line)
   }
 
-  return `Emotes (0-1 per msg, only when perfect — list rotates so pick from whats here):\n${lines.join('\n')}`
+  return `Emotes (0-1 per msg, only when perfect — spotlight rotates, pick from ANY listed):\n${lines.join('\n')}`
 }
 
 /** pick a random emote by mood for a channel — returns empty string if none found */
