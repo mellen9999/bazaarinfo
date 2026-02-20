@@ -344,11 +344,11 @@ function buildSystemPrompt(): string {
 // haiku ignores prompt-level bans, so we enforce in code
 const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|dude)\b,?\s*/i
 const BANNED_FILLER = /\b(lol|lmao|haha)\s*$/i
-const SELF_REF = /\b(im a bot|as a bot|im just a bot|cant actually|i cant actually)\b/i
+const SELF_REF = /\b(im a bot|as a bot|im just a bot|as an ai|im (just )?an ai)\b/i
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chats been (absolutely )?unhinged|speedrun(ning)?)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
-const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|they'?re? (joking|asking|trying)|is an emote[( ]|in real life\)|leaking|internal thoughts|chain of thought|you could have used|you should use the)\b/i
+const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking|internal thoughts|chain of thought|you could have used|you should use the)\b/i
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 
@@ -457,11 +457,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (isLowValue(query)) return null
   if (!ctx.user || !ctx.channel) return null
   if (!AI_CHANNELS.has(ctx.channel)) return null
-  const exempt = ctx.privileged || EXEMPT_USERS.has(ctx.user)
-  if (!exempt) {
-    const cd = checkRateLimit(ctx.user, ctx.channel)
-    if (cd > 0) return { text: `${cd}s`, mentions: [] }
-  }
+  // rate limits removed — let everyone talk
 
   const chatContext = getRecent(ctx.channel, 30)
   const chatStr = chatContext.length > 0
