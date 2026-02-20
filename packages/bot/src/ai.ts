@@ -507,7 +507,7 @@ const SELF_REF = /\b(im a bot|as a bot|im just a( \w+)? bot|as an ai|im (just )?
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|unhinged|speedrun(ning)?)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
-const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|context of a.{0,20}stream|easy way for you to|off-topic (banter|question|chat)|not game[- ]related|direct answer:?|not (really )?relevant|this is (conversational|off-topic|unrelated))\b/i
+const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|context of a.{0,20}stream|easy way for you to|off-topic (banter|question|chat)|not game[- ]related|direct answer:?|not (really )?relevant|this is (conversational|off-topic|unrelated)|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid))\b/i
 // stat leak — model reciting internal profile data
 const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you have \d+ (lookups?|commands?|wins?|attempts?|asks?)|you('ve|'re| have| are) (a )?(power user|casual user|trivia regular)|according to (my|your|the) (data|stats|profile|records?)|i (can see|see|know) (from )?(your|the) (data|stats|profile)|based on your (history|stats|data|profile))\b/i
 // fabrication tells — patterns suggesting the model is making up stories
@@ -570,6 +570,12 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
     const lastEnd = Math.max(s.lastIndexOf('. '), s.lastIndexOf('! '), s.lastIndexOf('? '))
     if (lastEnd > s.length * 0.4) {
       s = s.slice(0, lastEnd + 1)
+    } else {
+      // no sentence boundary — try comma or em-dash as fallback
+      const lastClause = Math.max(s.lastIndexOf(', '), s.lastIndexOf('—'))
+      if (lastClause > s.length * 0.4) {
+        s = s.slice(0, lastClause)
+      }
     }
   }
 
