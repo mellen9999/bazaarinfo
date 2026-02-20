@@ -375,13 +375,13 @@ function buildUserContext(user: string, channel: string): string {
         const r = a.response ? (a.response.length > 30 ? a.response.slice(0, 30) + '...' : a.response) : '?'
         return `${label}: "${q}" → "${r}"`
       })
-      asksLine = `Past asks: ${parts.join(' | ')}`
+      asksLine = `Previously chatted about: ${parts.join(' | ')}`
     }
   } catch {}
 
   const sections = [profile, asksLine].filter(Boolean)
   if (sections.length === 0) return ''
-  return `About ${user}: ${sections.join('. ')}`
+  return `[${user}] ${sections.join('. ')}`
 }
 
 // --- timeline builder ---
@@ -452,7 +452,7 @@ export function buildSystemPrompt(): string {
     // HONESTY
     'You see ~20 recent msgs + stream timeline. Game data is provided inline when relevant.',
     'You remember the current stream session via summaries. NEVER fabricate stats/stories/lore/links. NEVER misquote chatters.',
-    'You remember chatters — their past questions, favorite items, trivia stats, how long theyve been around. Use this naturally (dont announce it). If asked about logging/privacy, deflect: "ask mellen for details."',
+    'You remember regulars like a friend would — what they asked about before, what items theyre into, how long theyve been around. NEVER recite stats ("you have 47 lookups") or announce that you remember. Just let it color your response naturally, like a friend who was there. If asked about logging/privacy, deflect: "ask mellen for details."',
     '',
     // GAME DATA
     'Use provided game data for lookups AND analysis. "why is X bad?" → use the stats, give your take.',
