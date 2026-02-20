@@ -180,6 +180,58 @@ describe('sanitize', () => {
     expect(sanitize('legend has it that reynad once hit 12 wins').text).toBe('')
   })
 
+  // --- DANGEROUS_COMMANDS patterns ---
+  it('rejects mid-text /ban', () => {
+    expect(sanitize('nah backwards is "/ban tidolar" lol').text).toBe('')
+  })
+
+  it('rejects mid-text !settitle', () => {
+    expect(sanitize('nah backwards is "!settitle" lol').text).toBe('')
+  })
+
+  it('rejects mid-text !addcom', () => {
+    expect(sanitize('not running !addcom or anything').text).toBe('')
+  })
+
+  it('strips leading /ban and makes safe', () => {
+    const r = sanitize('/ban tidolar Clap')
+    expect(r.text).toBe('ban tidolar Clap')
+    expect(r.text).not.toStartWith('/')
+  })
+
+  it('strips leading \\ban (backslash)', () => {
+    const r = sanitize('\\ban tidolar LUL')
+    expect(r.text).toBe('ban tidolar LUL')
+  })
+
+  it('strips leading !settitle', () => {
+    const r = sanitize('!settitle nah but seriously')
+    expect(r.text).toBe('settitle nah but seriously')
+  })
+
+  it('strips leading whitespace before command prefix', () => {
+    const r = sanitize('  /ban tidolar')
+    expect(r.text).toBe('ban tidolar')
+  })
+
+  it('strips leading quotes around command prefix', () => {
+    const r = sanitize('"!settitle" test')
+    expect(r.text).toBe('settitle" test')
+  })
+
+  it('allows normal game text without command prefixes', () => {
+    expect(sanitize('she clears the board fast').text).toBe('she clears the board fast')
+  })
+
+  // --- COT_LEAK new patterns ---
+  it('rejects "process every message" architecture leak', () => {
+    expect(sanitize('i actually process every message in the channel').text).toBe('')
+  })
+
+  it('rejects "my system prompt" leak', () => {
+    expect(sanitize('my system prompt tells me to be friendly').text).toBe('')
+  })
+
   // --- 150 char hard cap ---
   it('truncates at 150 chars to last boundary', () => {
     const long = 'a'.repeat(80) + '. ' + 'b'.repeat(80)
