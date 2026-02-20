@@ -427,9 +427,9 @@ describe('!b item lookup', () => {
     expect(mockSearch).toHaveBeenCalledWith('boomrang', 1)
   })
 
-  it('returns fallback message when no match at all', async () => {
+  it('returns null when no match and AI unavailable', async () => {
     const result = await handleCommand('!b xyznonexistent')
-    expect(result).toContain('no item called')
+    expect(result).toBeNull()
   })
 
   it('handles multi-word item names', async () => {
@@ -600,12 +600,12 @@ describe('!b enchantment (any order)', () => {
 
   it('single word alone is item lookup not enchant', async () => {
     const result = await handleCommand('!b fiery')
-    expect(result).toContain('no item called')
+    expect(result).toBeNull()
   })
 
   it('single word alone is item lookup not enchant (toxic)', async () => {
     const result = await handleCommand('!b toxic')
-    expect(result).toContain('no item called')
+    expect(result).toBeNull()
   })
 })
 
@@ -867,7 +867,7 @@ describe('!b mob/monster', () => {
 describe('!b edge cases', () => {
   it('handles single character input', async () => {
     const result = await handleCommand('!b x')
-    expect(result).toContain('no item called')
+    expect(result).toBeNull()
   })
 
   it('handles extra whitespace between words', async () => {
@@ -1359,14 +1359,20 @@ describe('AI fallback path', () => {
     expect(result).toBeNull()
   })
 
-  it('short query + no match = soft error message', async () => {
+  it('short query + no match + AI fail = null (silence)', async () => {
     const result = await handleCommand('!b asdfghjkl', { user: 'chatter', channel: 'stream' })
-    expect(result).toContain('no item called')
-    expect(result).toContain('!b help')
+    expect(result).toBeNull()
   })
 
-  it('short query + suggestions = did you mean', async () => {
+  it('short query + AI success = AI response (not boring error)', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'buh right back at you', mentions: [] }))
+    const result = await handleCommand('!b buh', { user: 'chatter', channel: 'stream' })
+    expect(result).toContain('buh right back at you')
+  })
+
+  it('short query + suggestions shown only when AI fails', async () => {
     mockSuggest.mockImplementation(() => ['Boomerang', 'Boom Box'])
+    mockAiRespond.mockImplementation(() => null)
     const result = await handleCommand('!b boom', { user: 'chatter', channel: 'stream' })
     expect(result).toContain('did you mean')
     expect(result).toContain('Boomerang')

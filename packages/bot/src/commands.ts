@@ -247,16 +247,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 
   logMiss(query, ctx)
 
-  // short queries (1-2 words) = item lookup miss → show suggestions or soft error
-  if (queryWords.length <= 2) {
-    const suggestions = store.suggest(query, 3)
-    if (suggestions.length > 0) {
-      return `no "${query}" — did you mean: ${suggestions.join(', ')}?` + suffix
-    }
-    return `no item called "${query}" — try !b help` + suffix
-  }
-
-  // conversational queries (3+ words) → AI fallback, silence on failure
+  // always try AI first — every miss is an opportunity to be interesting
   const aiResult = await aiRespond(cleanArgs, ctx)
   if (aiResult?.text) {
     logHit('ai', cleanArgs, 'ai', ctx)
@@ -273,7 +264,13 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     return aiResult.text + tags
   }
 
-  // AI also failed → silence beats ugly error
+  // AI failed — show suggestions for short queries, silence for conversational
+  if (queryWords.length <= 2) {
+    const suggestions = store.suggest(query, 3)
+    if (suggestions.length > 0) {
+      return `no "${query}" — did you mean: ${suggestions.join(', ')}?` + suffix
+    }
+  }
   return null
 }
 
