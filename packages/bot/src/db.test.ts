@@ -192,6 +192,57 @@ describe('db', () => {
     expect(hits[0].username).toBe('alice')
   })
 
+  // --- retention + FTS sync ---
+
+  it('pruneOldChats removes old messages and FTS stays in sync', () => {
+    db.logChat('test', 'alice', 'old message about boomerang')
+    db.logChat('test', 'bob', 'new message about shield')
+    db.flushWrites()
+
+    // backdate the first message to 200 days ago
+    db.getDb().run(`UPDATE chat_messages SET created_at = datetime('now', '-200 days') WHERE username = 'alice'`)
+
+    // both should be searchable before prune
+    expect(db.searchChatFTS('test', 'boomerang').length).toBe(1)
+    expect(db.searchChatFTS('test', 'shield').length).toBe(1)
+
+    // prune at 180 days — alice's message should be deleted
+    db.pruneOldChats(180)
+
+    // old message gone from FTS, new message survives
+    expect(db.searchChatFTS('test', 'boomerang').length).toBe(0)
+    expect(db.searchChatFTS('test', 'shield').length).toBe(1)
+
+    // FTS row count matches chat_messages
+    const chatCount = db.getDb().query('SELECT COUNT(*) as n FROM chat_messages').get() as { n: number }
+    const ftsCount = db.getDb().query('SELECT COUNT(*) as n FROM chat_fts').get() as { n: number }
+    expect(ftsCount.n).toBe(chatCount.n)
+  })
+
+  it('messages at exactly 180 days survive prune', () => {
+    db.logChat('test', 'alice', 'boundary message')
+    db.flushWrites()
+
+    // set to exactly 179 days ago — should survive
+    db.getDb().run(`UPDATE chat_messages SET created_at = datetime('now', '-179 days')`)
+    db.pruneOldChats(180)
+
+    expect(db.searchChatFTS('test', 'boundary').length).toBe(1)
+  })
+
+  it('summaries are never pruned when not called', () => {
+    db.logSummary('test', 1, 'ancient summary', 200)
+    db.flushWrites()
+
+    // backdate to 1 year ago
+    db.getDb().run(`UPDATE chat_summaries SET created_at = datetime('now', '-365 days')`)
+
+    // no pruneOldSummaries call — summary should persist
+    const rows = db.getLatestSummaries('test', 10)
+    expect(rows.length).toBe(1)
+    expect(rows[0].summary).toBe('ancient summary')
+  })
+
   it('pruneOldSummaries removes old entries', () => {
     db.logSummary('test', 1, 'old summary', 200)
     db.flushWrites()
