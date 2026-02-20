@@ -104,7 +104,12 @@ describe('sanitize', () => {
   it('strips verbal tics', () => {
     expect(sanitize('respect the commitment but Birdge is the purest form').text).toBe('but Birdge is the purest form')
     expect(sanitize('thats just how it goes in ranked').text).toBe('in ranked')
-    expect(sanitize('chats been absolutely unhinged today').text).toBe('today')
+    expect(sanitize('chats been absolutely unhinged today').text).toBe("chats been absolutely today")
+  })
+
+  it('strips "unhinged" in all contexts', () => {
+    expect(sanitize("chat's just unhinged right now").text).toBe("chat's just right now")
+    expect(sanitize('completely unhinged energy here').text).toBe('completely energy here')
   })
 
   it('handles empty string', () => {
@@ -151,6 +156,19 @@ describe('sanitize', () => {
 
   it('rejects "i keep using" self-commentary COT leak', () => {
     expect(sanitize('i keep using the same emote').text).toBe('')
+  })
+
+  // --- SELF_REF patterns ---
+  it('rejects "just a stats bot"', () => {
+    expect(sanitize("no clue, i'm just a stats bot").text).toBe('')
+  })
+
+  it('rejects "just a twitch bot"', () => {
+    expect(sanitize("i'm just a twitch bot").text).toBe('')
+  })
+
+  it('rejects "just a bot" (no qualifier)', () => {
+    expect(sanitize("sorry, just a bot here").text).toBe('')
   })
 
   // --- FABRICATION patterns ---

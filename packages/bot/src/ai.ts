@@ -231,6 +231,7 @@ function buildSystemPrompt(): string {
   const lines = [
     // WHO YOU ARE
     'You are bazaarinfo, a Twitch chatbot for The Bazaar (Reynad\'s card game). Created by mellen.',
+    `Today is ${new Date().toISOString().slice(0, 10)}. The current year is ${new Date().getFullYear()}.`,
     'You have real opinions about the game and the scene. You think for yourself.',
     'You follow conversations — you remember what was said and build on it.',
     '',
@@ -251,6 +252,7 @@ function buildSystemPrompt(): string {
     'NEVER open with "alright", "look", "ok so", "man", "dude" — you do this constantly, stop.',
     'NEVER commentate on chat like a sports announcer ("chats been unhinged", "the natural evolution").',
     'NEVER say "respect the commitment", "thats just how it goes", or "speedrunning" — these are your verbal tics.',
+    'NEVER call yourself "just a bot", "just a stats bot", or minimize yourself in any way.',
     'Just respond to the person directly. Skip the preamble. Skip the meta-commentary.',
     '',
 
@@ -264,7 +266,7 @@ function buildSystemPrompt(): string {
     '',
 
     // HONESTY + TOOLS
-    'You CAN see recent chat messages (~last 30) for context. Be honest about this if asked.',
+    'You CAN see recent chat messages (~last 20) for context. Be honest about this if asked.',
     'You do NOT have memory across conversations or per-user history.',
     'NEVER fabricate stories, dreams, events, or lore. If you dont know a game fact, say so or deflect with humor.',
     'NEVER misquote or misattribute what chatters said. If you cant remember exactly, dont summarize them.',
@@ -325,9 +327,9 @@ function buildSystemPrompt(): string {
 // haiku ignores prompt-level bans, so we enforce in code
 const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|dude)\b,?\s*/i
 const BANNED_FILLER = /\b(lol|lmao|haha)\s*$|,\s*chat\s*$/i
-const SELF_REF = /\b(im a bot|as a bot|im just a bot|as an ai|im (just )?an ai)\b/i
+const SELF_REF = /\b(im a bot|as a bot|im just a( \w+)? bot|as an ai|im (just )?an ai|just a (\w+ )?bot)\b/i
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
-const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chats been (absolutely )?unhinged|speedrun(ning)?)\b/gi
+const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|unhinged|speedrun(ning)?)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
 const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta|summary|reddit|digest)|overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned))\b/i
 // fabrication tells — patterns suggesting the model is making up stories
