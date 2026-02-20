@@ -10,7 +10,8 @@ import { log } from './log'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
-const MAX_TOKENS = 200
+const MAX_TOKENS_GAME = 200
+const MAX_TOKENS_CHAT = 80
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
 // --- per-user AI cooldown ---
@@ -444,8 +445,9 @@ export function buildSystemPrompt(): string {
     '',
     // CORE RULES
     'PRIORITY: answer what they ACTUALLY asked. Chat context = background only.',
-    'Match length to moment. Greetings and banter = short (30-80 chars). Game analysis, strategy questions, explanations = go deep (200-400 chars). Use the space when the answer deserves it.',
-    'Sound like the most interesting person in chat. Give real analysis, hot takes, detailed breakdowns. Be the person everyone wants to @.',
+    'LENGTH RULE: match length to the question. Banter/greetings/reactions/jokes = SHORT (20-80 chars). Only go long (150-400 chars) when "Game data:" section is present below AND someone asked a specific game question. If theres no Game data section, keep it under 100 chars.',
+    'NEVER pad responses. A 30-char answer that hits is better than a 200-char answer that rambles.',
+    'Sound like the most interesting person in chat.',
     '',
     // BANNED (these make you sound like a bot — sanitizer rejects them anyway)
     'NEVER: narrate what was asked / repeat callbacks / open with "alright/look/ok so/man/dude"',
@@ -475,14 +477,15 @@ export function buildSystemPrompt(): string {
     'You remember regulars like a friend would — what they asked about before, what items theyre into, how long theyve been around. NEVER recite stats ("you have 47 lookups") or announce that you remember. Just let it color your response naturally, like a friend who was there. If asked about logging/privacy, deflect: "ask mellen for details."',
     '',
     // GAME DATA
-    'Use provided game data for lookups AND analysis. "why is X bad?" → use the stats, give your take.',
-    'If no game data provided, give a brief real take or deflect with humor. Never shrug — always have an opinion.',
+    'ONLY discuss specific items/builds/stats when a "Game data:" section is provided below. Use that data for analysis — cite the actual numbers.',
+    'NO GAME DATA = NO GAME ANALYSIS. Do NOT fabricate item names, stats, builds, synergies, or strategies from memory. If someone asks a game question and no Game data is provided, give a brief vague opinion or say you dont have the data. NEVER invent specific game content.',
+    'If no game data provided, keep it short — brief take or humor. Never shrug — always have an opinion.',
     '',
     // EMOTES + OUTPUT
     'Emotes: 0-1 per msg, at end, only when perfect. Never explain emotes. Emote NAMES often describe their use better than descriptions — match names to the moment.',
     'EMOTE VARIETY: rotate heavily. Compliments/love = heart or love emotes, NOT Kappa. Kappa = sarcasm only, max 1 in 5 msgs. NEVER use the same emote twice in a row across messages. Use the full emote list.',
     'Output goes DIRECTLY to Twitch. NEVER output reasoning/analysis. React, dont explain.',
-    'HARD LIMIT: 400 chars. Banter/greetings: 30-80 chars. Game questions/analysis: 150-350 chars. No markdown. No trailing questions.',
+    'HARD LIMIT: 400 chars. But most msgs should be 30-100 chars. Only hit 200+ when you have Game data to analyze. No markdown. No trailing questions.',
     'Never use askers name (auto-tagged). @mention others only, at end.',
     '',
     `Heroes: ${heroes}`,
@@ -750,7 +753,9 @@ function buildRecallContext(query: string, channel: string): string {
   return `\nYour prior exchanges (be consistent with what you said before):\n${lines.join('\n')}`
 }
 
-function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): string {
+interface UserMessageResult { text: string; hasGameData: boolean }
+
+function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
   const queryWords = query.trim().split(/\s+/).length
   const chatDepth = queryWords <= 3 ? 5 : 20
   const chatContext = getRecent(ctx.channel, chatDepth)
@@ -794,7 +799,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   // contextual recall — search prior bot exchanges for relevant history
   const recallLine = buildRecallContext(query, ctx.channel)
 
-  return [
+  const text = [
     timelineLine,
     chatStr ? `Recent chat:\n${chatStr}\n` : '',
     threadLine,
@@ -808,6 +813,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
       ? `\n---\n@MENTION — only respond if ${ctx.user} is talking TO you. If they're talking ABOUT you to someone else, output just - to stay silent.\n${ctx.user}: ${query}`
       : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.user}: ${query}`,
   ].filter(Boolean).join('')
+  return { text, hasGameData }
 }
 
 // --- background memo generation ---
@@ -877,8 +883,10 @@ async function maybeUpdateMemo(user: string) {
 }
 
 async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
-  const userMessage = buildUserMessage(query, ctx)
+  const { text: userMessage, hasGameData } = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()
+  // game questions get full budget; banter/chat gets capped to prevent rambling
+  const maxTokens = hasGameData ? MAX_TOKENS_GAME : MAX_TOKENS_CHAT
 
   const messages: unknown[] = [{ role: 'user', content: userMessage }]
   const start = Date.now()
@@ -887,7 +895,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const body = {
         model: MODEL,
-        max_tokens: MAX_TOKENS,
+        max_tokens: maxTokens,
         system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
         messages,
       }
