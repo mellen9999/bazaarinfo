@@ -280,7 +280,7 @@ export class TwitchClient {
     this.irc = new WebSocket(IRC_URL)
 
     this.irc.onopen = () => {
-      this.ircSend('CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands')
+      this.ircSend('CAP REQ :twitch.tv/tags twitch.tv/commands')
       this.ircSend(`PASS oauth:${this.config.token}`)
       this.ircSend(`NICK ${this.config.botUsername}`)
     }
