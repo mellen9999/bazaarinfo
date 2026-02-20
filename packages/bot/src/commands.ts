@@ -25,11 +25,33 @@ const ALIAS_ADMINS = new Set(
   (process.env.ALIAS_ADMINS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
 )
 
-// streamlabs system commands that should NOT be proxied
-const BLOCKED_CMDS = new Set([
-  'so', 'shoutout', 'mod', 'unmod', 'vip', 'unvip', 'ban', 'unban',
-  'timeout', 'permit', 'title', 'game', 'commercial', 'raid', 'marker',
-  'commands', 'editcom', 'addcom', 'delcom', 'disablecom',
+// ! commands blocked from proxy — system cmds from streamlabs, streamelements, nightbot, etc.
+const BLOCKED_BANG_CMDS = new Set([
+  // moderation
+  'ban', 'unban', 'timeout', 'untimeout', 'permit', 'nuke', 'unnuke',
+  'mod', 'unmod', 'vip', 'unvip', 'block', 'unblock',
+  // stream control
+  'title', 'game', 'commercial', 'raid', 'unraid', 'host', 'unhost', 'marker',
+  'so', 'shoutout',
+  // chat modes
+  'slow', 'slowoff', 'followers', 'followersoff', 'subscribers', 'subscribersoff',
+  'emoteonly', 'emoteonlyoff', 'uniquechat', 'uniquechatoff', 'clear',
+  // command management
+  'commands', 'addcom', 'editcom', 'delcom', 'deletecom', 'disablecom', 'enablecom',
+  // song request (streamlabs + streamelements)
+  'sr', 'songrequest', 'songs', 'skip', 'wrongsong', 'volume', 'queue', 'playlist',
+  // loyalty / gambling (streamelements)
+  'points', 'loyalty', 'givepoints', 'removepoints', 'top', 'leaderboard',
+  'roulette', 'gamble', 'slots', 'duel',
+  // giveaway / raffle / poll
+  'giveaway', 'raffle', 'enter', 'poll', 'vote', 'winner',
+  // nightbot extras
+  'regulars', 'filters', 'timers',
+])
+
+// / commands: allowlist only — everything else blocked
+const ALLOWED_SLASH_CMDS = new Set([
+  'me', 'announce', 'color',
 ])
 
 export interface CommandContext {
@@ -346,12 +368,18 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // suppress duplicate lookups within 30s per channel
   if (ctx.channel && isDuplicate(ctx.channel, cleanArgs)) return null
 
-  // proxy streamlabs commands: !b !jory 932 → sends "!jory 932" in chat
-  const proxyMatch = cleanArgs.match(/^!(\w+)(.*)$/)
-  if (proxyMatch) {
-    const cmd = proxyMatch[1].toLowerCase()
-    if (BLOCKED_CMDS.has(cmd)) return null
-    return cleanArgs // send raw "!cmd args" to chat
+  // proxy bot/slash commands: !b !jory 932 → sends "!jory 932" in chat
+  const bangMatch = cleanArgs.match(/^!(\w+)(.*)$/)
+  if (bangMatch) {
+    const cmd = bangMatch[1].toLowerCase()
+    if (BLOCKED_BANG_CMDS.has(cmd)) return null
+    return cleanArgs
+  }
+  const slashMatch = cleanArgs.match(/^\/(\w+)(.*)$/)
+  if (slashMatch) {
+    const cmd = slashMatch[1].toLowerCase()
+    if (!ALLOWED_SLASH_CMDS.has(cmd)) return null
+    return cleanArgs
   }
 
   const suffix = ''
