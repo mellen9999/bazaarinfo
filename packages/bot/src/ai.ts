@@ -1,8 +1,8 @@
-import type { BazaarCard, Monster, TierName } from '@bazaarinfo/shared'
+import type { BazaarCard, Monster } from '@bazaarinfo/shared'
 import * as store from './store'
 import { getRedditDigest } from './reddit'
 import * as db from './db'
-import { getRecent, getSummary, getActiveThreads, setSummarizer, setSummaryPersister, getSessionId } from './chatbuf'
+import { getRecent, getSummary, getActiveThreads, setSummarizer, setSummaryPersister } from './chatbuf'
 import type { ChatEntry } from './chatbuf'
 import { formatEmotesForAI, getEmotesForChannel } from './emotes'
 import { getChannelStyle, getChannelTopEmotes } from './style'
@@ -12,7 +12,7 @@ const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 55
 const TIMEOUT = 15_000
-const MAX_ROUNDS = 3
+const MAX_RETRIES = 2
 // --- per-user AI cooldown ---
 
 const userHistory = new Map<string, number>()
@@ -126,96 +126,191 @@ function serializeMonster(monster: Monster): string {
   return parts.join(' | ')
 }
 
-// --- tool definitions ---
+// --- entity extraction (pre-resolve game data locally) ---
 
-const tools = [
-  {
-    name: 'search_items',
-    description: 'Search items/skills by name.',
-    input_schema: {
-      type: 'object' as const,
-      properties: { query: { type: 'string' } },
-      required: ['query'],
-    },
-  },
-  {
-    name: 'get_monster',
-    description: 'Look up a monster by name.',
-    input_schema: {
-      type: 'object' as const,
-      properties: { query: { type: 'string' } },
-      required: ['query'],
-    },
-  },
-  {
-    name: 'items_by_hero',
-    description: 'List items for a hero.',
-    input_schema: {
-      type: 'object' as const,
-      properties: { hero: { type: 'string' } },
-      required: ['hero'],
-    },
-  },
-  {
-    name: 'items_by_tag',
-    description: 'List items with a tag.',
-    input_schema: {
-      type: 'object' as const,
-      properties: { tag: { type: 'string' } },
-      required: ['tag'],
-    },
-  },
-  {
-    name: 'monsters_by_day',
-    description: 'List monsters on a day.',
-    input_schema: {
-      type: 'object' as const,
-      properties: { day: { type: 'number' } },
-      required: ['day'],
-    },
-  },
-  {
-    name: 'search_by_effect',
-    description: 'Search items by ability/effect text.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        query: { type: 'string' },
-        hero: { type: 'string' },
-      },
-      required: ['query'],
-    },
-  },
-  {
-    name: 'search_chat',
-    description: 'Search chat history by keyword or username.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        query: { type: 'string', description: 'FTS search query' },
-        username: { type: 'string', description: 'Optional: filter by username' },
-      },
-      required: ['query'],
-    },
-  },
-  {
-    name: 'get_stream_history',
-    description: 'Get stream session summary timeline (what happened earlier).',
-    input_schema: {
-      type: 'object' as const,
-      properties: {},
-    },
-  },
+const EFFECT_KEYWORDS = new Set([
+  'burn', 'poison', 'freeze', 'slow', 'haste', 'shield', 'heal', 'regen',
+  'crit', 'lifesteal', 'ammo', 'charge', 'cooldown', 'multicast', 'flying',
+  'destroy', 'damage', 'aoe', 'stun', 'silence', 'taunt', 'summon',
+])
+
+interface ResolvedEntities {
+  cards: BazaarCard[]
+  monsters: Monster[]
+  hero: string | undefined
+  tag: string | undefined
+  day: number | undefined
+  effects: string[]
+  chatQuery: string | undefined
+  knowledge: string[]
+}
+
+function extractEntities(query: string): ResolvedEntities {
+  const result: ResolvedEntities = {
+    cards: [], monsters: [], hero: undefined, tag: undefined,
+    day: undefined, effects: [], chatQuery: undefined, knowledge: [],
+  }
+
+  const words = query.toLowerCase().split(/\s+/)
+
+  // day number
+  const dayMatch = query.match(/day\s+(\d+)/i)
+  if (dayMatch) result.day = parseInt(dayMatch[1])
+
+  // @username → chat search
+  const atMatch = query.match(/@(\w+)/)
+  if (atMatch) result.chatQuery = atMatch[1]
+
+  // sliding window: 3→2→1 word combos
+  const matched = new Set<number>()
+  for (let size = Math.min(3, words.length); size >= 1; size--) {
+    for (let i = 0; i <= words.length - size; i++) {
+      if ([...Array(size)].some((_, j) => matched.has(i + j))) continue
+      const phrase = words.slice(i, i + size).join(' ')
+
+      // cards (max 3)
+      if (result.cards.length < 3) {
+        const card = store.exact(phrase)
+        if (card) {
+          result.cards.push(card)
+          for (let j = 0; j < size; j++) matched.add(i + j)
+          continue
+        }
+      }
+
+      // monsters (max 2)
+      if (result.monsters.length < 2) {
+        const monster = store.findMonster(phrase)
+        if (monster) {
+          result.monsters.push(monster)
+          for (let j = 0; j < size; j++) matched.add(i + j)
+          continue
+        }
+      }
+
+      // hero (first match)
+      if (!result.hero) {
+        const hero = store.findHeroName(phrase)
+        if (hero) {
+          result.hero = hero
+          for (let j = 0; j < size; j++) matched.add(i + j)
+          continue
+        }
+      }
+
+      // tag (first match)
+      if (!result.tag) {
+        const tag = store.findTagName(phrase)
+        if (tag) {
+          result.tag = tag
+          for (let j = 0; j < size; j++) matched.add(i + j)
+          continue
+        }
+      }
+
+      // effect keywords (single words only)
+      if (size === 1 && EFFECT_KEYWORDS.has(phrase)) {
+        result.effects.push(phrase)
+      }
+    }
+  }
+
+  // knowledge injection (max 3)
+  for (const [pattern, text] of KNOWLEDGE) {
+    if (result.knowledge.length >= 3) break
+    if (pattern.test(query)) result.knowledge.push(text)
+  }
+
+  return result
+}
+
+// --- game context builder ---
+
+function buildGameContext(entities: ResolvedEntities, channel?: string): string {
+  const sections: string[] = []
+
+  for (const card of entities.cards) {
+    sections.push(serializeCard(card))
+  }
+
+  for (const monster of entities.monsters) {
+    sections.push(serializeMonster(monster))
+  }
+
+  if (entities.hero) {
+    const heroItems = store.byHero(entities.hero)
+    if (heroItems.length > 0) {
+      sections.push(`${entities.hero} items: ${heroItems.map((c) => c.Title).join(', ')}`)
+    }
+  }
+
+  if (entities.tag) {
+    const tagItems = store.byTag(entities.tag).slice(0, 15)
+    if (tagItems.length > 0) {
+      sections.push(`${entities.tag} items: ${tagItems.map((c) => c.Title).join(', ')}`)
+    }
+  }
+
+  if (entities.day != null) {
+    const mobs = store.monstersByDay(entities.day)
+    if (mobs.length > 0) {
+      sections.push(`Day ${entities.day}: ${mobs.map((m) => `${m.Title} (${m.MonsterMetadata.health}HP)`).join(', ')}`)
+    }
+  }
+
+  if (entities.effects.length > 0) {
+    const effectResults = store.searchByEffect(entities.effects.join(' '), entities.hero, 5)
+    if (effectResults.length > 0) {
+      sections.push(`Items with ${entities.effects.join('/')}: ${effectResults.map((c) => c.Title).join(', ')}`)
+    }
+  }
+
+  if (entities.chatQuery && channel) {
+    const hits = db.searchChatFTS(channel, entities.chatQuery, 10)
+    if (hits.length > 0) {
+      sections.push(`Chat search "${entities.chatQuery}":\n${hits.map((h) => `[${h.created_at}] ${h.username}: ${h.message}`).join('\n')}`)
+    }
+  }
+
+  let text = sections.join('\n')
+  if (text.length > 1600) text = text.slice(0, 1600)
+  return text
+}
+
+// --- deep knowledge injection ---
+
+const KNOWLEDGE: [RegExp, string][] = [
+  [/kripp|kripparrian|rania/i, "Kripparrian (Octavian Morosan, b. June 30 1987). Romanian-Canadian. WoW: first Ironman Challenge, Exodus guild. D3: world-first Hardcore Inferno kill with Krippi (June 2012, 200k+ live viewers). HS: best arena player ever, 12-win record holder, 'how good is X?' analytical style. Vegan, loves OJ. Wife=Rania (underflowR), married Oct 31 2014. 1.5M Twitch followers. Chat culture: copypasta, 'the scraggly vegan', MrDestructoid spam. Now #1 most-watched Bazaar streamer. Methodical builder."],
+  [/reynad|andrey|tempo storm/i, "Andrey Yanyuk. Created The Bazaar, CEO/lead designer. Founded Tempo Storm. Ex-HS pro (aggro warrior). 'reynad luck' meme. Transparent on game dev, streams design process. Blunt takes, deep game knowledge."],
+  [/the bazaar|this game/i, "PvP auto-battler roguelike by Reynad/Tempo Storm. 6 heroes (Vanessa, Pygmalien, Dooley, Mak, Stelle, Jules) with unique item pools. Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments modify items. Monsters on numbered days. Buy/sell economy between fights. r/PlayTheBazaar, bazaardb.gg."],
+  [/lethalfrag/i, "Lethalfrag. Top English Bazaar streamer. First person to complete the 2-year livestream challenge (2012-2014). Variety>Bazaar. Dedicated community."],
+  [/patopapao|pato/i, "PatoPapao. #1 most-watched Bazaar channel overall. Portuguese-language. Started streaming 2012."],
+  [/trump\b.*\b(?:hs|hearthstone)|trumpsc/i, "TrumpSC (Jeffrey Shih). World's first pro HS player (Team Razer 2013). 'Most Educational Stream' award. Known for F2P runs."],
+  [/amaz/i, "Amaz (Jason Chan). Won 'Best HS Streamer 2014'. Peak 90k viewers. Energetic, hype reactions. Founded NRG Esports."],
+  [/kolento/i, "Kolento (Aleksandr Malsh). Ukrainian. Won Viagame House Cup, DreamHack Winter 2014. Quiet, calculated, consistent legend finishes."],
+  [/firebat/i, "Firebat (James Kostesich). Won first HS World Championship at BlizzCon 2014. Analytical player, later caster/content creator."],
+  [/hafu/i, "Hafu (Rumay Wang). Elite arena player, arguably best ever. Top 10 constructed. One of few women in competitive HS, massive respect."],
+  [/savjz/i, "Savjz (Janne Mikkonen). Finnish. Rose above Trump and Amaz in rankings. Creative deckbuilding, chill stream vibes."],
+  [/kibler|bmkibler/i, "Brian Kibler. MTG Hall of Famer who crossed into HS. Known for Dragon decks, positive attitude, and his dog Shiro."],
+  [/dog\b.*\b(?:hs|hearthstone)|dogdog/i, "Dog (David Caero). High-legend HS player, off-meta decks. Quiet, skilled, respected. Now plays Bazaar."],
+  [/strifecro/i, "StrifeCro (Cong Shu). One of HS's most consistent players. Refined decklist optimization. Analytical, low-key."],
+  [/thijs/i, "Thijs (Thijs Molendijk). Dutch. Multiple #1 legend finishes, face of EU Hearthstone. Friendly, dedicated competitor."],
+  [/reckful/i, "Reckful (Byron Bernstein). WoW legend (R1 gladiator, rank 1 rogue). Crossed into HS. Beloved for raw honesty. Passed away 2020 — hugely mourned by Twitch community."],
+  [/forsen/i, "Forsen (Sebastian Fors). Swedish. HS pro turned variety. Famous for stream snipers, 'bajs' community, 'forsenCD' emote. Chat: wall of text copypasta, PepeLaugh."],
+  [/sodapoppin|soda\b/i, "Sodapoppin (Chance Morris). OG Twitch variety streamer. WoW famous (Rank 1 rogue). Unfiltered personality. One of the first mega-streamers."],
+  [/xqc/i, "xQc (Felix Lengyel). Ex-OW pro. Fastest growing streamer ever. 24hr streams, hyperactive energy, absolute content machine."],
+  [/asmongold|asmon|zackrawrr/i, "Asmongold / zackrawrr (Zack). WoW's biggest streamer. Bald meme. Founded OTK. React content, surprisingly thoughtful takes beneath the memes."],
+  [/tyler1|t1\b/i, "Tyler1. League of Legends. ID-banned from League, came back bigger. 6'5\" meme (he's 5'6\"). Unhinged energy, genuinely skilled, reformed arc."],
+  [/viewbot|massan/i, "MaSsan viewbot scandal (2015-2016). HS streamer caught viewbotting, denied it, dropped by Cloud9, banned. MrDestructoid emote became the meme."],
 ]
 
-// detect if a query is clearly conversational (no game lookup needed)
+// detect if a query is game-related (gates entity extraction)
 const GAME_TERMS = /\b(item|hero|monster|mob|build|tier|enchant|skill|tag|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|weapon|relic|aqua|friend|ammo|charge|board|dps|beat|fight|counter|synergy|scaling|combo|lethal|survive)\b/i
 
-function needsTools(query: string): boolean {
+function isGameQuery(query: string): boolean {
   const words = query.trim().split(/\s+/)
   if (words.length <= 4) return true // short = might be a lookup
   if (GAME_TERMS.test(query)) return true
-  // check if any word matches a known item/monster name (catches "thug", "piggles", etc.)
   for (const w of words) {
     if (w.length >= 3 && (store.exact(w) || store.findMonster(w))) return true
   }
@@ -240,73 +335,6 @@ function buildTimeline(channel: string): string {
   if (current) lines.push(`Now: ${current}`)
 
   return lines.join('\n')
-}
-
-// --- tool execution ---
-
-function executeTool(name: string, input: Record<string, unknown>, channel?: string): string {
-  switch (name) {
-    case 'search_items': {
-      const q = String(input.query ?? '').trim()
-      if (!q) return 'No query provided'
-      const hit = store.exact(q)
-      if (hit) return serializeCard(hit)
-      const results = store.search(q, 5)
-      if (results.length === 0) return 'No items found'
-      return results.map(serializeCard).join('\n')
-    }
-    case 'get_monster': {
-      const q = String(input.query ?? '').trim()
-      if (!q) return 'No query provided'
-      const monster = store.findMonster(q)
-      if (!monster) return 'No monster found'
-      return serializeMonster(monster)
-    }
-    case 'items_by_hero': {
-      const h = String(input.hero ?? '').trim()
-      if (!h) return 'No hero provided'
-      const items = store.byHero(h)
-      if (items.length === 0) return 'No items found for that hero'
-      return items.map((c) => c.Title).join(', ')
-    }
-    case 'items_by_tag': {
-      const t = String(input.tag ?? '').trim()
-      if (!t) return 'No tag provided'
-      const cards = store.byTag(t)
-      if (cards.length === 0) return 'No items found with that tag'
-      return cards.map((c) => c.Title).join(', ')
-    }
-    case 'monsters_by_day': {
-      const d = Number(input.day)
-      if (!Number.isFinite(d)) return 'No day provided'
-      const mobs = store.monstersByDay(d)
-      if (mobs.length === 0) return 'No monsters on that day'
-      return mobs.map((m) => `${m.Title} (${m.MonsterMetadata.health}HP)`).join(', ')
-    }
-    case 'search_by_effect': {
-      const q = String(input.query ?? '').trim()
-      if (!q) return 'No query provided'
-      const hero = input.hero ? String(input.hero).trim() : undefined
-      const results = store.searchByEffect(q, hero, 5)
-      if (results.length === 0) return 'No items found matching that effect'
-      return results.map(serializeCard).join('\n')
-    }
-    case 'search_chat': {
-      if (!channel) return 'No channel context'
-      const q = String(input.query ?? '').trim()
-      if (!q) return 'No query provided'
-      const username = input.username ? String(input.username).trim() : undefined
-      const hits = db.searchChatFTS(channel, q, 10, username)
-      if (hits.length === 0) return 'No chat messages found'
-      return hits.map((h) => `[${h.created_at}] ${h.username}: ${h.message}`).join('\n')
-    }
-    case 'get_stream_history': {
-      if (!channel) return 'No channel context'
-      return buildTimeline(channel)
-    }
-    default:
-      return 'Unknown tool'
-  }
 }
 
 // --- system prompt (cached, invalidated on daily reload) ---
@@ -351,17 +379,13 @@ function buildSystemPrompt(): string {
     'play along with harmless requests.',
     '',
     // HONESTY
-    'You see ~20 recent msgs + stream timeline (persisted summaries). Use search_chat/get_stream_history tools to recall older chat.',
+    'You see ~20 recent msgs + stream timeline. Game data is provided inline when relevant.',
     'You remember the current stream session via summaries. NEVER fabricate stats/stories/lore/links. NEVER misquote chatters.',
     'Bot logs usage stats, but you have no persistent memory. Dont claim "I dont log anything" — deflect: "ask mellen for details."',
     '',
-    // TOOLS
-    'Tools: use for lookups AND game analysis. "why is X bad?" → search X, then give your take using the stats. Pure banter = no tools.',
-    'If tools return nothing, give a brief real take or deflect with humor. Never shrug — always have an opinion.',
-    '',
-    // PEOPLE
-    'kripp = Kripparrian. best HS arena player, canadian, vegan. analytical, marathon bazaar streams. wife=Rania. chat: pasta, kripp emotes.',
-    'reynad = Andrey Yanyuk. created The Bazaar, ex-HS pro, Tempo Storm. opinionated on balance, "reynad luck" meme. genuinely cares about game quality.',
+    // GAME DATA
+    'Use provided game data for lookups AND analysis. "why is X bad?" → use the stats, give your take.',
+    'If no game data provided, give a brief real take or deflect with humor. Never shrug — always have an opinion.',
     '',
     // EMOTES + OUTPUT
     'Emotes: 0-1 per msg, at end, only when perfect. Never explain emotes. Emote NAMES often describe their use better than descriptions — match names to the moment.',
@@ -373,9 +397,6 @@ function buildSystemPrompt(): string {
     `Heroes: ${heroes}`,
     `Tags: ${tags}`,
   ]
-
-  const digest = getRedditDigest()
-  if (digest) lines.push('', `Community buzz (r/PlayTheBazaar): ${digest}`)
 
   cachedSystemPrompt = lines.join('\n')
   return cachedSystemPrompt
@@ -579,8 +600,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   }
 }
 
-async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
-  // short game queries need less chat context
+function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): string {
   const queryWords = query.trim().split(/\s+/).length
   const chatDepth = queryWords <= 3 ? 5 : 20
   const chatContext = getRecent(ctx.channel, chatDepth)
@@ -592,43 +612,59 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   const styleLine = getChannelStyle(ctx.channel)
   const contextLine = styleLine ? `\nChannel: ${styleLine}` : ''
 
-  // stream timeline (persisted summaries + current)
   const timeline = buildTimeline(ctx.channel)
   const timelineLine = timeline !== 'No stream history yet' ? `\nStream timeline:\n${timeline}` : ''
 
-  // active conversation threads
   const threads = getActiveThreads(ctx.channel)
   const threadLine = threads.length > 0
     ? `\nActive convos: ${threads.map((t) => `${t.users.join('+')} re: ${t.topic}`).join(' | ')}`
     : ''
 
-  const userMessage = [
+  // reddit digest (moved from system prompt for better cache hits)
+  const digest = getRedditDigest()
+  const redditLine = digest ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
+
+  // pre-resolved game data + knowledge
+  let gameBlock = ''
+  if (isGameQuery(query)) {
+    const entities = extractEntities(query)
+    const knowledge = entities.knowledge.length > 0
+      ? `\nContext:\n${entities.knowledge.join('\n')}`
+      : ''
+    const gameData = buildGameContext(entities, ctx.channel)
+    gameBlock = [
+      knowledge,
+      gameData ? `\nGame data:\n${gameData}` : '',
+    ].filter(Boolean).join('')
+  }
+
+  return [
     timelineLine,
     chatStr ? `Recent chat:\n${chatStr}\n` : '',
     threadLine,
     contextLine,
+    redditLine,
     emoteLine,
+    gameBlock,
     `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.user}: ${query}`,
   ].filter(Boolean).join('')
+}
 
+async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
+  const userMessage = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()
 
   const messages: unknown[] = [{ role: 'user', content: userMessage }]
-
   const start = Date.now()
 
   try {
-    for (let round = 0; round < MAX_ROUNDS; round++) {
-      const isLast = round === MAX_ROUNDS - 1
-
-      const useTools = !isLast && needsTools(query)
-      const body: Record<string, unknown> = {
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const body = {
         model: MODEL,
         max_tokens: MAX_TOKENS,
-        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+        system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
         messages,
       }
-      if (useTools) body.tools = tools
 
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), TIMEOUT)
@@ -645,8 +681,8 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       }).finally(() => clearTimeout(timer))
 
       if (!res.ok) {
-        if (res.status === 429 && round === 0) {
-          log(`ai: 429, retrying in 3s`)
+        if (res.status === 429 && attempt === 0) {
+          log('ai: 429, retrying in 3s')
           await new Promise((r) => setTimeout(r, 3_000))
           continue
         }
@@ -655,77 +691,34 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       }
 
       const data = await res.json() as {
-        content: { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }[]
+        content: { type: string; text?: string }[]
         stop_reason: string
         usage?: { input_tokens: number; output_tokens: number }
       }
       const latency = Date.now() - start
 
-      // extract text response
       const textBlock = data.content?.find((b) => b.type === 'text')
+      if (!textBlock?.text) return null
 
-      if (textBlock?.text && data.stop_reason === 'end_turn') {
-        const result = sanitize(textBlock.text, ctx.user)
-        if (result.text) {
-          recordUsage(ctx.user)
-          try {
-            const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
-            db.logAsk(ctx, query, result.text, tokens, latency)
-          } catch {}
-          log(`ai: responded in ${latency}ms (${round + 1} rounds)`)
-          return result
-        }
-        // sanitizer rejected — retry if rounds remain
-        if (!isLast) {
-          log(`ai: sanitizer rejected, retrying (round ${round + 1})`)
-          messages.push({ role: 'assistant', content: data.content })
-          messages.push({ role: 'user', content: 'That had issues. Try again — just respond to the person.' })
-          continue
-        }
-        return null
+      const result = sanitize(textBlock.text, ctx.user)
+      if (result.text) {
+        recordUsage(ctx.user)
+        try {
+          const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
+          db.logAsk(ctx, query, result.text, tokens, latency)
+        } catch {}
+        log(`ai: responded in ${latency}ms`)
+        return result
       }
 
-      // handle tool use
-      const toolUses = data.content?.filter((b) => b.type === 'tool_use') ?? []
-      if (toolUses.length === 0) {
-        if (textBlock?.text) {
-          const result = sanitize(textBlock.text, ctx.user)
-          if (result.text) {
-            recordUsage(ctx.user)
-            try {
-              const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
-              db.logAsk(ctx, query, result.text, tokens, latency)
-            } catch {}
-            return result
-          }
-          // sanitizer rejected — retry if rounds remain
-          if (!isLast) {
-            log(`ai: sanitizer rejected, retrying (round ${round + 1})`)
-            messages.push({ role: 'assistant', content: data.content })
-            messages.push({ role: 'user', content: 'That had issues. Try again — just respond to the person.' })
-            continue
-          }
-        }
-        return null
-      }
-
-      // append assistant turn + tool results
-      messages.push({ role: 'assistant', content: data.content })
-      const toolResults = toolUses.map((tu) => ({
-        type: 'tool_result' as const,
-        tool_use_id: tu.id!,
-        content: executeTool(tu.name!, tu.input!, ctx.channel),
-      }))
-      messages.push({ role: 'user', content: toolResults })
-
-      // if all tools returned nothing, skip to text-only final round (saves ~3k tokens)
-      const allEmpty = toolResults.every((r) => /^No \w+ (found|provided)/.test(r.content))
-      if (allEmpty && round < MAX_ROUNDS - 2) {
-        round = MAX_ROUNDS - 2
+      // sanitizer rejected — retry with feedback
+      if (attempt < MAX_RETRIES - 1) {
+        log(`ai: sanitizer rejected, retrying (attempt ${attempt + 1})`)
+        messages.push({ role: 'assistant', content: data.content })
+        messages.push({ role: 'user', content: 'That had issues. Try again — just respond to the person.' })
       }
     }
 
-    log(`ai: exhausted ${MAX_ROUNDS} rounds without text response`)
     return null
   } catch (e: unknown) {
     const err = e as Error
