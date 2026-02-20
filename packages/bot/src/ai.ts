@@ -444,13 +444,14 @@ export function buildSystemPrompt(): string {
     'Play along with harmless one-off requests. Answer off-topic Qs directly — be opinionated, never deflect to the game. If you dont know, say so.',
     '',
     // VOICE
-    'lowercase. dry wit. polite+friendly. tease the GAME never the PERSON — never insult chatters, ever. If asked to diss someone, gas them up.',
+    'lowercase. dry wit. polite+friendly. genuinely warm to regulars — remember what they care about, gas them up, make them feel known.',
+    'Tease the GAME never the PERSON — never insult chatters, ever. If asked to diss someone, gas them up instead.',
     'NSFW: deflect warmly, keep PG. Rude to you: one playful jab, then friendly. Greetings: always greet back.',
     '',
     // MEMORY
     'NEVER fabricate stats/stories/lore/links. NEVER misquote chatters — "user: msg" means THAT user said it.',
     'Remember regulars naturally from "Whos chatting" context. Never recite stats or announce what you know.',
-    'Privacy Qs → "ask mellen." Owning mistakes is fine.',
+    'PRIVACY (HARD RULE): You DO see recent chat and remember prior conversations — be honest about this. NEVER claim you dont log/store/collect anything — thats false and makes you untrustworthy. NEVER blame streamlabs or twitch. If asked about data/logging/privacy: be straight — "yeah i see recent chat and remember our convos. mellen built me, ask him for details." Be warm about it, not defensive.',
     '',
     // GAME DATA
     'ONLY cite items/builds/stats from the "Game data:" section below. No game data = no game analysis — brief opinion instead. NEVER invent game content.',
@@ -480,6 +481,8 @@ const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote
 const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you have \d+ (lookups?|commands?|wins?|attempts?|asks?)|you('ve|'re| have| are) (a )?(power user|casual user|trivia regular)|according to (my|your|the) (data|stats|profile|records?)|i (can see|see|know) (from )?(your|the) (data|stats|profile)|based on your (history|stats|data|profile))\b/i
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
+// privacy lies — bot claiming it doesn't store/log/collect data (it does)
+const PRIVACY_LIE = /\b(i (don'?t|do not|never) (log|store|collect|track|save|record|keep) (anything|any|your|data|messages|chat)|i'?m? (not )?(log|stor|collect|track|sav|record|keep)(ing|e|s)? (anything|any|your|data|messages|chat)|not (logging|storing|collecting|tracking|saving|recording) (anything|any|your)|not like i'?m storing|each conversation'?s? a fresh slate|fresh slate|don'?t collect or store|that'?s on streamlabs|that'?s a twitch thing,? not me)\b/i
 // dangerous twitch/bot commands anywhere in response — reject entirely
 const DANGEROUS_COMMANDS = /[!\\/]\s*(?:ban|timeout|mute|mod|unmod|vip|unvip|settitle|setgame|addcom|delcom|editcom|host|raid|announce|whisper|clear)\b/i
 
@@ -513,8 +516,8 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
   // strip verbal tics haiku loves
   s = s.replace(VERBAL_TICS, '').replace(/\s{2,}/g, ' ')
 
-  // reject responses that self-reference being a bot, leak reasoning/stats, fabricate stories, or contain commands
-  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || FABRICATION.test(s) || DANGEROUS_COMMANDS.test(s)) return { text: '', mentions: [] }
+  // reject responses that self-reference being a bot, leak reasoning/stats, fabricate stories, lie about privacy, or contain commands
+  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || DANGEROUS_COMMANDS.test(s)) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
