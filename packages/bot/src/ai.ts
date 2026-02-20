@@ -597,14 +597,18 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
 
       // append assistant turn + tool results
       messages.push({ role: 'assistant', content: data.content })
-      messages.push({
-        role: 'user',
-        content: toolUses.map((tu) => ({
-          type: 'tool_result',
-          tool_use_id: tu.id,
-          content: executeTool(tu.name!, tu.input!),
-        })),
-      })
+      const toolResults = toolUses.map((tu) => ({
+        type: 'tool_result' as const,
+        tool_use_id: tu.id!,
+        content: executeTool(tu.name!, tu.input!),
+      }))
+      messages.push({ role: 'user', content: toolResults })
+
+      // if all tools returned nothing, skip to text-only final round (saves ~3k tokens)
+      const allEmpty = toolResults.every((r) => /^No \w+ (found|provided)/.test(r.content))
+      if (allEmpty && round < MAX_ROUNDS - 2) {
+        round = MAX_ROUNDS - 2
+      }
     }
 
     log(`ai: exhausted ${MAX_ROUNDS} rounds without text response`)

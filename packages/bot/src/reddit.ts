@@ -145,7 +145,7 @@ export async function refreshRedditDigest(): Promise<void> {
     const digest = await summarizeWithHaiku(context)
 
     if (digest) {
-      cachedDigest = digest
+      cachedDigest = digest.replace(/^#+\s*/gm, '').replace(/\*\*([^*]+)\*\*/g, '$1')
       log(`reddit: fetched ${topPosts.length} posts, digest: ${digest.slice(0, 80)}...`)
     } else {
       log('reddit: no digest generated (no API key or empty response)')
