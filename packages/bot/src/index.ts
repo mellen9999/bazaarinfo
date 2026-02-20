@@ -12,7 +12,7 @@ import { invalidatePromptCache, initSummarizer } from './ai'
 import { refreshRedditDigest } from './reddit'
 import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes } from './emotes'
-import { loadDescriptionCache, describeEmotes } from './emote-describe'
+import { loadDescriptionCache } from './emote-describe'
 import { preloadStyles } from './style'
 import { log } from './log'
 
@@ -146,8 +146,6 @@ loadDescriptionCache().then(async () => {
     } catch (e) { log(`emote load failed for #${ch.name}: ${e}`) }
   }
   preloadStyles(channels.map((c) => c.name))
-  // describe new emotes in background after 60s — don't starve live chat on startup
-  setTimeout(() => describeEmotes(emoteData).catch((e) => log(`emote describe failed: ${e}`)), 60_000)
 }).catch((e) => log(`emote startup failed: ${e}`))
 
 // load reddit digest (non-blocking)
@@ -253,7 +251,6 @@ scheduleDaily(4, async () => {
       const data = await refreshChannelEmotes(ch.name, ch.userId)
       dailyEmoteData.push(...data)
     }
-    await describeEmotes(dailyEmoteData)
   } catch (e) { log(`daily emote refresh failed: ${e}`) }
   log('daily refresh complete')
 })

@@ -425,7 +425,7 @@ export interface AiContext {
   privileged?: boolean
 }
 
-export interface AiResult { text: string; mentions: string[]; throttled?: boolean }
+export interface AiResult { text: string; mentions: string[] }
 
 export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult | null> {
   if (!API_KEY) return null
@@ -497,8 +497,12 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
       }).finally(() => clearTimeout(timer))
 
       if (!res.ok) {
+        if (res.status === 429 && round === 0) {
+          log(`ai: 429, retrying in 3s`)
+          await new Promise((r) => setTimeout(r, 3_000))
+          continue
+        }
         log(`ai: API ${res.status} ${await res.text().catch(() => '')}`)
-        if (res.status === 429) return { text: '', mentions: [], throttled: true } as AiResult
         return null
       }
 

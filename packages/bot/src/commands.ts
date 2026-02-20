@@ -258,10 +258,6 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 
   // conversational queries (3+ words) → AI fallback, silence on failure
   const aiResult = await aiRespond(cleanArgs, ctx)
-  if (aiResult?.throttled) {
-    const tag = ctx.user ? ` @${ctx.user}` : ''
-    return `brain's busy, try again in a sec` + tag
-  }
   if (aiResult?.text) {
     logHit('ai', cleanArgs, 'ai', ctx)
     const allMentions = new Set<string>()
