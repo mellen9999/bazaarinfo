@@ -3,9 +3,9 @@ import { join } from 'path'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const CACHE_PATH = join(import.meta.dir, '../../..', 'cache', 'emote-descriptions.json')
-const BATCH_SIZE = 10
-const CONCURRENCY = 2
-const CHUNK_DELAY = 5_000 // 5s between chunks to avoid starving live chat
+const BATCH_SIZE = 5
+const CONCURRENCY = 1
+const CHUNK_DELAY = 15_000 // 15s between batches to avoid starving live chat
 
 const MOODS = [
   'hype', 'funny', 'sad', 'happy', 'sarcasm', 'shock', 'thinking',

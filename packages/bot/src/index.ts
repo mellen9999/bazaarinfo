@@ -145,9 +145,9 @@ loadDescriptionCache().then(async () => {
       emoteData.push(...data)
     } catch (e) { log(`emote load failed for #${ch.name}: ${e}`) }
   }
-  // describe any new emotes via vision (non-blocking, runs in background)
-  await describeEmotes(emoteData).catch((e) => log(`emote describe failed: ${e}`))
   preloadStyles(channels.map((c) => c.name))
+  // describe new emotes in background after 60s — don't starve live chat on startup
+  setTimeout(() => describeEmotes(emoteData).catch((e) => log(`emote describe failed: ${e}`)), 60_000)
 }).catch((e) => log(`emote startup failed: ${e}`))
 
 // load reddit digest (non-blocking)
