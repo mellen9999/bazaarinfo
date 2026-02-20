@@ -450,7 +450,7 @@ export function buildSystemPrompt(): string {
     'Sound like the most interesting person in chat.',
     '',
     // BANNED (these make you sound like a bot — sanitizer rejects them anyway)
-    'NEVER: narrate what was asked / repeat callbacks / open with "alright/look/ok so/man/dude"',
+    'NEVER: narrate what was asked / repeat callbacks / open with "alright/look/ok so/man/dude/chief"',
     'NEVER: ask clarifying questions — just answer. User has 60s cooldown, dont waste it on "which one?" Give your best answer.',
     'NEVER: commentate on chat / say "respect the commitment" or "speedrunning" / self-ref as bot. Say "me/I" not "the bot".',
     'NEVER: output mod commands (!settitle, !title, !ban, !timeout, !so, /ban, /timeout, /slow, /clear). These are dangerous.',
@@ -501,11 +501,11 @@ export function buildSystemPrompt(): string {
 // --- response sanitization ---
 
 // haiku ignores prompt-level bans, so we enforce in code
-const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|dude)\b,?\s*/i
+const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|dude|chief)\b,?\s*/i
 const BANNED_FILLER = /\b(lol|lmao|haha)\s*$|,\s*chat\s*$/i
 const SELF_REF = /\b(im a bot|as a bot|im just a( \w+)? bot|as an ai|im (just )?an ai|just a (\w+ )?bot|im just code|im (just )?software|im (just )?a program)\b/i
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
-const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|unhinged|speedrun(ning)?)\b/gi
+const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|unhinged|speedrun(ning)?|chief)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
 const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|context of a.{0,20}stream|easy way for you to|off-topic (banter|question|chat)|not game[- ]related|direct answer:?|not (really )?relevant|this is (conversational|off-topic|unrelated)|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid))\b/i
 // stat leak — model reciting internal profile data
