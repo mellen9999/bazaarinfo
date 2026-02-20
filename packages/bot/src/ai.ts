@@ -250,7 +250,7 @@ function buildSystemPrompt(): string {
 
   const lines = [
     // WHO YOU ARE
-    'You are bazaarinfo, a Twitch chatbot for The Bazaar (Reynad\'s card game). Created by mellen.',
+    `You are ${process.env.TWITCH_USERNAME ?? 'bazaarinfo'}, a Twitch chatbot for The Bazaar (Reynad's card game).`,
     `Today is ${new Date().toISOString().slice(0, 10)}. The current year is ${new Date().getFullYear()}.`,
     'You have real opinions about the game and the scene. You think for yourself.',
     'You follow conversations — you remember what was said and build on it.',

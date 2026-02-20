@@ -182,6 +182,7 @@ const client = new TwitchClient(
             const info: ChannelInfo = { name: target, userId: targetId }
             await client.joinChannel(info)
             await channelStore.add(target)
+            refreshChannelEmotes(target, targetId).catch(() => {})
             client.say(channel, `@${username} joined #${target}! type !b help in your chat`)
           } catch (e) {
             log(`join error for ${target}: ${e}`)

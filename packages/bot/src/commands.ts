@@ -5,7 +5,9 @@ import * as db from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
 import { aiRespond } from './ai'
 
-const ALIAS_ADMINS = new Set(['tidolar'])
+const ALIAS_ADMINS = new Set(
+  (process.env.ALIAS_ADMINS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+)
 
 export interface CommandContext {
   user?: string
@@ -61,7 +63,7 @@ export function parseArgs(words: string[]): ParsedArgs {
 let lobbyChannel = ''
 export function setLobbyChannel(name: string) { lobbyChannel = name }
 
-const OWNER = 'mellen'
+const OWNER = (process.env.BOT_OWNER ?? '').toLowerCase()
 let onRefresh: (() => Promise<string>) | null = null
 export function setRefreshHandler(handler: () => Promise<string>) { onRefresh = handler }
 
