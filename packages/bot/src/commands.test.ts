@@ -1423,3 +1423,35 @@ describe('AI fallback path', () => {
     expect(result).not.toContain('@viewer')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Streamlabs command proxy
+// ---------------------------------------------------------------------------
+describe('streamlabs command proxy', () => {
+  it('proxies custom commands as-is', async () => {
+    expect(await handleCommand('!b !jory')).toBe('!jory')
+  })
+
+  it('proxies with args', async () => {
+    expect(await handleCommand('!b !jory 932')).toBe('!jory 932')
+  })
+
+  it('blocks system commands silently', async () => {
+    expect(await handleCommand('!b !so')).toBeNull()
+    expect(await handleCommand('!b !shoutout')).toBeNull()
+    expect(await handleCommand('!b !ban')).toBeNull()
+    expect(await handleCommand('!b !timeout')).toBeNull()
+    expect(await handleCommand('!b !mod')).toBeNull()
+    expect(await handleCommand('!b !raid')).toBeNull()
+  })
+
+  it('is case insensitive for blocked commands', async () => {
+    expect(await handleCommand('!b !SO')).toBeNull()
+    expect(await handleCommand('!b !Ban')).toBeNull()
+  })
+
+  it('allows non-blocked commands', async () => {
+    expect(await handleCommand('!b !lurk')).toBe('!lurk')
+    expect(await handleCommand('!b !hug')).toBe('!hug')
+  })
+})

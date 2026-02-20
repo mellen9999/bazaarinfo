@@ -25,6 +25,13 @@ const ALIAS_ADMINS = new Set(
   (process.env.ALIAS_ADMINS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
 )
 
+// streamlabs system commands that should NOT be proxied
+const BLOCKED_CMDS = new Set([
+  'so', 'shoutout', 'mod', 'unmod', 'vip', 'unvip', 'ban', 'unban',
+  'timeout', 'permit', 'title', 'game', 'commercial', 'raid', 'marker',
+  'commands', 'editcom', 'addcom', 'delcom', 'disablecom',
+])
+
 export interface CommandContext {
   user?: string
   channel?: string
@@ -338,6 +345,14 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   // suppress duplicate lookups within 30s per channel
   if (ctx.channel && isDuplicate(ctx.channel, cleanArgs)) return null
+
+  // proxy streamlabs commands: !b !jory 932 → sends "!jory 932" in chat
+  const proxyMatch = cleanArgs.match(/^!(\w+)(.*)$/)
+  if (proxyMatch) {
+    const cmd = proxyMatch[1].toLowerCase()
+    if (BLOCKED_CMDS.has(cmd)) return null
+    return cleanArgs // send raw "!cmd args" to chat
+  }
 
   const suffix = ''
 
