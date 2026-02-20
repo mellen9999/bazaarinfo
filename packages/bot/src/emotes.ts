@@ -196,14 +196,22 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[]): string
     }
   }
 
-  const MAX_PER_MOOD = 3
-  const MAX_TOTAL = 25
+  // high-value moods get more slots — these are the ones chatters actually use expressively
+  const MOOD_BUDGET: Record<string, number> = {
+    love: 5, funny: 4, hype: 4, sad: 3, happy: 3, greeting: 3,
+    sarcasm: 3, dance: 2, cute: 2, celebration: 2, chad: 2,
+    shock: 2, scared: 2, thinking: 2, rage: 2, cringe: 2,
+    cool: 1, confused: 1, neutral: 1,
+  }
+  const MAX_TOTAL = 45
   let total = 0
   const lines: string[] = []
-  const sortedMoods = [...byMood.keys()].sort()
+  // sort moods by budget (high-value first) to guarantee they get slots
+  const sortedMoods = [...byMood.keys()].sort((a, b) => (MOOD_BUDGET[b] ?? 1) - (MOOD_BUDGET[a] ?? 1))
   for (const mood of sortedMoods) {
     if (total >= MAX_TOTAL) break
-    const take = Math.min(MAX_PER_MOOD, MAX_TOTAL - total)
+    const budget = MOOD_BUDGET[mood] ?? 1
+    const take = Math.min(budget, MAX_TOTAL - total)
     const entries = byMood.get(mood)!.slice(0, take)
     lines.push(`  ${mood}: ${entries.join(' ')}`)
     total += entries.length
@@ -213,7 +221,7 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[]): string
     lines.push(`  [OVERLAYS]: ${overlays.slice(0, 3).join(' ')}`)
   }
 
-  return `Emotes (0-1 per msg, only when perfect):\n${lines.join('\n')}`
+  return `Emotes (0-1 per msg, only when perfect. NEVER use <3 or :) — use a real emote instead):\n${lines.join('\n')}`
 }
 
 /** pick a random emote by mood for a channel — returns empty string if none found */
