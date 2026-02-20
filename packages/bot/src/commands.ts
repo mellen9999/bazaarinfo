@@ -5,6 +5,7 @@ import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
 import { aiRespond, dedupeEmote } from './ai'
+import { isEmote } from './emotes'
 
 const MAX_LEN = 480
 
@@ -82,6 +83,9 @@ const OWNER = (process.env.BOT_OWNER ?? '').toLowerCase()
 let onRefresh: (() => Promise<string>) | null = null
 export function setRefreshHandler(handler: () => Promise<string>) { onRefresh = handler }
 
+let onEmoteRefresh: (() => Promise<string>) | null = null
+export function setEmoteRefreshHandler(handler: () => Promise<string>) { onEmoteRefresh = handler }
+
 const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/enchants/trivia/score/stats | bazaardb.gg'
 const JOIN_USAGE = () => lobbyChannel ? ` | add bot: type !join in ${lobbyChannel}'s chat` : ''
 
@@ -136,6 +140,11 @@ const subcommands: [RegExp, SubHandler][] = [
     if (ctx.user !== OWNER) return null
     if (!onRefresh) return 'refresh not available'
     return onRefresh()
+  }],
+  [/^emotes?\s+refresh$/i, async (_q, ctx) => {
+    if (ctx.user !== OWNER) return null
+    if (!onEmoteRefresh) return 'emote refresh not available'
+    return onEmoteRefresh()
   }],
   [/^(?:mob|monster)$/i, () => 'usage: !b mob <name>'],
   [/^hero$/i, () => 'usage: !b hero <name>'],
@@ -229,6 +238,9 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   const { item: query, tier, enchant } = parseArgs(words)
 
   if (!query) return BASE_USAGE + JOIN_USAGE()
+
+  // silently ignore known emotes — they're not item names
+  if (!tier && !enchant && isEmote(query)) return null
 
   if (enchant) {
     const card = store.exact(query) ?? store.search(query, 1)[0]

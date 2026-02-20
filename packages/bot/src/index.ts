@@ -2,7 +2,7 @@ import type { CardCache } from '@bazaarinfo/shared'
 import { TwitchClient, getUserId } from './twitch'
 import type { ChannelInfo } from './twitch'
 import { loadStore, reloadStore, CACHE_PATH } from './store'
-import { handleCommand, setLobbyChannel, setRefreshHandler } from './commands'
+import { handleCommand, setLobbyChannel, setRefreshHandler, setEmoteRefreshHandler } from './commands'
 import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily } from './scheduler'
 import { scrapeDump } from '@bazaarinfo/data'
@@ -12,7 +12,8 @@ import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel } 
 import { invalidatePromptCache, initSummarizer } from './ai'
 import { refreshRedditDigest } from './reddit'
 import * as chatbuf from './chatbuf'
-import { refreshGlobalEmotes, refreshChannelEmotes } from './emotes'
+import { refreshGlobalEmotes, refreshChannelEmotes, getEmoteSetId, getAllEmoteSetIds, removeChannelEmotes } from './emotes'
+import * as emoteEvents from './emote-events'
 import { loadDescriptionCache } from './emote-describe'
 import { preloadStyles } from './style'
 import { writeAtomic } from './fs-util'
@@ -144,6 +145,23 @@ setRefreshHandler(async () => {
   }
 })
 
+// owner-only !b emote refresh
+setEmoteRefreshHandler(async () => {
+  try {
+    let count = 0
+    const globals = await refreshGlobalEmotes()
+    count += globals.length
+    const currentChannels = client.getChannels()
+    for (const ch of currentChannels) {
+      const data = await refreshChannelEmotes(ch.name, ch.userId)
+      count += data.length
+    }
+    return `refreshed ${count} emotes across ${currentChannels.length} channels`
+  } catch (e) {
+    return `emote refresh failed: ${e instanceof Error ? e.message : e}`
+  }
+})
+
 // load emote descriptions cache, then refresh emotes + describe new ones
 loadDescriptionCache().then(async () => {
   const emoteData = []
@@ -158,6 +176,12 @@ loadDescriptionCache().then(async () => {
     } catch (e) { log(`emote load failed for #${ch.name}: ${e}`) }
   }
   preloadStyles(channels.map((c) => c.name))
+
+  // connect 7TV EventAPI for real-time emote updates
+  emoteEvents.connect()
+  for (const [channel, setId] of getAllEmoteSetIds()) {
+    emoteEvents.subscribeChannel(channel, setId)
+  }
 }).catch((e) => log(`emote startup failed: ${e}`))
 
 // load reddit digest (non-blocking)
@@ -194,7 +218,10 @@ const client = new TwitchClient(
             const info: ChannelInfo = { name: target, userId: targetId }
             await client.joinChannel(info)
             await channelStore.add(target)
-            refreshChannelEmotes(target, targetId).catch(() => {})
+            refreshChannelEmotes(target, targetId).then(() => {
+              const setId = getEmoteSetId(target)
+              if (setId) emoteEvents.subscribeChannel(target, setId)
+            }).catch(() => {})
             client.say(channel, `@${username} joined #${target}! type !b help in your chat`)
           } catch (e) {
             log(`join error for ${target}: ${e}`)
@@ -214,6 +241,8 @@ const client = new TwitchClient(
           }
           client.leaveChannel(target)
           cleanupChannel(target)
+          emoteEvents.unsubscribeChannel(target)
+          removeChannelEmotes(target)
           await channelStore.remove(target)
           client.say(channel, `@${username} left #${target}`)
           return
@@ -271,9 +300,22 @@ scheduleDaily(4, async () => {
   log('daily refresh complete')
 })
 
+// periodic emote reconciliation every 2 hours (fallback for missed events)
+setInterval(async () => {
+  try {
+    await refreshGlobalEmotes()
+    const currentChannels = client.getChannels()
+    for (const ch of currentChannels) {
+      await refreshChannelEmotes(ch.name, ch.userId)
+    }
+    log('periodic emote reconciliation complete')
+  } catch (e) { log(`periodic emote reconciliation failed: ${e}`) }
+}, 2 * 60 * 60_000)
+
 // graceful shutdown
 function shutdown() {
   log('shutting down...')
+  emoteEvents.close()
   db.closeDb()
   client.close()
   process.exit(0)
