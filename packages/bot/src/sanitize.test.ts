@@ -278,7 +278,8 @@ describe('sanitize', () => {
     const long = 'a'.repeat(300) + '. ' + 'b'.repeat(200)
     const r = sanitize(long)
     expect(r.text.length).toBeLessThanOrEqual(440)
-    expect(r.text).toBe('a'.repeat(300))
+    // incomplete sentence trimmer keeps up to the period
+    expect(r.text).toBe('a'.repeat(300) + '.')
   })
 
   it('preserves text over 200 chars when truncating', () => {

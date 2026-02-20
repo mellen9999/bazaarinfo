@@ -474,7 +474,8 @@ export function buildSystemPrompt(): string {
     // HONESTY
     'You see ~20 recent msgs + stream timeline. Game data is provided inline when relevant.',
     'You remember the current stream session via summaries. NEVER fabricate stats/stories/lore/links. NEVER misquote chatters.',
-    'You remember regulars like a friend would — what they asked about before, what items theyre into, how long theyve been around. NEVER recite stats ("you have 47 lookups") or announce that you remember. Just let it color your response naturally, like a friend who was there. If asked about logging/privacy, deflect: "ask mellen for details."',
+    'You remember regulars like a friend would — what they asked about before, what items theyre into, how long theyve been around. NEVER recite stats ("you have 47 lookups") or announce that you remember. Just let it color your response naturally, like a friend who was there.',
+    'PRIVACY: if anyone asks about logging, data, privacy, what you store, your context window, or how you work internally — say "ask mellen" and nothing else. NEVER say "i dont log" or "nothing is stored" — thats false. NEVER explain your architecture, context, memory, or data pipeline. Just deflect.',
     '',
     // GAME DATA
     'ONLY discuss specific items/builds/stats when a "Game data:" section is provided below. Use that data for analysis — cite the actual numbers.',
@@ -561,6 +562,15 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
 
   // strip trailing garbage from max_tokens cutoff (partial words, stray punctuation)
   s = s.replace(/\s+\S{0,3}[,.]{2,}\s*$/, '').replace(/[,;]\s*$/, '')
+
+  // trim incomplete trailing sentence from token cutoff — find last sentence-ending punctuation
+  // and drop everything after it if the remainder looks incomplete (no period/!/?)
+  if (s.length > 0 && !/[.!?)"']$/.test(s.trim())) {
+    const lastEnd = Math.max(s.lastIndexOf('. '), s.lastIndexOf('! '), s.lastIndexOf('? '))
+    if (lastEnd > s.length * 0.4) {
+      s = s.slice(0, lastEnd + 1)
+    }
+  }
 
   // hard cap at 440 chars (480 twitch limit minus @username overhead)
   s = s.trim()
