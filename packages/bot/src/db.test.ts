@@ -121,4 +121,91 @@ describe('db', () => {
     expect(leaders[0].username).toBe('winner1')
     expect(leaders[0].trivia_wins).toBe(2)
   })
+
+  // --- chat summaries ---
+
+  it('logs and retrieves summaries', () => {
+    db.logSummary('test', 1, 'chat about boomerangs', 200)
+    db.logSummary('test', 1, 'moved to shields discussion', 200)
+    db.flushWrites()
+
+    const rows = db.getLatestSummaries('test', 5)
+    expect(rows.length).toBe(2)
+    expect(rows[0].summary).toBe('moved to shields discussion')
+    expect(rows[1].summary).toBe('chat about boomerangs')
+  })
+
+  it('getSessionSummaries filters by session', () => {
+    db.logSummary('test', 1, 'session 1 stuff', 200)
+    db.logSummary('test', 2, 'session 2 stuff', 200)
+    db.flushWrites()
+
+    const s1 = db.getSessionSummaries('test', 1)
+    expect(s1.length).toBe(1)
+    expect(s1[0].summary).toBe('session 1 stuff')
+
+    const s2 = db.getSessionSummaries('test', 2)
+    expect(s2.length).toBe(1)
+    expect(s2[0].summary).toBe('session 2 stuff')
+  })
+
+  it('getMaxSessionId returns highest session', () => {
+    expect(db.getMaxSessionId('test')).toBe(0)
+
+    db.logSummary('test', 3, 'summary', 200)
+    db.logSummary('test', 5, 'summary', 200)
+    db.flushWrites()
+
+    expect(db.getMaxSessionId('test')).toBe(5)
+  })
+
+  // --- FTS ---
+
+  it('FTS search finds chat messages', () => {
+    db.logChat('test', 'alice', 'boomerang is overpowered')
+    db.logChat('test', 'bob', 'shield build is better')
+    db.logChat('test', 'alice', 'boomerang scales with crit')
+    db.flushWrites()
+
+    const hits = db.searchChatFTS('test', 'boomerang')
+    expect(hits.length).toBe(2)
+    expect(hits[0].username).toBe('alice')
+  })
+
+  it('FTS search filters by username', () => {
+    db.logChat('test', 'alice', 'boomerang rush')
+    db.logChat('test', 'bob', 'boomerang is fine')
+    db.flushWrites()
+
+    const hits = db.searchChatFTS('test', 'boomerang', 10, 'alice')
+    expect(hits.length).toBe(1)
+    expect(hits[0].username).toBe('alice')
+  })
+
+  it('FTS search filters by channel', () => {
+    db.logChat('chan1', 'alice', 'boomerang')
+    db.logChat('chan2', 'bob', 'boomerang')
+    db.flushWrites()
+
+    const hits = db.searchChatFTS('chan1', 'boomerang')
+    expect(hits.length).toBe(1)
+    expect(hits[0].username).toBe('alice')
+  })
+
+  it('pruneOldSummaries removes old entries', () => {
+    db.logSummary('test', 1, 'old summary', 200)
+    db.flushWrites()
+
+    // manually backdate the row
+    db.getDb().run(`UPDATE chat_summaries SET created_at = datetime('now', '-60 days')`)
+
+    db.logSummary('test', 1, 'new summary', 200)
+    db.flushWrites()
+
+    db.pruneOldSummaries(30)
+
+    const rows = db.getLatestSummaries('test', 10)
+    expect(rows.length).toBe(1)
+    expect(rows[0].summary).toBe('new summary')
+  })
 })

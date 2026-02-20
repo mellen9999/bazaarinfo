@@ -38,6 +38,12 @@ let stmts: {
   insertAlias: Statement
   deleteAlias: Statement
   selectAliases: Statement
+  insertSummary: Statement
+  latestSummaries: Statement
+  sessionSummaries: Statement
+  maxSessionId: Statement
+  searchFTS: Statement
+  searchFTSByUser: Statement
 }
 
 function prepareStatements() {
@@ -118,6 +124,30 @@ function prepareStatements() {
     insertAlias: db.prepare('INSERT OR REPLACE INTO aliases (alias, target, added_by) VALUES (?, ?, ?)'),
     deleteAlias: db.prepare('DELETE FROM aliases WHERE alias = ?'),
     selectAliases: db.prepare('SELECT alias, target, added_by FROM aliases ORDER BY alias'),
+    insertSummary: db.prepare(
+      'INSERT INTO chat_summaries (channel, session_id, summary, msg_count) VALUES (?, ?, ?, ?)',
+    ),
+    latestSummaries: db.prepare(
+      'SELECT summary, created_at FROM chat_summaries WHERE channel = ? ORDER BY created_at DESC, id DESC LIMIT ?',
+    ),
+    sessionSummaries: db.prepare(
+      'SELECT summary, created_at FROM chat_summaries WHERE channel = ? AND session_id = ? ORDER BY created_at ASC',
+    ),
+    maxSessionId: db.prepare(
+      'SELECT MAX(session_id) as max_id FROM chat_summaries WHERE channel = ?',
+    ),
+    searchFTS: db.prepare(
+      `SELECT cm.username, cm.message, cm.created_at FROM chat_fts f
+       JOIN chat_messages cm ON cm.id = f.rowid
+       WHERE f.message MATCH ? AND cm.channel = ?
+       ORDER BY cm.created_at DESC LIMIT ?`,
+    ),
+    searchFTSByUser: db.prepare(
+      `SELECT cm.username, cm.message, cm.created_at FROM chat_fts f
+       JOIN chat_messages cm ON cm.id = f.rowid
+       WHERE f.message MATCH ? AND cm.channel = ? AND LOWER(cm.username) = ?
+       ORDER BY cm.created_at DESC LIMIT ?`,
+    ),
   }
 }
 
@@ -134,6 +164,7 @@ type WriteOp =
   | { type: 'ask'; userId: number | null; channel: string | null; query: string; response: string | null; tokens: number | null; latency: number | null }
   | { type: 'incr_commands'; userId: number }
   | { type: 'incr_asks'; userId: number }
+  | { type: 'summary'; channel: string; sessionId: number; summary: string; msgCount: number }
 
 const writeQueue: WriteOp[] = []
 let flushTimer: Timer | null = null
@@ -166,6 +197,9 @@ export function flushWrites() {
             break
           case 'incr_asks':
             stmts.incrUserAsks.run(op.userId)
+            break
+          case 'summary':
+            stmts.insertSummary.run(op.channel, op.sessionId, op.summary, op.msgCount)
             break
         }
       }
@@ -276,6 +310,31 @@ const migrations: (() => void)[] = [
       added_by TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`)
+  },
+  // migration 3: chat summaries + FTS
+  () => {
+    db.run(`CREATE TABLE chat_summaries (
+      id INTEGER PRIMARY KEY,
+      channel TEXT NOT NULL,
+      session_id INTEGER NOT NULL,
+      summary TEXT NOT NULL,
+      msg_count INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+    db.run(`CREATE INDEX idx_summaries_channel_session ON chat_summaries(channel, session_id)`)
+    db.run(`CREATE INDEX idx_summaries_channel_time ON chat_summaries(channel, created_at DESC)`)
+
+    // FTS5 content-external — no storage duplication
+    db.run(`CREATE VIRTUAL TABLE chat_fts USING fts5(message, content='chat_messages', content_rowid='id')`)
+    // backfill existing messages
+    db.run(`INSERT INTO chat_fts(rowid, message) SELECT id, message FROM chat_messages`)
+    // auto-sync triggers
+    db.run(`CREATE TRIGGER chat_fts_insert AFTER INSERT ON chat_messages BEGIN
+      INSERT INTO chat_fts(rowid, message) VALUES (new.id, new.message);
+    END`)
+    db.run(`CREATE TRIGGER chat_fts_delete AFTER DELETE ON chat_messages BEGIN
+      INSERT INTO chat_fts(chat_fts, rowid, message) VALUES ('delete', old.id, old.message);
+    END`)
   },
 ]
 
@@ -521,4 +580,51 @@ export function getAllAliases(): { alias: string; target: string; added_by: stri
     target: string
     added_by: string | null
   }[]
+}
+
+// --- chat summary helpers ---
+
+export function logSummary(channel: string, sessionId: number, summary: string, msgCount: number) {
+  writeQueue.push({ type: 'summary', channel, sessionId, summary, msgCount })
+  scheduleFlush()
+}
+
+export interface SummaryRow { summary: string; created_at: string }
+
+export function getLatestSummaries(channel: string, limit = 5): SummaryRow[] {
+  return stmts.latestSummaries.all(channel, limit) as SummaryRow[]
+}
+
+export function getSessionSummaries(channel: string, sessionId: number): SummaryRow[] {
+  return stmts.sessionSummaries.all(channel, sessionId) as SummaryRow[]
+}
+
+export function getMaxSessionId(channel: string): number {
+  const row = stmts.maxSessionId.get(channel) as { max_id: number | null } | null
+  return row?.max_id ?? 0
+}
+
+export interface FTSResult { username: string; message: string; created_at: string }
+
+export function searchChatFTS(channel: string, query: string, limit = 10, username?: string): FTSResult[] {
+  try {
+    if (username) {
+      return stmts.searchFTSByUser.all(query, channel, username.toLowerCase(), limit) as FTSResult[]
+    }
+    return stmts.searchFTS.all(query, channel, limit) as FTSResult[]
+  } catch {
+    return []
+  }
+}
+
+export function pruneOldSummaries(days = 30) {
+  try {
+    const result = db.run(
+      `DELETE FROM chat_summaries WHERE created_at < datetime('now', ?)`,
+      [`-${days} days`],
+    )
+    if (result.changes > 0) log(`pruned ${result.changes} chat summaries older than ${days}d`)
+  } catch (e) {
+    log(`summary prune error: ${e}`)
+  }
 }

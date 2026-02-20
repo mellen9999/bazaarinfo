@@ -2,7 +2,7 @@ import type { BazaarCard, Monster, TierName } from '@bazaarinfo/shared'
 import * as store from './store'
 import { getRedditDigest } from './reddit'
 import * as db from './db'
-import { getRecent, getSummary, getActiveThreads, setSummarizer } from './chatbuf'
+import { getRecent, getSummary, getActiveThreads, setSummarizer, setSummaryPersister, getSessionId } from './chatbuf'
 import type { ChatEntry } from './chatbuf'
 import { formatEmotesForAI, getEmotesForChannel } from './emotes'
 import { getChannelStyle, getChannelTopEmotes } from './style'
@@ -186,6 +186,26 @@ const tools = [
       required: ['query'],
     },
   },
+  {
+    name: 'search_chat',
+    description: 'Search chat history by keyword or username.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'FTS search query' },
+        username: { type: 'string', description: 'Optional: filter by username' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'get_stream_history',
+    description: 'Get stream session summary timeline (what happened earlier).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
 ]
 
 // detect if a query is clearly conversational (no game lookup needed)
@@ -202,9 +222,29 @@ function needsTools(query: string): boolean {
   return false
 }
 
+// --- timeline builder ---
+
+function buildTimeline(channel: string): string {
+  const rows = db.getLatestSummaries(channel, 5)
+  if (rows.length === 0) return 'No stream history yet'
+
+  const now = Date.now()
+  const lines = rows.reverse().map((r) => {
+    const age = now - new Date(r.created_at + 'Z').getTime()
+    const mins = Math.round(age / 60_000)
+    const label = mins < 60 ? `${mins}m ago` : `${Math.round(mins / 60)}h ago`
+    return `${label}: ${r.summary}`
+  })
+
+  const current = getSummary(channel)
+  if (current) lines.push(`Now: ${current}`)
+
+  return lines.join('\n')
+}
+
 // --- tool execution ---
 
-function executeTool(name: string, input: Record<string, unknown>): string {
+function executeTool(name: string, input: Record<string, unknown>, channel?: string): string {
   switch (name) {
     case 'search_items': {
       const q = String(input.query ?? '').trim()
@@ -250,6 +290,19 @@ function executeTool(name: string, input: Record<string, unknown>): string {
       const results = store.searchByEffect(q, hero, 5)
       if (results.length === 0) return 'No items found matching that effect'
       return results.map(serializeCard).join('\n')
+    }
+    case 'search_chat': {
+      if (!channel) return 'No channel context'
+      const q = String(input.query ?? '').trim()
+      if (!q) return 'No query provided'
+      const username = input.username ? String(input.username).trim() : undefined
+      const hits = db.searchChatFTS(channel, q, 10, username)
+      if (hits.length === 0) return 'No chat messages found'
+      return hits.map((h) => `[${h.created_at}] ${h.username}: ${h.message}`).join('\n')
+    }
+    case 'get_stream_history': {
+      if (!channel) return 'No channel context'
+      return buildTimeline(channel)
     }
     default:
       return 'Unknown tool'
@@ -297,8 +350,8 @@ function buildSystemPrompt(): string {
     'play along with harmless requests.',
     '',
     // HONESTY
-    'You see ~20 recent msgs + rolling summary. If asked to recall chat, do it.',
-    'No memory across convos. NEVER fabricate stats/stories/lore/links. NEVER misquote chatters.',
+    'You see ~20 recent msgs + stream timeline (persisted summaries). Use search_chat/get_stream_history tools to recall older chat.',
+    'You remember the current stream session via summaries. NEVER fabricate stats/stories/lore/links. NEVER misquote chatters.',
     'Bot logs usage stats, but you have no persistent memory. Dont claim "I dont log anything" — deflect: "ask mellen for details."',
     '',
     // TOOLS
@@ -468,6 +521,9 @@ async function summarizeChat(channel: string, recent: ChatEntry[], prev: string)
 
 export function initSummarizer() {
   setSummarizer(summarizeChat)
+  setSummaryPersister((channel, sessionId, summary, msgCount) => {
+    db.logSummary(channel, sessionId, summary, msgCount)
+  })
 }
 
 // --- main entry ---
@@ -535,9 +591,9 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   const styleLine = getChannelStyle(ctx.channel)
   const contextLine = styleLine ? `\nChannel: ${styleLine}` : ''
 
-  // rolling stream summary
-  const summary = getSummary(ctx.channel)
-  const summaryLine = summary ? `\nStream so far: ${summary}` : ''
+  // stream timeline (persisted summaries + current)
+  const timeline = buildTimeline(ctx.channel)
+  const timelineLine = timeline !== 'No stream history yet' ? `\nStream timeline:\n${timeline}` : ''
 
   // active conversation threads
   const threads = getActiveThreads(ctx.channel)
@@ -546,7 +602,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     : ''
 
   const userMessage = [
-    summaryLine,
+    timelineLine,
     chatStr ? `Recent chat:\n${chatStr}\n` : '',
     threadLine,
     contextLine,
@@ -657,7 +713,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const toolResults = toolUses.map((tu) => ({
         type: 'tool_result' as const,
         tool_use_id: tu.id!,
-        content: executeTool(tu.name!, tu.input!),
+        content: executeTool(tu.name!, tu.input!, ctx.channel),
       }))
       messages.push({ role: 'user', content: toolResults })
 

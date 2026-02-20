@@ -9,12 +9,35 @@ export interface ChatEntry {
 const buffers = new Map<string, ChatEntry[]>()
 const MAX_SIZE = 100
 
+// --- session tracking ---
+
+const SESSION_GAP = 30 * 60_000 // 30min gap = new session
+const lastMessageTime = new Map<string, number>()
+const sessionIds = new Map<string, number>()
+
+export function getSessionId(channel: string): number {
+  return sessionIds.get(channel) ?? 0
+}
+
+export function restoreSessionId(channel: string, id: number) {
+  sessionIds.set(channel, id)
+}
+
+export function restoreSummary(channel: string, summary: string) {
+  if (summary) summaries.set(channel, summary)
+}
+
 // --- rolling summary ---
 
 const summaries = new Map<string, string>()
 const msgsSinceSummary = new Map<string, number>()
 const SUMMARY_INTERVAL = 200
 let summarizer: ((channel: string, recent: ChatEntry[], prev: string) => Promise<string>) | null = null
+let summaryPersister: ((channel: string, sessionId: number, summary: string, msgCount: number) => void) | null = null
+
+export function setSummaryPersister(fn: typeof summaryPersister) {
+  summaryPersister = fn
+}
 
 export function setSummarizer(fn: typeof summarizer) {
   summarizer = fn
@@ -37,7 +60,13 @@ async function maybeSummarize(channel: string) {
   const prev = summaries.get(channel) ?? ''
   try {
     const summary = await summarizer(channel, buf.slice(-50), prev)
-    if (summary) summaries.set(channel, summary)
+    if (summary) {
+      summaries.set(channel, summary)
+      if (summaryPersister) {
+        const sid = sessionIds.get(channel) ?? 0
+        summaryPersister(channel, sid, summary, SUMMARY_INTERVAL)
+      }
+    }
   } catch (e) {
     log(`summary error (${channel}): ${e}`)
   }
@@ -114,12 +143,21 @@ export function getActiveThreads(channel: string, windowMs = 120_000): Thread[] 
 // --- core ---
 
 export function record(channel: string, user: string, text: string) {
+  const now = Date.now()
+  const last = lastMessageTime.get(channel) ?? 0
+  if (last > 0 && now - last > SESSION_GAP) {
+    const prev = sessionIds.get(channel) ?? 0
+    sessionIds.set(channel, prev + 1)
+    log(`session bump #${channel}: ${prev} -> ${prev + 1}`)
+  }
+  lastMessageTime.set(channel, now)
+
   let buf = buffers.get(channel)
   if (!buf) {
     buf = []
     buffers.set(channel, buf)
   }
-  buf.push({ user, text, ts: Date.now() })
+  buf.push({ user, text, ts: now })
   if (buf.length > MAX_SIZE) buf.shift()
   maybeSummarize(channel)
 }

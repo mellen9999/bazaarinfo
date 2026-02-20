@@ -190,6 +190,14 @@ refreshRedditDigest().catch((e) => log(`reddit digest load failed: ${e}`))
 // init rolling chat summarizer
 initSummarizer()
 
+// restore persisted summaries + session IDs from DB
+for (const ch of channelNames) {
+  const sid = db.getMaxSessionId(ch)
+  if (sid > 0) chatbuf.restoreSessionId(ch, sid)
+  const rows = db.getLatestSummaries(ch, 1)
+  if (rows.length > 0) chatbuf.restoreSummary(ch, rows[0].summary)
+}
+
 // --- per-channel response debounce (2s) ---
 const DEBOUNCE_MS = 2_000
 const lastResponseTime = new Map<string, number>()
@@ -296,6 +304,7 @@ scheduleDaily(4, async () => {
     invalidatePromptCache()
     await refreshRedditDigest()
     db.pruneOldChats(30)
+    db.pruneOldSummaries(30)
   } catch (e) {
     log(`daily data refresh failed: ${e}`)
   }
