@@ -1,3 +1,4 @@
+import type { CardCache } from '@bazaarinfo/shared'
 import { TwitchClient, getUserId } from './twitch'
 import type { ChannelInfo } from './twitch'
 import { loadStore, reloadStore, CACHE_PATH } from './store'
@@ -7,7 +8,7 @@ import { scheduleDaily } from './scheduler'
 import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
-import { checkAnswer, isGameActive, setSay } from './trivia'
+import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps } from './trivia'
 import { invalidatePromptCache, initSummarizer } from './ai'
 import { refreshRedditDigest } from './reddit'
 import * as chatbuf from './chatbuf'
@@ -79,6 +80,7 @@ try {
 }
 
 await loadStore()
+rebuildTriviaMaps()
 
 // init db
 db.initDb()
@@ -103,7 +105,7 @@ setRefreshHandler(async () => {
   try {
     const before = { items: 0, skills: 0, monsters: 0 }
     try {
-      const old = await Bun.file(CACHE_PATH).json() as any
+      const old = await Bun.file(CACHE_PATH).json() as CardCache
       before.items = old.items?.length ?? 0
       before.skills = old.skills?.length ?? 0
       before.monsters = old.monsters?.length ?? 0
@@ -111,10 +113,11 @@ setRefreshHandler(async () => {
 
     await refreshData()
     await reloadStore()
+    rebuildTriviaMaps()
     invalidatePromptCache()
     await refreshRedditDigest()
 
-    const fresh = await Bun.file(CACHE_PATH).json() as any
+    const fresh = await Bun.file(CACHE_PATH).json() as CardCache
     const di = (fresh.items?.length ?? 0) - before.items
     const ds = (fresh.skills?.length ?? 0) - before.skills
     const dm = (fresh.monsters?.length ?? 0) - before.monsters
@@ -238,6 +241,7 @@ scheduleDaily(4, async () => {
   try {
     await refreshData()
     await reloadStore()
+    rebuildTriviaMaps()
     invalidatePromptCache()
     await refreshRedditDigest()
   } catch (e) {

@@ -256,6 +256,7 @@ function buildSystemPrompt(): string {
     '',
     // BANNED (these make you sound like a bot — sanitizer rejects them anyway)
     'NEVER: narrate what was asked / repeat callbacks / open with "alright/look/ok so/man/dude"',
+    'NEVER: ask clarifying questions — just answer. User has 60s cooldown, dont waste it on "which one?" Give your best answer.',
     'NEVER: commentate on chat / say "respect the commitment" or "speedrunning" / self-ref as bot',
     'Just respond directly. No preamble. No meta-commentary.',
     '',
@@ -466,8 +467,6 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     ? `\nActive convos: ${threads.map((t) => `${t.users.join('+')} re: ${t.topic}`).join(' | ')}`
     : ''
 
-  recordUsage(ctx.user)
-
   const userMessage = [
     summaryLine,
     chatStr ? `Recent chat:\n${chatStr}\n` : '',
@@ -533,6 +532,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       if (textBlock?.text && data.stop_reason === 'end_turn') {
         const result = sanitize(textBlock.text, ctx.user)
         if (result.text) {
+          recordUsage(ctx.user)
           try {
             const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
             db.logAsk(ctx, query, result.text, tokens, latency)
@@ -556,6 +556,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         if (textBlock?.text) {
           const result = sanitize(textBlock.text, ctx.user)
           if (result.text) {
+            recordUsage(ctx.user)
             try {
               const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
               db.logAsk(ctx, query, result.text, tokens, latency)

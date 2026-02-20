@@ -124,6 +124,7 @@ function prepareStatements() {
 // --- user ID cache ---
 
 const userIdCache = new Map<string, { id: number; lastUpsert: number }>()
+const USER_CACHE_MAX = 10_000
 
 // --- deferred write queue ---
 
@@ -337,6 +338,11 @@ export function getOrCreateUser(username: string): number {
   }
   stmts.upsertUser.run(lower)
   const row = stmts.selectUserId.get(lower) as { id: number }
+  if (userIdCache.size >= USER_CACHE_MAX) {
+    // evict oldest entry
+    const first = userIdCache.keys().next().value!
+    userIdCache.delete(first)
+  }
   userIdCache.set(lower, { id: row.id, lastUpsert: now })
   return row.id
 }

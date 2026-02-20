@@ -289,6 +289,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (aliasAdd) {
     if (!ctx.user || !ALIAS_ADMINS.has(ctx.user)) return 'alias management is restricted'
     const aliasKey = aliasAdd[1].trim().toLowerCase()
+    if (/\s/.test(aliasKey)) return 'alias name cannot contain spaces'
     const targetQuery = aliasAdd[2].trim()
     if (RESERVED_SUBS.has(aliasKey)) return `"${aliasKey}" is a reserved command name`
     const match = store.exact(targetQuery) ?? store.search(targetQuery, 1)[0]

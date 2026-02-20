@@ -7,6 +7,65 @@ import type { Monster } from '@bazaarinfo/shared'
 
 let reverseAliasCache: Map<string, string[]> | null = null
 
+// --- precomputed trivia maps (rebuilt on store reload) ---
+
+let tagItemMap: [string, string[]][] = []       // [tag, lowercaseTitles] filtered to TAG_MIN..TAG_MAX
+let heroSizeMap: [string, string[]][] = []      // ["Hero|Size", lowercaseTitles] filtered to >=5
+let heroTagMap: [string, string[]][] = []       // ["Hero|Tag", lowercaseTitles] filtered to 3..30
+let mechanicMap: [string, string[]][] = []      // [keyword, lowercaseTitles] filtered to >=5
+
+export function rebuildTriviaMaps() {
+  const FAKE = new Set(['Common', '???'])
+  const items = store.getItems()
+
+  // tag → items
+  const tMap = new Map<string, string[]>()
+  for (const item of items) {
+    for (const tag of item.HiddenTags) {
+      if (!tMap.has(tag)) tMap.set(tag, [])
+      tMap.get(tag)!.push(item.Title.toLowerCase())
+    }
+  }
+  tagItemMap = [...tMap.entries()].filter(([, v]) => v.length >= TAG_MIN && v.length <= TAG_MAX)
+
+  // hero+size → items
+  const hsMap = new Map<string, string[]>()
+  for (const item of items) {
+    if (item.Heroes.length !== 1 || FAKE.has(item.Heroes[0])) continue
+    const key = `${item.Heroes[0]}|${item.Size}`
+    if (!hsMap.has(key)) hsMap.set(key, [])
+    hsMap.get(key)!.push(item.Title.toLowerCase())
+  }
+  heroSizeMap = [...hsMap.entries()].filter(([, v]) => v.length >= 5)
+
+  // hero+tag → items
+  const htMap = new Map<string, string[]>()
+  for (const item of items) {
+    if (item.Heroes.length !== 1 || FAKE.has(item.Heroes[0]) || item.DisplayTags.length === 0) continue
+    for (const tag of item.DisplayTags) {
+      const key = `${item.Heroes[0]}|${tag}`
+      if (!htMap.has(key)) htMap.set(key, [])
+      htMap.get(key)!.push(item.Title.toLowerCase())
+    }
+  }
+  heroTagMap = [...htMap.entries()].filter(([, v]) => v.length >= 3 && v.length <= 30)
+
+  // mechanic → items
+  const mMap = new Map<string, string[]>()
+  for (const item of items) {
+    for (const t of item.Tooltips) {
+      for (const keyword of Object.keys(MECHANIC_VERBS)) {
+        if (t.text.includes(keyword)) {
+          if (!mMap.has(keyword)) mMap.set(keyword, [])
+          const lower = item.Title.toLowerCase()
+          if (!mMap.get(keyword)!.includes(lower)) mMap.get(keyword)!.push(lower)
+        }
+      }
+    }
+  }
+  mechanicMap = [...mMap.entries()].filter(([, v]) => v.length >= 5)
+}
+
 export function invalidateAliasCache() {
   reverseAliasCache = null
 }
@@ -98,19 +157,8 @@ function genHeroQuestion(): ReturnType<QuestionGen> {
 
 // type 2: name an item with tag X (filtered to fair difficulty)
 function genTagQuestion(): ReturnType<QuestionGen> {
-  // build tag→items map, filter to tags with 5-50 items
-  const tagMap = new Map<string, string[]>()
-  for (const item of store.getItems()) {
-    for (const tag of item.HiddenTags) {
-      if (!tagMap.has(tag)) tagMap.set(tag, [])
-      tagMap.get(tag)!.push(item.Title.toLowerCase())
-    }
-  }
-  const fairTags = [...tagMap.entries()].filter(
-    ([, items]) => items.length >= TAG_MIN && items.length <= TAG_MAX,
-  )
-  if (fairTags.length === 0) return null
-  const [tag, validItems] = pickRandom(fairTags)
+  if (tagItemMap.length === 0) return null
+  const [tag, validItems] = pickRandom(tagItemMap)
   return {
     question: `Name an item with the "${tag}" tag`,
     answer: `any ${tag} item`,
@@ -155,18 +203,8 @@ function genMonsterBoardQuestion(): ReturnType<QuestionGen> {
 
 // type 5: name a [Size] [Hero] item
 function genHeroSizeQuestion(): ReturnType<QuestionGen> {
-  const valid = store.getItems().filter((c) =>
-    c.Heroes.length === 1 && !FAKE_HEROES.has(c.Heroes[0]),
-  )
-  const comboMap = new Map<string, string[]>()
-  for (const item of valid) {
-    const key = `${item.Heroes[0]}|${item.Size}`
-    if (!comboMap.has(key)) comboMap.set(key, [])
-    comboMap.get(key)!.push(item.Title.toLowerCase())
-  }
-  const combos = [...comboMap.entries()].filter(([, items]) => items.length >= 5)
-  if (combos.length === 0) return null
-  const [key, items] = pickRandom(combos)
+  if (heroSizeMap.length === 0) return null
+  const [key, items] = pickRandom(heroSizeMap)
   const [hero, size] = key.split('|')
   return {
     question: `Name a ${size} ${hero} item`,
@@ -178,20 +216,8 @@ function genHeroSizeQuestion(): ReturnType<QuestionGen> {
 
 // type 6: name a [Hero] [DisplayTag]
 function genHeroTagQuestion(): ReturnType<QuestionGen> {
-  const valid = store.getItems().filter((c) =>
-    c.Heroes.length === 1 && !FAKE_HEROES.has(c.Heroes[0]) && c.DisplayTags.length > 0,
-  )
-  const comboMap = new Map<string, string[]>()
-  for (const item of valid) {
-    for (const tag of item.DisplayTags) {
-      const key = `${item.Heroes[0]}|${tag}`
-      if (!comboMap.has(key)) comboMap.set(key, [])
-      comboMap.get(key)!.push(item.Title.toLowerCase())
-    }
-  }
-  const combos = [...comboMap.entries()].filter(([, items]) => items.length >= 3 && items.length <= 30)
-  if (combos.length === 0) return null
-  const [key, items] = pickRandom(combos)
+  if (heroTagMap.length === 0) return null
+  const [key, items] = pickRandom(heroTagMap)
   const [hero, tag] = key.split('|')
   return {
     question: `Name a ${hero} ${tag}`,
@@ -231,21 +257,8 @@ const MECHANIC_VERBS: Record<string, string> = {
 }
 
 function genMechanicQuestion(): ReturnType<QuestionGen> {
-  const mechMap = new Map<string, string[]>()
-  for (const item of store.getItems()) {
-    for (const t of item.Tooltips) {
-      for (const keyword of Object.keys(MECHANIC_VERBS)) {
-        if (t.text.includes(keyword)) {
-          if (!mechMap.has(keyword)) mechMap.set(keyword, [])
-          const lower = item.Title.toLowerCase()
-          if (!mechMap.get(keyword)!.includes(lower)) mechMap.get(keyword)!.push(lower)
-        }
-      }
-    }
-  }
-  const fair = [...mechMap.entries()].filter(([, items]) => items.length >= 5)
-  if (fair.length === 0) return null
-  const [keyword, items] = pickRandom(fair)
+  if (mechanicMap.length === 0) return null
+  const [keyword, items] = pickRandom(mechanicMap)
   const verb = MECHANIC_VERBS[keyword]
   return {
     question: `Name an item that ${verb}`,

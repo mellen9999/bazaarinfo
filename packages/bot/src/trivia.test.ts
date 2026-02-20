@@ -171,7 +171,10 @@ const {
   looksLikeAnswer,
   resetForTest,
   getActiveGameForTest,
+  rebuildTriviaMaps,
 } = await import('./trivia')
+
+rebuildTriviaMaps()
 
 const mockSay = mock(() => {})
 
