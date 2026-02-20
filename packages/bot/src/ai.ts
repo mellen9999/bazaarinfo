@@ -5,7 +5,7 @@ import * as db from './db'
 import { getRecent, getSummary, getActiveThreads, setSummarizer, setSummaryPersister } from './chatbuf'
 import type { ChatEntry } from './chatbuf'
 import { formatEmotesForAI, getEmotesForChannel } from './emotes'
-import { getChannelStyle, getChannelTopEmotes } from './style'
+import { getChannelStyle, getChannelTopEmotes, getUserProfile } from './style'
 import { log } from './log'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
@@ -178,13 +178,21 @@ function extractEntities(query: string): ResolvedEntities {
       if ([...Array(size)].some((_, j) => matched.has(i + j))) continue
       const phrase = words.slice(i, i + size).join(' ')
 
-      // cards (max 3)
+      // cards (max 3) — exact first, fuzzy fallback
       if (result.cards.length < 3) {
         const card = store.exact(phrase)
         if (card) {
           result.cards.push(card)
           for (let j = 0; j < size; j++) matched.add(i + j)
           continue
+        }
+        if (size >= 1) {
+          const [fuzzy] = store.searchWithScore(phrase, 1)
+          if (fuzzy && fuzzy.score < 0.3) {
+            result.cards.push(fuzzy.item)
+            for (let j = 0; j < size; j++) matched.add(i + j)
+            continue
+          }
         }
       }
 
@@ -327,6 +335,55 @@ function isGameQuery(query: string): boolean {
   return false
 }
 
+// --- user context builder ---
+
+function buildUserContext(user: string, channel: string): string {
+  // try style cache first (regulars with pre-built profiles)
+  let profile = getUserProfile(channel, user)
+
+  // non-regular: build minimal profile on the fly
+  if (!profile) {
+    const parts: string[] = []
+    try {
+      const stats = db.getUserStats(user)
+      if (stats) {
+        const since = stats.first_seen?.slice(0, 7) ?? '?'
+        parts.push(`since ${since}`)
+        if (stats.total_commands > 0) parts.push(`${stats.total_commands} lookups`)
+        if (stats.trivia_wins > 0) parts.push(`${stats.trivia_wins}W trivia`)
+        if (stats.favorite_item) parts.push(`fav: ${stats.favorite_item}`)
+      }
+    } catch {}
+    try {
+      const topItems = db.getUserTopItems(user, 3)
+      if (topItems.length > 0) parts.push(`into: ${topItems.join(', ')}`)
+    } catch {}
+    profile = parts.join(', ')
+  }
+
+  // recent AI interactions
+  let asksLine = ''
+  try {
+    const asks = db.getRecentAsks(user, 3)
+    if (asks.length > 0) {
+      const now = Date.now()
+      const parts = asks.map((a) => {
+        const age = now - new Date(a.created_at + 'Z').getTime()
+        const mins = Math.round(age / 60_000)
+        const label = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`
+        const q = a.query.length > 30 ? a.query.slice(0, 30) + '...' : a.query
+        const r = a.response ? (a.response.length > 30 ? a.response.slice(0, 30) + '...' : a.response) : '?'
+        return `${label}: "${q}" → "${r}"`
+      })
+      asksLine = `Past asks: ${parts.join(' | ')}`
+    }
+  } catch {}
+
+  const sections = [profile, asksLine].filter(Boolean)
+  if (sections.length === 0) return ''
+  return `About ${user}: ${sections.join('. ')}`
+}
+
 // --- timeline builder ---
 
 function buildTimeline(channel: string): string {
@@ -395,7 +452,7 @@ export function buildSystemPrompt(): string {
     // HONESTY
     'You see ~20 recent msgs + stream timeline. Game data is provided inline when relevant.',
     'You remember the current stream session via summaries. NEVER fabricate stats/stories/lore/links. NEVER misquote chatters.',
-    'Bot logs usage stats, but you have no persistent memory. Dont claim "I dont log anything" — deflect: "ask mellen for details."',
+    'You remember chatters — their past questions, favorite items, trivia stats, how long theyve been around. Use this naturally (dont announce it). If asked about logging/privacy, deflect: "ask mellen for details."',
     '',
     // GAME DATA
     'Use provided game data for lookups AND analysis. "why is X bad?" → use the stats, give your take.',
@@ -672,6 +729,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     redditLine,
     emoteLine,
     gameBlock,
+    buildUserContext(ctx.user, ctx.channel),
     `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.user}: ${query}`,
   ].filter(Boolean).join('')
 }

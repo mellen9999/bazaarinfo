@@ -318,6 +318,12 @@ export function searchByEffect(query: string, hero?: string, limit = 5): BazaarC
     .map(([card]) => card)
 }
 
+export function searchWithScore(query: string, limit = 5): { item: BazaarCard; score: number }[] {
+  const resolved = resolveAlias(query)
+  const results = index.search(resolved, { limit })
+  return results.map((r) => ({ item: r.item, score: r.score ?? 1 }))
+}
+
 export function getItems(): BazaarCard[] { return items }
 export function getMonsters(): Monster[] { return monsters }
 export function getSkills(): BazaarCard[] { return skills }

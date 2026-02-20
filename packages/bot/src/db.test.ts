@@ -243,6 +243,35 @@ describe('db', () => {
     expect(rows[0].summary).toBe('ancient summary')
   })
 
+  // --- getRecentAsks ---
+
+  it('getRecentAsks returns past interactions newest first', () => {
+    db.logAsk({ user: 'alice', channel: 'test' }, 'best shield', 'shield spam op', 100, 500)
+    db.logAsk({ user: 'alice', channel: 'test' }, 'pyg good?', 'solid mid', 120, 600)
+    db.flushWrites()
+
+    const asks = db.getRecentAsks('alice', 5)
+    expect(asks.length).toBe(2)
+    expect(asks[0].query).toBe('pyg good?')
+    expect(asks[0].response).toBe('solid mid')
+    expect(asks[1].query).toBe('best shield')
+  })
+
+  it('getRecentAsks returns empty for unknown user', () => {
+    const asks = db.getRecentAsks('nobody', 5)
+    expect(asks).toEqual([])
+  })
+
+  it('getRecentAsks respects limit', () => {
+    for (let i = 0; i < 5; i++) {
+      db.logAsk({ user: 'bob', channel: 'test' }, `q${i}`, `r${i}`, 100, 500)
+    }
+    db.flushWrites()
+
+    const asks = db.getRecentAsks('bob', 2)
+    expect(asks.length).toBe(2)
+  })
+
   it('pruneOldSummaries removes old entries', () => {
     db.logSummary('test', 1, 'old summary', 200)
     db.flushWrites()

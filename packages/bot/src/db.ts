@@ -44,6 +44,7 @@ let stmts: {
   maxSessionId: Statement
   searchFTS: Statement
   searchFTSByUser: Statement
+  recentAsks: Statement
 }
 
 function prepareStatements() {
@@ -147,6 +148,10 @@ function prepareStatements() {
        JOIN chat_messages cm ON cm.id = f.rowid
        WHERE f.message MATCH ? AND cm.channel = ? AND LOWER(cm.username) = ?
        ORDER BY cm.created_at DESC LIMIT ?`,
+    ),
+    recentAsks: db.prepare(
+      `SELECT query, response, created_at FROM ask_queries
+       WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
     ),
   }
 }
@@ -335,6 +340,10 @@ const migrations: (() => void)[] = [
     db.run(`CREATE TRIGGER chat_fts_delete AFTER DELETE ON chat_messages BEGIN
       INSERT INTO chat_fts(chat_fts, rowid, message) VALUES ('delete', old.id, old.message);
     END`)
+  },
+  // migration 4: index for ask_queries user lookups
+  () => {
+    db.run(`CREATE INDEX idx_ask_user ON ask_queries(user_id, created_at DESC)`)
   },
 ]
 
@@ -615,6 +624,15 @@ export function searchChatFTS(channel: string, query: string, limit = 10, userna
   } catch {
     return []
   }
+}
+
+// recent AI interactions for a user
+export interface AskRow { query: string; response: string | null; created_at: string }
+
+export function getRecentAsks(username: string, limit = 5): AskRow[] {
+  const user = stmts.selectUser.get(username.toLowerCase()) as { id: number } | null
+  if (!user) return []
+  return stmts.recentAsks.all(user.id, limit) as AskRow[]
 }
 
 export function pruneOldSummaries(days = 30) {

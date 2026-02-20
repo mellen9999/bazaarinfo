@@ -116,6 +116,11 @@ function ensureCache(channel: string) {
   }
 }
 
+export function getUserProfile(channel: string, username: string): string {
+  ensureCache(channel)
+  return styleCache.get(channel)?.regulars.get(username.toLowerCase()) ?? ''
+}
+
 export function preloadStyles(channels: string[]) {
   for (const ch of channels) ensureCache(ch)
   log(`preloaded style cache for ${channels.length} channels`)
