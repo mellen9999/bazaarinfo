@@ -190,9 +190,13 @@ refreshRedditDigest().catch((e) => log(`reddit digest load failed: ${e}`))
 // init rolling chat summarizer
 initSummarizer()
 
+// --- per-channel response debounce (2s) ---
+const DEBOUNCE_MS = 2_000
+const lastResponseTime = new Map<string, number>()
+
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
-  async (channel, userId, username, text, badges) => {
+  async (channel, userId, username, text, badges, messageId) => {
     try {
       if (userId === botUserId) return
 
@@ -250,10 +254,18 @@ const client = new TwitchClient(
       }
 
       const privileged = badges.some((b) => b === 'subscriber' || b === 'moderator' || b === 'broadcaster' || b === 'vip')
-      const response = await handleCommand(text, { user: username, channel, privileged })
+      const response = await handleCommand(text, { user: username, channel, privileged, messageId })
       if (response) {
+        // debounce: drop if another response was sent to this channel <2s ago
+        const now = Date.now()
+        const lastSent = lastResponseTime.get(channel) ?? 0
+        if (now - lastSent < DEBOUNCE_MS) {
+          log(`[#${channel}] debounced: ${text.slice(0, 40)}`)
+          return
+        }
+        lastResponseTime.set(channel, now)
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
-        client.say(channel, response)
+        client.say(channel, response, messageId)
         chatbuf.record(channel, BOT_USERNAME, response)
       }
     } catch (e) {

@@ -42,6 +42,22 @@ export function resolveTooltip(text: string, replacements: Record<string, Replac
   })
 }
 
+// compress resolved tooltip text for tighter chat output
+export function compressTooltip(text: string): string {
+  return text
+    .replace(/(\d+) second\(s\)/g, '$1s')         // "3 second(s)" → "3s"
+    .replace(/(\d+) seconds?\b/g, '$1s')           // "3 seconds" → "3s"
+    .replace(/\bitem\(s\)/g, 'items')
+    .replace(/\bEvery (\S+),/g, '[$1]')           // "Every 3s," → "[3s]"
+    .replace(/\bfor the fight\b/gi, '(fight)')
+    .replace(/\bfor each\b/gi, 'per')
+    .replace(/\bat the start of each day,?\s*/gi, 'Daily: ')
+    .replace(/\bWhen you sell or buy:?\s*/gi, 'On sell/buy: ')
+    .replace(/\bWhen you (sell|buy) this,?\s*/gi, 'On $1: ')
+    .replace(/\bWhen you (sell|buy):?\s*/gi, 'On $1: ')
+    .replace(/\ba random enemy\b/g, 'random enemy')
+}
+
 const SIZE_LABEL: Record<string, string> = { Small: 'S', Medium: 'M', Large: 'L' }
 
 function appendShortlink(text: string, shortlink?: string): string {
@@ -57,7 +73,7 @@ export function formatItem(card: BazaarCard, tier?: TierName): string {
   const size = SIZE_LABEL[card.Size] ? ` [${SIZE_LABEL[card.Size]}]` : ''
   const heroes = card.Heroes.map((h) => HERO_ABBREV[h] ?? h).join(', ')
   const abilities = card.Tooltips.map((t) =>
-    resolveTooltip(t.text, card.TooltipReplacements, tier),
+    compressTooltip(resolveTooltip(t.text, card.TooltipReplacements, tier)),
   )
 
   const tags = card.DisplayTags?.length ? ` [${card.DisplayTags.join(', ')}]` : ''
@@ -88,7 +104,7 @@ export function formatEnchantment(card: BazaarCard, enchName: string, tier?: Tie
   if (!ench) return `No "${enchName}" enchantment for ${card.Title}`
 
   const tooltips = ench.tooltips.map((t) =>
-    resolveTooltip(t.text, ench.tooltipReplacements ?? {}, tier),
+    compressTooltip(resolveTooltip(t.text, ench.tooltipReplacements ?? {}, tier)),
   )
 
   const tags = ench.tags?.length ? ` [${ench.tags.join(', ')}]` : ''

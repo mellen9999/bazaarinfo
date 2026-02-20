@@ -1,4 +1,4 @@
-import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, truncate, resolveTooltip, TIER_ORDER } from '@bazaarinfo/shared'
+import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, truncate, resolveTooltip, compressTooltip, TIER_ORDER } from '@bazaarinfo/shared'
 import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
@@ -29,6 +29,7 @@ export interface CommandContext {
   user?: string
   channel?: string
   privileged?: boolean
+  messageId?: string
 }
 
 type CommandHandler = (args: string, ctx: CommandContext) => string | null | Promise<string | null>
@@ -86,6 +87,25 @@ export function setRefreshHandler(handler: () => Promise<string>) { onRefresh = 
 let onEmoteRefresh: (() => Promise<string>) | null = null
 export function setEmoteRefreshHandler(handler: () => Promise<string>) { onEmoteRefresh = handler }
 
+// --- query dedup: suppress identical lookups within 30s per channel ---
+const DEDUP_WINDOW = 30_000
+const recentQueries = new Map<string, number>()
+
+function isDuplicate(channel: string, query: string): boolean {
+  const key = `${channel}:${query.toLowerCase()}`
+  const now = Date.now()
+  const last = recentQueries.get(key)
+  if (last && now - last < DEDUP_WINDOW) return true
+  recentQueries.set(key, now)
+  // prune old entries periodically
+  if (recentQueries.size > 500) {
+    for (const [k, t] of recentQueries) {
+      if (now - t > DEDUP_WINDOW) recentQueries.delete(k)
+    }
+  }
+  return false
+}
+
 const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/enchants/trivia/score/stats | bazaardb.gg'
 const JOIN_USAGE = () => lobbyChannel ? ` | add bot: type !join in ${lobbyChannel}'s chat` : ''
 
@@ -104,7 +124,7 @@ function resolveSkills(monster: Monster): Map<string, SkillDetail> {
     const card = store.findCard(s.title)
     if (!card || !card.Tooltips.length) continue
     const tooltip = card.Tooltips.map((t) =>
-      resolveTooltip(t.text, card.TooltipReplacements, s.tier as TierName),
+      compressTooltip(resolveTooltip(t.text, card.TooltipReplacements, s.tier as TierName)),
     ).join('; ')
     details.set(s.title, { name: s.title, tooltip })
   }
@@ -327,6 +347,9 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
 
+  // suppress duplicate lookups within 30s per channel
+  if (ctx.channel && isDuplicate(ctx.channel, cleanArgs)) return null
+
   const suffix = mentions.length ? ' ' + mentions.join(' ') : ''
 
   // alias add: !b alias <slang> = <target>
@@ -367,4 +390,8 @@ export async function handleCommand(text: string, ctx: CommandContext = {}): Pro
   if (!handler) return null
 
   return handler(args.trim(), ctx)
+}
+
+export function resetDedup() {
+  recentQueries.clear()
 }

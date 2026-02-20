@@ -102,7 +102,7 @@ mock.module('./emotes', () => ({
   removeChannelEmotes: mock(() => {}),
 }))
 
-const { handleCommand, parseArgs } = await import('./commands')
+const { handleCommand, parseArgs, resetDedup } = await import('./commands')
 
 // --- test fixtures ---
 function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
@@ -148,6 +148,7 @@ const shield = makeCard({
 })
 
 beforeEach(() => {
+  resetDedup()
   mockLogCommand.mockReset()
   mockExact.mockReset()
   mockSearch.mockReset()

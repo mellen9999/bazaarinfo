@@ -23,6 +23,7 @@ interface EventSubMessage {
       broadcaster_user_login: string
       chatter_user_id: string
       chatter_user_login: string
+      message_id: string
       message: { text: string }
       badges?: { set_id: string; id: string }[]
     }
@@ -50,7 +51,7 @@ export interface TwitchConfig {
   channels: ChannelInfo[]
 }
 
-export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[]) => void
+export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[], messageId: string) => void
 
 export type AuthRefreshFn = () => Promise<string>
 
@@ -89,7 +90,7 @@ export class TwitchClient {
   private ircReady = false
   private ircPingTimeout: Timer | null = null
   private ircReconnecting = false
-  private ircQueue: { channel: string; text: string }[] = []
+  private ircQueue: { channel: string; text: string; replyTo?: string }[] = []
   private sendTimes: number[] = []
   private readonly SEND_LIMIT = 90
   private readonly SEND_WINDOW = 30_000
@@ -169,7 +170,7 @@ export class TwitchClient {
         const e = msg.payload.event
         if (!e?.message?.text) return
         const badges = (e.badges ?? []).map((b: { set_id: string }) => b.set_id)
-        this.onMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, e.message.text, badges)
+        this.onMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, e.message.text, badges, e.message_id ?? '')
       }
     } else if (type === 'session_reconnect') {
       const newUrl = msg.payload.session?.reconnect_url
@@ -361,12 +362,15 @@ export class TwitchClient {
 
   private async flushQueue() {
     while (this.ircQueue.length > 0 && this.canSend()) {
-      const { channel, text } = this.ircQueue.shift()!
+      const { channel, text, replyTo } = this.ircQueue.shift()!
       this.sendTimes.push(Date.now())
-      if (this.ircReady && this.ircSend(`PRIVMSG #${channel} :${text}`)) {
+      const ircMsg = replyTo
+        ? `@reply-parent-msg-id=${replyTo} PRIVMSG #${channel} :${text}`
+        : `PRIVMSG #${channel} :${text}`
+      if (this.ircReady && this.ircSend(ircMsg)) {
         // sent via IRC
       } else {
-        await this.helixSend(channel, text)
+        await this.helixSend(channel, text, false, replyTo)
       }
     }
     if (this.ircQueue.length > 0) {
@@ -415,10 +419,16 @@ export class TwitchClient {
     log(`left channel: ${name}`)
   }
 
-  private async helixSend(channel: string, text: string, retried = false): Promise<boolean> {
+  private async helixSend(channel: string, text: string, retried = false, replyTo?: string): Promise<boolean> {
     const broadcasterId = this._channelIdMap[channel]
     if (!broadcasterId) return false
     try {
+      const body: Record<string, string> = {
+        broadcaster_id: broadcasterId,
+        sender_id: this.config.botUserId,
+        message: text,
+      }
+      if (replyTo) body.reply_parent_message_id = replyTo
       const res = await fetchWithTimeout(`${HELIX_URL}/chat/messages`, {
         method: 'POST',
         headers: {
@@ -426,17 +436,13 @@ export class TwitchClient {
           'Client-Id': this.config.clientId,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          broadcaster_id: broadcasterId,
-          sender_id: this.config.botUserId,
-          message: text,
-        }),
+        body: JSON.stringify(body),
       })
       if (res.status === 401 && !retried && this.onAuthFailure) {
         log('helix send 401 — refreshing token and retrying')
         const newToken = await this.onAuthFailure()
         this.config.token = newToken
-        return this.helixSend(channel, text, true)
+        return this.helixSend(channel, text, true, replyTo)
       }
       if (!res.ok) {
         const err = await res.text()
@@ -455,7 +461,7 @@ export class TwitchClient {
     }
   }
 
-  async say(channel: string, text: string) {
+  async say(channel: string, text: string, replyTo?: string) {
     // strip command prefixes — / . for twitch, ! for other bots (nightbot, streamelements)
     text = text.replace(/^[!/.]+/, '')
     if (text.length > 490) text = text.slice(0, 487) + '...'
@@ -464,16 +470,19 @@ export class TwitchClient {
         log('queue full, dropping oldest')
         this.ircQueue.shift()
       }
-      this.ircQueue.push({ channel, text })
+      this.ircQueue.push({ channel, text, replyTo })
       if (this.ircReady) setTimeout(() => this.flushQueue(), 1000)
       return
     }
     this.sendTimes.push(Date.now())
     // prefer IRC (instant WebSocket) over Helix (HTTP round-trip)
-    if (this.ircReady && this.ircSend(`PRIVMSG #${channel} :${text}`)) {
+    const ircMsg = replyTo
+      ? `@reply-parent-msg-id=${replyTo} PRIVMSG #${channel} :${text}`
+      : `PRIVMSG #${channel} :${text}`
+    if (this.ircReady && this.ircSend(ircMsg)) {
       // sent via IRC
     } else {
-      const sent = await this.helixSend(channel, text)
+      const sent = await this.helixSend(channel, text, false, replyTo)
       if (!sent) log(`helix send failed for #${channel}, irc not ready`)
     }
   }

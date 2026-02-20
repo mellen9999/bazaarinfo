@@ -215,3 +215,18 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[]): string
 
   return `Emotes (0-1 per msg, only when perfect):\n${lines.join('\n')}`
 }
+
+/** pick a random emote by mood for a channel — returns empty string if none found */
+export function pickEmoteByMood(channel: string, ...moods: string[]): string {
+  const all = getEmotesForChannel(channel)
+  if (all.length === 0) return ''
+  const descriptions = getDescriptions()
+  const matches: string[] = []
+  for (const name of all) {
+    const desc = descriptions[name]
+    if (!desc || desc.overlay) continue
+    if (moods.includes(desc.mood)) matches.push(name)
+  }
+  if (matches.length === 0) return ''
+  return matches[Math.floor(Math.random() * matches.length)]
+}

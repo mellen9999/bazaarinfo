@@ -4,6 +4,7 @@ import * as db from './db'
 import { log } from './log'
 import { resolveTooltip } from '@bazaarinfo/shared'
 import type { Monster } from '@bazaarinfo/shared'
+import { pickEmoteByMood } from './emotes'
 
 let reverseAliasCache: Map<string, string[]> | null = null
 
@@ -444,7 +445,8 @@ function endTrivia(channel: string): string | null {
   activeGames.delete(channel)
   lastGameEnd.set(channel, Date.now())
 
-  return `Time's up! The answer was: ${game.correctAnswer}`
+  const emote = pickEmoteByMood(channel, 'sad')
+  return `Time's up! The answer was: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`
 }
 
 // called on every message to check for trivia answers
@@ -482,7 +484,8 @@ export function checkAnswer(
     lastGameEnd.set(channel, Date.now())
 
     const timeStr = (answerTimeMs / 1000).toFixed(1)
-    say(channel, `${username} got it in ${timeStr}s! Answer: ${game.correctAnswer}`)
+    const emote = pickEmoteByMood(channel, 'celebration', 'hype')
+    say(channel, `${username} got it in ${timeStr}s! Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`)
   } else {
     db.resetTriviaStreak(userId)
   }
