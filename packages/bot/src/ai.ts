@@ -167,6 +167,18 @@ const tools = [
       required: ['day'],
     },
   },
+  {
+    name: 'search_by_effect',
+    description: 'Search items/skills by what they DO (tooltip/ability text). Use when someone describes an effect rather than a name. E.g. "converts weapon into relic", "charges leftmost item".',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Keywords describing the effect (e.g. "leftmost weapon relic")' },
+        hero: { type: 'string', description: 'Optional hero name to filter results' },
+      },
+      required: ['query'],
+    },
+  },
 ]
 
 // --- tool execution ---
@@ -209,6 +221,14 @@ function executeTool(name: string, input: Record<string, unknown>): string {
       const mobs = store.monstersByDay(d)
       if (mobs.length === 0) return 'No monsters on that day'
       return mobs.map((m) => `${m.Title} (${m.MonsterMetadata.health}HP)`).join(', ')
+    }
+    case 'search_by_effect': {
+      const q = String(input.query ?? '').trim()
+      if (!q) return 'No query provided'
+      const hero = input.hero ? String(input.hero).trim() : undefined
+      const results = store.searchByEffect(q, hero, 5)
+      if (results.length === 0) return 'No items found matching that effect'
+      return results.map(serializeCard).join('\n')
     }
     default:
       return 'Unknown tool'
@@ -346,6 +366,9 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
       const ms = parseInt(n)
       return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${n}ms`
     })
+
+  // fix common haiku misspellings
+  s = s.replace(/\bReynolds?\b/g, 'reynad')
 
   // strip banned opener words and trailing filler (haiku cant resist these)
   s = s.replace(BANNED_OPENERS, '')

@@ -258,6 +258,33 @@ export function suggest(query: string, limit = 3): string[] {
 
 export function getHeroNames(): string[] { return heroNames }
 export function getTagNames(): string[] { return tagNames }
+export function searchByEffect(query: string, hero?: string, limit = 5): BazaarCard[] {
+  const lower = query.toLowerCase()
+  const words = lower.split(/\s+/).filter((w) => w.length >= 3)
+  if (words.length === 0) return []
+
+  const candidates = hero
+    ? allCards.filter((c) => c.Heroes.some((h) => h.toLowerCase() === hero.toLowerCase()))
+    : allCards
+
+  const scored: { card: BazaarCard; score: number }[] = []
+  for (const card of candidates) {
+    const tooltipText = card.Tooltips.map((t) => t.text).join(' ').toLowerCase()
+    const titleText = card.Title.toLowerCase()
+    const combined = `${titleText} ${tooltipText}`
+    let score = 0
+    for (const w of words) {
+      if (combined.includes(w)) score++
+    }
+    if (score > 0) scored.push({ card, score })
+  }
+
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((s) => s.card)
+}
+
 export function getItems(): BazaarCard[] { return items }
 export function getMonsters(): Monster[] { return monsters }
 export function getSkills(): BazaarCard[] { return skills }
