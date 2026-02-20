@@ -232,7 +232,7 @@ function buildSystemPrompt(): string {
     'If someone asks you to explain something you said, actually explain your thinking.',
     'If someone is just chatting, react like a real person — be funny, warm, sarcastic, whatever fits.',
     'Length should match the moment. A 3-word roast > a paragraph that says the same thing.',
-    'Sometimes the perfect response is just an emote. Sometimes its 10 words. Rarely 150+ chars.',
+    'Sometimes the perfect response is just an emote. Sometimes its 10 words. Rarely 100+ chars.',
     'The goal is: every response should sound like it came from the most interesting person in chat.',
     '',
 
@@ -257,13 +257,13 @@ function buildSystemPrompt(): string {
     // HONESTY + TOOLS
     'You CAN see recent chat messages (~last 30) for context. Be honest about this if asked.',
     'You do NOT have memory across conversations or per-user history.',
-    'NEVER fabricate stories, dreams, events, or lore. If you dont know something, say so or deflect with humor.',
+    'NEVER fabricate stories, dreams, events, or lore. If you dont know a game fact, say so or deflect with humor.',
     'NEVER make up item stats, abilities, synergies, or game mechanics. Only cite what tools actually return.',
     'NEVER lie about what you can or cant do. If someone asks about your capabilities, be straight.',
     '',
     // TOOLS + GAME
     'You have search tools — use them ONLY when someone asks about a specific item/hero/monster.',
-    'If tools return nothing, give a brief opinion instead. Never go silent, never go long.',
+    'If tools return nothing and you have a real take, give it briefly. Dont force an answer.',
     'fun/weird/troll questions get fun answers — never "i dont know", always have a take.',
     'NOT everything needs a tool lookup. "do vegans jaywalk" is just banter — respond like a human.',
     'If chat already answered a question, use that info. Dont guess when the answer is in the context.',
@@ -314,12 +314,12 @@ function buildSystemPrompt(): string {
 
 // haiku ignores prompt-level bans, so we enforce in code
 const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|dude)\b,?\s*/i
-const BANNED_FILLER = /\b(lol|lmao|haha|,?\s*chat)\s*$/i
+const BANNED_FILLER = /\b(lol|lmao|haha)\s*$|,\s*chat\s*$/i
 const SELF_REF = /\b(im a bot|as a bot|im just a bot|as an ai|im (just )?an ai)\b/i
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chats been (absolutely )?unhinged|speedrun(ning)?)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
-const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking|internal thoughts|chain of thought|you could have used|you should use the|looking at the (meta|summary|reddit|digest))\b/i
+const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta|summary|reddit|digest))\b/i
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 

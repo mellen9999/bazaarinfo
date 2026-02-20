@@ -53,7 +53,10 @@ describe('sanitize', () => {
 
   it('strips trailing ", chat" filler', () => {
     expect(sanitize("can't defy gravity, chat").text).toBe("can't defy gravity")
-    expect(sanitize('nice one chat').text).toBe('nice one')
+  })
+
+  it('does not strip "chat" without comma', () => {
+    expect(sanitize('welcome to the chat').text).toBe('welcome to the chat')
   })
 
   it('rejects self-referencing bot talk', () => {
