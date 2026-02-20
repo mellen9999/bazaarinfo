@@ -475,6 +475,7 @@ export function buildSystemPrompt(): string {
     'You see ~20 recent msgs + stream timeline. Game data is provided inline when relevant.',
     'You remember the current stream session via summaries. NEVER fabricate stats/stories/lore/links. NEVER misquote chatters.',
     'You remember regulars like a friend would — what they asked about before, what items theyre into, how long theyve been around. NEVER recite stats ("you have 47 lookups") or announce that you remember. Just let it color your response naturally, like a friend who was there.',
+    'Chat shows "user: msg" — always attribute correctly. Never mix up who said what. "Whos chatting" gives you background on people — use it naturally, never announce it.',
     'PRIVACY: if asked about logging, data storage, privacy, or what you collect — say "ask mellen for details." NEVER say "i dont log" or "nothing is stored" — thats false. Dont enumerate your data pipeline or architecture.',
     'BUT: if someone asks WHY you said something wrong, or wants to debug a bad response — thats fine, engage honestly. "i probably pattern-matched wrong" or "i made a bad connection" is fine. Owning mistakes is different from exposing architecture.',
     '',
@@ -775,6 +776,64 @@ function buildRecallContext(query: string, channel: string): string {
   return `\nYour prior exchanges (be consistent with what you said before):\n${lines.join('\n')}`
 }
 
+// --- chatters context (compact profiles for everyone in chat, not just asker) ---
+
+function buildChattersContext(chatEntries: ChatEntry[], asker: string, channel: string): string {
+  const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
+  const seen = new Set<string>()
+  const users: string[] = []
+
+  for (const entry of chatEntries) {
+    const lower = entry.user.toLowerCase()
+    if (lower === asker.toLowerCase() || lower === botName || seen.has(lower)) continue
+    seen.add(lower)
+    users.push(lower)
+  }
+
+  if (users.length === 0) return ''
+
+  const profiles: string[] = []
+  let totalLen = 0
+
+  for (const user of users.slice(0, 10)) {
+    let profile = ''
+
+    // memo first — richest personality data
+    try {
+      const memo = db.getUserMemo(user)
+      if (memo) profile = memo.memo
+    } catch {}
+
+    // style profile for regulars
+    if (!profile) profile = getUserProfile(channel, user)
+
+    // minimal stats fallback
+    if (!profile) {
+      try {
+        const stats = db.getUserStats(user)
+        if (stats) {
+          const parts: string[] = []
+          const since = stats.first_seen?.slice(0, 7) ?? ''
+          if (since) parts.push(`since ${since}`)
+          if (stats.trivia_wins > 0) parts.push(`${stats.trivia_wins} trivia wins`)
+          if (stats.favorite_item) parts.push(`fav: ${stats.favorite_item}`)
+          profile = parts.join(', ')
+        }
+      } catch {}
+    }
+
+    if (!profile) continue
+
+    const entry = `${user}(${profile})`
+    if (totalLen + entry.length > 400) break
+    profiles.push(entry)
+    totalLen += entry.length + 3
+  }
+
+  if (profiles.length === 0) return ''
+  return `Who's chatting: ${profiles.join(' | ')}`
+}
+
 interface UserMessageResult { text: string; hasGameData: boolean }
 
 function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
@@ -785,6 +844,8 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const chatStr = chatContext.length > 0
     ? chatContext.map((m) => `${m.user}: ${m.text.replace(/^!\w+\s*/, '')}`).join('\n')
     : ''
+
+  const chattersLine = buildChattersContext(chatContext, ctx.user, ctx.channel)
 
   const styleLine = getChannelStyle(ctx.channel)
   const contextLine = styleLine ? `\nChannel: ${styleLine}` : ''
@@ -824,6 +885,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const text = [
     timelineLine,
     chatStr ? `Recent chat:\n${chatStr}\n` : '',
+    chattersLine ? `\n${chattersLine}` : '',
     threadLine,
     contextLine,
     recallLine,
@@ -840,7 +902,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
 
 // --- background memo generation ---
 
-const MEMO_INTERVAL = 5 // update memo every N asks
+const MEMO_INTERVAL = 3 // update memo every N asks
 const memoInFlight = new Set<string>()
 
 async function maybeUpdateMemo(user: string) {
