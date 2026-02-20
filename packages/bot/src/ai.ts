@@ -526,7 +526,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   const chatDepth = queryWords <= 3 ? 5 : 20
   const chatContext = getRecent(ctx.channel, chatDepth)
   const chatStr = chatContext.length > 0
-    ? chatContext.map((m) => `${m.user}: ${m.text}`).join('\n')
+    ? chatContext.map((m) => `${m.user}: ${m.text.replace(/^!\w+\s*/, '')}`).join('\n')
     : ''
 
   const emoteLine = '\n' + formatEmotesForAI(ctx.channel, getChannelTopEmotes(ctx.channel))
