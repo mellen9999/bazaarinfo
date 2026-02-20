@@ -372,6 +372,13 @@ function buildUserContext(user: string, channel: string): string {
     profile = parts.join(', ')
   }
 
+  // persistent AI memory memo
+  let memoLine = ''
+  try {
+    const memo = db.getUserMemo(user)
+    if (memo) memoLine = `Memory: ${memo.memo}`
+  } catch {}
+
   // recent AI interactions
   let asksLine = ''
   try {
@@ -382,15 +389,15 @@ function buildUserContext(user: string, channel: string): string {
         const age = now - new Date(a.created_at + 'Z').getTime()
         const mins = Math.round(age / 60_000)
         const label = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`
-        const q = a.query.length > 30 ? a.query.slice(0, 30) + '...' : a.query
-        const r = a.response ? (a.response.length > 30 ? a.response.slice(0, 30) + '...' : a.response) : '?'
+        const q = a.query.length > 50 ? a.query.slice(0, 50) + '...' : a.query
+        const r = a.response ? (a.response.length > 120 ? a.response.slice(0, 120) + '...' : a.response) : '?'
         return `${label}: "${q}" → "${r}"`
       })
       asksLine = `Previously chatted about: ${parts.join(' | ')}`
     }
   } catch {}
 
-  const sections = [profile, asksLine].filter(Boolean)
+  const sections = [profile, memoLine, asksLine].filter(Boolean)
   if (sections.length === 0) return ''
   return `[${user}] ${sections.join('. ')}`
 }
@@ -733,7 +740,7 @@ function buildRecallContext(query: string, channel: string): string {
     const label = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`
     const q = r.query.length > 60 ? r.query.slice(0, 60) + '...' : r.query
     const resp = r.response
-      ? (r.response.length > 80 ? r.response.slice(0, 80) + '...' : r.response)
+      ? (r.response.length > 120 ? r.response.slice(0, 120) + '...' : r.response)
       : '?'
     return `[${label}] ${r.username}: "${q}" → you: "${resp}"`
   })
@@ -801,6 +808,72 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   ].filter(Boolean).join('')
 }
 
+// --- background memo generation ---
+
+const MEMO_INTERVAL = 5 // update memo every N asks
+const memoInFlight = new Set<string>()
+
+async function maybeUpdateMemo(user: string) {
+  if (!API_KEY) return
+  if (memoInFlight.has(user)) return
+
+  try {
+    const askCount = db.getUserAskCount(user)
+    if (askCount < MEMO_INTERVAL) return
+
+    const existing = db.getUserMemo(user)
+    if (existing && askCount - existing.ask_count_at < MEMO_INTERVAL) return
+
+    const asks = db.getAsksForMemo(user, 15)
+    if (asks.length < 3) return
+
+    memoInFlight.add(user)
+
+    const exchanges = asks.reverse().map((a) => {
+      const q = a.query.length > 80 ? a.query.slice(0, 80) + '...' : a.query
+      const r = a.response.length > 80 ? a.response.slice(0, 80) + '...' : a.response
+      return `"${q}" → "${r}"`
+    }).join('\n')
+
+    const prompt = [
+      existing ? `Current memo: ${existing.memo}\n\n` : '',
+      `Recent exchanges with ${user}:\n${exchanges}\n\n`,
+      'Write a 1-sentence personality memo for this user (<120 chars). ',
+      'Capture: humor style, recurring interests, running jokes, personality traits. ',
+      'No stats, no dates, no "they". Write like a friend\'s mental note. ',
+      existing ? 'Update the existing memo — keep what\'s still true, add new patterns.' : '',
+    ].join('')
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 60,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    })
+
+    if (res.ok) {
+      const data = await res.json() as { content: { type: string; text?: string }[] }
+      const memo = data.content?.find((b) => b.type === 'text')?.text?.trim()
+      if (memo && memo.length <= 200) {
+        db.upsertUserMemo(user, memo, askCount)
+        log(`memo: ${user} → ${memo}`)
+      }
+    }
+  } catch {
+    // fire-and-forget, swallow errors
+  } finally {
+    memoInFlight.delete(user)
+  }
+}
+
 async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
   const userMessage = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()
@@ -866,6 +939,8 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           db.logAsk(ctx, query, result.text, tokens, latency)
         } catch {}
         log(`ai: responded in ${latency}ms`)
+        // fire-and-forget memo update
+        maybeUpdateMemo(ctx.user).catch(() => {})
         return result
       }
 

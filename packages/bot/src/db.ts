@@ -46,6 +46,9 @@ let stmts: {
   searchFTSByUser: Statement
   recentAsks: Statement
   searchAskFTS: Statement
+  selectMemo: Statement
+  upsertMemo: Statement
+  recentAsksForMemo: Statement
 }
 
 function prepareStatements() {
@@ -160,6 +163,17 @@ function prepareStatements() {
        JOIN ask_queries aq ON aq.id = f.rowid
        LEFT JOIN users u ON aq.user_id = u.id
        WHERE ask_fts MATCH ? AND aq.channel = ?
+       ORDER BY aq.created_at DESC LIMIT ?`,
+    ),
+    selectMemo: db.prepare('SELECT memo, ask_count_at FROM user_memos WHERE username = ?'),
+    upsertMemo: db.prepare(
+      `INSERT INTO user_memos (username, memo, ask_count_at, updated_at)
+       VALUES (?, ?, ?, datetime('now'))
+       ON CONFLICT(username) DO UPDATE SET memo = excluded.memo, ask_count_at = excluded.ask_count_at, updated_at = datetime('now')`,
+    ),
+    recentAsksForMemo: db.prepare(
+      `SELECT aq.query, aq.response FROM ask_queries aq
+       WHERE aq.user_id = ? AND aq.response IS NOT NULL
        ORDER BY aq.created_at DESC LIMIT ?`,
     ),
   }
@@ -364,6 +378,15 @@ const migrations: (() => void)[] = [
     db.run(`CREATE TRIGGER ask_fts_delete AFTER DELETE ON ask_queries BEGIN
       INSERT INTO ask_fts(ask_fts, rowid, query, response) VALUES ('delete', old.id, old.query, COALESCE(old.response, ''));
     END`)
+  },
+  // migration 6: per-user AI memory memos
+  () => {
+    db.run(`CREATE TABLE user_memos (
+      username TEXT PRIMARY KEY COLLATE NOCASE,
+      memo TEXT NOT NULL,
+      ask_count_at INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
   },
 ]
 
@@ -664,6 +687,29 @@ export function searchAskFTS(channel: string, ftsQuery: string, limit = 5): AskF
   } catch {
     return []
   }
+}
+
+// --- user memo helpers ---
+
+export interface MemoRow { memo: string; ask_count_at: number }
+
+export function getUserMemo(username: string): MemoRow | null {
+  return stmts.selectMemo.get(username.toLowerCase()) as MemoRow | null
+}
+
+export function upsertUserMemo(username: string, memo: string, askCount: number) {
+  stmts.upsertMemo.run(username.toLowerCase(), memo, askCount)
+}
+
+export function getAsksForMemo(username: string, limit = 15): { query: string; response: string }[] {
+  const user = stmts.selectUser.get(username.toLowerCase()) as { id: number } | null
+  if (!user) return []
+  return stmts.recentAsksForMemo.all(user.id, limit) as { query: string; response: string }[]
+}
+
+export function getUserAskCount(username: string): number {
+  const user = stmts.selectUser.get(username.toLowerCase()) as { ask_count: number } | null
+  return user?.ask_count ?? 0
 }
 
 export function pruneOldSummaries(days = 30) {
