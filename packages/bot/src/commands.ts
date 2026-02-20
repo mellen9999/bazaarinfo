@@ -245,20 +245,21 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     return formatMonster(monster, resolveSkills(monster)) + suffix
   }
 
-  // suggestions for short typo queries, silence for everything else
-  const suggestions = store.suggest(query, 3)
-
   logMiss(query, ctx)
-  if (suggestions.length > 0 && queryWords.length <= 2) {
-    return `nothing found for "${query}" — try: ${suggestions.join(', ')}` + suffix
+
+  // short queries (1-2 words) = item lookup miss → show suggestions or soft error
+  if (queryWords.length <= 2) {
+    const suggestions = store.suggest(query, 3)
+    if (suggestions.length > 0) {
+      return `no "${query}" — did you mean: ${suggestions.join(', ')}?` + suffix
+    }
+    return `no item called "${query}" — try !b help` + suffix
   }
 
-  // AI fallback on miss
+  // conversational queries (3+ words) → AI fallback, silence on failure
   const aiResult = await aiRespond(cleanArgs, ctx)
   if (aiResult) {
     logHit('ai', cleanArgs, 'ai', ctx)
-    // collect mentions: AI-generated + original message, dedupe, append at end
-    // skip @asker if their name already appears in the response body
     const allMentions = new Set<string>()
     const textLower = aiResult.text.toLowerCase()
     const userLower = ctx.user?.toLowerCase() ?? ''
@@ -272,7 +273,8 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     return aiResult.text + tags
   }
 
-  return `nothing found for "${query}"` + suffix
+  // AI also failed → silence beats ugly error
+  return null
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {

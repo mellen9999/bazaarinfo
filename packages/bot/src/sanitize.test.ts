@@ -51,6 +51,11 @@ describe('sanitize', () => {
     expect(sanitize('great stuff lmao').text).toBe('great stuff')
   })
 
+  it('strips trailing ", chat" filler', () => {
+    expect(sanitize("can't defy gravity, chat").text).toBe("can't defy gravity")
+    expect(sanitize('nice one chat').text).toBe('nice one')
+  })
+
   it('rejects self-referencing bot talk', () => {
     expect(sanitize('im a bot so idk').text).toBe('')
     expect(sanitize('as a bot I think').text).toBe('')
@@ -59,7 +64,7 @@ describe('sanitize', () => {
   it('strips narration patterns', () => {
     expect(sanitize("he just asked about cards").text).toBe('cards')
     expect(sanitize("is asking me to look it up").text).toBe('look it up')
-    expect(sanitize("asked for a summary of chat").text).toBe('a summary of chat')
+    expect(sanitize("asked for a summary of stuff").text).toBe('a summary of stuff')
   })
 
   it('strips asker name from body', () => {
@@ -88,7 +93,7 @@ describe('sanitize', () => {
 
   it('strips verbal tics', () => {
     expect(sanitize('respect the commitment but Birdge is the purest form').text).toBe('but Birdge is the purest form')
-    expect(sanitize('thats just how it goes in chat').text).toBe('in chat')
+    expect(sanitize('thats just how it goes in ranked').text).toBe('in ranked')
     expect(sanitize('chats been absolutely unhinged today').text).toBe('today')
   })
 
@@ -99,6 +104,74 @@ describe('sanitize', () => {
   it('handles string that is only a banned opener', () => {
     const r = sanitize('alright so')
     expect(r.text).toBe('')
+  })
+
+  // --- COT_LEAK patterns ---
+  it('rejects "respond naturally" COT leak', () => {
+    expect(sanitize('I should respond naturally to this banter').text).toBe('')
+  })
+
+  it('rejects "this is banter" COT leak', () => {
+    expect(sanitize('this is banter so ill play along').text).toBe('')
+  })
+
+  it('rejects "is an emote" COT leak without parens', () => {
+    expect(sanitize('krippBelly is an emote that means hes full').text).toBe('')
+  })
+
+  it('rejects "is an emote(" COT leak with paren', () => {
+    expect(sanitize('krippBelly is an emote(round belly)').text).toBe('')
+  })
+
+  it('rejects "chain of thought" COT leak', () => {
+    expect(sanitize('my chain of thought says this is a joke').text).toBe('')
+  })
+
+  it('rejects "looking at the meta summary" COT leak', () => {
+    expect(sanitize('looking at the meta summary, lunar new year event').text).toBe('')
+  })
+
+  it('rejects "looking at the reddit digest" COT leak', () => {
+    expect(sanitize('looking at the reddit digest, people are saying').text).toBe('')
+  })
+
+  // --- FABRICATION patterns ---
+  it('rejects "it was a dream" fabrication', () => {
+    expect(sanitize('it was a dream where kripp hit legend').text).toBe('')
+  })
+
+  it('rejects "legend has it" fabrication', () => {
+    expect(sanitize('legend has it that reynad once hit 12 wins').text).toBe('')
+  })
+
+  // --- 150 char hard cap ---
+  it('truncates at 150 chars to last boundary', () => {
+    const long = 'a'.repeat(80) + '. ' + 'b'.repeat(80)
+    const r = sanitize(long)
+    expect(r.text.length).toBeLessThanOrEqual(150)
+    expect(r.text).toBe('a'.repeat(80))
+  })
+
+  it('preserves text over 60 chars when truncating', () => {
+    const long = 'x'.repeat(70) + ' ' + 'y'.repeat(90)
+    const r = sanitize(long)
+    expect(r.text.length).toBeGreaterThan(60)
+    expect(r.text.length).toBeLessThanOrEqual(150)
+  })
+
+  it('does not truncate at exactly 150 chars', () => {
+    const exact = 'a'.repeat(150)
+    const r = sanitize(exact)
+    expect(r.text).toBe(exact)
+  })
+
+  // --- speedrun verbal tic ---
+  it('strips "speedrunning" verbal tic', () => {
+    expect(sanitize('speedrunning the loss streak').text).toBe('the loss streak')
+  })
+
+  it('strips "speedrun" verbal tic', () => {
+    expect(sanitize('nice speedrun of the whole game').text).toBe('nice of the whole game')
   })
 })
 

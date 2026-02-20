@@ -60,8 +60,9 @@ mock.module('./db', () => ({
 
 
 // --- mock ai ---
+const mockAiRespond = mock<(...args: any[]) => any>(() => null)
 mock.module('./ai', () => ({
-  aiRespond: mock(() => null),
+  aiRespond: mockAiRespond,
   initSummarizer: mock(() => {}),
   invalidatePromptCache: mock(() => {}),
   sanitize: mock((t: string) => ({ text: t, mentions: [] })),
@@ -157,6 +158,8 @@ beforeEach(() => {
   mockFindHeroName.mockImplementation(() => undefined)
   mockFindTagName.mockImplementation(() => undefined)
   mockSuggest.mockImplementation(() => [])
+  mockAiRespond.mockReset()
+  mockAiRespond.mockImplementation(() => null)
 })
 
 // ---------------------------------------------------------------------------
@@ -426,7 +429,7 @@ describe('!b item lookup', () => {
 
   it('returns fallback message when no match at all', async () => {
     const result = await handleCommand('!b xyznonexistent')
-    expect(result).toContain('nothing found for')
+    expect(result).toContain('no item called')
   })
 
   it('handles multi-word item names', async () => {
@@ -597,12 +600,12 @@ describe('!b enchantment (any order)', () => {
 
   it('single word alone is item lookup not enchant', async () => {
     const result = await handleCommand('!b fiery')
-    expect(result).toContain('nothing found for')
+    expect(result).toContain('no item called')
   })
 
   it('single word alone is item lookup not enchant (toxic)', async () => {
     const result = await handleCommand('!b toxic')
-    expect(result).toContain('nothing found for')
+    expect(result).toContain('no item called')
   })
 })
 
@@ -864,7 +867,7 @@ describe('!b mob/monster', () => {
 describe('!b edge cases', () => {
   it('handles single character input', async () => {
     const result = await handleCommand('!b x')
-    expect(result).toContain('nothing found for')
+    expect(result).toContain('no item called')
   })
 
   it('handles extra whitespace between words', async () => {
@@ -1336,5 +1339,45 @@ describe('usage string', () => {
     expect(result).toContain('trivia')
     expect(result).toContain('score')
     expect(result).toContain('stats')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AI fallback path
+// ---------------------------------------------------------------------------
+describe('AI fallback path', () => {
+  it('conversational query + AI success = AI response', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'vanessa is solid', mentions: [] }))
+    const result = await handleCommand('!b is vanessa good', { user: 'chatter', channel: 'stream' })
+    expect(result).toContain('vanessa is solid')
+    expect(result).toContain('@chatter')
+  })
+
+  it('conversational query + AI failure = null (silence)', async () => {
+    mockAiRespond.mockImplementation(() => null)
+    const result = await handleCommand('!b is vanessa good', { user: 'chatter', channel: 'stream' })
+    expect(result).toBeNull()
+  })
+
+  it('short query + no match = soft error message', async () => {
+    const result = await handleCommand('!b asdfghjkl', { user: 'chatter', channel: 'stream' })
+    expect(result).toContain('no item called')
+    expect(result).toContain('!b help')
+  })
+
+  it('short query + suggestions = did you mean', async () => {
+    mockSuggest.mockImplementation(() => ['Boomerang', 'Boom Box'])
+    const result = await handleCommand('!b boom', { user: 'chatter', channel: 'stream' })
+    expect(result).toContain('did you mean')
+    expect(result).toContain('Boomerang')
+  })
+
+  it('AI response dedupes @mention with suffix mention', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'yeah for sure', mentions: ['@viewer'] }))
+    const result = await handleCommand('!b is vanessa good @viewer', { user: 'chatter', channel: 'stream' })
+    expect(result).toContain('yeah for sure')
+    // @viewer should appear only once
+    const viewerCount = (result!.match(/@viewer/g) ?? []).length
+    expect(viewerCount).toBe(1)
   })
 })

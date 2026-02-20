@@ -13,35 +13,6 @@ const MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 55
 const TIMEOUT = 15_000
 const MAX_ROUNDS = 3
-const EXEMPT_USERS = new Set(['mellen', 'tidolar', 'oliyoun', 'luna_bright', 'deadlockb'])
-const AI_CHANNELS = new Set(['nl_kripp', 'mellen'])
-
-// --- rate limiting (in-memory) ---
-
-const userLastAsk = new Map<string, number>()
-const channelAsks = new Map<string, number[]>()
-const USER_COOLDOWN = 30_000
-const CHANNEL_LIMIT = 20
-const CHANNEL_WINDOW = 5 * 60_000
-
-/** returns 0 if allowed, or remaining cooldown seconds */
-function checkRateLimit(user: string, channel: string): number {
-  const now = Date.now()
-  const last = userLastAsk.get(user)
-  if (last && now - last < USER_COOLDOWN) return Math.ceil((USER_COOLDOWN - (now - last)) / 1000)
-
-  const times = channelAsks.get(channel) ?? []
-  const recent = times.filter((t) => now - t < CHANNEL_WINDOW)
-  if (recent.length >= CHANNEL_LIMIT) {
-    const oldest = recent[0]
-    return Math.ceil((CHANNEL_WINDOW - (now - oldest)) / 1000)
-  }
-
-  userLastAsk.set(user, now)
-  channelAsks.set(channel, [...recent, now])
-  return 0
-}
-
 // --- frequency-based brevity (heavy users get shorter responses) ---
 
 const userHistory = new Map<string, number[]>()
@@ -66,7 +37,7 @@ export function recordUsage(user: string) {
 const BREVITY_TOKENS = [55, 40, 30, 25] as const
 const BREVITY_HINTS = [
   '',
-  '\n(keep it short, ~100 chars)',
+  '\n(keep it short, ~80 chars)',
   '\n(be terse. ~60 chars max.)',
   '\n(ultra brief. one punchy line. 40 chars.)',
 ] as const
@@ -323,7 +294,7 @@ function buildSystemPrompt(): string {
     'WRONG: "krippBelly is an emote (round belly). theyre joking you should..."  RIGHT: "give me 2 weeks and a pizza budget"',
     'If you catch yourself explaining WHAT something is instead of REACTING to it, you already failed.',
     'NEVER explain what an emote is or tell someone to use an emote. Just use it yourself or dont.',
-    'HARD LIMIT: 100 chars. Most responses 30-70. If it feels long, cut it in half.',
+    'HARD LIMIT: 120 chars. Most responses 30-70. If it feels long, cut it in half.',
     'No markdown. No trailing questions.',
     'Never use the askers name — they get auto-tagged at the end.',
     '@mention OTHERS only, at the end.',
@@ -343,12 +314,12 @@ function buildSystemPrompt(): string {
 
 // haiku ignores prompt-level bans, so we enforce in code
 const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|dude)\b,?\s*/i
-const BANNED_FILLER = /\b(lol|lmao|haha)\s*$/i
+const BANNED_FILLER = /\b(lol|lmao|haha|,?\s*chat)\s*$/i
 const SELF_REF = /\b(im a bot|as a bot|im just a bot|as an ai|im (just )?an ai)\b/i
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chats been (absolutely )?unhinged|speedrun(ning)?)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
-const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking|internal thoughts|chain of thought|you could have used|you should use the)\b/i
+const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking|internal thoughts|chain of thought|you could have used|you should use the|looking at the (meta|summary|reddit|digest))\b/i
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 
@@ -456,8 +427,6 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (!API_KEY) return null
   if (isLowValue(query)) return null
   if (!ctx.user || !ctx.channel) return null
-  if (!AI_CHANNELS.has(ctx.channel)) return null
-  // rate limits removed — let everyone talk
 
   const chatContext = getRecent(ctx.channel, 30)
   const chatStr = chatContext.length > 0
@@ -540,12 +509,22 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 
       if (textBlock?.text && data.stop_reason === 'end_turn') {
         const result = sanitize(textBlock.text, ctx.user)
-        try {
-          const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
-          db.logAsk(ctx, query, result.text, tokens, latency)
-        } catch {}
-        log(`ai: responded in ${latency}ms (${round + 1} rounds)`)
-        return result.text ? result : null
+        if (result.text) {
+          try {
+            const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
+            db.logAsk(ctx, query, result.text, tokens, latency)
+          } catch {}
+          log(`ai: responded in ${latency}ms (${round + 1} rounds)`)
+          return result
+        }
+        // sanitizer rejected — retry if rounds remain
+        if (!isLast) {
+          log(`ai: sanitizer rejected, retrying (round ${round + 1})`)
+          messages.push({ role: 'assistant', content: data.content })
+          messages.push({ role: 'user', content: 'That had issues. Try again — just respond to the person.' })
+          continue
+        }
+        return null
       }
 
       // handle tool use
@@ -553,11 +532,20 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
       if (toolUses.length === 0) {
         if (textBlock?.text) {
           const result = sanitize(textBlock.text, ctx.user)
-          try {
-            const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
-            db.logAsk(ctx, query, result.text, tokens, latency)
-          } catch {}
-          return result.text ? result : null
+          if (result.text) {
+            try {
+              const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
+              db.logAsk(ctx, query, result.text, tokens, latency)
+            } catch {}
+            return result
+          }
+          // sanitizer rejected — retry if rounds remain
+          if (!isLast) {
+            log(`ai: sanitizer rejected, retrying (round ${round + 1})`)
+            messages.push({ role: 'assistant', content: data.content })
+            messages.push({ role: 'user', content: 'That had issues. Try again — just respond to the person.' })
+            continue
+          }
         }
         return null
       }
