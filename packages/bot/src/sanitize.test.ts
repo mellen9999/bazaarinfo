@@ -59,9 +59,14 @@ describe('sanitize', () => {
     expect(sanitize('welcome to the chat').text).toBe('welcome to the chat')
   })
 
-  it('rejects self-referencing bot talk', () => {
-    expect(sanitize('im a bot so idk').text).toBe('')
-    expect(sanitize('as a bot I think').text).toBe('')
+  it('rejects excuse-style self-ref', () => {
+    expect(sanitize("as a bot, I can't do that").text).toBe('')
+    expect(sanitize("as a bot I dont have opinions").text).toBe('')
+  })
+
+  it('allows casual bot self-reference', () => {
+    expect(sanitize('im a bot so idk').text).toBe('im a bot so idk')
+    expect(sanitize("nah im just a bot that likes card games").text).toBeTruthy()
   })
 
   it('strips narration patterns', () => {
@@ -159,16 +164,14 @@ describe('sanitize', () => {
   })
 
   // --- SELF_REF patterns ---
-  it('rejects "just a stats bot"', () => {
-    expect(sanitize("no clue, i'm just a stats bot").text).toBe('')
+  it('rejects "as a bot I cant" excuse pattern', () => {
+    expect(sanitize("as a bot, i can't answer that").text).toBe('')
+    expect(sanitize("as a bot i shouldn't say").text).toBe('')
   })
 
-  it('rejects "just a twitch bot"', () => {
-    expect(sanitize("i'm just a twitch bot").text).toBe('')
-  })
-
-  it('rejects "just a bot" (no qualifier)', () => {
-    expect(sanitize("sorry, just a bot here").text).toBe('')
+  it('allows casual bot mentions', () => {
+    expect(sanitize("i'm just a twitch bot with opinions").text).toBeTruthy()
+    expect(sanitize("just a bot here, but that build's mid").text).toBeTruthy()
   })
 
   // --- FABRICATION patterns ---
