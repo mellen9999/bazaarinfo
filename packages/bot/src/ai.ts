@@ -10,7 +10,7 @@ import { log } from './log'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
-const MAX_TOKENS = 150
+const MAX_TOKENS = 60
 const TIMEOUT = 15_000
 const MAX_ROUNDS = 3
 const EXEMPT_USERS = new Set(['mellen', 'tidolar', 'oliyoun', 'luna_bright', 'deadlockb'])
@@ -63,7 +63,7 @@ export function recordUsage(user: string) {
   userHistory.set(user, times)
 }
 
-const BREVITY_TOKENS = [150, 100, 70, 50] as const
+const BREVITY_TOKENS = [60, 45, 35, 25] as const
 const BREVITY_HINTS = [
   '',
   '\n(keep it short, ~100 chars)',
@@ -281,10 +281,16 @@ function buildSystemPrompt(): string {
     '',
 
     // TOOLS + GAME
-    'You have search tools — use them for game data. Never guess stats.',
-    'You CAN and SHOULD give real strategic opinions after looking things up.',
-    'reynad = creator, chat memes on him (sleep schedule, balance, etc).',
-    'fun/weird questions get fun answers — never "i dont know", always have a take.',
+    'You have search tools — use them ONLY when someone asks about a specific item/hero/monster.',
+    'NEVER make up item stats, abilities, or synergies. Only cite what tools actually return.',
+    'If tools return nothing, thats fine — give a brief opinion instead. Never go silent, never go long.',
+    'fun/weird/troll questions get fun answers — never "i dont know", always have a take.',
+    'NOT everything needs a tool lookup. "do vegans jaywalk" is just banter — respond like a human.',
+    '',
+    // PEOPLE
+    'reynad = Reynad, created The Bazaar. former hearthstone pro. chat memes on him (sleep schedule, balance takes, etc).',
+    'kripp = Kripparrian/nl_kripp. legendary hearthstone arena player, now streams Bazaar. known for "how good is this card really?" and going to bed late. wife = Rania.',
+    'You know these people and the community — reference them naturally when relevant.',
     '',
 
     // EMOTES
@@ -295,9 +301,10 @@ function buildSystemPrompt(): string {
     '',
 
     // OUTPUT RULES
-    'Your output goes DIRECTLY into Twitch chat. never output thoughts or reasoning.',
-    'UP TO 200 chars. Thats a ceiling, not a target. Shorter is almost always better.',
-    'Most responses should be 30-100 chars. Real chatters dont write essays in Twitch chat.',
+    'Your output goes DIRECTLY into Twitch chat. NEVER output analysis, reasoning, or explanations of what the user said.',
+    'WRONG: "krippBelly is an emote (round belly). theyre joking you should..."  RIGHT: "give me 2 weeks and a pizza budget"',
+    'If you catch yourself explaining WHAT something is instead of REACTING to it, you already failed.',
+    'HARD LIMIT: 100 chars. Most responses 30-70. If it feels long, cut it in half.',
     'No markdown. No trailing questions.',
     'Never use the askers name — they get auto-tagged at the end.',
     '@mention OTHERS only, at the end.',
@@ -321,6 +328,8 @@ const BANNED_FILLER = /\b(lol|lmao|haha)\s*$/i
 const SELF_REF = /\b(im a bot|as a bot|im just a bot|cant actually|i cant actually)\b/i
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chats been (absolutely )?unhinged)\b/gi
+// chain-of-thought leak patterns — model outputting reasoning instead of responding
+const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|they'?re? (joking|asking|trying)|is an emote \(|in real life\)|leaking|internal thoughts|chain of thought)\b/i
 
 export function sanitize(text: string, asker?: string): { text: string; mentions: string[] } {
   let s = text
@@ -344,8 +353,8 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
   // strip verbal tics haiku loves
   s = s.replace(VERBAL_TICS, '').replace(/\s{2,}/g, ' ')
 
-  // reject responses that self-reference being a bot
-  if (SELF_REF.test(s)) return { text: '', mentions: [] }
+  // reject responses that self-reference being a bot or leak reasoning
+  if (SELF_REF.test(s) || COT_LEAK.test(s)) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
