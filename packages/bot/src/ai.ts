@@ -182,11 +182,17 @@ const tools = [
 ]
 
 // detect if a query is clearly conversational (no game lookup needed)
-const GAME_TERMS = /\b(item|hero|monster|mob|build|tier|enchant|skill|tag|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|weapon|relic|aqua|friend|ammo|charge|board)\b/i
+const GAME_TERMS = /\b(item|hero|monster|mob|build|tier|enchant|skill|tag|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|weapon|relic|aqua|friend|ammo|charge|board|dps|beat|fight|counter|synergy|scaling|combo|lethal|survive)\b/i
 
 function needsTools(query: string): boolean {
-  if (query.trim().split(/\s+/).length <= 4) return true // short = might be a lookup
-  return GAME_TERMS.test(query)
+  const words = query.trim().split(/\s+/)
+  if (words.length <= 4) return true // short = might be a lookup
+  if (GAME_TERMS.test(query)) return true
+  // check if any word matches a known item/monster name (catches "thug", "piggles", etc.)
+  for (const w of words) {
+    if (w.length >= 3 && (store.exact(w) || store.findMonster(w))) return true
+  }
+  return false
 }
 
 // --- tool execution ---
