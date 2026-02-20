@@ -310,6 +310,7 @@ const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there
 
 export function sanitize(text: string, asker?: string): { text: string; mentions: string[] } {
   let s = text
+    .replace(/^[/.]+/, '') // strip twitch command prefixes
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
