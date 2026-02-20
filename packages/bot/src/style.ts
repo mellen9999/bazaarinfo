@@ -99,6 +99,11 @@ export function getChannelStyle(channel: string): string {
   return styleCache.get(channel)?.profile ?? ''
 }
 
+export function getChannelTopEmotes(channel: string): string[] {
+  ensureCache(channel)
+  return styleCache.get(channel)?.topEmotes ?? []
+}
+
 
 
 function ensureCache(channel: string) {

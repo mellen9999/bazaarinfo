@@ -80,44 +80,56 @@ export function getEmotesForChannel(channel: string): string[] {
   return merged
 }
 
-/** format emotes for AI context — uses vision-generated descriptions when available */
-export function formatEmotesForAI(channel: string): string {
+/** format emotes for AI context — prioritizes channel favorites, caps total ~40 */
+export function formatEmotesForAI(channel: string, topEmotes?: string[]): string {
   const all = getEmotesForChannel(channel)
   if (all.length === 0) return ''
 
   const descriptions = getDescriptions()
+  const topSet = new Set(topEmotes ?? [])
+
   const byMood = new Map<string, string[]>()
   const overlays: string[] = []
-  const unknown: string[] = []
 
   for (const name of all) {
     const desc = descriptions[name]
-    if (desc) {
-      if (desc.overlay) {
-        overlays.push(`${name}(${desc.desc})`)
-      } else {
-        const mood = desc.mood
-        if (!byMood.has(mood)) byMood.set(mood, [])
-        byMood.get(mood)!.push(`${name}(${desc.desc})`)
-      }
-    } else {
-      unknown.push(name)
+    if (!desc) continue
+    if (desc.overlay) {
+      overlays.push(`${name}(${desc.desc})`)
+      continue
+    }
+    const mood = desc.mood
+    if (!byMood.has(mood)) byMood.set(mood, [])
+    byMood.get(mood)!.push(`${name}(${desc.desc})`)
+  }
+
+  // prioritize channel favorites: sort each mood bucket so top emotes come first
+  if (topSet.size > 0) {
+    for (const [mood, entries] of byMood) {
+      byMood.set(mood, entries.sort((a, b) => {
+        const aTop = topSet.has(a.split('(')[0]) ? 0 : 1
+        const bTop = topSet.has(b.split('(')[0]) ? 0 : 1
+        return aTop - bTop
+      }))
     }
   }
 
-  const MAX_PER_MOOD = 8
+  const MAX_PER_MOOD = 3
+  const MAX_TOTAL = 40
+  let total = 0
   const lines: string[] = []
   const sortedMoods = [...byMood.keys()].sort()
   for (const mood of sortedMoods) {
-    lines.push(`  ${mood}: ${byMood.get(mood)!.slice(0, MAX_PER_MOOD).join(' ')}`)
+    if (total >= MAX_TOTAL) break
+    const take = Math.min(MAX_PER_MOOD, MAX_TOTAL - total)
+    const entries = byMood.get(mood)!.slice(0, take)
+    lines.push(`  ${mood}: ${entries.join(' ')}`)
+    total += entries.length
   }
 
-  if (overlays.length > 0) {
-    lines.push(`  [OVERLAYS — place AFTER a base emote]:`)
-    lines.push(`    ${overlays.slice(0, 10).join(' ')}`)
+  if (overlays.length > 0 && total < MAX_TOTAL) {
+    lines.push(`  [OVERLAYS]: ${overlays.slice(0, 3).join(' ')}`)
   }
 
-  // drop uncategorized — model can't use emotes it doesn't know
-
-  return `Emotes (use 0-1 per message, only when it perfectly fits the moment):\n${lines.join('\n')}`
+  return `Emotes (0-1 per msg, only when perfect):\n${lines.join('\n')}`
 }

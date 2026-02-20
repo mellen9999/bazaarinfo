@@ -99,7 +99,7 @@ async function summarizeWithHaiku(context: string): Promise<string> {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 200,
+      max_tokens: 120,
       messages: [{
         role: 'user',
         content: `Summarize the current Bazaar meta, popular builds, and community sentiment in under 500 chars. Be specific about item/hero names. Raw Reddit data:\n\n${context}`,

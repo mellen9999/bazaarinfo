@@ -71,6 +71,9 @@ let monsterIndex: Fuse<Monster>
 let enchantmentNames: string[] = []
 let heroNames: string[] = []
 let tagNames: string[] = []
+let heroCardMap: Map<string, BazaarCard[]> = new Map()
+let tagCardMap: Map<string, BazaarCard[]> = new Map()
+let effectWordMap: Map<string, Set<BazaarCard>> = new Map()
 
 function dedup<T extends { Title: string }>(cards: T[]): T[] {
   const seen = new Set<string>()
@@ -117,6 +120,44 @@ function loadCache(cache: CardCache) {
     for (const t of card.DisplayTags) tagSet.add(t)
   }
   tagNames = [...tagSet].sort()
+
+  // precompute hero → cards map
+  heroCardMap = new Map()
+  for (const card of allCards) {
+    for (const h of card.Heroes) {
+      if (FAKE_HEROES.has(h)) continue
+      const lower = h.toLowerCase()
+      let list = heroCardMap.get(lower)
+      if (!list) { list = []; heroCardMap.set(lower, list) }
+      list.push(card)
+    }
+  }
+
+  // precompute tag → cards map
+  tagCardMap = new Map()
+  for (const card of items) {
+    for (const t of [...card.HiddenTags, ...card.DisplayTags]) {
+      const lower = t.toLowerCase()
+      let list = tagCardMap.get(lower)
+      if (!list) { list = []; tagCardMap.set(lower, list) }
+      list.push(card)
+    }
+  }
+
+  // precompute effect word → cards index for searchByEffect
+  effectWordMap = new Map()
+  for (const card of allCards) {
+    const text = card.Tooltips.map((t) => t.text).join(' ').toLowerCase()
+    for (const word of text.split(/\s+/)) {
+      if (word.length < 3) continue
+      // strip placeholder braces
+      const clean = word.replace(/[{}]/g, '')
+      if (!clean) continue
+      let set = effectWordMap.get(clean)
+      if (!set) { set = new Set(); effectWordMap.set(clean, set) }
+      set.add(card)
+    }
+  }
 }
 
 export async function loadStore() {
@@ -203,8 +244,7 @@ export function findTagName(query: string): string | undefined {
 
 export function byHero(hero: string) {
   const resolved = findHeroName(hero) ?? hero
-  const lower = resolved.toLowerCase()
-  return allCards.filter((i) => i.Heroes.some((h) => h.toLowerCase() === lower))
+  return heroCardMap.get(resolved.toLowerCase()) ?? []
 }
 
 export function getEnchantments(): string[] {
@@ -233,11 +273,7 @@ export function findCard(name: string): BazaarCard | undefined {
 
 export function byTag(tag: string): BazaarCard[] {
   const resolved = findTagName(tag) ?? tag
-  const lower = resolved.toLowerCase()
-  return items.filter((c) =>
-    c.HiddenTags.some((t) => t.toLowerCase() === lower)
-    || c.DisplayTags.some((t) => t.toLowerCase() === lower),
-  )
+  return tagCardMap.get(resolved.toLowerCase()) ?? []
 }
 
 export function monstersByDay(day: number): Monster[] {
@@ -263,26 +299,23 @@ export function searchByEffect(query: string, hero?: string, limit = 5): BazaarC
   const words = lower.split(/\s+/).filter((w) => w.length >= 3)
   if (words.length === 0) return []
 
-  const candidates = hero
-    ? allCards.filter((c) => c.Heroes.some((h) => h.toLowerCase() === hero.toLowerCase()))
-    : allCards
+  // use precomputed word index to narrow candidates
+  const heroLower = hero?.toLowerCase()
+  const scored = new Map<BazaarCard, number>()
 
-  const scored: { card: BazaarCard; score: number }[] = []
-  for (const card of candidates) {
-    const tooltipText = card.Tooltips.map((t) => t.text).join(' ').toLowerCase()
-    const titleText = card.Title.toLowerCase()
-    const combined = `${titleText} ${tooltipText}`
-    let score = 0
-    for (const w of words) {
-      if (combined.includes(w)) score++
+  for (const w of words) {
+    const matches = effectWordMap.get(w)
+    if (!matches) continue
+    for (const card of matches) {
+      if (heroLower && !card.Heroes.some((h) => h.toLowerCase() === heroLower)) continue
+      scored.set(card, (scored.get(card) ?? 0) + 1)
     }
-    if (score > 0) scored.push({ card, score })
   }
 
-  return scored
-    .sort((a, b) => b.score - a.score)
+  return [...scored.entries()]
+    .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
-    .map((s) => s.card)
+    .map(([card]) => card)
 }
 
 export function getItems(): BazaarCard[] { return items }

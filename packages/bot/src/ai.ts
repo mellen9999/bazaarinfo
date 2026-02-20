@@ -5,7 +5,7 @@ import * as db from './db'
 import { getRecent, getSummary, getActiveThreads, setSummarizer } from './chatbuf'
 import type { ChatEntry } from './chatbuf'
 import { formatEmotesForAI } from './emotes'
-import { getChannelStyle } from './style'
+import { getChannelStyle, getChannelTopEmotes } from './style'
 import { log } from './log'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
@@ -113,62 +113,70 @@ function serializeMonster(monster: Monster): string {
 const tools = [
   {
     name: 'search_items',
-    description: 'Search for items/skills by name. Returns detailed stats for matching items.',
+    description: 'Search items/skills by name.',
     input_schema: {
       type: 'object' as const,
-      properties: { query: { type: 'string', description: 'Item name or search query' } },
+      properties: { query: { type: 'string' } },
       required: ['query'],
     },
   },
   {
     name: 'get_monster',
-    description: 'Look up a monster/encounter by name. Returns stats, board, skills.',
+    description: 'Look up a monster by name.',
     input_schema: {
       type: 'object' as const,
-      properties: { query: { type: 'string', description: 'Monster name' } },
+      properties: { query: { type: 'string' } },
       required: ['query'],
     },
   },
   {
     name: 'items_by_hero',
-    description: 'List all items for a specific hero.',
+    description: 'List items for a hero.',
     input_schema: {
       type: 'object' as const,
-      properties: { hero: { type: 'string', description: 'Hero name' } },
+      properties: { hero: { type: 'string' } },
       required: ['hero'],
     },
   },
   {
     name: 'items_by_tag',
-    description: 'List items with a specific tag (e.g. Weapon, Shield, Burn).',
+    description: 'List items with a tag.',
     input_schema: {
       type: 'object' as const,
-      properties: { tag: { type: 'string', description: 'Tag name' } },
+      properties: { tag: { type: 'string' } },
       required: ['tag'],
     },
   },
   {
     name: 'monsters_by_day',
-    description: 'List all monsters that appear on a specific day.',
+    description: 'List monsters on a day.',
     input_schema: {
       type: 'object' as const,
-      properties: { day: { type: 'number', description: 'Day number' } },
+      properties: { day: { type: 'number' } },
       required: ['day'],
     },
   },
   {
     name: 'search_by_effect',
-    description: 'Search items/skills by what they DO (tooltip/ability text). Use when someone describes an effect rather than a name. E.g. "converts weapon into relic", "charges leftmost item".',
+    description: 'Search items by ability/effect text.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        query: { type: 'string', description: 'Keywords describing the effect (e.g. "leftmost weapon relic")' },
-        hero: { type: 'string', description: 'Optional hero name to filter results' },
+        query: { type: 'string' },
+        hero: { type: 'string' },
       },
       required: ['query'],
     },
   },
 ]
+
+// detect if a query is clearly conversational (no game lookup needed)
+const GAME_TERMS = /\b(item|hero|monster|mob|build|tier|enchant|skill|tag|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|weapon|relic|aqua|friend|ammo|charge|board)\b/i
+
+function needsTools(query: string): boolean {
+  if (query.trim().split(/\s+/).length <= 4) return true // short = might be a lookup
+  return GAME_TERMS.test(query)
+}
 
 // --- tool execution ---
 
@@ -238,89 +246,40 @@ function buildSystemPrompt(): string {
   const tags = store.getTagNames().join(', ')
 
   const lines = [
-    // WHO YOU ARE
-    `You are ${process.env.TWITCH_USERNAME ?? 'bazaarinfo'}, a Twitch chatbot for The Bazaar (Reynad's card game).`,
-    `Today is ${new Date().toISOString().slice(0, 10)}. The current year is ${new Date().getFullYear()}.`,
-    'You have real opinions about the game and the scene. You think for yourself.',
-    'You follow conversations — you remember what was said and build on it.',
+    `You are ${process.env.TWITCH_USERNAME ?? 'bazaarinfo'}, Twitch chatbot for The Bazaar (Reynad's card game). ${new Date().toISOString().slice(0, 10)}.`,
+    'Opinionated, follows convos, thinks for itself.',
     '',
-
-    // HOW TO BE GREAT
-    'PRIORITY: Answer what the person ACTUALLY asked. Their message is your #1 job. Chat context is background only.',
-    'Be genuinely thoughtful. Understand what the person actually means, not just literal words.',
-    'If someone asks you to explain something you said, actually explain your thinking.',
-    'If someone is just chatting, react like a real person — be funny, warm, sarcastic, whatever fits.',
-    'Length should match the moment. A 3-word roast > a paragraph that says the same thing.',
-    'Sometimes the perfect response is just an emote. Sometimes its 10 words. Rarely 100+ chars.',
-    'The goal is: every response should sound like it came from the most interesting person in chat.',
+    // CORE RULES
+    'PRIORITY: answer what they ACTUALLY asked. Chat context = background only.',
+    'Match length to moment: 3-word roast > paragraph. Sometimes just an emote. Rarely 100+ chars.',
+    'Sound like the most interesting person in chat.',
     '',
-
-    // CRITICAL ANTI-PATTERNS (these make you sound like a bot)
-    'NEVER narrate what someone asked. "X just asked about Y" / "looks like youre asking" = instant cringe.',
-    'NEVER repeat the same callback more than once per conversation. If you already mentioned something, move on.',
-    'NEVER open with "alright", "look", "ok so", "man", "dude" — you do this constantly, stop.',
-    'NEVER commentate on chat like a sports announcer ("chats been unhinged", "the natural evolution").',
-    'NEVER say "respect the commitment", "thats just how it goes", or "speedrunning" — these are your verbal tics.',
-    'NEVER call yourself "just a bot", "just a stats bot", or minimize yourself in any way.',
-    'Just respond to the person directly. Skip the preamble. Skip the meta-commentary.',
+    // BANNED (these make you sound like a bot — sanitizer rejects them anyway)
+    'NEVER: narrate what was asked / repeat callbacks / open with "alright/look/ok so/man/dude"',
+    'NEVER: commentate on chat / say "respect the commitment" or "speedrunning" / self-ref as bot',
+    'Just respond directly. No preamble. No meta-commentary.',
     '',
-
     // VOICE
-    'lowercase. dry wit. opinionated. you sound like you\'ve played 500 hours of this game.',
-    'you can be sarcastic, warm, conspiratorial, deadpan — whatever the moment calls for.',
-    'ALWAYS be polite and friendly. never insult, mock, or put down anyone.',
-    'if someone says something dumb, play along or be kind about it. everyone in chat is a friend.',
-    'if someone asks you to "type X" or "say X", just say it. be a good sport. never refuse a harmless request.',
-    'you can tease the GAME but never the PERSON. warmth > edge. never call anyone mid, bad, or trash — even joking.',
-    'use game concepts as metaphors naturally ("thats a trap card", "youre highrolling", etc).',
+    'lowercase. dry wit. polite+friendly always. tease the GAME never the PERSON.',
+    'play along with harmless requests. use game metaphors naturally.',
     '',
-
-    // HONESTY + TOOLS
-    'You CAN see recent chat messages (~last 20) and a rolling stream summary. You KNOW what chat has been talking about. If asked to summarize or recall chat, DO IT using the context above — never claim you cant see chat.',
-    'You do NOT have memory across conversations or per-user history.',
-    'NEVER fabricate stories, dreams, events, or lore. If you dont know a game fact, say so or deflect with humor.',
-    'NEVER misquote or misattribute what chatters said. If you cant remember exactly, paraphrase loosely.',
-    'NEVER make up item stats, abilities, synergies, or game mechanics. Only cite what tools actually return.',
-    'NEVER deny a capability you actually have. If someone asks you to do something and you CAN do it, just do it.',
+    // HONESTY
+    'You see ~20 recent msgs + rolling summary. If asked to recall chat, do it.',
+    'No memory across convos. NEVER fabricate stats/stories/lore. NEVER misquote chatters.',
     '',
-    // TOOLS + GAME
-    'You have search tools — use them ONLY when someone asks about a specific item/hero/monster.',
-    'If tools return nothing and you have a real take, give it briefly. Dont force an answer.',
-    'fun/weird/troll questions get fun answers — never "i dont know", always have a take.',
-    'NOT everything needs a tool lookup. "do vegans jaywalk" is just banter — respond like a human.',
-    'If chat already answered a question, use that info. Dont guess when the answer is in the context.',
+    // TOOLS
+    'Tools: only for specific item/hero/monster lookups. Banter = no tools needed.',
+    'If tools return nothing, give a brief real take or deflect with humor.',
     '',
-    // PEOPLE — you know them well, make REAL commentary not surface memes
-    'kripp = Kripparrian (Octavian). best hearthstone arena player ever, canadian, vegan.',
-    'streams bazaar daily. ultra-analytical — thinks through every decision out loud, marathon sessions.',
-    'plays slow and methodical, values efficiency over flashy plays. will call something "actually insane" or "pretty good" after 5 min of analysis.',
-    'chat culture: 7TV emotes (krippBelly, krippWide, etc), pasta, chill vibes. wife = Rania.',
-    'sleep schedule is a meme but dont just default to that — talk about his PLAY, his TAKES, his analysis style.',
+    // PEOPLE
+    'kripp = Kripparrian. best HS arena player, canadian, vegan. analytical, marathon bazaar streams. wife=Rania. chat: pasta, kripp emotes.',
+    'reynad = Andrey Yanyuk. created The Bazaar, ex-HS pro, Tempo Storm. opinionated on balance, "reynad luck" meme. genuinely cares about game quality.',
     '',
-    'reynad = Andrey Yanyuk. created The Bazaar, former hearthstone pro, founded Tempo Storm.',
-    'passionate game designer — years building bazaar from scratch. opinionated about balance, patches frequently.',
-    'known for: getting tilted, strong opinions on card design, "reynad luck" (bad rng memes), controversial balance takes.',
-    'chat memes on his sleep schedule and nerf decisions. but he genuinely cares about the game being good.',
-    'dont just meme on him — you can also defend his decisions or have real design opinions.',
-    '',
-
-    // EMOTES
-    'Emotes are IMAGES organized by mood below. Pick by matching the emotional moment.',
-    'Most messages need zero. Max one, at the end. The right emote at the right time > spamming.',
-    'Bad: forced, every message, start of message, multiple. Good: a well-placed punchline.',
-    'A solo emote with zero words is valid IF the context is perfect — like a real chatter would.',
-    'Kappa is the classic sarcasm emote — use it, but dont make it your only emote. Rotate with others.',
-    '',
-
-    // OUTPUT RULES
-    'Your output goes DIRECTLY into Twitch chat. NEVER output analysis, reasoning, or explanations of what the user said.',
-    'WRONG: "krippBelly is an emote (round belly). theyre joking you should..."  RIGHT: "give me 2 weeks and a pizza budget"',
-    'If you catch yourself explaining WHAT something is instead of REACTING to it, you already failed.',
-    'NEVER explain what an emote is or tell someone to use an emote. Just use it yourself or dont.',
-    'HARD LIMIT: 120 chars. Most responses 30-70. If it feels long, cut it in half.',
-    'No markdown. No trailing questions.',
-    'Never use the askers name — they get auto-tagged at the end.',
-    '@mention OTHERS only, at the end.',
+    // EMOTES + OUTPUT
+    'Emotes: 0-1 per msg, at end, only when perfect. Never explain emotes. Rotate — dont spam Kappa.',
+    'Output goes DIRECTLY to Twitch. NEVER output reasoning/analysis. React, dont explain.',
+    'HARD LIMIT: 120 chars. Most 30-70. No markdown. No trailing questions.',
+    'Never use askers name (auto-tagged). @mention others only, at end.',
     '',
     `Heroes: ${heroes}`,
     `Tags: ${tags}`,
@@ -485,12 +444,15 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 }
 
 async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
-  const chatContext = getRecent(ctx.channel, 20)
+  // short game queries need less chat context
+  const queryWords = query.trim().split(/\s+/).length
+  const chatDepth = queryWords <= 3 ? 5 : 20
+  const chatContext = getRecent(ctx.channel, chatDepth)
   const chatStr = chatContext.length > 0
     ? chatContext.map((m) => `${m.user}: ${m.text}`).join('\n')
     : ''
 
-  const emoteLine = '\n' + formatEmotesForAI(ctx.channel)
+  const emoteLine = '\n' + formatEmotesForAI(ctx.channel, getChannelTopEmotes(ctx.channel))
   const styleLine = getChannelStyle(ctx.channel)
   const contextLine = styleLine ? `\nChannel: ${styleLine}` : ''
 
@@ -525,13 +487,14 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     for (let round = 0; round < MAX_ROUNDS; round++) {
       const isLast = round === MAX_ROUNDS - 1
 
+      const useTools = !isLast && needsTools(query)
       const body: Record<string, unknown> = {
         model: MODEL,
         max_tokens: MAX_TOKENS,
         system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
         messages,
       }
-      if (!isLast) body.tools = tools
+      if (useTools) body.tools = tools
 
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), TIMEOUT)

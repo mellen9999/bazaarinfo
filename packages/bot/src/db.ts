@@ -123,7 +123,7 @@ function prepareStatements() {
 
 // --- user ID cache ---
 
-const userIdCache = new Map<string, number>()
+const userIdCache = new Map<string, { id: number; lastUpsert: number }>()
 
 // --- deferred write queue ---
 
@@ -306,6 +306,7 @@ export function initDb(path?: string) {
   db.run('PRAGMA busy_timeout = 5000')
   runMigrations()
   prepareStatements()
+  userIdCache.clear()
 }
 
 export function closeDb() {
@@ -321,17 +322,22 @@ export function getDb(): Database {
 
 // --- helpers ---
 
+const UPSERT_THROTTLE = 60_000 // skip last_seen update if <60s since last
+
 export function getOrCreateUser(username: string): number {
   const lower = username.toLowerCase()
   const cached = userIdCache.get(lower)
+  const now = Date.now()
   if (cached !== undefined) {
-    // still upsert for last_seen, but skip the SELECT
+    // throttle last_seen upsert — skip if recently updated
+    if (now - cached.lastUpsert < UPSERT_THROTTLE) return cached.id
     stmts.upsertUser.run(lower)
-    return cached
+    cached.lastUpsert = now
+    return cached.id
   }
   stmts.upsertUser.run(lower)
   const row = stmts.selectUserId.get(lower) as { id: number }
-  userIdCache.set(lower, row.id)
+  userIdCache.set(lower, { id: row.id, lastUpsert: now })
   return row.id
 }
 
