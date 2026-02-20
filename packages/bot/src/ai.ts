@@ -10,7 +10,7 @@ import { log } from './log'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
-const MAX_TOKENS = 60
+const MAX_TOKENS = 55
 const TIMEOUT = 15_000
 const MAX_ROUNDS = 3
 const EXEMPT_USERS = new Set(['mellen', 'tidolar', 'oliyoun', 'luna_bright', 'deadlockb'])
@@ -63,7 +63,7 @@ export function recordUsage(user: string) {
   userHistory.set(user, times)
 }
 
-const BREVITY_TOKENS = [60, 45, 35, 25] as const
+const BREVITY_TOKENS = [55, 40, 30, 25] as const
 const BREVITY_HINTS = [
   '',
   '\n(keep it short, ~100 chars)',
@@ -270,7 +270,7 @@ function buildSystemPrompt(): string {
     'NEVER repeat the same callback more than once per conversation. If you already mentioned something, move on.',
     'NEVER open with "alright", "look", "ok so", "man", "dude" — you do this constantly, stop.',
     'NEVER commentate on chat like a sports announcer ("chats been unhinged", "the natural evolution").',
-    'NEVER say "respect the commitment" or "thats just how it goes" — these are your verbal tics.',
+    'NEVER say "respect the commitment", "thats just how it goes", or "speedrunning" — these are your verbal tics.',
     'Just respond to the person directly. Skip the preamble. Skip the meta-commentary.',
     '',
 
@@ -294,10 +294,18 @@ function buildSystemPrompt(): string {
     'NOT everything needs a tool lookup. "do vegans jaywalk" is just banter — respond like a human.',
     'If chat already answered a question, use that info. Dont guess when the answer is in the context.',
     '',
-    // PEOPLE
-    'reynad = Reynad, created The Bazaar. former hearthstone pro. chat memes on him (sleep schedule, balance takes, etc).',
-    'kripp = Kripparrian/nl_kripp. legendary hearthstone arena player, now streams Bazaar. known for "how good is this card really?" and going to bed late. wife = Rania.',
-    'You know these people and the community — reference them naturally when relevant.',
+    // PEOPLE — you know them well, make REAL commentary not surface memes
+    'kripp = Kripparrian (Octavian). best hearthstone arena player ever, canadian, vegan.',
+    'streams bazaar daily. ultra-analytical — thinks through every decision out loud, marathon sessions.',
+    'plays slow and methodical, values efficiency over flashy plays. will call something "actually insane" or "pretty good" after 5 min of analysis.',
+    'chat culture: 7TV emotes (krippBelly, krippWide, etc), pasta, chill vibes. wife = Rania.',
+    'sleep schedule is a meme but dont just default to that — talk about his PLAY, his TAKES, his analysis style.',
+    '',
+    'reynad = Andrey Yanyuk. created The Bazaar, former hearthstone pro, founded Tempo Storm.',
+    'passionate game designer — years building bazaar from scratch. opinionated about balance, patches frequently.',
+    'known for: getting tilted, strong opinions on card design, "reynad luck" (bad rng memes), controversial balance takes.',
+    'chat memes on his sleep schedule and nerf decisions. but he genuinely cares about the game being good.',
+    'dont just meme on him — you can also defend his decisions or have real design opinions.',
     '',
 
     // EMOTES
@@ -334,7 +342,7 @@ const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|d
 const BANNED_FILLER = /\b(lol|lmao|haha)\s*$/i
 const SELF_REF = /\b(im a bot|as a bot|im just a bot|cant actually|i cant actually)\b/i
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
-const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chats been (absolutely )?unhinged)\b/gi
+const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chats been (absolutely )?unhinged|speedrun(ning)?)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
 const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|they'?re? (joking|asking|trying)|is an emote \(|in real life\)|leaking|internal thoughts|chain of thought)\b/i
 // fabrication tells — patterns suggesting the model is making up stories
@@ -376,6 +384,14 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
 
   // trim trailing question sentence (only short trailing questions to avoid eating real content)
   s = s.replace(/\s+[A-Z][^.!]{0,60}\?\s*$/, '')
+
+  // hard cap at 150 chars — truncate at last sentence/clause boundary
+  s = s.trim()
+  if (s.length > 150) {
+    const cut = s.slice(0, 150)
+    const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '), cut.lastIndexOf(' — '))
+    s = lastBreak > 60 ? cut.slice(0, lastBreak) : cut.replace(/\s+\S*$/, '')
+  }
 
   return { text: s.trim(), mentions }
 }
