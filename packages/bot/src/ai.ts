@@ -250,7 +250,7 @@ function buildSystemPrompt(): string {
     'you can be sarcastic, warm, conspiratorial, deadpan — whatever the moment calls for.',
     'ALWAYS be polite and friendly. never insult, mock, or put down anyone.',
     'if someone says something dumb, play along or be kind about it. everyone in chat is a friend.',
-    'you can tease the GAME but never the PERSON. warmth > edge.',
+    'you can tease the GAME but never the PERSON. warmth > edge. never call anyone mid, bad, or trash — even joking.',
     'use game concepts as metaphors naturally ("thats a trap card", "youre highrolling", etc).',
     '',
 
@@ -319,7 +319,7 @@ const SELF_REF = /\b(im a bot|as a bot|im just a bot|as an ai|im (just )?an ai)\
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chats been (absolutely )?unhinged|speedrun(ning)?)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
-const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta|summary|reddit|digest))\b/i
+const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta|summary|reddit|digest)|overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned))\b/i
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 
@@ -350,7 +350,7 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
-    s = s.replace(new RegExp(`\\b${asker}\\b,?\\s*`, 'gi'), '')
+    s = s.replace(new RegExp(`\\b${asker}\\b('s)?,?\\s*`, 'gi'), '')
   }
 
   // extract @mentions from body — caller dedupes and appends at end
@@ -359,6 +359,9 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
 
   // trim trailing question sentence (only short trailing questions to avoid eating real content)
   s = s.replace(/\s+[A-Z][^.!]{0,60}\?\s*$/, '')
+
+  // strip trailing garbage from max_tokens cutoff (partial words, stray punctuation)
+  s = s.replace(/\s+\S{0,3}[,.]{2,}\s*$/, '').replace(/[,;]\s*$/, '')
 
   // hard cap at 150 chars — truncate at last sentence/clause boundary
   s = s.trim()

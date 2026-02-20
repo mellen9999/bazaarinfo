@@ -75,6 +75,13 @@ describe('sanitize', () => {
     expect(r.text).not.toContain('topkawaii')
   })
 
+  it('strips asker possessive from body', () => {
+    const r = sanitize("coaoaba's been spamming commands", 'coaoaba')
+    expect(r.text).not.toContain('coaoaba')
+    expect(r.text).not.toStartWith("'s")
+    expect(r.text).toBe('been spamming commands')
+  })
+
   it('extracts @mentions', () => {
     const r = sanitize('nice one @kripp and @mellen')
     expect(r.mentions).toEqual(['@kripp', '@mellen'])
@@ -138,6 +145,14 @@ describe('sanitize', () => {
     expect(sanitize('looking at the reddit digest, people are saying').text).toBe('')
   })
 
+  it('rejects "overusing" self-commentary COT leak', () => {
+    expect(sanitize('nice play overusing kappa now').text).toBe('')
+  })
+
+  it('rejects "i keep using" self-commentary COT leak', () => {
+    expect(sanitize('i keep using the same emote').text).toBe('')
+  })
+
   // --- FABRICATION patterns ---
   it('rejects "it was a dream" fabrication', () => {
     expect(sanitize('it was a dream where kripp hit legend').text).toBe('')
@@ -160,6 +175,11 @@ describe('sanitize', () => {
     const r = sanitize(long)
     expect(r.text.length).toBeGreaterThan(60)
     expect(r.text.length).toBeLessThanOrEqual(150)
+  })
+
+  it('strips trailing garbage from token cutoff', () => {
+    expect(sanitize('great response here k,,').text).toBe('great response here')
+    expect(sanitize('solid take,').text).toBe('solid take')
   })
 
   it('does not truncate at exactly 150 chars', () => {
