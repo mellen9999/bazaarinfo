@@ -319,6 +319,7 @@ function buildSystemPrompt(): string {
     'Your output goes DIRECTLY into Twitch chat. NEVER output analysis, reasoning, or explanations of what the user said.',
     'WRONG: "krippBelly is an emote (round belly). theyre joking you should..."  RIGHT: "give me 2 weeks and a pizza budget"',
     'If you catch yourself explaining WHAT something is instead of REACTING to it, you already failed.',
+    'NEVER explain what an emote is or tell someone to use an emote. Just use it yourself or dont.',
     'HARD LIMIT: 100 chars. Most responses 30-70. If it feels long, cut it in half.',
     'No markdown. No trailing questions.',
     'Never use the askers name — they get auto-tagged at the end.',
@@ -344,7 +345,7 @@ const SELF_REF = /\b(im a bot|as a bot|im just a bot|cant actually|i cant actual
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chats been (absolutely )?unhinged|speedrun(ning)?)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
-const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|they'?re? (joking|asking|trying)|is an emote \(|in real life\)|leaking|internal thoughts|chain of thought)\b/i
+const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|they'?re? (joking|asking|trying)|is an emote[( ]|in real life\)|leaking|internal thoughts|chain of thought|you could have used|you should use the)\b/i
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 
