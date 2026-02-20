@@ -712,6 +712,13 @@ export function getUserAskCount(username: string): number {
   return user?.ask_count ?? 0
 }
 
+export function getUniqueChatterCount(channel: string): number {
+  const row = db.prepare(
+    'SELECT COUNT(DISTINCT LOWER(username)) as cnt FROM chat_messages WHERE channel = ?',
+  ).get(channel) as { cnt: number } | null
+  return row?.cnt ?? 0
+}
+
 export function pruneOldAsks(days = 90) {
   try {
     const result = db.run(

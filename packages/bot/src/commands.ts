@@ -288,6 +288,11 @@ const subcommands: [RegExp, SubHandler][] = [
     if (!ctx.channel) return null
     return withSuffix(formatTop(ctx.channel), suffix)
   }],
+  [/^harem$/i, (_query, ctx) => {
+    if (!ctx.channel) return null
+    const count = db.getUniqueChatterCount(ctx.channel)
+    return `${count} cuties in the harem peepoLove`
+  }],
 ]
 
 function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: TierName | undefined; note: string | null } {
@@ -386,7 +391,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   const bangMatch = cleanArgs.match(/^!(\w+)(.*)$/)
   if (bangMatch) {
     const cmd = bangMatch[1].toLowerCase()
-    if (BLOCKED_BANG_CMDS.has(cmd)) return null
+    if (BLOCKED_BANG_CMDS.has(cmd) && !ctx.privileged) return null
     return proxyWithCooldown(ctx.channel, cleanArgs, cmd)
   }
   const slashMatch = cleanArgs.match(/^\/(\w+)(.*)$/)

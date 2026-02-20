@@ -44,9 +44,12 @@ mock.module('./store', () => ({
 const mockLogCommand = mock<(...args: any[]) => void>(() => {})
 const mockGetOrCreateUser = mock<(username: string) => number>(() => 1)
 
+const mockGetUniqueChatterCount = mock<(channel: string) => number>(() => 0)
+
 mock.module('./db', () => ({
   logCommand: mockLogCommand,
   getOrCreateUser: mockGetOrCreateUser,
+  getUniqueChatterCount: mockGetUniqueChatterCount,
   logChat: mock(() => {}),
   getUserStats: mock(() => null),
   getChannelLeaderboard: mock(() => []),
@@ -182,6 +185,8 @@ beforeEach(() => {
   mockSuggest.mockImplementation(() => [])
   mockAiRespond.mockReset()
   mockAiRespond.mockImplementation(() => null)
+  mockGetUniqueChatterCount.mockReset()
+  mockGetUniqueChatterCount.mockImplementation(() => 0)
 })
 
 // ---------------------------------------------------------------------------
@@ -1662,5 +1667,78 @@ describe('command proxy: slash commands', () => {
   it('slash allowlist is case insensitive', async () => {
     expect(await handleCommand('!b /ME dances')).toBe('/ME dances')
     expect(await handleCommand('!b /ANNOUNCE hi')).toBe('/ANNOUNCE hi')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Mod bypass for blocked commands
+// ---------------------------------------------------------------------------
+describe('command proxy: mod bypass', () => {
+  it('privileged user can proxy blocked commands', async () => {
+    expect(await handleCommand('!b !so streamer', { user: 'mod', channel: 'ch', privileged: true })).toBe('!so streamer')
+    expect(await handleCommand('!b !addcom', { user: 'mod', channel: 'ch2', privileged: true })).toBe('!addcom')
+  })
+
+  it('non-privileged user cannot proxy blocked commands', async () => {
+    expect(await handleCommand('!b !so streamer', { user: 'viewer', channel: 'ch' })).toBeNull()
+    expect(await handleCommand('!b !ban user', { user: 'viewer', channel: 'ch' })).toBeNull()
+  })
+
+  it('privileged can use moderation commands', async () => {
+    for (const cmd of ['ban', 'timeout', 'mod', 'vip', 'clear', 'nuke']) {
+      expect(await handleCommand(`!b !${cmd} target`, { user: 'mod', channel: `ch${cmd}`, privileged: true })).toBe(`!${cmd} target`)
+    }
+  })
+
+  it('privileged can use stream control commands', async () => {
+    for (const cmd of ['so', 'shoutout', 'raid', 'title', 'game']) {
+      expect(await handleCommand(`!b !${cmd} val`, { user: 'mod', channel: `ch${cmd}`, privileged: true })).toBe(`!${cmd} val`)
+    }
+  })
+
+  it('privileged still gets cooldown on blocked commands', async () => {
+    const ctx = { user: 'mod', channel: 'cdmod', privileged: true }
+    expect(await handleCommand('!b !so streamer', ctx)).toBe('!so streamer')
+    resetDedup()
+    const result = await handleCommand('!b !so streamer', ctx)
+    expect(result).toContain('on cooldown')
+  })
+
+  it('custom commands still work for non-privileged', async () => {
+    expect(await handleCommand('!b !jory', { user: 'viewer', channel: 'ch' })).toBe('!jory')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// !b harem
+// ---------------------------------------------------------------------------
+describe('!b harem', () => {
+  it('shows unique chatter count', async () => {
+    mockGetUniqueChatterCount.mockImplementation(() => 42)
+    const result = await handleCommand('!b harem', { user: 'tidolar', channel: 'mellen' })
+    expect(result).toContain('42')
+    expect(result).toContain('cuties')
+  })
+
+  it('passes channel to db query', async () => {
+    mockGetUniqueChatterCount.mockImplementation(() => 100)
+    await handleCommand('!b harem', { user: 'a', channel: 'mellen' })
+    expect(mockGetUniqueChatterCount).toHaveBeenCalledWith('mellen')
+  })
+
+  it('returns null without channel', async () => {
+    expect(await handleCommand('!b harem')).toBeNull()
+  })
+
+  it('is case insensitive', async () => {
+    mockGetUniqueChatterCount.mockImplementation(() => 5)
+    expect(await handleCommand('!b HAREM', { user: 'a', channel: 'ch' })).toContain('5')
+    expect(await handleCommand('!b Harem', { user: 'a', channel: 'ch2' })).toContain('5')
+  })
+
+  it('shows zero gracefully', async () => {
+    mockGetUniqueChatterCount.mockImplementation(() => 0)
+    const result = await handleCommand('!b harem', { user: 'a', channel: 'ch' })
+    expect(result).toContain('0')
   })
 })
