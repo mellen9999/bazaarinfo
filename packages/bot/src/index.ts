@@ -44,7 +44,7 @@ const channelNames = [...new Set([...envChannels, ...storedChannels])]
 const token = await ensureValidToken(CLIENT_ID, CLIENT_SECRET)
 
 // check cache freshness, refresh if stale or missing
-const STALE_HOURS = 24
+const STALE_HOURS = 168 // 7 days — daily cron handles normal refresh, this is the offline fallback
 
 const SCRAPE_TIMEOUT = 5 * 60_000 // 5min
 
@@ -89,8 +89,13 @@ try {
   log(`startup cache check failed: ${e}`)
 }
 
-await loadStore()
-rebuildTriviaMaps()
+try {
+  await loadStore()
+  rebuildTriviaMaps()
+} catch (e) {
+  log(`FATAL: no cache available — ${e}`)
+  process.exit(1)
+}
 
 // init db
 db.initDb()
@@ -321,12 +326,17 @@ scheduleDaily(4, async () => {
     await reloadStore()
     rebuildTriviaMaps()
     invalidatePromptCache()
-    await refreshRedditDigest()
-    db.pruneOldChats(180)
-    // summaries are tiny (~200 chars each) — keep forever for long-term memory
   } catch (e) {
-    log(`daily data refresh failed: ${e}`)
+    log(`daily data refresh failed, keeping stale data: ${e}`)
   }
+  try {
+    await refreshRedditDigest()
+  } catch (e) { log(`daily reddit refresh failed: ${e}`) }
+  try {
+    db.pruneOldChats(180)
+    db.pruneOldAsks(90)
+    db.pruneOldSummaries(365)
+  } catch (e) { log(`daily prune failed: ${e}`) }
   try {
     const dailyEmoteData = []
     const globals = await refreshGlobalEmotes()

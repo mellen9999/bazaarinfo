@@ -712,6 +712,18 @@ export function getUserAskCount(username: string): number {
   return user?.ask_count ?? 0
 }
 
+export function pruneOldAsks(days = 90) {
+  try {
+    const result = db.run(
+      `DELETE FROM ask_queries WHERE created_at < datetime('now', ?)`,
+      [`-${days} days`],
+    )
+    if (result.changes > 0) log(`pruned ${result.changes} ask queries older than ${days}d`)
+  } catch (e) {
+    log(`ask prune error: ${e}`)
+  }
+}
+
 export function pruneOldSummaries(days = 30) {
   try {
     const result = db.run(

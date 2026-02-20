@@ -165,12 +165,15 @@ export async function loadStore() {
   try {
     cache = await Bun.file(CACHE_PATH).json()
   } catch (err) {
-    log(`failed to load cache at ${CACHE_PATH}: ${err}`)
-    process.exit(1)
+    throw new Error(`failed to load cache at ${CACHE_PATH}: ${err}`)
   }
   loadCache(cache)
   loadDynamicAliases()
   log(`loaded ${items.length} items + ${skills.length} skills + ${monsters.length} monsters (cached ${cache.fetchedAt})`)
+}
+
+export function hasData(): boolean {
+  return items.length > 0
 }
 
 export async function reloadStore() {

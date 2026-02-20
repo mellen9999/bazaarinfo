@@ -576,15 +576,17 @@ export function dedupeEmote(text: string, channel?: string): string {
 
   if (lastWord && emoteSet.has(lastWord)) {
     const recent = recentEmotesByChannel.get(channel) ?? []
-    if (recent.includes(lastWord)) {
-      // used this emote recently — strip it
+    const wasRecent = recent.includes(lastWord)
+    // record immediately — prevents concurrent calls from both using same emote
+    if (!wasRecent) {
+      recent.push(lastWord)
+      if (recent.length > EMOTE_HISTORY_SIZE) recent.shift()
+      recentEmotesByChannel.set(channel, recent)
+    }
+    if (wasRecent) {
       words.pop()
       return words.join(' ').trim()
     }
-    // record it
-    recent.push(lastWord)
-    if (recent.length > EMOTE_HISTORY_SIZE) recent.shift()
-    recentEmotesByChannel.set(channel, recent)
   }
   return text
 }
@@ -647,6 +649,31 @@ export interface AiContext {
 
 export interface AiResult { text: string; mentions: string[] }
 
+// --- circuit breaker (stop hammering API when it's down) ---
+const CB_THRESHOLD = 3    // consecutive failures to open circuit
+const CB_COOLDOWN = 300_000 // 5min cooldown before retrying
+let cbFailures = 0
+let cbOpenUntil = 0
+
+function cbRecordSuccess() { cbFailures = 0 }
+function cbRecordFailure() {
+  cbFailures++
+  if (cbFailures >= CB_THRESHOLD) {
+    cbOpenUntil = Date.now() + CB_COOLDOWN
+    log(`ai: circuit breaker OPEN — ${CB_THRESHOLD} consecutive failures, cooling down ${CB_COOLDOWN / 1000}s`)
+  }
+}
+function cbIsOpen(): boolean {
+  if (cbOpenUntil === 0) return false
+  if (Date.now() >= cbOpenUntil) {
+    cbOpenUntil = 0
+    cbFailures = 0
+    log('ai: circuit breaker CLOSED — retrying')
+    return false
+  }
+  return true
+}
+
 // serialize AI requests to avoid 429 stampedes on 50k token/min limit
 let aiLock: Promise<void> = Promise.resolve()
 let aiQueueDepth = 0
@@ -659,6 +686,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (query.length > AI_MAX_QUERY_LEN) query = query.slice(0, AI_MAX_QUERY_LEN)
   if (!ctx.user || !ctx.channel) return null
   if (!AI_CHANNELS.has(ctx.channel.toLowerCase())) return null
+  if (cbIsOpen()) return null
 
   const cd = getAiCooldown(ctx.user, ctx.channel)
   if (cd > 0) return { text: `${cd}s`, mentions: [] }
@@ -964,6 +992,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           continue
         }
         log(`ai: API ${res.status} ${await res.text().catch(() => '')}`)
+        cbRecordFailure()
         return null
       }
 
@@ -986,6 +1015,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           messages.push({ role: 'user', content: 'Answer the question directly. Be brief, be opinionated. No refusals.' })
           continue
         }
+        cbRecordSuccess()
         recordUsage(ctx.user)
         try {
           const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
@@ -1010,6 +1040,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     const err = e as Error
     if (err.name === 'AbortError') log('ai: timeout')
     else log(`ai: error: ${err.message}`)
+    cbRecordFailure()
     return null
   }
 }
