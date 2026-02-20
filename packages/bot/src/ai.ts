@@ -19,9 +19,11 @@ const userHistory = new Map<string, number>()
 const USER_HISTORY_MAX = 5_000
 
 const AI_USER_CD = 60_000 // 60s per user
+const AI_VIP = new Set(['tidolar'])
 
 /** returns seconds remaining on cooldown, or 0 if ready */
 export function getAiCooldown(user: string): number {
+  if (AI_VIP.has(user)) return 0
   const last = userHistory.get(user)
   if (!last) return 0
   const elapsed = Date.now() - last
