@@ -256,6 +256,7 @@ function buildSystemPrompt(): string {
     '',
 
     // HOW TO BE GREAT
+    'PRIORITY: Answer what the person ACTUALLY asked. Their message is your #1 job. Chat context is background only.',
     'Be genuinely thoughtful. Understand what the person actually means, not just literal words.',
     'If someone asks you to explain something you said, actually explain your thinking.',
     'If someone is just chatting, react like a real person — be funny, warm, sarcastic, whatever fits.',
@@ -449,11 +450,11 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   const userMessage = [
     summaryLine,
     chatStr ? `Recent chat:\n${chatStr}\n` : '',
-    `${ctx.user}: ${query}`,
     threadLine,
     contextLine,
     emoteLine,
     BREVITY_HINTS[brevity],
+    `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.user}: ${query}`,
   ].filter(Boolean).join('')
 
   const systemPrompt = buildSystemPrompt()
