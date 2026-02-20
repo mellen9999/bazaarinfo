@@ -288,11 +288,6 @@ const subcommands: [RegExp, SubHandler][] = [
     if (!ctx.channel) return null
     return withSuffix(formatTop(ctx.channel), suffix)
   }],
-  [/^harem$/i, (_query, ctx) => {
-    if (!ctx.channel) return null
-    const count = db.getUniqueChatterCount(ctx.channel)
-    return `${count} cuties in ${ctx.channel}'s harem Kreygasm`
-  }],
 ]
 
 function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: TierName | undefined; note: string | null } {

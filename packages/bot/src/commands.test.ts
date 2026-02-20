@@ -44,12 +44,9 @@ mock.module('./store', () => ({
 const mockLogCommand = mock<(...args: any[]) => void>(() => {})
 const mockGetOrCreateUser = mock<(username: string) => number>(() => 1)
 
-const mockGetUniqueChatterCount = mock<(channel: string) => number>(() => 0)
-
 mock.module('./db', () => ({
   logCommand: mockLogCommand,
   getOrCreateUser: mockGetOrCreateUser,
-  getUniqueChatterCount: mockGetUniqueChatterCount,
   logChat: mock(() => {}),
   getUserStats: mock(() => null),
   getChannelLeaderboard: mock(() => []),
@@ -185,8 +182,6 @@ beforeEach(() => {
   mockSuggest.mockImplementation(() => [])
   mockAiRespond.mockReset()
   mockAiRespond.mockImplementation(() => null)
-  mockGetUniqueChatterCount.mockReset()
-  mockGetUniqueChatterCount.mockImplementation(() => 0)
 })
 
 // ---------------------------------------------------------------------------
@@ -1709,35 +1704,3 @@ describe('command proxy: mod bypass', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// !b harem
-// ---------------------------------------------------------------------------
-describe('!b harem', () => {
-  it('shows unique chatter count', async () => {
-    mockGetUniqueChatterCount.mockImplementation(() => 42)
-    const result = await handleCommand('!b harem', { user: 'tidolar', channel: 'mellen' })
-    expect(result).toBe("42 cuties in mellen's harem Kreygasm")
-  })
-
-  it('passes channel to db query', async () => {
-    mockGetUniqueChatterCount.mockImplementation(() => 100)
-    await handleCommand('!b harem', { user: 'a', channel: 'mellen' })
-    expect(mockGetUniqueChatterCount).toHaveBeenCalledWith('mellen')
-  })
-
-  it('returns null without channel', async () => {
-    expect(await handleCommand('!b harem')).toBeNull()
-  })
-
-  it('is case insensitive', async () => {
-    mockGetUniqueChatterCount.mockImplementation(() => 5)
-    expect(await handleCommand('!b HAREM', { user: 'a', channel: 'ch' })).toContain('5')
-    expect(await handleCommand('!b Harem', { user: 'a', channel: 'ch2' })).toContain('5')
-  })
-
-  it('shows zero gracefully', async () => {
-    mockGetUniqueChatterCount.mockImplementation(() => 0)
-    const result = await handleCommand('!b harem', { user: 'a', channel: 'ch' })
-    expect(result).toContain('0')
-  })
-})
