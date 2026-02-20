@@ -81,6 +81,7 @@ let lobbyChannel = ''
 export function setLobbyChannel(name: string) { lobbyChannel = name }
 
 const OWNER = (process.env.BOT_OWNER ?? '').toLowerCase()
+const BOT_NAME = (process.env.TWITCH_USERNAME ?? '').toLowerCase()
 let onRefresh: (() => Promise<string>) | null = null
 export function setRefreshHandler(handler: () => Promise<string>) { onRefresh = handler }
 
@@ -379,15 +380,33 @@ const commands: Record<string, CommandHandler> = {
   b: bazaarinfo,
 }
 
+async function handleMention(text: string, ctx: CommandContext): Promise<string | null> {
+  if (!BOT_NAME) return null
+  const mentionRe = new RegExp(`@${BOT_NAME}\\b`, 'i')
+  if (!mentionRe.test(text)) return null
+
+  const query = text.replace(mentionRe, '').replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
+  if (!query) return null
+  if (ctx.channel && isDuplicate(ctx.channel, `mention:${query}`)) return null
+
+  const aiResult = await aiRespond(query, ctx)
+  if (aiResult?.text) {
+    try { db.logCommand(ctx, 'ai', query, 'mention') } catch {}
+    const tags = buildTags(aiResult, ctx, '')
+    return dedupeEmote(aiResult.text, ctx.channel) + tags
+  }
+  return null
+}
+
 export async function handleCommand(text: string, ctx: CommandContext = {}): Promise<string | null> {
   // strip leading @mention so !b works in Twitch replies
   const cleaned = text.replace(/^@\w+\s+/, '')
   const match = cleaned.match(/^!(\w+)\s*(.*)$/)
-  if (!match) return null
+  if (!match) return handleMention(text, ctx)
 
   const [, cmd, args] = match
   const handler = commands[cmd.toLowerCase()]
-  if (!handler) return null
+  if (!handler) return handleMention(text, ctx)
 
   return handler(args.trim(), ctx)
 }
