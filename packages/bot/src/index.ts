@@ -15,6 +15,7 @@ import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes } from './emotes'
 import { loadDescriptionCache } from './emote-describe'
 import { preloadStyles } from './style'
+import { rename } from 'node:fs/promises'
 import { log } from './log'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
@@ -59,7 +60,9 @@ async function refreshData() {
   ]).finally(() => clearTimeout(timer))
 
   log(`scraped ${cache.items.length} items, ${cache.skills.length} skills, ${cache.monsters.length} monsters`)
-  await Bun.write(CACHE_PATH, JSON.stringify(cache, null, 2))
+  const tmpPath = CACHE_PATH + '.tmp'
+  await Bun.write(tmpPath, JSON.stringify(cache, null, 2))
+  await rename(tmpPath, CACHE_PATH)
 }
 
 try {

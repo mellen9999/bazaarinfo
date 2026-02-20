@@ -10,7 +10,6 @@ export interface EmoteData {
 const channelEmotes = new Map<string, string[]>()
 const mergedCache = new Map<string, string[]>()
 let globalEmotes: string[] = []
-let lastGlobalFetch = 0
 
 // well-known twitch/bttv/ffz globals the model should know
 const KNOWN_GLOBALS = [
@@ -51,7 +50,6 @@ export async function refreshGlobalEmotes(): Promise<EmoteData[]> {
   )
   if (fetched.length > 0) {
     globalEmotes = fetched.map((e) => e.name)
-    lastGlobalFetch = Date.now()
     mergedCache.clear()
     log(`loaded ${globalEmotes.length} 7TV global emotes`)
   }

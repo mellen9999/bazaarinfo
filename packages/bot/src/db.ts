@@ -8,7 +8,7 @@ const DB_PATH = resolve(homedir(), '.bazaarinfo.db')
 
 let db: Database
 
-type CmdType = 'item' | 'enchant' | 'mob' | 'hero' | 'skill' | 'tag' | 'day' | 'miss' | 'ai'
+export type CmdType = 'item' | 'enchant' | 'enchants' | 'mob' | 'hero' | 'skill' | 'tag' | 'day' | 'miss' | 'ai'
 
 // --- prepared statements (initialized after migrations) ---
 

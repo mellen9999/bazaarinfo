@@ -23,6 +23,7 @@ export function truncate(str: string): string {
 }
 
 function resolveReplacement(val: ReplacementValue, tier?: TierName): string {
+  if (typeof val !== 'object' || val === null) return String(val)
   if ('Fixed' in val) return String(val.Fixed)
   if (tier && tier in val) return String((val as Record<string, number>)[tier])
   const parts = TIER_ORDER.filter((t) => t in val).map(

@@ -93,18 +93,22 @@ function parseDump(dump: Record<string, DumpEntry>): CardCache {
   const monsters: Monster[] = []
 
   for (const entry of entries) {
-    switch (entry.Type) {
-      case 'Item':
-        items.push(toCard(entry))
-        break
-      case 'Skill':
-        skills.push(toCard(entry))
-        break
-      case 'CombatEncounter': {
-        const m = toMonster(entry)
-        if (m) monsters.push(m)
-        break
+    try {
+      switch (entry.Type) {
+        case 'Item':
+          items.push(toCard(entry))
+          break
+        case 'Skill':
+          skills.push(toCard(entry))
+          break
+        case 'CombatEncounter': {
+          const m = toMonster(entry)
+          if (m) monsters.push(m)
+          break
+        }
       }
+    } catch {
+      // skip entries with bad data (unknown tier/size) rather than failing entire scrape
     }
   }
 

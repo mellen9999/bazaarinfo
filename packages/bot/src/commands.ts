@@ -2,6 +2,7 @@ import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatD
 import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
+import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
 import { aiRespond, dedupeEmote } from './ai'
 
@@ -74,8 +75,8 @@ function logMiss(query: string, ctx: CommandContext) {
   try { db.logCommand(ctx, 'miss', query) } catch {}
 }
 
-function logHit(type: string, query: string, match: string, ctx: CommandContext, tier?: string) {
-  try { db.logCommand(ctx, type as any, query, match, tier) } catch {}
+function logHit(type: CmdType, query: string, match: string, ctx: CommandContext, tier?: string) {
+  try { db.logCommand(ctx, type, query, match, tier) } catch {}
 }
 
 function resolveSkills(monster: Monster): Map<string, SkillDetail> {
@@ -149,7 +150,7 @@ const subcommands: [RegExp, SubHandler][] = [
   [/^enchant(?:s|ments)?$/i, (_query, ctx, suffix) => {
     const names = store.getEnchantments().map(capitalize)
     logHit('enchants', _query, `${names.length} enchants`, ctx)
-    return `Enchantments: ${names.join(', ')}` + suffix
+    return truncate(`Enchantments: ${names.join(', ')}`) + suffix
   }],
   [/^tag\s+(.+)$/i, (query, ctx, suffix) => {
     const resolved = store.findTagName(query)
