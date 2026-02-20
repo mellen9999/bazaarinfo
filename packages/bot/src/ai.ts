@@ -21,9 +21,20 @@ const USER_HISTORY_MAX = 5_000
 const AI_USER_CD = 60_000 // 60s per user
 const AI_VIP = new Set(['tidolar'])
 
+// only spend AI tokens in these channels
+const AI_CHANNELS = new Set(
+  (process.env.AI_CHANNELS ?? 'nl_kripp,mellen').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+)
+
+// track live channels — no cooldown when offline
+const liveChannels = new Set<string>()
+export function setChannelLive(channel: string) { liveChannels.add(channel.toLowerCase()) }
+export function setChannelOffline(channel: string) { liveChannels.delete(channel.toLowerCase()) }
+
 /** returns seconds remaining on cooldown, or 0 if ready */
-export function getAiCooldown(user: string): number {
+export function getAiCooldown(user: string, channel?: string): number {
   if (AI_VIP.has(user)) return 0
+  if (channel && !liveChannels.has(channel.toLowerCase())) return 0
   const last = userHistory.get(user)
   if (!last) return 0
   const elapsed = Date.now() - last
@@ -580,12 +591,14 @@ export function dedupeEmote(text: string, channel?: string): string {
 
 async function summarizeChat(channel: string, recent: ChatEntry[], prev: string): Promise<string> {
   if (!API_KEY) return prev
+  if (!AI_CHANNELS.has(channel.toLowerCase())) return prev
   const chatLines = recent.map((m) => `${m.user}: ${m.text}`).join('\n')
   const prompt = [
     prev ? `Previous summary: ${prev}\n` : '',
     `Recent chat in #${channel}:\n${chatLines}\n`,
     'Write a 1-2 sentence summary of what\'s happening in this stream/chat.',
     'Include: topics discussed, jokes/memes, notable moments, mood.',
+    'IMPORTANT: note any promises or commitments the bot made (e.g., "bot agreed to stop X", "bot promised to Y").',
     'Be specific — names, items, events. Under 200 chars. No markdown.',
   ].join('')
 
@@ -642,8 +655,9 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (isLowValue(query)) return null
   if (query.length > AI_MAX_QUERY_LEN) query = query.slice(0, AI_MAX_QUERY_LEN)
   if (!ctx.user || !ctx.channel) return null
+  if (!AI_CHANNELS.has(ctx.channel.toLowerCase())) return null
 
-  const cd = getAiCooldown(ctx.user)
+  const cd = getAiCooldown(ctx.user, ctx.channel)
   if (cd > 0) return { text: `${cd}s`, mentions: [] }
 
   // catch obvious injection attempts before burning tokens
@@ -680,6 +694,50 @@ function isNoise(text: string): boolean {
   // single-word messages that are likely emotes (PascalCase or ALL_CAPS)
   if (/^\S+$/.test(stripped) && (/^[A-Z][a-z]+[A-Z]/.test(stripped) || /^[A-Z_]{3,}$/.test(stripped))) return true
   return false
+}
+
+// --- contextual recall (FTS search of prior bot exchanges) ---
+
+const STOP_WORDS = new Set([
+  'the', 'is', 'it', 'in', 'to', 'an', 'of', 'for', 'on', 'at', 'by',
+  'and', 'or', 'but', 'not', 'with', 'from', 'that', 'this', 'what', 'how',
+  'why', 'who', 'when', 'where', 'can', 'you', 'your', 'are', 'was', 'were',
+  'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+  'should', 'may', 'might', 'must', 'just', 'about', 'so', 'if', 'then',
+  'than', 'too', 'very', 'really', 'also', 'still', 'some', 'any', 'all',
+  'been', 'being', 'tell', 'me', 'think', 'know', 'like', 'get', 'got',
+  'his', 'her', 'him', 'she', 'he', 'they', 'them', 'its', 'my', 'our',
+])
+
+export function buildFTSQuery(query: string): string | null {
+  const words = query.toLowerCase().split(/\s+/)
+    .map((w) => w.replace(/[^a-z0-9]/g, ''))
+    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w))
+    .slice(0, 5)
+  if (words.length === 0) return null
+  return words.join(' OR ')
+}
+
+function buildRecallContext(query: string, channel: string): string {
+  const ftsQuery = buildFTSQuery(query)
+  if (!ftsQuery) return ''
+
+  const results = db.searchAskFTS(channel, ftsQuery, 5)
+  if (results.length === 0) return ''
+
+  const now = Date.now()
+  const lines = results.map((r) => {
+    const age = now - new Date(r.created_at + 'Z').getTime()
+    const mins = Math.round(age / 60_000)
+    const label = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`
+    const q = r.query.length > 60 ? r.query.slice(0, 60) + '...' : r.query
+    const resp = r.response
+      ? (r.response.length > 80 ? r.response.slice(0, 80) + '...' : r.response)
+      : '?'
+    return `[${label}] ${r.username}: "${q}" → you: "${resp}"`
+  })
+
+  return `\nYour prior exchanges (be consistent with what you said before):\n${lines.join('\n')}`
 }
 
 function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): string {
@@ -723,11 +781,15 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const redditLine = (!hasGameData && digest) ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
   const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getChannelTopEmotes(ctx.channel))
 
+  // contextual recall — search prior bot exchanges for relevant history
+  const recallLine = buildRecallContext(query, ctx.channel)
+
   return [
     timelineLine,
     chatStr ? `Recent chat:\n${chatStr}\n` : '',
     threadLine,
     contextLine,
+    recallLine,
     redditLine,
     emoteLine,
     gameBlock,

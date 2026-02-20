@@ -288,4 +288,43 @@ describe('db', () => {
     expect(rows.length).toBe(1)
     expect(rows[0].summary).toBe('new summary')
   })
+
+  it('searchAskFTS finds by query terms', () => {
+    db.logAsk({ user: 'alice', channel: 'test' }, 'reynad lizard conspiracy', 'that bit ran its course', 100, 500)
+    db.logAsk({ user: 'bob', channel: 'test' }, 'best vanessa build', 'aquatic weapons all day', 100, 500)
+    db.flushWrites()
+
+    const results = db.searchAskFTS('test', 'lizard OR reynad', 5)
+    expect(results.length).toBe(1)
+    expect(results[0].query).toContain('lizard')
+    expect(results[0].response).toContain('ran its course')
+    expect(results[0].username).toBe('alice')
+  })
+
+  it('searchAskFTS finds by response terms', () => {
+    db.logAsk({ user: 'alice', channel: 'test' }, 'what do you think', 'aquatic weapons are broken right now', 100, 500)
+    db.flushWrites()
+
+    const results = db.searchAskFTS('test', 'aquatic OR weapons', 5)
+    expect(results.length).toBe(1)
+    expect(results[0].response).toContain('aquatic')
+  })
+
+  it('searchAskFTS scoped to channel', () => {
+    db.logAsk({ user: 'alice', channel: 'ch1' }, 'reynad lizard', 'nah', 100, 500)
+    db.logAsk({ user: 'bob', channel: 'ch2' }, 'reynad lizard', 'yeah', 100, 500)
+    db.flushWrites()
+
+    const results = db.searchAskFTS('ch1', 'lizard OR reynad', 5)
+    expect(results.length).toBe(1)
+    expect(results[0].response).toBe('nah')
+  })
+
+  it('searchAskFTS returns empty for no matches', () => {
+    db.logAsk({ user: 'alice', channel: 'test' }, 'hello', 'hi', 100, 500)
+    db.flushWrites()
+
+    const results = db.searchAskFTS('test', 'nonexistent', 5)
+    expect(results.length).toBe(0)
+  })
 })

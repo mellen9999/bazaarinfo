@@ -26,6 +26,7 @@ interface EventSubMessage {
       message_id: string
       message: { text: string }
       badges?: { set_id: string; id: string }[]
+      reply?: { parent_user_login: string }
     }
   }
 }
@@ -54,6 +55,7 @@ export interface TwitchConfig {
 export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[], messageId: string) => void
 
 export type AuthRefreshFn = () => Promise<string>
+export type StreamStateHandler = (channel: string, live: boolean) => void
 
 function fetchWithTimeout(url: string, opts: RequestInit = {}): Promise<Response> {
   return fetch(url, { ...opts, signal: AbortSignal.timeout(FETCH_TIMEOUT) })
@@ -83,6 +85,7 @@ export class TwitchClient {
   private sessionId = ''
   private config: TwitchConfig
   private onMessage: MessageHandler
+  private onStreamState: StreamStateHandler | null = null
   private onAuthFailure: AuthRefreshFn | null = null
   private keepaliveTimeout: Timer | null = null
   private keepaliveMs = 15_000
@@ -113,6 +116,10 @@ export class TwitchClient {
 
   setAuthRefresh(fn: AuthRefreshFn) {
     this.onAuthFailure = fn
+  }
+
+  setStreamStateHandler(fn: StreamStateHandler) {
+    this.onStreamState = fn
   }
 
   updateToken(token: string) {
@@ -166,11 +173,22 @@ export class TwitchClient {
       this.resetKeepalive()
     } else if (type === 'notification') {
       this.resetKeepalive()
-      if (msg.metadata.subscription_type === 'channel.chat.message') {
+      const subType = msg.metadata.subscription_type
+      if (subType === 'channel.chat.message') {
         const e = msg.payload.event
         if (!e?.message?.text) return
+        let text = e.message.text
+        // strip Twitch's auto-prefix @mention on thread replies
+        if (e.reply?.parent_user_login) {
+          text = text.replace(new RegExp(`^@${e.reply.parent_user_login}\\s+`, 'i'), '')
+        }
         const badges = (e.badges ?? []).map((b: { set_id: string }) => b.set_id)
-        this.onMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, e.message.text, badges, e.message_id ?? '')
+        this.onMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, text, badges, e.message_id ?? '')
+      } else if (subType === 'stream.online' || subType === 'stream.offline') {
+        const e = msg.payload.event
+        if (e?.broadcaster_user_login && this.onStreamState) {
+          this.onStreamState(e.broadcaster_user_login, subType === 'stream.online')
+        }
       }
     } else if (type === 'session_reconnect') {
       const newUrl = msg.payload.session?.reconnect_url
@@ -216,6 +234,16 @@ export class TwitchClient {
         await this.subscribe(ch.userId)
       } catch (e) {
         log(`subscribe error for ${ch.name}: ${e}`)
+      }
+    }
+    // stream online/offline for cooldown gating
+    for (const ch of this.config.channels) {
+      for (const type of ['stream.online', 'stream.offline'] as const) {
+        try {
+          await this.subscribeEvent(type, '1', { broadcaster_user_id: ch.userId })
+        } catch (e) {
+          log(`${type} subscribe error for ${ch.name}: ${e}`)
+        }
       }
     }
   }
@@ -266,6 +294,26 @@ export class TwitchClient {
       throw new Error(`subscribe failed (${broadcasterUserId}): ${res.status} ${err}`)
     }
     log(`subscribed to channel.chat.message for ${broadcasterUserId}`)
+  }
+
+  private async subscribeEvent(type: string, version: string, condition: Record<string, string>): Promise<void> {
+    const res = await fetchWithTimeout(`${HELIX_URL}/eventsub/subscriptions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.config.token}`,
+        'Client-Id': this.config.clientId,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        type, version, condition,
+        transport: { method: 'websocket', session_id: this.sessionId },
+      }),
+    })
+    if (res.status === 409) return // already subscribed
+    if (!res.ok) {
+      const err = await res.text()
+      log(`subscribeEvent ${type} failed: ${res.status} ${err}`)
+    }
   }
 
   // --- IRC (send) ---
@@ -407,6 +455,13 @@ export class TwitchClient {
         await this.subscribe(channel.userId)
       } catch (e) {
         log(`subscribe error for ${channel.name}: ${e}`)
+      }
+      for (const type of ['stream.online', 'stream.offline'] as const) {
+        try {
+          await this.subscribeEvent(type, '1', { broadcaster_user_id: channel.userId })
+        } catch (e) {
+          log(`${type} subscribe error for ${channel.name}: ${e}`)
+        }
       }
     }
     log(`joined channel: ${channel.name}`)

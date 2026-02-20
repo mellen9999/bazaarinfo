@@ -4,7 +4,7 @@ import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
-import { aiRespond, dedupeEmote } from './ai'
+import { aiRespond, dedupeEmote, getAiCooldown } from './ai'
 import { isEmote } from './emotes'
 
 const MAX_LEN = 480
@@ -376,11 +376,13 @@ async function handleMention(text: string, ctx: CommandContext): Promise<string 
   const query = text.replace(mentionRe, '').replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
   if (!query) return null
   if (ctx.channel && isDuplicate(ctx.channel, `mention:${query}`)) return null
+  if (ctx.user && getAiCooldown(ctx.user, ctx.channel) > 0) return null
 
   const aiResult = await aiRespond(query, ctx)
   if (aiResult?.text) {
     try { db.logCommand(ctx, 'ai', query, 'mention') } catch {}
-    return dedupeEmote(aiResult.text, ctx.channel)
+    const response = dedupeEmote(aiResult.text, ctx.channel)
+    return ctx.user ? `${response} @${ctx.user}` : response
   }
   return null
 }

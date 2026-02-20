@@ -9,7 +9,7 @@ import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel } from './trivia'
-import { invalidatePromptCache, initSummarizer } from './ai'
+import { invalidatePromptCache, initSummarizer, setChannelLive, setChannelOffline } from './ai'
 import { refreshRedditDigest } from './reddit'
 import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes, getEmoteSetId, getAllEmoteSetIds, removeChannelEmotes } from './emotes'
@@ -283,7 +283,26 @@ const client = new TwitchClient(
 )
 
 client.setAuthRefresh(doRefresh)
+client.setStreamStateHandler((channel, live) => {
+  log(`stream ${live ? 'online' : 'offline'}: #${channel}`)
+  if (live) setChannelLive(channel)
+  else setChannelOffline(channel)
+})
 setSay((ch, msg) => client.say(ch, msg))
+
+// check which channels are currently live (eventsub only fires on transitions)
+try {
+  const ids = channels.map((c) => `user_id=${c.userId}`).join('&')
+  const res = await fetch(`https://api.twitch.tv/helix/streams?${ids}`, {
+    headers: { Authorization: `Bearer ${getAccessToken()}`, 'Client-Id': CLIENT_ID },
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (res.ok) {
+    const data = await res.json() as { data: { user_login: string }[] }
+    for (const stream of data.data) setChannelLive(stream.user_login)
+    log(`live channels: ${data.data.map((s) => s.user_login).join(', ') || 'none'}`)
+  }
+} catch (e) { log(`live check failed: ${e}`) }
 
 // proactive token refresh every 30min
 setInterval(async () => {

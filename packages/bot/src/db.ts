@@ -45,6 +45,7 @@ let stmts: {
   searchFTS: Statement
   searchFTSByUser: Statement
   recentAsks: Statement
+  searchAskFTS: Statement
 }
 
 function prepareStatements() {
@@ -152,6 +153,14 @@ function prepareStatements() {
     recentAsks: db.prepare(
       `SELECT query, response, created_at FROM ask_queries
        WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
+    ),
+    searchAskFTS: db.prepare(
+      `SELECT u.username, aq.query, aq.response, aq.created_at
+       FROM ask_fts f
+       JOIN ask_queries aq ON aq.id = f.rowid
+       LEFT JOIN users u ON aq.user_id = u.id
+       WHERE ask_fts MATCH ? AND aq.channel = ?
+       ORDER BY aq.created_at DESC LIMIT ?`,
     ),
   }
 }
@@ -344,6 +353,17 @@ const migrations: (() => void)[] = [
   // migration 4: index for ask_queries user lookups
   () => {
     db.run(`CREATE INDEX idx_ask_user ON ask_queries(user_id, created_at DESC)`)
+  },
+  // migration 5: FTS on ask_queries for contextual recall
+  () => {
+    db.run(`CREATE VIRTUAL TABLE ask_fts USING fts5(query, response, content='ask_queries', content_rowid='id')`)
+    db.run(`INSERT INTO ask_fts(rowid, query, response) SELECT id, query, COALESCE(response, '') FROM ask_queries`)
+    db.run(`CREATE TRIGGER ask_fts_insert AFTER INSERT ON ask_queries BEGIN
+      INSERT INTO ask_fts(rowid, query, response) VALUES (new.id, new.query, COALESCE(new.response, ''));
+    END`)
+    db.run(`CREATE TRIGGER ask_fts_delete AFTER DELETE ON ask_queries BEGIN
+      INSERT INTO ask_fts(ask_fts, rowid, query, response) VALUES ('delete', old.id, old.query, COALESCE(old.response, ''));
+    END`)
   },
 ]
 
@@ -633,6 +653,17 @@ export function getRecentAsks(username: string, limit = 5): AskRow[] {
   const user = stmts.selectUser.get(username.toLowerCase()) as { id: number } | null
   if (!user) return []
   return stmts.recentAsks.all(user.id, limit) as AskRow[]
+}
+
+// search prior AI exchanges by topic (FTS)
+export interface AskFTSResult { username: string; query: string; response: string | null; created_at: string }
+
+export function searchAskFTS(channel: string, ftsQuery: string, limit = 5): AskFTSResult[] {
+  try {
+    return stmts.searchAskFTS.all(ftsQuery, channel, limit) as AskFTSResult[]
+  } catch {
+    return []
+  }
 }
 
 export function pruneOldSummaries(days = 30) {

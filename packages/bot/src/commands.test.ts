@@ -61,8 +61,10 @@ mock.module('./db', () => ({
 
 // --- mock ai ---
 const mockAiRespond = mock<(...args: any[]) => any>(() => null)
+const mockGetAiCooldown = mock<(user: string, channel?: string) => number>(() => 0)
 mock.module('./ai', () => ({
   aiRespond: mockAiRespond,
+  getAiCooldown: mockGetAiCooldown,
   initSummarizer: mock(() => {}),
   invalidatePromptCache: mock(() => {}),
   sanitize: mock((t: string) => ({ text: t, mentions: [] })),

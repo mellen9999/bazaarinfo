@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { sanitize, getAiCooldown, recordUsage, isModelRefusal } from './ai'
+import { sanitize, getAiCooldown, recordUsage, isModelRefusal, buildFTSQuery } from './ai'
 
 describe('sanitize', () => {
   it('strips markdown bold', () => {
@@ -395,5 +395,32 @@ describe('getAiCooldown', () => {
     const cd = getAiCooldown(user)
     expect(cd).toBeGreaterThan(55)
     expect(cd).toBeLessThanOrEqual(60)
+  })
+})
+
+describe('buildFTSQuery', () => {
+  it('extracts meaningful words and joins with OR', () => {
+    expect(buildFTSQuery('reynad lizard conspiracy')).toBe('reynad OR lizard OR conspiracy')
+  })
+
+  it('filters stop words', () => {
+    expect(buildFTSQuery('what is the best build')).toBe('best OR build')
+  })
+
+  it('filters short words', () => {
+    expect(buildFTSQuery('is it ok')).toBeNull()
+  })
+
+  it('returns null for all stop words', () => {
+    expect(buildFTSQuery('what is this')).toBeNull()
+  })
+
+  it('strips non-alphanumeric', () => {
+    expect(buildFTSQuery("reynad's lizard?")).toBe('reynads OR lizard')
+  })
+
+  it('limits to 5 terms', () => {
+    const result = buildFTSQuery('one two three four five six seven eight')
+    expect(result!.split(' OR ').length).toBe(5)
   })
 })
