@@ -57,7 +57,7 @@ export function isModelRefusal(text: string): boolean {
 
 // --- pre-AI injection filter (saves ~6k tokens + 1.5s per caught attempt) ---
 
-const INJECTION_PATTERN = /\b(if you (reverse|remove|decode|take|swap)|remove (all )?(the )?(spaces|commas)|reverse (the |this |it)|what is .{3,} if you (reverse|remove|decode)|(decode|decrypt) (this |the )?(hex|base64|message|numbers?)|positions? back in the alph|backwards|spaced.out.letters|include the (exclamation|forward|back))\b/i
+const INJECTION_PATTERN = /\b(if you (reverse|remove|decode|take|swap)|remove (all )?(the )?(spaces|commas)|reverse (the |this |it)|in reverse|what is .{3,} if you (reverse|remove|decode)|(decode|decrypt) (this |the )?(hex|base64|message|numbers?)|positions? back in the alph|backwards|spaced.out.letters|include the (exclamation|forward|back)|(write|type|say|output) .{3,} (in reverse|backwards))\b/i
 
 const CANNED_REFUSALS = ['nice try', 'nah', 'nope', 'lol no']
 
@@ -288,28 +288,28 @@ function buildGameContext(entities: ResolvedEntities, channel?: string): string 
 // --- deep knowledge injection ---
 
 const KNOWLEDGE: [RegExp, string][] = [
-  [/kripp|kripparrian|rania/i, "Kripparrian (Octavian Morosan, b. June 30 1987). Romanian-Canadian. WoW: first Ironman Challenge, Exodus guild. D3: world-first Hardcore Inferno kill with Krippi (June 2012, 200k+ live viewers). HS: best arena player ever, 12-win record holder, 'how good is X?' analytical style. Vegan, loves OJ. Wife=Rania (underflowR), married Oct 31 2014. 1.5M Twitch followers. Chat culture: copypasta, 'the scraggly vegan', MrDestructoid spam. Now #1 most-watched Bazaar streamer. Methodical builder."],
-  [/reynad|andrey|tempo storm/i, "Andrey Yanyuk. Created The Bazaar, CEO/lead designer. Founded Tempo Storm. Ex-HS pro (aggro warrior). 'reynad luck' meme. Transparent on game dev, streams design process. Blunt takes, deep game knowledge."],
-  [/the bazaar|this game/i, "PvP auto-battler roguelike by Reynad/Tempo Storm. 6 heroes (Vanessa, Pygmalien, Dooley, Mak, Stelle, Jules) with unique item pools. Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments modify items. Monsters on numbered days. Buy/sell economy between fights. r/PlayTheBazaar, bazaardb.gg."],
-  [/lethalfrag/i, "Lethalfrag. Top English Bazaar streamer. First person to complete the 2-year livestream challenge (2012-2014). Variety>Bazaar. Dedicated community."],
-  [/patopapao|pato/i, "PatoPapao. #1 most-watched Bazaar channel overall. Portuguese-language. Started streaming 2012."],
-  [/trump\b.*\b(?:hs|hearthstone)|trumpsc/i, "TrumpSC (Jeffrey Shih). World's first pro HS player (Team Razer 2013). 'Most Educational Stream' award. Known for F2P runs."],
-  [/amaz/i, "Amaz (Jason Chan). Won 'Best HS Streamer 2014'. Peak 90k viewers. Energetic, hype reactions. Founded NRG Esports."],
-  [/kolento/i, "Kolento (Aleksandr Malsh). Ukrainian. Won Viagame House Cup, DreamHack Winter 2014. Quiet, calculated, consistent legend finishes."],
-  [/firebat/i, "Firebat (James Kostesich). Won first HS World Championship at BlizzCon 2014. Analytical player, later caster/content creator."],
-  [/hafu/i, "Hafu (Rumay Wang). Elite arena player, arguably best ever. Top 10 constructed. One of few women in competitive HS, massive respect."],
-  [/savjz/i, "Savjz (Janne Mikkonen). Finnish. Rose above Trump and Amaz in rankings. Creative deckbuilding, chill stream vibes."],
-  [/kibler|bmkibler/i, "Brian Kibler. MTG Hall of Famer who crossed into HS. Known for Dragon decks, positive attitude, and his dog Shiro."],
-  [/dog\b.*\b(?:hs|hearthstone)|dogdog/i, "Dog (David Caero). High-legend HS player, off-meta decks. Quiet, skilled, respected. Now plays Bazaar."],
-  [/strifecro/i, "StrifeCro (Cong Shu). One of HS's most consistent players. Refined decklist optimization. Analytical, low-key."],
-  [/thijs/i, "Thijs (Thijs Molendijk). Dutch. Multiple #1 legend finishes, face of EU Hearthstone. Friendly, dedicated competitor."],
-  [/reckful/i, "Reckful (Byron Bernstein). WoW legend (R1 gladiator, rank 1 rogue). Crossed into HS. Beloved for raw honesty. Passed away 2020 — hugely mourned by Twitch community."],
-  [/forsen/i, "Forsen (Sebastian Fors). Swedish. HS pro turned variety. Famous for stream snipers, 'bajs' community, 'forsenCD' emote. Chat: wall of text copypasta, PepeLaugh."],
-  [/sodapoppin|soda\b/i, "Sodapoppin (Chance Morris). OG Twitch variety streamer. WoW famous (Rank 1 rogue). Unfiltered personality. One of the first mega-streamers."],
-  [/xqc/i, "xQc (Felix Lengyel). Ex-OW pro. Fastest growing streamer ever. 24hr streams, hyperactive energy, absolute content machine."],
-  [/asmongold|asmon|zackrawrr/i, "Asmongold / zackrawrr (Zack). WoW's biggest streamer. Bald meme. Founded OTK. React content, surprisingly thoughtful takes beneath the memes."],
-  [/tyler1|t1\b/i, "Tyler1. League of Legends. ID-banned from League, came back bigger. 6'5\" meme (he's 5'6\"). Unhinged energy, genuinely skilled, reformed arc."],
-  [/viewbot|massan/i, "MaSsan viewbot scandal (2015-2016). HS streamer caught viewbotting, denied it, dropped by Cloud9, banned. MrDestructoid emote became the meme."],
+  [/kripp|kripparrian|rania/i, "Kripparrian (Octavian Morosan). Romanian-Canadian. D3 world-first Hardcore Inferno w/ Krippi. HS best arena player, 'how good is X?' style. Vegan, wife=Rania. #1 Bazaar streamer. Methodical builder."],
+  [/reynad|andrey|tempo storm/i, "Andrey Yanyuk. Created The Bazaar, CEO. Founded Tempo Storm. Ex-HS pro. 'reynad luck' meme. Streams design process."],
+  [/the bazaar|this game/i, "PvP auto-battler roguelike by Reynad/Tempo Storm. 6 heroes (Vanessa, Pygmalien, Dooley, Mak, Stelle, Jules). Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments, monsters on numbered days. bazaardb.gg."],
+  [/lethalfrag/i, "Lethalfrag. Top English Bazaar streamer. First 2-year livestream challenge (2012-2014)."],
+  [/patopapao|pato/i, "PatoPapao. #1 most-watched Bazaar channel. Portuguese-language."],
+  [/trump\b.*\b(?:hs|hearthstone)|trumpsc/i, "TrumpSC (Jeffrey Shih). First pro HS player. Known for F2P runs."],
+  [/amaz/i, "Amaz (Jason Chan). Best HS Streamer 2014. Peak 90k viewers. Founded NRG Esports."],
+  [/kolento/i, "Kolento (Aleksandr Malsh). Ukrainian HS pro. Won Viagame/DreamHack. Quiet, calculated."],
+  [/firebat/i, "Firebat (James Kostesich). Won first HS World Championship BlizzCon 2014."],
+  [/hafu/i, "Hafu (Rumay Wang). Best HS arena player ever. One of few women in competitive HS."],
+  [/savjz/i, "Savjz (Janne Mikkonen). Finnish HS pro. Creative deckbuilder, chill vibes."],
+  [/kibler|bmkibler/i, "Brian Kibler. MTG Hall of Famer turned HS. Dragon decks, positive attitude, dog Shiro."],
+  [/dog\b.*\b(?:hs|hearthstone)|dogdog/i, "Dog (David Caero). High-legend HS, off-meta decks. Now plays Bazaar."],
+  [/strifecro/i, "StrifeCro (Cong Shu). HS's most consistent player. Analytical, low-key."],
+  [/thijs/i, "Thijs (Thijs Molendijk). Dutch. Multiple #1 legend, face of EU Hearthstone."],
+  [/reckful/i, "Reckful (Byron Bernstein). WoW legend, rank 1 rogue. Crossed into HS. Passed away 2020."],
+  [/forsen/i, "Forsen (Sebastian Fors). Swedish. HS pro turned variety. Stream snipers, 'bajs', forsenCD."],
+  [/sodapoppin|soda\b/i, "Sodapoppin (Chance Morris). OG Twitch variety. WoW rank 1 rogue. One of first mega-streamers."],
+  [/xqc/i, "xQc (Felix Lengyel). Ex-OW pro. Fastest growing streamer. 24hr streams, hyperactive energy."],
+  [/asmongold|asmon|zackrawrr/i, "Asmongold (Zack). WoW's biggest streamer. Founded OTK. React content."],
+  [/tyler1|t1\b/i, "Tyler1. League of Legends. ID-banned, came back bigger. 6'5\" meme (he's 5'6\")."],
+  [/viewbot|massan/i, "MaSsan viewbot scandal (2015-16). Caught viewbotting, dropped by Cloud9. MrDestructoid meme."],
 ]
 
 // detect if a query is game-related (gates entity extraction)
@@ -609,15 +609,24 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   }
 }
 
+// strip bot commands and emote-only messages from chat context
+function isNoise(text: string): boolean {
+  const stripped = text.replace(/^!\w+\s*/, '').trim()
+  if (!stripped) return true
+  // single-word messages that are likely emotes (PascalCase or ALL_CAPS)
+  if (/^\S+$/.test(stripped) && (/^[A-Z][a-z]+[A-Z]/.test(stripped) || /^[A-Z_]{3,}$/.test(stripped))) return true
+  return false
+}
+
 function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): string {
   const queryWords = query.trim().split(/\s+/).length
   const chatDepth = queryWords <= 3 ? 5 : 20
   const chatContext = getRecent(ctx.channel, chatDepth)
+    .filter((m) => !isNoise(m.text))
   const chatStr = chatContext.length > 0
     ? chatContext.map((m) => `${m.user}: ${m.text.replace(/^!\w+\s*/, '')}`).join('\n')
     : ''
 
-  const emoteLine = '\n' + formatEmotesForAI(ctx.channel, getChannelTopEmotes(ctx.channel))
   const styleLine = getChannelStyle(ctx.channel)
   const contextLine = styleLine ? `\nChannel: ${styleLine}` : ''
 
@@ -629,23 +638,26 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     ? `\nActive convos: ${threads.map((t) => `${t.users.join('+')} re: ${t.topic}`).join(' | ')}`
     : ''
 
-  // reddit digest (moved from system prompt for better cache hits)
-  const digest = getRedditDigest()
-  const redditLine = digest ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
-
   // pre-resolved game data + knowledge
   let gameBlock = ''
+  let hasGameData = false
   if (isGameQuery(query)) {
     const entities = extractEntities(query)
     const knowledge = entities.knowledge.length > 0
       ? `\nContext:\n${entities.knowledge.join('\n')}`
       : ''
     const gameData = buildGameContext(entities, ctx.channel)
+    hasGameData = !!(gameData || knowledge)
     gameBlock = [
       knowledge,
       gameData ? `\nGame data:\n${gameData}` : '',
     ].filter(Boolean).join('')
   }
+
+  // skip reddit digest + emotes when we have specific game data (saves ~400 tokens)
+  const digest = getRedditDigest()
+  const redditLine = (!hasGameData && digest) ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
+  const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getChannelTopEmotes(ctx.channel))
 
   return [
     timelineLine,

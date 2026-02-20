@@ -31,7 +31,7 @@ export function restoreSummary(channel: string, summary: string) {
 
 const summaries = new Map<string, string>()
 const msgsSinceSummary = new Map<string, number>()
-const SUMMARY_INTERVAL = 200
+const SUMMARY_INTERVAL = 150
 let summarizer: ((channel: string, recent: ChatEntry[], prev: string) => Promise<string>) | null = null
 let summaryPersister: ((channel: string, sessionId: number, summary: string, msgCount: number) => void) | null = null
 

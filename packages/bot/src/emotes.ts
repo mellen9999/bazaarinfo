@@ -197,7 +197,7 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[]): string
   }
 
   const MAX_PER_MOOD = 3
-  const MAX_TOTAL = 40
+  const MAX_TOTAL = 25
   let total = 0
   const lines: string[] = []
   const sortedMoods = [...byMood.keys()].sort()
