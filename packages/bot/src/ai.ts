@@ -666,7 +666,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   await prev
 
   try {
-    return await doAiCall(query, ctx)
+    return await doAiCall(query, ctx as AiContext & { user: string; channel: string })
   } finally {
     aiQueueDepth--
     release()
@@ -759,7 +759,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': API_KEY,
+          'x-api-key': API_KEY!,
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify(body),

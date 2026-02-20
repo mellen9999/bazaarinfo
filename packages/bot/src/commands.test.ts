@@ -368,7 +368,7 @@ describe('parseArgs', () => {
   it('all tier names work', () => {
     for (const tier of ['bronze', 'silver', 'gold', 'diamond', 'legendary']) {
       const result = parseArgs(['boomerang', tier])
-      expect(result.tier).toBe(tier[0].toUpperCase() + tier.slice(1))
+      expect(result.tier).toBe((tier[0].toUpperCase() + tier.slice(1)) as TierName)
       expect(result.item).toBe('boomerang')
     }
   })

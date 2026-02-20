@@ -1,7 +1,7 @@
-import Fuse from 'fuse.js'
+import Fuse, { type IFuseOptions } from 'fuse.js'
 import type { BazaarCard } from './types'
 
-const fuseOptions: Fuse.IFuseOptions<BazaarCard> = {
+const fuseOptions: IFuseOptions<BazaarCard> = {
   keys: [
     { name: 'Title', weight: 2 },
     { name: 'Tags', weight: 0.5 },

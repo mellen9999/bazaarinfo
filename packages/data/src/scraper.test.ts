@@ -60,9 +60,7 @@ describe('toCard', () => {
     const entry = makeDumpEntry()
     // @ts-expect-error testing missing fields
     delete entry.Tooltips
-    // @ts-expect-error testing missing fields
     delete entry.TooltipReplacements
-    // @ts-expect-error testing missing fields
     delete entry.Enchantments
     const card = toCard(entry)
     expect(card.Tooltips).toEqual([])

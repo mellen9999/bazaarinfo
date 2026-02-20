@@ -176,7 +176,7 @@ const {
 
 rebuildTriviaMaps()
 
-const mockSay = mock(() => {})
+const mockSay = mock((_channel: string, _text: string) => {})
 
 beforeEach(() => {
   resetForTest()

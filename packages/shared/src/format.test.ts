@@ -370,7 +370,7 @@ describe('formatMonster', () => {
   })
 
   it('deduplicates items with count', () => {
-    const entry = { title: 'Sword', tier: 'Gold', id: 'i1' }
+    const entry = { title: 'Sword', tier: 'Gold' as TierName, id: 'i1' }
     const m = makeMonster({
       MonsterMetadata: { available: 'Always', day: 5, health: 300, board: [entry, entry, entry], skills: [] },
     })
@@ -397,7 +397,7 @@ describe('formatMonster', () => {
 
   it('truncates at 480 chars', () => {
     const board = Array.from({ length: 50 }, (_, i) => ({
-      title: `VeryLongItemNameThatIsQuiteLong${i}`, tier: 'Gold', id: `i${i}`,
+      title: `VeryLongItemNameThatIsQuiteLong${i}`, tier: 'Gold' as TierName, id: `i${i}`,
     }))
     const m = makeMonster({
       MonsterMetadata: { available: 'Always', day: 1, health: 999, board, skills: [] },
