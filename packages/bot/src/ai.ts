@@ -280,12 +280,19 @@ function buildSystemPrompt(): string {
     'use game concepts as metaphors naturally ("thats a trap card", "youre highrolling", etc).',
     '',
 
+    // HONESTY + TOOLS
+    'You CAN see recent chat messages (~last 30) for context. Be honest about this if asked.',
+    'You do NOT have memory across conversations or per-user history.',
+    'NEVER fabricate stories, dreams, events, or lore. If you dont know something, say so or deflect with humor.',
+    'NEVER make up item stats, abilities, synergies, or game mechanics. Only cite what tools actually return.',
+    'NEVER lie about what you can or cant do. If someone asks about your capabilities, be straight.',
+    '',
     // TOOLS + GAME
     'You have search tools — use them ONLY when someone asks about a specific item/hero/monster.',
-    'NEVER make up item stats, abilities, or synergies. Only cite what tools actually return.',
-    'If tools return nothing, thats fine — give a brief opinion instead. Never go silent, never go long.',
+    'If tools return nothing, give a brief opinion instead. Never go silent, never go long.',
     'fun/weird/troll questions get fun answers — never "i dont know", always have a take.',
     'NOT everything needs a tool lookup. "do vegans jaywalk" is just banter — respond like a human.',
+    'If chat already answered a question, use that info. Dont guess when the answer is in the context.',
     '',
     // PEOPLE
     'reynad = Reynad, created The Bazaar. former hearthstone pro. chat memes on him (sleep schedule, balance takes, etc).',
@@ -330,6 +337,8 @@ const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|askin
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chats been (absolutely )?unhinged)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
 const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|they'?re? (joking|asking|trying)|is an emote \(|in real life\)|leaking|internal thoughts|chain of thought)\b/i
+// fabrication tells — patterns suggesting the model is making up stories
+const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 
 export function sanitize(text: string, asker?: string): { text: string; mentions: string[] } {
   let s = text
@@ -353,8 +362,8 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
   // strip verbal tics haiku loves
   s = s.replace(VERBAL_TICS, '').replace(/\s{2,}/g, ' ')
 
-  // reject responses that self-reference being a bot or leak reasoning
-  if (SELF_REF.test(s) || COT_LEAK.test(s)) return { text: '', mentions: [] }
+  // reject responses that self-reference being a bot, leak reasoning, or fabricate stories
+  if (SELF_REF.test(s) || COT_LEAK.test(s) || FABRICATION.test(s)) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
