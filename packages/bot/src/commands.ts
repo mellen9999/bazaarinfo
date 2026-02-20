@@ -291,7 +291,7 @@ const subcommands: [RegExp, SubHandler][] = [
   [/^harem$/i, (_query, ctx) => {
     if (!ctx.channel) return null
     const count = db.getUniqueChatterCount(ctx.channel)
-    return `${count} cuties in the harem peepoLove`
+    return `${count} cuties in ${ctx.channel}'s harem Kreygasm`
   }],
 ]
 

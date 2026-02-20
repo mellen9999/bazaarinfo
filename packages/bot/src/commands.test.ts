@@ -1716,8 +1716,7 @@ describe('!b harem', () => {
   it('shows unique chatter count', async () => {
     mockGetUniqueChatterCount.mockImplementation(() => 42)
     const result = await handleCommand('!b harem', { user: 'tidolar', channel: 'mellen' })
-    expect(result).toContain('42')
-    expect(result).toContain('cuties')
+    expect(result).toBe("42 cuties in mellen's harem Kreygasm")
   })
 
   it('passes channel to db query', async () => {
