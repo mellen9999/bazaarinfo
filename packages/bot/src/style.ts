@@ -37,9 +37,9 @@ function buildUserProfile(username: string, channel: string, knownEmotes: Set<st
 
   if (stats) {
     const since = stats.first_seen?.slice(0, 7) ?? '?'
-    parts.push(`since ${since}`)
-    if (stats.total_commands > 0) parts.push(`${stats.total_commands} lookups`)
-    if (stats.trivia_wins > 0) parts.push(`${stats.trivia_wins}W trivia`)
+    parts.push(`around since ${since}`)
+    if (stats.total_commands > 0) parts.push(stats.total_commands > 50 ? 'power user' : 'casual user')
+    if (stats.trivia_wins > 0) parts.push(stats.trivia_wins > 10 ? 'trivia regular' : 'plays trivia')
     if (stats.favorite_item) parts.push(`fav: ${stats.favorite_item}`)
   }
 
@@ -86,7 +86,7 @@ function buildStyle(channel: string): ChannelStyle {
   // build compact channel profile
   const parts: string[] = []
   if (topEmotes.length > 0) parts.push(`Channel emotes: ${topEmotes.join(' ')}`)
-  if (regulars.size > 0) parts.push(`${regulars.size} regulars profiled`)
+  if (regulars.size > 0) parts.push(`Active community`)
 
   const profile = parts.join('. ')
   if (profile) log(`style #${channel}: ${topEmotes.length} emotes, ${regulars.size} regulars`)

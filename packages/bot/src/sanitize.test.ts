@@ -247,6 +247,32 @@ describe('sanitize', () => {
     expect(sanitize('not game-related but still fun').text).toBe('')
   })
 
+  // --- STAT_LEAK patterns ---
+  it('rejects "you have X lookups" stat recitation', () => {
+    expect(sanitize('you have 47 lookups so you know your stuff').text).toBe('')
+  })
+
+  it('rejects "your profile says" data leak', () => {
+    expect(sanitize('your profile says you like shields').text).toBe('')
+  })
+
+  it('rejects "according to my data" leak', () => {
+    expect(sanitize('according to my data you play trivia a lot').text).toBe('')
+  })
+
+  it('rejects "i can see from your stats" leak', () => {
+    expect(sanitize('i can see from your stats you love boomerangs').text).toBe('')
+  })
+
+  it('rejects "you are a power user" label leak', () => {
+    expect(sanitize("you're a power user so you already know").text).toBe('')
+  })
+
+  it('allows natural memory references', () => {
+    expect(sanitize('didnt you ask about shields earlier').text).toBe('didnt you ask about shields earlier')
+    expect(sanitize('still on the boomerang grind huh').text).toBe('still on the boomerang grind huh')
+  })
+
   // --- 150 char hard cap ---
   it('truncates at 150 chars to last boundary', () => {
     const long = 'a'.repeat(80) + '. ' + 'b'.repeat(80)

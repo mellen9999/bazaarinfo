@@ -348,9 +348,9 @@ function buildUserContext(user: string, channel: string): string {
       const stats = db.getUserStats(user)
       if (stats) {
         const since = stats.first_seen?.slice(0, 7) ?? '?'
-        parts.push(`since ${since}`)
-        if (stats.total_commands > 0) parts.push(`${stats.total_commands} lookups`)
-        if (stats.trivia_wins > 0) parts.push(`${stats.trivia_wins}W trivia`)
+        parts.push(`around since ${since}`)
+        if (stats.total_commands > 0) parts.push(stats.total_commands > 50 ? 'power user' : 'casual user')
+        if (stats.trivia_wins > 0) parts.push(stats.trivia_wins > 10 ? 'trivia regular' : 'plays trivia')
         if (stats.favorite_item) parts.push(`fav: ${stats.favorite_item}`)
       }
     } catch {}
@@ -483,6 +483,8 @@ const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|askin
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|unhinged|speedrun(ning)?)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
 const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|context of a.{0,20}stream|easy way for you to|off-topic (banter|question|chat)|not game[- ]related|direct answer:?|not (really )?relevant|this is (conversational|off-topic|unrelated))\b/i
+// stat leak — model reciting internal profile data
+const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you have \d+ (lookups?|commands?|wins?|attempts?|asks?)|you('ve|'re| have| are) (a )?(power user|casual user|trivia regular)|according to (my|your|the) (data|stats|profile|records?)|i (can see|see|know) (from )?(your|the) (data|stats|profile)|based on your (history|stats|data|profile))\b/i
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 // dangerous twitch/bot commands anywhere in response — reject entirely
@@ -518,8 +520,8 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
   // strip verbal tics haiku loves
   s = s.replace(VERBAL_TICS, '').replace(/\s{2,}/g, ' ')
 
-  // reject responses that self-reference being a bot, leak reasoning, fabricate stories, or contain commands
-  if (SELF_REF.test(s) || COT_LEAK.test(s) || FABRICATION.test(s) || DANGEROUS_COMMANDS.test(s)) return { text: '', mentions: [] }
+  // reject responses that self-reference being a bot, leak reasoning/stats, fabricate stories, or contain commands
+  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || FABRICATION.test(s) || DANGEROUS_COMMANDS.test(s)) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
