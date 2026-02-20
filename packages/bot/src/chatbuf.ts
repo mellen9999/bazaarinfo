@@ -13,7 +13,7 @@ const MAX_SIZE = 100
 
 const summaries = new Map<string, string>()
 const msgsSinceSummary = new Map<string, number>()
-const SUMMARY_INTERVAL = 50
+const SUMMARY_INTERVAL = 200
 let summarizer: ((channel: string, recent: ChatEntry[], prev: string) => Promise<string>) | null = null
 
 export function setSummarizer(fn: typeof summarizer) {

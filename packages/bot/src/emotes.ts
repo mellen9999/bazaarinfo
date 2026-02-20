@@ -1,14 +1,19 @@
 import { log } from './log'
+import { getDescriptions } from './emote-describe'
+
+export interface EmoteData {
+  name: string
+  id: string
+  overlay: boolean
+}
 
 const channelEmotes = new Map<string, string[]>()
 const mergedCache = new Map<string, string[]>()
 let globalEmotes: string[] = []
 let lastGlobalFetch = 0
-const REFRESH_INTERVAL = 24 * 60 * 60_000 // 1 day
 
 // well-known twitch/bttv/ffz globals the model should know
 const KNOWN_GLOBALS = [
-  // twitch
   'Kappa', 'KappaPride', 'Keepo', 'PogChamp', 'LUL', 'OMEGALUL', 'monkaS',
   'PepeHands', 'FeelsBadMan', 'FeelsGoodMan', 'FeelsStrongMan', 'Sadge', 'widepeepoHappy',
   'widepeepoSad', 'peepoClap', 'EZ', 'Clap', 'KEKW', 'LULW', 'catJAM',
@@ -20,39 +25,50 @@ const KNOWN_GLOBALS = [
   'pepega', 'WideHardo', '5Head', '3Head', 'pepeDS', 'RainTime',
 ]
 
-async function fetch7TV(url: string, extract: (data: any) => { name: string }[]): Promise<string[]> {
+async function fetch7TVData(url: string, extract: (data: any) => EmoteData[]): Promise<EmoteData[]> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(10_000) })
     if (!res.ok) return []
-    return extract(await res.json()).map((e) => e.name)
-  } catch {
+    return extract(await res.json())
+  } catch (e) {
+    log('7TV fetch failed:', url, e instanceof Error ? e.message : e)
     return []
   }
 }
 
-export async function refreshGlobalEmotes() {
-  const fetched = await fetch7TV(
+function extractEmotes(emotes: any[]): EmoteData[] {
+  return emotes.map((e: any) => ({
+    name: e.name,
+    id: e.data?.id ?? e.id,
+    overlay: ((e.flags ?? 0) & 1) === 1, // 7TV ZeroWidth flag = bit 0
+  }))
+}
+
+export async function refreshGlobalEmotes(): Promise<EmoteData[]> {
+  const fetched = await fetch7TVData(
     'https://7tv.io/v3/emote-sets/global',
-    (d) => d.emotes ?? [],
+    (d) => extractEmotes(d.emotes ?? []),
   )
   if (fetched.length > 0) {
-    globalEmotes = fetched
+    globalEmotes = fetched.map((e) => e.name)
     lastGlobalFetch = Date.now()
     mergedCache.clear()
     log(`loaded ${globalEmotes.length} 7TV global emotes`)
   }
+  return fetched
 }
 
-export async function refreshChannelEmotes(channel: string, channelId: string) {
-  const fetched = await fetch7TV(
+export async function refreshChannelEmotes(channel: string, channelId: string): Promise<EmoteData[]> {
+  const fetched = await fetch7TVData(
     `https://7tv.io/v3/users/twitch/${channelId}`,
-    (d) => d.emote_set?.emotes ?? [],
+    (d) => extractEmotes(d.emote_set?.emotes ?? []),
   )
   if (fetched.length > 0) {
-    channelEmotes.set(channel, fetched)
+    channelEmotes.set(channel, fetched.map((e) => e.name))
     mergedCache.delete(channel)
     log(`loaded ${fetched.length} 7TV emotes for #${channel}`)
   }
+  return fetched
 }
 
 export function getEmotesForChannel(channel: string): string[] {
@@ -64,39 +80,44 @@ export function getEmotesForChannel(channel: string): string[] {
   return merged
 }
 
-// emote mood taxonomy — lets the AI pick the right emote for the moment
-// only categorize well-known emotes; channel-specific ones listed separately
-const MOOD_MAP: Record<string, string[]> = {
-  'hype/pog': ['PogChamp', 'POGGERS', 'PagMan', 'PagChomp', 'peepoClap', 'Clap', 'NODDERS', 'PogU', 'Pog', 'WideHardo'],
-  'funny/laughing': ['KEKW', 'LUL', 'LULW', 'OMEGALUL', 'ICANT', 'PepeLaugh', 'peepoGiggle'],
-  'sad/pain': ['Sadge', 'PepeHands', 'FeelsBadMan', 'widepeepoSad', 'pepeMeltdown', 'D:'],
-  'happy/warm': ['FeelsGoodMan', 'FeelsStrongMan', 'widepeepoHappy', 'catJAM', 'pepeDS', 'RainTime'],
-  'sarcasm/troll': ['Kappa', 'Keepo', 'KappaPride', 'Copium', 'Copege', 'Clueless', 'EZ'],
-  'shock/concern': ['monkaS', 'monkaW', 'Susge', 'ppOverheat'],
-  'thinking/aware': ['monkaHmm', 'Aware', 'Stare', 'NOTED', 'modCheck', 'Chatting', '5Head'],
-  'chad/based': ['GIGACHAD', 'Chad', 'BASED'],
-  'cringe/dumb': ['pepega', '3Head', 'BBoomer'],
-  'misc': ['NOPERS', 'forsenCD', 'xqcL'],
-}
-
-const categorized = new Set(Object.values(MOOD_MAP).flat())
-
-/** format emotes for AI context — categorized by mood + uncategorized extras */
+/** format emotes for AI context — uses vision-generated descriptions when available */
 export function formatEmotesForAI(channel: string): string {
   const all = getEmotesForChannel(channel)
   if (all.length === 0) return ''
 
-  // build categorized section from known emotes that are available
-  const available = new Set(all)
-  const lines: string[] = []
-  for (const [mood, emotes] of Object.entries(MOOD_MAP)) {
-    const present = emotes.filter((e) => available.has(e))
-    if (present.length > 0) lines.push(`  ${mood}: ${present.join(' ')}`)
+  const descriptions = getDescriptions()
+  const byMood = new Map<string, string[]>()
+  const overlays: string[] = []
+  const unknown: string[] = []
+
+  for (const name of all) {
+    const desc = descriptions[name]
+    if (desc) {
+      if (desc.overlay) {
+        overlays.push(`${name}(${desc.desc})`)
+      } else {
+        const mood = desc.mood
+        if (!byMood.has(mood)) byMood.set(mood, [])
+        byMood.get(mood)!.push(`${name}(${desc.desc})`)
+      }
+    } else {
+      unknown.push(name)
+    }
   }
 
-  // uncategorized = channel-specific + unknown 7TV emotes
-  const extras = all.filter((e) => !categorized.has(e))
-  if (extras.length > 0) lines.push(`  channel/other: ${extras.join(' ')}`)
+  const MAX_PER_MOOD = 8
+  const lines: string[] = []
+  const sortedMoods = [...byMood.keys()].sort()
+  for (const mood of sortedMoods) {
+    lines.push(`  ${mood}: ${byMood.get(mood)!.slice(0, MAX_PER_MOOD).join(' ')}`)
+  }
 
-  return `Emotes (IMAGES, use sparingly — pick by mood):\n${lines.join('\n')}`
+  if (overlays.length > 0) {
+    lines.push(`  [OVERLAYS — place AFTER a base emote]:`)
+    lines.push(`    ${overlays.slice(0, 10).join(' ')}`)
+  }
+
+  // drop uncategorized — model can't use emotes it doesn't know
+
+  return `Emotes (use 0-1 per message, only when it perfectly fits the moment):\n${lines.join('\n')}`
 }

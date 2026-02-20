@@ -264,14 +264,14 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     return aiResult.text + tags
   }
 
-  // AI failed — show suggestions for short queries, silence for conversational
+  // AI failed — show suggestions for short queries, shrug for everything else
   if (queryWords.length <= 2) {
     const suggestions = store.suggest(query, 3)
     if (suggestions.length > 0) {
       return `no "${query}" — did you mean: ${suggestions.join(', ')}?` + suffix
     }
   }
-  return null
+  return '¯\\_(ツ)_/¯' + suffix
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {

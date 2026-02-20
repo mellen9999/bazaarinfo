@@ -174,7 +174,8 @@ const tools = [
 function executeTool(name: string, input: Record<string, unknown>): string {
   switch (name) {
     case 'search_items': {
-      const q = input.query as string
+      const q = String(input.query ?? '').trim()
+      if (!q) return 'No query provided'
       const hit = store.exact(q)
       if (hit) return serializeCard(hit)
       const results = store.search(q, 5)
@@ -182,22 +183,30 @@ function executeTool(name: string, input: Record<string, unknown>): string {
       return results.map(serializeCard).join('\n')
     }
     case 'get_monster': {
-      const monster = store.findMonster(input.query as string)
+      const q = String(input.query ?? '').trim()
+      if (!q) return 'No query provided'
+      const monster = store.findMonster(q)
       if (!monster) return 'No monster found'
       return serializeMonster(monster)
     }
     case 'items_by_hero': {
-      const items = store.byHero(input.hero as string)
+      const h = String(input.hero ?? '').trim()
+      if (!h) return 'No hero provided'
+      const items = store.byHero(h)
       if (items.length === 0) return 'No items found for that hero'
       return items.map((c) => c.Title).join(', ')
     }
     case 'items_by_tag': {
-      const cards = store.byTag(input.tag as string)
+      const t = String(input.tag ?? '').trim()
+      if (!t) return 'No tag provided'
+      const cards = store.byTag(t)
       if (cards.length === 0) return 'No items found with that tag'
       return cards.map((c) => c.Title).join(', ')
     }
     case 'monsters_by_day': {
-      const mobs = store.monstersByDay(input.day as number)
+      const d = Number(input.day)
+      if (!Number.isFinite(d)) return 'No day provided'
+      const mobs = store.monstersByDay(d)
       if (mobs.length === 0) return 'No monsters on that day'
       return mobs.map((m) => `${m.Title} (${m.MonsterMetadata.health}HP)`).join(', ')
     }
@@ -427,12 +436,37 @@ export interface AiContext {
 
 export interface AiResult { text: string; mentions: string[] }
 
+// serialize AI requests to avoid 429 stampedes on 50k token/min limit
+let aiLock: Promise<void> = Promise.resolve()
+let aiQueueDepth = 0
+const AI_MAX_QUEUE = 3
+
 export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult | null> {
   if (!API_KEY) return null
   if (isLowValue(query)) return null
   if (!ctx.user || !ctx.channel) return null
 
-  const chatContext = getRecent(ctx.channel, 30)
+  if (aiQueueDepth >= AI_MAX_QUEUE) {
+    log('ai: queue full, dropping')
+    return null
+  }
+  aiQueueDepth++
+
+  let release!: () => void
+  const prev = aiLock
+  aiLock = new Promise((r) => release = r)
+  await prev
+
+  try {
+    return await doAiCall(query, ctx)
+  } finally {
+    aiQueueDepth--
+    release()
+  }
+}
+
+async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
+  const chatContext = getRecent(ctx.channel, 20)
   const chatStr = chatContext.length > 0
     ? chatContext.map((m) => `${m.user}: ${m.text}`).join('\n')
     : ''

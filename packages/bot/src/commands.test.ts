@@ -427,9 +427,9 @@ describe('!b item lookup', () => {
     expect(mockSearch).toHaveBeenCalledWith('boomrang', 1)
   })
 
-  it('returns null when no match and AI unavailable', async () => {
+  it('returns shrug when no match and AI unavailable', async () => {
     const result = await handleCommand('!b xyznonexistent')
-    expect(result).toBeNull()
+    expect(result).toContain('¯\\_(ツ)_/¯')
   })
 
   it('handles multi-word item names', async () => {
@@ -600,12 +600,12 @@ describe('!b enchantment (any order)', () => {
 
   it('single word alone is item lookup not enchant', async () => {
     const result = await handleCommand('!b fiery')
-    expect(result).toBeNull()
+    expect(result).toContain('¯\\_(ツ)_/¯')
   })
 
   it('single word alone is item lookup not enchant (toxic)', async () => {
     const result = await handleCommand('!b toxic')
-    expect(result).toBeNull()
+    expect(result).toContain('¯\\_(ツ)_/¯')
   })
 })
 
@@ -867,7 +867,7 @@ describe('!b mob/monster', () => {
 describe('!b edge cases', () => {
   it('handles single character input', async () => {
     const result = await handleCommand('!b x')
-    expect(result).toBeNull()
+    expect(result).toContain('¯\\_(ツ)_/¯')
   })
 
   it('handles extra whitespace between words', async () => {
@@ -1353,15 +1353,15 @@ describe('AI fallback path', () => {
     expect(result).toContain('@chatter')
   })
 
-  it('conversational query + AI failure = null (silence)', async () => {
+  it('conversational query + AI failure = shrug fallback', async () => {
     mockAiRespond.mockImplementation(() => null)
     const result = await handleCommand('!b is vanessa good', { user: 'chatter', channel: 'stream' })
-    expect(result).toBeNull()
+    expect(result).toContain('¯\\_(ツ)_/¯')
   })
 
-  it('short query + no match + AI fail = null (silence)', async () => {
+  it('short query + no match + AI fail = shrug fallback', async () => {
     const result = await handleCommand('!b asdfghjkl', { user: 'chatter', channel: 'stream' })
-    expect(result).toBeNull()
+    expect(result).toContain('¯\\_(ツ)_/¯')
   })
 
   it('short query + AI success = AI response (not boring error)', async () => {
