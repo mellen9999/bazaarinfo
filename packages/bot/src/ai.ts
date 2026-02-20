@@ -425,7 +425,7 @@ export interface AiContext {
   privileged?: boolean
 }
 
-export interface AiResult { text: string; mentions: string[] }
+export interface AiResult { text: string; mentions: string[]; throttled?: boolean }
 
 export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult | null> {
   if (!API_KEY) return null
@@ -498,6 +498,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 
       if (!res.ok) {
         log(`ai: API ${res.status} ${await res.text().catch(() => '')}`)
+        if (res.status === 429) return { text: '', mentions: [], throttled: true } as AiResult
         return null
       }
 
