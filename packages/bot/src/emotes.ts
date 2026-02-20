@@ -162,18 +162,20 @@ export function getEmotesForChannel(channel: string): string[] {
   return merged
 }
 
-/** format emotes for AI context — prioritizes channel favorites, caps total ~40 */
-export function formatEmotesForAI(channel: string, topEmotes?: string[]): string {
+/** format emotes for AI context — shuffled per-request, filters recently used */
+export function formatEmotesForAI(channel: string, topEmotes?: string[], recentlyUsed?: Set<string>): string {
   const all = getEmotesForChannel(channel)
   if (all.length === 0) return ''
 
   const descriptions = getDescriptions()
   const topSet = new Set(topEmotes ?? [])
+  const usedSet = recentlyUsed ?? new Set<string>()
 
   const byMood = new Map<string, string[]>()
   const overlays: string[] = []
 
   for (const name of all) {
+    if (usedSet.has(name)) continue // hide recently used — forces fresh picks
     const desc = descriptions[name]
     if (!desc) continue
     if (desc.overlay) {
@@ -224,7 +226,12 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[]): string
   }
 
   if (overlays.length > 0 && total < MAX_TOTAL) {
-    lines.push(`  [OVERLAYS]: ${overlays.slice(0, 3).join(' ')}`)
+    // shuffle overlays too
+    for (let i = overlays.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [overlays[i], overlays[j]] = [overlays[j], overlays[i]]
+    }
+    lines.push(`  [OVERLAYS — combine with another emote]: ${overlays.slice(0, 5).join(' ')}`)
   }
 
   return `Emotes (0-1 per msg, only when perfect — list rotates so pick from whats here):\n${lines.join('\n')}`

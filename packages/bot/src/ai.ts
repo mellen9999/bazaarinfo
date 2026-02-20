@@ -590,28 +590,33 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
   return { text: s.trim(), mentions }
 }
 
-// --- emote dedup (strip same emote used in consecutive bot messages) ---
+// --- emote dedup (strip recently used emotes to force variety) ---
 
-const lastEmoteByChannel = new Map<string, string>()
+const EMOTE_HISTORY_SIZE = 5
+const recentEmotesByChannel = new Map<string, string[]>()
+
+/** get recent emotes for a channel — used by formatEmotesForAI to hide them */
+export function getRecentEmotes(channel: string): Set<string> {
+  return new Set(recentEmotesByChannel.get(channel) ?? [])
+}
 
 export function dedupeEmote(text: string, channel?: string): string {
   if (!channel) return text
   const emoteSet = new Set(getEmotesForChannel(channel))
-  // find trailing emote (last word if it's a known emote)
   const words = text.split(/\s+/)
   const lastWord = words[words.length - 1]
-  const prevEmote = lastEmoteByChannel.get(channel)
 
   if (lastWord && emoteSet.has(lastWord)) {
-    if (lastWord === prevEmote) {
-      // same emote as last message — strip it
+    const recent = recentEmotesByChannel.get(channel) ?? []
+    if (recent.includes(lastWord)) {
+      // used this emote recently — strip it
       words.pop()
-      lastEmoteByChannel.set(channel, '')
       return words.join(' ').trim()
     }
-    lastEmoteByChannel.set(channel, lastWord)
-  } else {
-    lastEmoteByChannel.set(channel, '')
+    // record it
+    recent.push(lastWord)
+    if (recent.length > EMOTE_HISTORY_SIZE) recent.shift()
+    recentEmotesByChannel.set(channel, recent)
   }
   return text
 }
@@ -811,7 +816,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   // skip reddit digest + emotes when we have specific game data (saves ~400 tokens)
   const digest = getRedditDigest()
   const redditLine = (!hasGameData && digest) ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
-  const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getChannelTopEmotes(ctx.channel))
+  const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getChannelTopEmotes(ctx.channel), getRecentEmotes(ctx.channel))
 
   // contextual recall — search prior bot exchanges for relevant history
   const recallLine = buildRecallContext(query, ctx.channel)
