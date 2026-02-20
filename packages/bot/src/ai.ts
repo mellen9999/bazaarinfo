@@ -40,6 +40,17 @@ function isLowValue(query: string): boolean {
   return false
 }
 
+// --- pre-AI injection filter (saves ~6k tokens + 1.5s per caught attempt) ---
+
+const INJECTION_PATTERN = /\b(if you (reverse|remove|decode|take|swap)|remove (all )?(the )?(spaces|commas)|reverse (the |this |it)|what is .{3,} if you (reverse|remove|decode)|(decode|decrypt) (this |the )?(hex|base64|message|numbers?)|positions? back in the alph|backwards|spaced.out.letters|include the (exclamation|forward|back))\b/i
+
+const CANNED_REFUSALS = ['not doing that', 'nice try', 'nah', 'not falling for it']
+
+function detectInjection(query: string): string | null {
+  if (!INJECTION_PATTERN.test(query)) return null
+  return CANNED_REFUSALS[Math.floor(Math.random() * CANNED_REFUSALS.length)]
+}
+
 // --- serialization ---
 
 const TIER_SHORT: Record<string, string> = {
@@ -435,6 +446,14 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 
   const cd = getAiCooldown(ctx.user)
   if (cd > 0) return { text: `${cd}s`, mentions: [] }
+
+  // catch obvious injection attempts before burning tokens
+  const canned = detectInjection(query)
+  if (canned) {
+    recordUsage(ctx.user)
+    try { db.logAsk(ctx, query, canned, 0, 0) } catch {}
+    return { text: canned, mentions: [] }
+  }
 
   if (aiQueueDepth >= AI_MAX_QUEUE) {
     log('ai: queue full, dropping')
