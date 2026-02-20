@@ -1115,10 +1115,10 @@ describe('@mention passthrough', () => {
     mockLogCommand.mockReset()
   })
 
-  it('appends @mention to item response', async () => {
+  it('strips @mention from search query but does not tag in response', async () => {
     mockExact.mockImplementation(() => boomerang)
     const result = await handleCommand('!b boomerang @hamstornado')
-    expect(result).toContain('@hamstornado')
+    expect(result).not.toContain('@hamstornado')
     expect(result).toContain('Boomerang')
   })
 
@@ -1128,17 +1128,17 @@ describe('@mention passthrough', () => {
     expect(mockExact).toHaveBeenCalledWith('boomerang')
   })
 
-  it('handles multiple mentions', async () => {
+  it('handles multiple mentions without tagging', async () => {
     mockExact.mockImplementation(() => boomerang)
     const result = await handleCommand('!b boomerang @user1 @user2')
-    expect(result).toContain('@user1')
-    expect(result).toContain('@user2')
+    expect(result).not.toContain('@user1')
+    expect(result).not.toContain('@user2')
   })
 
   it('mention anywhere in args', async () => {
     mockExact.mockImplementation(() => boomerang)
     const result = await handleCommand('!b @someone boomerang')
-    expect(result).toContain('@someone')
+    expect(result).not.toContain('@someone')
     expect(result).toContain('Boomerang')
   })
 
@@ -1183,11 +1183,11 @@ describe('!b enchants', () => {
     expect(mockLogCommand).toHaveBeenCalled()
   })
 
-  it('appends @mention', async () => {
+  it('does not append @mention (reply threading only)', async () => {
     mockGetEnchantments.mockImplementation(() => ['deadly'])
     const result = await handleCommand('!b enchants @someone')
     expect(result).toContain('Enchantments: Deadly')
-    expect(result).toContain('@someone')
+    expect(result).not.toContain('@someone')
   })
 })
 
@@ -1229,10 +1229,10 @@ describe('!b tag', () => {
     )
   })
 
-  it('appends @mention to tag results', async () => {
+  it('does not append @mention to tag results', async () => {
     mockByTag.mockImplementation(() => [boomerang])
     const result = await handleCommand('!b tag Burn @friend')
-    expect(result).toContain('@friend')
+    expect(result).not.toContain('@friend')
     expect(result).toContain('Boomerang')
   })
 
@@ -1305,10 +1305,10 @@ describe('!b day', () => {
     )
   })
 
-  it('appends @mention', async () => {
+  it('does not append @mention', async () => {
     mockMonstersByDay.mockImplementation(() => [lich])
     const result = await handleCommand('!b day 5 @viewer')
-    expect(result).toContain('@viewer')
+    expect(result).not.toContain('@viewer')
   })
 })
 
@@ -1351,11 +1351,11 @@ describe('!b skill', () => {
     )
   })
 
-  it('appends @mention', async () => {
+  it('does not append @mention', async () => {
     const skill = makeCard({ Title: 'Zap', Type: 'Skill' })
     mockFindSkill.mockImplementation(() => skill)
     const result = await handleCommand('!b skill zap @someone')
-    expect(result).toContain('@someone')
+    expect(result).not.toContain('@someone')
     expect(result).toContain('Zap')
   })
 })
@@ -1382,11 +1382,11 @@ describe('usage string', () => {
 // AI fallback path
 // ---------------------------------------------------------------------------
 describe('AI fallback path', () => {
-  it('conversational query + AI success = AI response', async () => {
+  it('conversational query + AI success = AI response (no @tag)', async () => {
     mockAiRespond.mockImplementation(() => ({ text: 'vanessa is solid', mentions: [] }))
     const result = await handleCommand('!b is vanessa good', { user: 'chatter', channel: 'stream' })
     expect(result).toContain('vanessa is solid')
-    expect(result).toContain('@chatter')
+    expect(result).not.toContain('@chatter')
   })
 
   it('conversational query + AI failure = shrug fallback', async () => {
@@ -1414,12 +1414,10 @@ describe('AI fallback path', () => {
     expect(result).toContain('Boomerang')
   })
 
-  it('AI response dedupes @mention with suffix mention', async () => {
+  it('AI response has no @mentions appended', async () => {
     mockAiRespond.mockImplementation(() => ({ text: 'yeah for sure', mentions: ['@viewer'] }))
     const result = await handleCommand('!b is vanessa good @viewer', { user: 'chatter', channel: 'stream' })
     expect(result).toContain('yeah for sure')
-    // @viewer should appear only once
-    const viewerCount = (result!.match(/@viewer/g) ?? []).length
-    expect(viewerCount).toBe(1)
+    expect(result).not.toContain('@viewer')
   })
 })

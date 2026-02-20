@@ -257,19 +257,6 @@ function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: Tie
 // questions with 4+ words starting with these go straight to AI for analysis
 const QUESTION_PREFIX = /^(why|how|should|would|could|does|is it worth|what.+(?:best|worst|good|bad|better|counter))\b/i
 
-function buildTags(aiResult: { text: string; mentions: string[] }, ctx: CommandContext, suffix: string): string {
-  const allMentions = new Set<string>()
-  const textLower = aiResult.text.toLowerCase()
-  const userLower = ctx.user?.toLowerCase() ?? ''
-  const alreadyNamed = userLower && new RegExp(`\\b${userLower}\\b`).test(textLower)
-  if (ctx.user && !alreadyNamed) allMentions.add(`@${ctx.user}`)
-  for (const m of aiResult.mentions) {
-    if (m.toLowerCase() !== `@${userLower}`) allMentions.add(m)
-  }
-  for (const m of (suffix.match(/@\w+/g) ?? [])) allMentions.add(m.toLowerCase())
-  return allMentions.size > 0 ? ' ' + [...allMentions].join(' ') : ''
-}
-
 async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string | null> {
   const words = cleanArgs.split(/\s+/)
   const { item: query, tier, enchant } = parseArgs(words)
@@ -284,8 +271,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     const aiResult = await aiRespond(cleanArgs, ctx)
     if (aiResult?.text) {
       logHit('ai', cleanArgs, 'ai', ctx)
-      const tags = buildTags(aiResult, ctx, suffix)
-      return dedupeEmote(aiResult.text, ctx.channel) + tags
+      return dedupeEmote(aiResult.text, ctx.channel)
     }
     // AI failed — fall through to normal lookup
   }
@@ -328,8 +314,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   const aiResult = await aiRespond(cleanArgs, ctx)
   if (aiResult?.text) {
     logHit('ai', cleanArgs, 'ai', ctx)
-    const tags = buildTags(aiResult, ctx, suffix)
-    return dedupeEmote(aiResult.text, ctx.channel) + tags
+    return dedupeEmote(aiResult.text, ctx.channel)
   }
 
   // AI failed — show suggestions for short queries, shrug for everything else
@@ -343,7 +328,6 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {
-  const mentions = args.match(/@\w+/g) ?? []
   const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
 
   if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
@@ -351,7 +335,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // suppress duplicate lookups within 30s per channel
   if (ctx.channel && isDuplicate(ctx.channel, cleanArgs)) return null
 
-  const suffix = mentions.length ? ' ' + mentions.join(' ') : ''
+  const suffix = ''
 
   // alias add: !b alias <slang> = <target>
   const aliasAdd = cleanArgs.match(/^alias\s+(.+?)\s*=\s*(.+)$/i)
@@ -392,8 +376,7 @@ async function handleMention(text: string, ctx: CommandContext): Promise<string 
   const aiResult = await aiRespond(query, ctx)
   if (aiResult?.text) {
     try { db.logCommand(ctx, 'ai', query, 'mention') } catch {}
-    const tags = buildTags(aiResult, ctx, '')
-    return dedupeEmote(aiResult.text, ctx.channel) + tags
+    return dedupeEmote(aiResult.text, ctx.channel)
   }
   return null
 }
