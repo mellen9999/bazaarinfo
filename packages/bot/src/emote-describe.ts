@@ -1,4 +1,5 @@
 import { log } from './log'
+import { writeAtomic } from './fs-util'
 import { join } from 'path'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
@@ -120,7 +121,7 @@ export async function loadDescriptionCache() {
 }
 
 async function saveCache() {
-  await Bun.write(CACHE_PATH, JSON.stringify(cache, null, 2))
+  await writeAtomic(CACHE_PATH, JSON.stringify(cache, null, 2), 0o644)
 }
 
 export function getDescriptions(): Record<string, EmoteDescription> {

@@ -6,6 +6,20 @@ import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
 import { aiRespond, dedupeEmote } from './ai'
 
+const MAX_LEN = 480
+
+function withSuffix(text: string, suffix: string): string {
+  const combined = text + suffix
+  if (combined.length <= MAX_LEN) return combined
+  // trim text to make room for suffix
+  const budget = MAX_LEN - suffix.length
+  if (budget <= 0) return text.slice(0, MAX_LEN)
+  const cut = text.slice(0, budget)
+  const lastBreak = Math.max(cut.lastIndexOf(' | '), cut.lastIndexOf(' '))
+  const trimmed = lastBreak > budget * 0.5 ? cut.slice(0, lastBreak) + '...' : cut.slice(0, budget - 3) + '...'
+  return trimmed + suffix
+}
+
 const ALIAS_ADMINS = new Set(
   (process.env.ALIAS_ADMINS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
 )
@@ -137,7 +151,7 @@ const subcommands: [RegExp, SubHandler][] = [
       return `no monster found for ${query}`
     }
     logHit('mob', query, monster.Title, ctx)
-    return formatMonster(monster, resolveSkills(monster)) + suffix
+    return withSuffix(formatMonster(monster, resolveSkills(monster)), suffix)
   }],
   [/^hero\s+(.+)$/i, (query, ctx, suffix) => {
     const resolved = store.findHeroName(query)
@@ -145,12 +159,12 @@ const subcommands: [RegExp, SubHandler][] = [
     if (items.length === 0) return `no items found for hero ${query}`
     const displayName = resolved ?? query
     logHit('hero', query, `${items.length} items`, ctx)
-    return truncate(`[${displayName}] ${items.map((i) => i.Title).join(', ')}`) + suffix
+    return withSuffix(truncate(`[${displayName}] ${items.map((i) => i.Title).join(', ')}`), suffix)
   }],
   [/^enchant(?:s|ments)?$/i, (_query, ctx, suffix) => {
     const names = store.getEnchantments().map(capitalize)
     logHit('enchants', _query, `${names.length} enchants`, ctx)
-    return truncate(`Enchantments: ${names.join(', ')}`) + suffix
+    return withSuffix(truncate(`Enchantments: ${names.join(', ')}`), suffix)
   }],
   [/^tag\s+(.+)$/i, (query, ctx, suffix) => {
     const resolved = store.findTagName(query)
@@ -163,7 +177,7 @@ const subcommands: [RegExp, SubHandler][] = [
     }
     const displayTag = resolved ?? query
     logHit('tag', query, `${cards.length} items`, ctx)
-    return formatTagResults(displayTag, cards) + suffix
+    return withSuffix(formatTagResults(displayTag, cards), suffix)
   }],
   [/^day\s+(\d+)$/i, (query, ctx, suffix) => {
     const day = parseInt(query)
@@ -171,32 +185,32 @@ const subcommands: [RegExp, SubHandler][] = [
     const mobs = store.monstersByDay(day)
     if (mobs.length === 0) { logMiss(query, ctx); return `no monsters found for day ${day}` }
     logHit('day', query, `${mobs.length} monsters`, ctx)
-    return formatDayResults(day, mobs) + suffix
+    return withSuffix(formatDayResults(day, mobs), suffix)
   }],
   [/^skill\s+(.+)$/i, (query, ctx, suffix) => {
     const skill = store.findSkill(query)
     if (!skill) { logMiss(query, ctx); return `no skill found for ${query}` }
     logHit('skill', query, skill.Title, ctx)
-    return formatItem(skill) + suffix
+    return withSuffix(formatItem(skill), suffix)
   }],
   [/^trivia(?:\s+(items|heroes|monsters))?$/i, (query, ctx, suffix) => {
     if (!ctx.channel) return null
     const validCategories = new Set(['items', 'heroes', 'monsters'])
     const category = validCategories.has(query?.toLowerCase()) ? query.toLowerCase() as 'items' | 'heroes' | 'monsters' : undefined
-    return startTrivia(ctx.channel, category) + suffix
+    return withSuffix(startTrivia(ctx.channel, category), suffix)
   }],
   [/^score$/i, (_query, ctx, suffix) => {
     if (!ctx.channel) return null
-    return getTriviaScore(ctx.channel) + suffix
+    return withSuffix(getTriviaScore(ctx.channel), suffix)
   }],
   [/^stats(?:\s+@?(\S+))?$/i, (query, ctx, suffix) => {
     const target = query || ctx.user
     if (!target) return null
-    return formatStats(target) + suffix
+    return withSuffix(formatStats(target), suffix)
   }],
   [/^top$/i, (_query, ctx, suffix) => {
     if (!ctx.channel) return null
-    return formatTop(ctx.channel) + suffix
+    return withSuffix(formatTop(ctx.channel), suffix)
   }],
 ]
 
@@ -220,7 +234,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     const card = store.exact(query) ?? store.search(query, 1)[0]
     if (!card) { logMiss(query, ctx); return `no item found for ${query}` }
     logHit('enchant', query, `${card.Title}+${enchant}`, ctx, tier)
-    return formatEnchantment(card, enchant, tier) + suffix
+    return withSuffix(formatEnchantment(card, enchant, tier), suffix)
   }
 
   // items first (exact then fuzzy) — !b mob exists for explicit monster lookups
@@ -239,13 +253,13 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     const v = validateTier(card, tier)
     logHit('item', query, card.Title, ctx, v.tier)
     const result = formatItem(card, v.tier)
-    return (v.note ? `${result} (${v.note})` : result) + suffix
+    return withSuffix(v.note ? `${result} (${v.note})` : result, suffix)
   }
 
   const monster = store.findMonster(query)
   if (monster && isRelevantMatch(monster.Title)) {
     logHit('mob', query, monster.Title, ctx)
-    return formatMonster(monster, resolveSkills(monster)) + suffix
+    return withSuffix(formatMonster(monster, resolveSkills(monster)), suffix)
   }
 
   logMiss(query, ctx)
@@ -271,10 +285,10 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   if (queryWords.length <= 2) {
     const suggestions = store.suggest(query, 3)
     if (suggestions.length > 0) {
-      return `no "${query}" — did you mean: ${suggestions.join(', ')}?` + suffix
+      return withSuffix(`no "${query}" — did you mean: ${suggestions.join(', ')}?`, suffix)
     }
   }
-  return '¯\\_(ツ)_/¯' + suffix
+  return withSuffix('¯\\_(ツ)_/¯', suffix)
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {

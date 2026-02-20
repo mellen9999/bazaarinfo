@@ -14,6 +14,7 @@ interface TokenStore {
 }
 
 let tokens: TokenStore | null = null
+let refreshPending: Promise<string> | null = null
 
 async function loadTokens(): Promise<TokenStore> {
   try {
@@ -49,7 +50,13 @@ async function validate(accessToken: string): Promise<number> {
   }
 }
 
-export async function refreshToken(clientId: string, clientSecret: string): Promise<string> {
+export function refreshToken(clientId: string, clientSecret: string): Promise<string> {
+  if (refreshPending) return refreshPending
+  refreshPending = doRefresh(clientId, clientSecret).finally(() => { refreshPending = null })
+  return refreshPending
+}
+
+async function doRefresh(clientId: string, clientSecret: string): Promise<string> {
   if (!tokens) tokens = await loadTokens()
 
   const res = await fetch(TOKEN_URL, {

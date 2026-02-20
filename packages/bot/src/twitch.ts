@@ -167,6 +167,7 @@ export class TwitchClient {
       this.resetKeepalive()
       if (msg.metadata.subscription_type === 'channel.chat.message') {
         const e = msg.payload.event
+        if (!e?.message?.text) return
         const badges = (e.badges ?? []).map((b: { set_id: string }) => b.set_id)
         this.onMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, e.message.text, badges)
       }

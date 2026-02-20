@@ -25,7 +25,10 @@ export function truncate(str: string): string {
 function resolveReplacement(val: ReplacementValue, tier?: TierName): string {
   if (typeof val !== 'object' || val === null) return String(val)
   if ('Fixed' in val) return String(val.Fixed)
-  if (tier && tier in val) return String((val as Record<string, number>)[tier])
+  if (tier && tier in val) {
+    const v = (val as Record<string, number>)[tier]
+    return v != null ? String(v) : '?'
+  }
   const parts = TIER_ORDER.filter((t) => t in val).map(
     (t) => `${TIER_EMOJI[t]}${(val as Record<string, number>)[t]}`,
   )

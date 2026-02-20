@@ -8,14 +8,14 @@ import { scheduleDaily } from './scheduler'
 import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
-import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps } from './trivia'
+import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel } from './trivia'
 import { invalidatePromptCache, initSummarizer } from './ai'
 import { refreshRedditDigest } from './reddit'
 import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes } from './emotes'
 import { loadDescriptionCache } from './emote-describe'
 import { preloadStyles } from './style'
-import { rename } from 'node:fs/promises'
+import { writeAtomic } from './fs-util'
 import { log } from './log'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
@@ -47,7 +47,15 @@ const STALE_HOURS = 24
 
 const SCRAPE_TIMEOUT = 5 * 60_000 // 5min
 
+let refreshing = false
+
 async function refreshData() {
+  if (refreshing) { log('refresh already in progress, skipping'); return }
+  refreshing = true
+  try { await doRefreshData() } finally { refreshing = false }
+}
+
+async function doRefreshData() {
   log('starting data refresh...')
   let timer: Timer
   const timeout = new Promise<never>((_, reject) => {
@@ -60,9 +68,7 @@ async function refreshData() {
   ]).finally(() => clearTimeout(timer))
 
   log(`scraped ${cache.items.length} items, ${cache.skills.length} skills, ${cache.monsters.length} monsters`)
-  const tmpPath = CACHE_PATH + '.tmp'
-  await Bun.write(tmpPath, JSON.stringify(cache, null, 2))
-  await rename(tmpPath, CACHE_PATH)
+  await writeAtomic(CACHE_PATH, JSON.stringify(cache, null, 2), 0o644)
 }
 
 try {
@@ -207,6 +213,7 @@ const client = new TwitchClient(
             return
           }
           client.leaveChannel(target)
+          cleanupChannel(target)
           await channelStore.remove(target)
           client.say(channel, `@${username} left #${target}`)
           return
@@ -247,6 +254,7 @@ scheduleDaily(4, async () => {
     rebuildTriviaMaps()
     invalidatePromptCache()
     await refreshRedditDigest()
+    db.pruneOldChats(30)
   } catch (e) {
     log(`daily data refresh failed: ${e}`)
   }

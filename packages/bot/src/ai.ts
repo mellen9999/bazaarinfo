@@ -16,6 +16,7 @@ const MAX_ROUNDS = 3
 // --- per-user AI cooldown ---
 
 const userHistory = new Map<string, number>()
+const USER_HISTORY_MAX = 5_000
 
 const AI_USER_CD = 60_000 // 60s per user
 
@@ -28,6 +29,10 @@ export function getAiCooldown(user: string): number {
 }
 
 export function recordUsage(user: string) {
+  if (userHistory.size >= USER_HISTORY_MAX) {
+    const first = userHistory.keys().next().value!
+    userHistory.delete(first)
+  }
   userHistory.set(user, Date.now())
 }
 
@@ -364,7 +369,8 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
-    s = s.replace(new RegExp(`\\b${asker}\\b('s)?,?\\s*`, 'gi'), '')
+    const escaped = asker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    s = s.replace(new RegExp(`\\b${escaped}\\b('s)?,?\\s*`, 'gi'), '')
   }
 
   // extract @mentions from body — caller dedupes and appends at end
@@ -470,10 +476,12 @@ export interface AiResult { text: string; mentions: string[] }
 let aiLock: Promise<void> = Promise.resolve()
 let aiQueueDepth = 0
 const AI_MAX_QUEUE = 3
+const AI_MAX_QUERY_LEN = 200
 
 export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult | null> {
   if (!API_KEY) return null
   if (isLowValue(query)) return null
+  if (query.length > AI_MAX_QUERY_LEN) query = query.slice(0, AI_MAX_QUERY_LEN)
   if (!ctx.user || !ctx.channel) return null
 
   const cd = getAiCooldown(ctx.user)

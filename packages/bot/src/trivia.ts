@@ -488,6 +488,14 @@ export function checkAnswer(
   }
 }
 
+export function cleanupChannel(channel: string) {
+  const game = activeGames.get(channel)
+  if (game) clearTimeout(game.timeout)
+  activeGames.delete(channel)
+  lastGameEnd.delete(channel)
+  recentTypes.delete(channel)
+}
+
 export function isGameActive(channel: string): boolean {
   return activeGames.has(channel)
 }

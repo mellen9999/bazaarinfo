@@ -51,12 +51,13 @@ function validSize(s: string): ItemSize {
 }
 
 function toCard(entry: DumpEntry): BazaarCard {
+  if (!entry.Title || typeof entry.Title !== 'string') throw new Error('missing Title')
   return {
     Type: entry.Type as 'Item' | 'Skill',
     Title: entry.Title,
     Size: validSize(entry.Size),
     BaseTier: validTier(entry.BaseTier),
-    Tiers: entry.Tiers.map(validTier),
+    Tiers: (entry.Tiers ?? []).map(validTier),
     Heroes: entry.Heroes ?? [],
     Tags: entry.Tags ?? [],
     HiddenTags: entry.HiddenTags ?? [],
@@ -86,11 +87,13 @@ function toMonster(entry: DumpEntry): Monster | null {
 const MAX_RETRIES = 3
 const RETRY_DELAYS = [1000, 2000, 4000]
 
-function parseDump(dump: Record<string, DumpEntry>): CardCache {
+function parseDump(dump: Record<string, DumpEntry>, onProgress?: (msg: string) => void): CardCache {
   const entries = Object.values(dump)
   const items: BazaarCard[] = []
   const skills: BazaarCard[] = []
   const monsters: Monster[] = []
+  let skipped = 0
+  const skippedNames: string[] = []
 
   for (const entry of entries) {
     try {
@@ -107,9 +110,15 @@ function parseDump(dump: Record<string, DumpEntry>): CardCache {
           break
         }
       }
-    } catch {
-      // skip entries with bad data (unknown tier/size) rather than failing entire scrape
+    } catch (e) {
+      skipped++
+      if (skipped <= 5) skippedNames.push(entry.Title ?? '(no title)')
     }
+  }
+
+  if (skipped > 0) {
+    const names = skippedNames.join(', ') + (skipped > 5 ? ` (+${skipped - 5} more)` : '')
+    onProgress?.(`skipped ${skipped} bad entries: ${names}`)
   }
 
   return { items, skills, monsters, fetchedAt: new Date().toISOString() }
@@ -131,6 +140,9 @@ export async function scrapeDump(onProgress?: (msg: string) => void): Promise<Ca
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
+      const contentLen = parseInt(res.headers.get('content-length') ?? '0')
+      if (contentLen > 50_000_000) throw new Error(`response too large: ${contentLen} bytes`)
+
       const text = await res.text()
       let raw: unknown
       try { raw = JSON.parse(text) } catch { throw new Error('response body was not valid JSON') }
@@ -138,9 +150,15 @@ export async function scrapeDump(onProgress?: (msg: string) => void): Promise<Ca
         throw new Error('unexpected dump.json shape (not an object)')
       }
       const dump = raw as Record<string, DumpEntry>
-      const cache = parseDump(dump)
+      const cache = parseDump(dump, onProgress)
       if (cache.items.length < 50) {
         throw new Error(`suspiciously few items (${cache.items.length}), refusing to use`)
+      }
+      if (cache.skills.length < 10) {
+        throw new Error(`suspiciously few skills (${cache.skills.length}), refusing to use`)
+      }
+      if (cache.monsters.length < 5) {
+        throw new Error(`suspiciously few monsters (${cache.monsters.length}), refusing to use`)
       }
       onProgress?.(`${cache.items.length} items, ${cache.skills.length} skills, ${cache.monsters.length} monsters`)
       return cache

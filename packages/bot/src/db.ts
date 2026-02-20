@@ -310,6 +310,18 @@ export function initDb(path?: string) {
   userIdCache.clear()
 }
 
+export function pruneOldChats(days = 30) {
+  try {
+    const result = db.run(
+      `DELETE FROM chat_messages WHERE created_at < datetime('now', ?)`,
+      [`-${days} days`],
+    )
+    if (result.changes > 0) log(`pruned ${result.changes} chat messages older than ${days}d`)
+  } catch (e) {
+    log(`prune error: ${e}`)
+  }
+}
+
 export function closeDb() {
   // flush pending writes before closing
   if (flushTimer) clearTimeout(flushTimer)

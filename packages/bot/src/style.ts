@@ -64,7 +64,7 @@ function buildUserProfile(username: string, channel: string, knownEmotes: Set<st
 
 function buildStyle(channel: string): ChannelStyle {
   let messages: string[]
-  try { messages = db.getChannelMessages(channel, 5000) } catch { messages = [] }
+  try { messages = db.getChannelMessages(channel, 2000) } catch { messages = [] }
 
   const knownEmotes = new Set(getEmotesForChannel(channel))
 
@@ -74,7 +74,7 @@ function buildStyle(channel: string): ChannelStyle {
 
   // channel regulars — profile each
   let regularsRaw: { username: string; msgs: number }[] = []
-  try { regularsRaw = db.getChannelRegulars(channel, 30) } catch {}
+  try { regularsRaw = db.getChannelRegulars(channel, 15) } catch {}
 
   const regulars = new Map<string, string>()
   for (const r of regularsRaw) {
