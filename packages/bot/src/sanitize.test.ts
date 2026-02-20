@@ -273,19 +273,19 @@ describe('sanitize', () => {
     expect(sanitize('still on the boomerang grind huh').text).toBe('still on the boomerang grind huh')
   })
 
-  // --- 150 char hard cap ---
-  it('truncates at 150 chars to last boundary', () => {
-    const long = 'a'.repeat(80) + '. ' + 'b'.repeat(80)
+  // --- 440 char hard cap ---
+  it('truncates at 440 chars to last boundary', () => {
+    const long = 'a'.repeat(300) + '. ' + 'b'.repeat(200)
     const r = sanitize(long)
-    expect(r.text.length).toBeLessThanOrEqual(150)
-    expect(r.text).toBe('a'.repeat(80))
+    expect(r.text.length).toBeLessThanOrEqual(440)
+    expect(r.text).toBe('a'.repeat(300))
   })
 
-  it('preserves text over 60 chars when truncating', () => {
-    const long = 'x'.repeat(70) + ' ' + 'y'.repeat(90)
+  it('preserves text over 200 chars when truncating', () => {
+    const long = 'x'.repeat(250) + ' ' + 'y'.repeat(250)
     const r = sanitize(long)
-    expect(r.text.length).toBeGreaterThan(60)
-    expect(r.text.length).toBeLessThanOrEqual(150)
+    expect(r.text.length).toBeGreaterThan(200)
+    expect(r.text.length).toBeLessThanOrEqual(440)
   })
 
   it('strips trailing garbage from token cutoff', () => {

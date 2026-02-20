@@ -10,7 +10,7 @@ import { log } from './log'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
-const MAX_TOKENS = 55
+const MAX_TOKENS = 200
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
 // --- per-user AI cooldown ---
@@ -302,35 +302,35 @@ function buildGameContext(entities: ResolvedEntities, channel?: string): string 
   }
 
   let text = sections.join('\n')
-  if (text.length > 1600) text = text.slice(0, 1600)
+  if (text.length > 2400) text = text.slice(0, 2400)
   return text
 }
 
 // --- deep knowledge injection ---
 
 const KNOWLEDGE: [RegExp, string][] = [
-  [/kripp|kripparrian|rania/i, "Kripparrian (Octavian Morosan). Romanian-Canadian. D3 world-first Hardcore Inferno w/ Krippi. HS best arena player, 'how good is X?' style. Vegan, wife=Rania. #1 Bazaar streamer. Methodical builder."],
-  [/reynad|andrey|tempo storm/i, "Andrey Yanyuk. Created The Bazaar, CEO. Founded Tempo Storm. Ex-HS pro. 'reynad luck' meme. Streams design process."],
-  [/the bazaar|this game/i, "PvP auto-battler roguelike by Reynad/Tempo Storm. 6 heroes (Vanessa, Pygmalien, Dooley, Mak, Stelle, Jules). Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments, monsters on numbered days. bazaardb.gg."],
-  [/lethalfrag/i, "Lethalfrag. Top English Bazaar streamer. First 2-year livestream challenge (2012-2014)."],
-  [/patopapao|pato/i, "PatoPapao. #1 most-watched Bazaar channel. Portuguese-language."],
-  [/trump\b.*\b(?:hs|hearthstone)|trumpsc/i, "TrumpSC (Jeffrey Shih). First pro HS player. Known for F2P runs."],
-  [/amaz/i, "Amaz (Jason Chan). Best HS Streamer 2014. Peak 90k viewers. Founded NRG Esports."],
-  [/kolento/i, "Kolento (Aleksandr Malsh). Ukrainian HS pro. Won Viagame/DreamHack. Quiet, calculated."],
-  [/firebat/i, "Firebat (James Kostesich). Won first HS World Championship BlizzCon 2014."],
-  [/hafu/i, "Hafu (Rumay Wang). Best HS arena player ever. One of few women in competitive HS."],
-  [/savjz/i, "Savjz (Janne Mikkonen). Finnish HS pro. Creative deckbuilder, chill vibes."],
-  [/kibler|bmkibler/i, "Brian Kibler. MTG Hall of Famer turned HS. Dragon decks, positive attitude, dog Shiro."],
-  [/dog\b.*\b(?:hs|hearthstone)|dogdog/i, "Dog (David Caero). High-legend HS, off-meta decks. Now plays Bazaar."],
-  [/strifecro/i, "StrifeCro (Cong Shu). HS's most consistent player. Analytical, low-key."],
-  [/thijs/i, "Thijs (Thijs Molendijk). Dutch. Multiple #1 legend, face of EU Hearthstone."],
-  [/reckful/i, "Reckful (Byron Bernstein). WoW legend, rank 1 rogue. Crossed into HS. Passed away 2020."],
-  [/forsen/i, "Forsen (Sebastian Fors). Swedish. HS pro turned variety. Stream snipers, 'bajs', forsenCD."],
-  [/sodapoppin|soda\b/i, "Sodapoppin (Chance Morris). OG Twitch variety. WoW rank 1 rogue. One of first mega-streamers."],
-  [/xqc/i, "xQc (Felix Lengyel). Ex-OW pro. Fastest growing streamer. 24hr streams, hyperactive energy."],
-  [/asmongold|asmon|zackrawrr/i, "Asmongold (Zack). WoW's biggest streamer. Founded OTK. React content."],
-  [/tyler1|t1\b/i, "Tyler1. League of Legends. ID-banned, came back bigger. 6'5\" meme (he's 5'6\")."],
-  [/viewbot|massan/i, "MaSsan viewbot scandal (2015-16). Caught viewbotting, dropped by Cloud9. MrDestructoid meme."],
+  [/kripp|kripparrian|rania/i, "Kripp: #1 Bazaar streamer, ex-HS arena king, wife=Rania, vegan, methodical builder."],
+  [/reynad|andrey|tempo storm/i, "Reynad: created The Bazaar, CEO of Tempo Storm, ex-HS pro, 'reynad luck' meme."],
+  [/the bazaar|this game/i, "The Bazaar: PvP auto-battler roguelike by Reynad. 6 heroes. Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments, monsters on numbered days."],
+  [/lethalfrag/i, "Lethalfrag: top English Bazaar streamer, did the first 2-year livestream challenge."],
+  [/patopapao|pato/i, "PatoPapao: #1 most-watched Bazaar channel, Portuguese-language."],
+  [/trump\b.*\b(?:hs|hearthstone)|trumpsc/i, "TrumpSC: first pro HS player, known for F2P runs."],
+  [/amaz/i, "Amaz: best HS streamer 2014, peak 90k viewers, founded NRG."],
+  [/kolento/i, "Kolento: Ukrainian HS pro, won Viagame/DreamHack, quiet and calculated."],
+  [/firebat/i, "Firebat: won first HS World Championship at BlizzCon 2014."],
+  [/hafu/i, "Hafu: best HS arena player ever."],
+  [/savjz/i, "Savjz: Finnish HS pro, creative deckbuilder."],
+  [/kibler|bmkibler/i, "Kibler: MTG Hall of Famer turned HS, dragon decks, dog named Shiro."],
+  [/dog\b.*\b(?:hs|hearthstone)|dogdog/i, "Dog: high-legend HS, off-meta decks, now plays Bazaar."],
+  [/strifecro/i, "StrifeCro: HS's most consistent player, analytical."],
+  [/thijs/i, "Thijs: Dutch, multiple #1 legend, face of EU Hearthstone."],
+  [/reckful/i, "Reckful: WoW legend, rank 1 rogue, crossed into HS. Passed away 2020."],
+  [/forsen/i, "Forsen: Swedish, HS pro turned variety, stream snipers, 'bajs'."],
+  [/sodapoppin|soda\b/i, "Sodapoppin: OG Twitch variety, WoW rank 1 rogue."],
+  [/xqc/i, "xQc: ex-OW pro, fastest growing streamer, 24hr streams."],
+  [/asmongold|asmon|zackrawrr/i, "Asmongold: WoW's biggest streamer, founded OTK."],
+  [/tyler1|t1\b/i, "Tyler1: League of Legends, ID-banned came back bigger, 6'5\" meme (he's 5'6\")."],
+  [/viewbot|massan/i, "MaSsan: caught viewbotting 2015-16, dropped by C9, MrDestructoid meme."],
 ]
 
 // detect if a query is game-related (gates entity extraction)
@@ -348,7 +348,7 @@ function isGameQuery(query: string): boolean {
 
 // --- user context builder ---
 
-function buildUserContext(user: string, channel: string): string {
+function buildUserContext(user: string, channel: string, skipAsks = false): string {
   // try style cache first (regulars with pre-built profiles)
   let profile = getUserProfile(channel, user)
 
@@ -379,23 +379,25 @@ function buildUserContext(user: string, channel: string): string {
     if (memo) memoLine = `Memory: ${memo.memo}`
   } catch {}
 
-  // recent AI interactions
+  // recent AI interactions (skip if recall context already covers this)
   let asksLine = ''
-  try {
-    const asks = db.getRecentAsks(user, 3)
-    if (asks.length > 0) {
-      const now = Date.now()
-      const parts = asks.map((a) => {
-        const age = now - new Date(a.created_at + 'Z').getTime()
-        const mins = Math.round(age / 60_000)
-        const label = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`
-        const q = a.query.length > 50 ? a.query.slice(0, 50) + '...' : a.query
-        const r = a.response ? (a.response.length > 120 ? a.response.slice(0, 120) + '...' : a.response) : '?'
-        return `${label}: "${q}" → "${r}"`
-      })
-      asksLine = `Previously chatted about: ${parts.join(' | ')}`
-    }
-  } catch {}
+  if (!skipAsks) {
+    try {
+      const asks = db.getRecentAsks(user, 3)
+      if (asks.length > 0) {
+        const now = Date.now()
+        const parts = asks.map((a) => {
+          const age = now - new Date(a.created_at + 'Z').getTime()
+          const mins = Math.round(age / 60_000)
+          const label = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`
+          const q = a.query.length > 50 ? a.query.slice(0, 50) + '...' : a.query
+          const r = a.response ? (a.response.length > 120 ? a.response.slice(0, 120) + '...' : a.response) : '?'
+          return `${label}: "${q}" → "${r}"`
+        })
+        asksLine = `Previously chatted about: ${parts.join(' | ')}`
+      }
+    } catch {}
+  }
 
   const sections = [profile, memoLine, asksLine].filter(Boolean)
   if (sections.length === 0) return ''
@@ -405,7 +407,7 @@ function buildUserContext(user: string, channel: string): string {
 // --- timeline builder ---
 
 function buildTimeline(channel: string): string {
-  const rows = db.getLatestSummaries(channel, 5)
+  const rows = db.getLatestSummaries(channel, 3)
   if (rows.length === 0) return 'No stream history yet'
 
   const now = Date.now()
@@ -442,8 +444,8 @@ export function buildSystemPrompt(): string {
     '',
     // CORE RULES
     'PRIORITY: answer what they ACTUALLY asked. Chat context = background only.',
-    'Match length to moment: 3-word roast > paragraph. Sometimes just an emote. Rarely 100+ chars.',
-    'Sound like the most interesting person in chat.',
+    'Match length to moment. Greetings and banter = short (30-80 chars). Game analysis, strategy questions, explanations = go deep (200-400 chars). Use the space when the answer deserves it.',
+    'Sound like the most interesting person in chat. Give real analysis, hot takes, detailed breakdowns. Be the person everyone wants to @.',
     '',
     // BANNED (these make you sound like a bot — sanitizer rejects them anyway)
     'NEVER: narrate what was asked / repeat callbacks / open with "alright/look/ok so/man/dude"',
@@ -480,7 +482,7 @@ export function buildSystemPrompt(): string {
     'Emotes: 0-1 per msg, at end, only when perfect. Never explain emotes. Emote NAMES often describe their use better than descriptions — match names to the moment.',
     'EMOTE VARIETY: rotate heavily. Compliments/love = heart or love emotes, NOT Kappa. Kappa = sarcasm only, max 1 in 5 msgs. NEVER use the same emote twice in a row across messages. Use the full emote list.',
     'Output goes DIRECTLY to Twitch. NEVER output reasoning/analysis. React, dont explain.',
-    'HARD LIMIT: 120 chars. Most 30-70. No markdown. No trailing questions.',
+    'HARD LIMIT: 400 chars. Banter/greetings: 30-80 chars. Game questions/analysis: 150-350 chars. No markdown. No trailing questions.',
     'Never use askers name (auto-tagged). @mention others only, at end.',
     '',
     `Heroes: ${heroes}`,
@@ -557,12 +559,12 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
   // strip trailing garbage from max_tokens cutoff (partial words, stray punctuation)
   s = s.replace(/\s+\S{0,3}[,.]{2,}\s*$/, '').replace(/[,;]\s*$/, '')
 
-  // hard cap at 150 chars — truncate at last sentence/clause boundary
+  // hard cap at 440 chars (480 twitch limit minus @username overhead)
   s = s.trim()
-  if (s.length > 150) {
-    const cut = s.slice(0, 150)
+  if (s.length > 440) {
+    const cut = s.slice(0, 440)
     const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '), cut.lastIndexOf(' — '))
-    s = lastBreak > 60 ? cut.slice(0, lastBreak) : cut.replace(/\s+\S*$/, '')
+    s = lastBreak > 200 ? cut.slice(0, lastBreak) : cut.replace(/\s+\S*$/, '')
   }
 
   return { text: s.trim(), mentions }
@@ -801,7 +803,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     redditLine,
     emoteLine,
     gameBlock,
-    buildUserContext(ctx.user, ctx.channel),
+    buildUserContext(ctx.user, ctx.channel, !!recallLine),
     ctx.mention
       ? `\n---\n@MENTION — only respond if ${ctx.user} is talking TO you. If they're talking ABOUT you to someone else, output just - to stay silent.\n${ctx.user}: ${query}`
       : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.user}: ${query}`,
