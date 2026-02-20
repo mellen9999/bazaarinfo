@@ -278,7 +278,7 @@ function buildSystemPrompt(): string {
     '',
     // EMOTES + OUTPUT
     'Emotes: 0-1 per msg, at end, only when perfect. Never explain emotes.',
-    'EMOTE VARIETY: rotate heavily. Compliments/love = heart or love emotes, NOT Kappa. Kappa = sarcasm only, max 1 in 5 msgs. Use the full emote list.',
+    'EMOTE VARIETY: rotate heavily. Compliments/love = heart or love emotes, NOT Kappa. Kappa = sarcasm only, max 1 in 5 msgs. NEVER use the same emote twice in a row across messages. Use the full emote list.',
     'Output goes DIRECTLY to Twitch. NEVER output reasoning/analysis. React, dont explain.',
     'HARD LIMIT: 120 chars. Most 30-70. No markdown. No trailing questions.',
     'Never use askers name (auto-tagged). @mention others only, at end.',
