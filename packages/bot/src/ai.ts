@@ -298,8 +298,8 @@ function buildSystemPrompt(): string {
     'Bot logs usage stats, but you have no persistent memory. Dont claim "I dont log anything" — deflect: "ask mellen for details."',
     '',
     // TOOLS
-    'Tools: only for specific item/hero/monster lookups. Banter = no tools needed.',
-    'If tools return nothing, give a brief real take or deflect with humor.',
+    'Tools: use for lookups AND game analysis. "why is X bad?" → search X, then give your take using the stats. Pure banter = no tools.',
+    'If tools return nothing, give a brief real take or deflect with humor. Never shrug — always have an opinion.',
     '',
     // PEOPLE
     'kripp = Kripparrian. best HS arena player, canadian, vegan. analytical, marathon bazaar streams. wife=Rania. chat: pasta, kripp emotes.',
@@ -332,7 +332,7 @@ const SELF_REF = /\b(im a bot|as a bot|im just a( \w+)? bot|as an ai|im (just )?
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|unhinged|speedrun(ning)?)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
-const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta|summary|reddit|digest)|overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|not really a question|just spammed|keeping it light|not a (real )?question|process every message|reading chat and deciding|my (system )?prompt|context of a.{0,20}stream|easy way for you to)\b/i
+const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|context of a.{0,20}stream|easy way for you to)\b/i
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 // dangerous twitch/bot commands anywhere in response — reject entirely

@@ -233,6 +233,22 @@ function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: Tie
   return { tier: undefined, note: null }
 }
 
+// questions with 4+ words starting with these go straight to AI for analysis
+const QUESTION_PREFIX = /^(why|how|should|would|could|does|is it worth|what.+(?:best|worst|good|bad|better|counter))\b/i
+
+function buildTags(aiResult: { text: string; mentions: string[] }, ctx: CommandContext, suffix: string): string {
+  const allMentions = new Set<string>()
+  const textLower = aiResult.text.toLowerCase()
+  const userLower = ctx.user?.toLowerCase() ?? ''
+  const alreadyNamed = userLower && new RegExp(`\\b${userLower}\\b`).test(textLower)
+  if (ctx.user && !alreadyNamed) allMentions.add(`@${ctx.user}`)
+  for (const m of aiResult.mentions) {
+    if (m.toLowerCase() !== `@${userLower}`) allMentions.add(m)
+  }
+  for (const m of (suffix.match(/@\w+/g) ?? [])) allMentions.add(m.toLowerCase())
+  return allMentions.size > 0 ? ' ' + [...allMentions].join(' ') : ''
+}
+
 async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string | null> {
   const words = cleanArgs.split(/\s+/)
   const { item: query, tier, enchant } = parseArgs(words)
@@ -241,6 +257,17 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 
   // silently ignore known emotes — they're not item names
   if (!tier && !enchant && isEmote(query)) return null
+
+  // conversational game questions → AI for analysis (it has tools to look up cards)
+  if (!tier && !enchant && words.length >= 4 && QUESTION_PREFIX.test(query)) {
+    const aiResult = await aiRespond(cleanArgs, ctx)
+    if (aiResult?.text) {
+      logHit('ai', cleanArgs, 'ai', ctx)
+      const tags = buildTags(aiResult, ctx, suffix)
+      return dedupeEmote(aiResult.text, ctx.channel) + tags
+    }
+    // AI failed — fall through to normal lookup
+  }
 
   if (enchant) {
     const card = store.exact(query) ?? store.search(query, 1)[0]
@@ -280,16 +307,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   const aiResult = await aiRespond(cleanArgs, ctx)
   if (aiResult?.text) {
     logHit('ai', cleanArgs, 'ai', ctx)
-    const allMentions = new Set<string>()
-    const textLower = aiResult.text.toLowerCase()
-    const userLower = ctx.user?.toLowerCase() ?? ''
-    const alreadyNamed = userLower && new RegExp(`\\b${userLower}\\b`).test(textLower)
-    if (ctx.user && !alreadyNamed) allMentions.add(`@${ctx.user}`)
-    for (const m of aiResult.mentions) {
-      if (m.toLowerCase() !== `@${userLower}`) allMentions.add(m)
-    }
-    for (const m of (suffix.match(/@\w+/g) ?? [])) allMentions.add(m.toLowerCase())
-    const tags = allMentions.size > 0 ? ' ' + [...allMentions].join(' ') : ''
+    const tags = buildTags(aiResult, ctx, suffix)
     return dedupeEmote(aiResult.text, ctx.channel) + tags
   }
 
