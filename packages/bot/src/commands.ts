@@ -332,6 +332,10 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
 
+  if (/^(how (do you|does this( bot)?) work|what are you|what is this)\b/i.test(cleanArgs)) {
+    return 'twitch chatbot for The Bazaar by mellen. looks up items/heroes/monsters from bazaardb.gg, runs trivia, and answers questions with AI. try: !b <item> | !b hero <name> | !b trivia'
+  }
+
   // suppress duplicate lookups within 30s per channel
   if (ctx.channel && isDuplicate(ctx.channel, cleanArgs)) return null
 

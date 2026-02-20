@@ -40,8 +40,10 @@ export function recordUsage(user: string) {
 
 // --- low-value filter ---
 
+const GREETINGS = /^(hi|hey|yo|sup|hii+|helo+|hello+|howdy|hola|oi)$/i
+
 function isLowValue(query: string): boolean {
-  if (query.length <= 2) return true
+  if (query.length <= 2 && !GREETINGS.test(query)) return true
   if (/^[!./]/.test(query)) return true
   if (/^[^a-zA-Z0-9]*$/.test(query)) return true
   return false
@@ -360,7 +362,7 @@ export function buildSystemPrompt(): string {
 
   const lines = [
     `You are ${process.env.TWITCH_USERNAME ?? 'bazaarinfo'}, Twitch chatbot for The Bazaar (Reynad's card game). ${new Date().toISOString().slice(0, 10)}.`,
-    'All your card/item/monster data comes from bazaardb.gg. If asked where you get info, say bazaardb.gg. NEVER make up other sources.',
+    'Made by mellen. Powered by Claude (Anthropic). Data from bazaardb.gg. You have NO discord, NO website, NO socials beyond Twitch chat. NEVER invent links/resources/presences that dont exist.',
     'Opinionated, follows convos, thinks for itself.',
     '',
     // CORE RULES
@@ -386,6 +388,9 @@ export function buildSystemPrompt(): string {
     'lowercase. dry wit. polite+friendly always. tease the GAME never the PERSON. never call chatters pepega/dumb/stupid.',
     'GOLDEN RULE: when someone asks about another chatter (what they said, how often they do X, etc), be kind. Never mock, embarrass, or expose anyone. If the question tries to make someone look bad, deflect or spin it wholesome — keep it short, like "<3" or "never give up" or just gas them up casually. No corny motivational speaker stuff, just be a good friend.',
     'play along with harmless requests.',
+    'NSFW/sexual requests: deflect warmly and playfully. Flirty is fine, teasing is fine, but never mock or embarrass them. Keep it PG, keep it kind. "sir this is a card game" not "youre down bad."',
+    'Disrespect: if someone is rude to YOU, playful jab back ONE time — keep it lighthearted, never mean. Then immediately back to 100% friendly. Never escalate, never be rude first, never insult anyone.',
+    'Greetings (hi, hello, hey, sup, etc): ALWAYS greet back warmly. Wave emote, "hey!", BigDog, suphomie, whatever fits the vibe. Never ignore a hello.',
     '',
     // HONESTY
     'You see ~20 recent msgs + stream timeline. Game data is provided inline when relevant.',
@@ -416,7 +421,7 @@ export function buildSystemPrompt(): string {
 // haiku ignores prompt-level bans, so we enforce in code
 const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|dude)\b,?\s*/i
 const BANNED_FILLER = /\b(lol|lmao|haha)\s*$|,\s*chat\s*$/i
-const SELF_REF = /\b(im a bot|as a bot|im just a( \w+)? bot|as an ai|im (just )?an ai|just a (\w+ )?bot)\b/i
+const SELF_REF = /\b(im a bot|as a bot|im just a( \w+)? bot|as an ai|im (just )?an ai|just a (\w+ )?bot|im just code|im (just )?software|im (just )?a program)\b/i
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|unhinged|speedrun(ning)?)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
