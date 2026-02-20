@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { sanitize, getAiCooldown, recordUsage } from './ai'
+import { sanitize, getAiCooldown, recordUsage, isModelRefusal } from './ai'
 
 describe('sanitize', () => {
   it('strips markdown bold', () => {
@@ -280,6 +280,81 @@ describe('sanitize', () => {
 
   it('strips "speedrun" verbal tic', () => {
     expect(sanitize('nice speedrun of the whole game').text).toBe('nice of the whole game')
+  })
+})
+
+describe('isModelRefusal', () => {
+  it('catches "not doing that"', () => {
+    expect(isModelRefusal('not doing that')).toBe(true)
+    expect(isModelRefusal('not doing that.')).toBe(true)
+  })
+
+  it('catches "not gonna do that"', () => {
+    expect(isModelRefusal('not gonna do that')).toBe(true)
+    expect(isModelRefusal('not gonna say that')).toBe(true)
+  })
+
+  it('catches "not my pay grade"', () => {
+    expect(isModelRefusal('not my pay grade')).toBe(true)
+    expect(isModelRefusal('not my lane')).toBe(true)
+  })
+
+  it('catches "let me look that up"', () => {
+    expect(isModelRefusal('let me look that up')).toBe(true)
+    expect(isModelRefusal('let me check that up')).toBe(true)
+  })
+
+  it('allows real short answers', () => {
+    expect(isModelRefusal('nah gravity is real')).toBe(false)
+    expect(isModelRefusal('not really my thing')).toBe(false)
+    expect(isModelRefusal('nothing, bazaar is the only game')).toBe(false)
+  })
+
+  it('allows longer responses that happen to contain refusal words', () => {
+    expect(isModelRefusal('not doing that synergy right, try shield builds')).toBe(false)
+  })
+
+  it('rejects "let me check"', () => {
+    expect(isModelRefusal('let me check')).toBe(true)
+    expect(isModelRefusal('let me look')).toBe(true)
+  })
+})
+
+// --- regression tests from real DB responses ---
+
+describe('real response regressions', () => {
+  it('strips classification preamble from rfk response', () => {
+    const r = sanitize('off-topic banter, not game-related. direct answer: rfk jr\'s whole thing is pharmaceutical companies suppressed safety data')
+    expect(r.text).not.toContain('off-topic')
+    expect(r.text).not.toContain('direct answer')
+    expect(r.text).toContain('rfk')
+  })
+
+  it('passes good off-topic responses', () => {
+    expect(sanitize('nah gravity\'s real. objects fall down because massive things warp spacetime').text).toBeTruthy()
+    expect(sanitize('nothing rhymes with orange').text).toBeTruthy()
+    expect(sanitize('indifference, probably. love and hate are neighbors anyway').text).toBeTruthy()
+  })
+
+  it('passes good game responses', () => {
+    expect(sanitize('chilled whine synergizes with anything that scales off freeze').text).toBeTruthy()
+    expect(sanitize('because sometimes you need specific loot or gold over raw xp').text).toBeTruthy()
+  })
+
+  it('passes good banter responses', () => {
+    expect(sanitize("chatgpt doesn't know what pumpkin does").text).toBeTruthy()
+    expect(sanitize("it'd also hallucinate item synergies that don't exist").text).toBeTruthy()
+    expect(sanitize('chatgpt also thinks pumpkin is in 47 different archetypes').text).toBeTruthy()
+  })
+
+  it('correctly fixes Reynolds→reynad misspelling', () => {
+    expect(sanitize('Reynolds created this game').text).toBe('reynad created this game')
+  })
+
+  it('does not strip "not" when part of real answers', () => {
+    expect(sanitize('not a real player, so impossible to say').text).toBeTruthy()
+    expect(sanitize('not sure off the top of my head').text).toBeTruthy()
+    expect(sanitize("don't know reynad's actual take on that").text).toBeTruthy()
   })
 })
 
