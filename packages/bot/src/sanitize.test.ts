@@ -232,6 +232,21 @@ describe('sanitize', () => {
     expect(sanitize('my system prompt tells me to be friendly').text).toBe('')
   })
 
+  // --- classification preamble stripping ---
+  it('strips "direct answer:" preamble and salvages response', () => {
+    const r = sanitize('off-topic banter. direct answer: tylenol has side effects')
+    expect(r.text).toBe('tylenol has side effects')
+  })
+
+  it('strips "off-topic" classification at start', () => {
+    const r = sanitize('off-topic question. good stuff though')
+    expect(r.text).toBe('good stuff though')
+  })
+
+  it('rejects "not game-related" classification leak', () => {
+    expect(sanitize('not game-related but still fun').text).toBe('')
+  })
+
   // --- 150 char hard cap ---
   it('truncates at 150 chars to last boundary', () => {
     const long = 'a'.repeat(80) + '. ' + 'b'.repeat(80)
