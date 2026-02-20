@@ -303,8 +303,8 @@ scheduleDaily(4, async () => {
     rebuildTriviaMaps()
     invalidatePromptCache()
     await refreshRedditDigest()
-    db.pruneOldChats(30)
-    db.pruneOldSummaries(30)
+    db.pruneOldChats(180)
+    // summaries are tiny (~200 chars each) — keep forever for long-term memory
   } catch (e) {
     log(`daily data refresh failed: ${e}`)
   }
