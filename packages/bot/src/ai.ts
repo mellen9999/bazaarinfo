@@ -4,7 +4,7 @@ import { getRedditDigest } from './reddit'
 import * as db from './db'
 import { getRecent, getSummary, getActiveThreads, setSummarizer } from './chatbuf'
 import type { ChatEntry } from './chatbuf'
-import { formatEmotesForAI } from './emotes'
+import { formatEmotesForAI, getEmotesForChannel } from './emotes'
 import { getChannelStyle, getChannelTopEmotes } from './style'
 import { log } from './log'
 
@@ -386,6 +386,32 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
   }
 
   return { text: s.trim(), mentions }
+}
+
+// --- emote dedup (strip same emote used in consecutive bot messages) ---
+
+const lastEmoteByChannel = new Map<string, string>()
+
+export function dedupeEmote(text: string, channel?: string): string {
+  if (!channel) return text
+  const emoteSet = new Set(getEmotesForChannel(channel))
+  // find trailing emote (last word if it's a known emote)
+  const words = text.split(/\s+/)
+  const lastWord = words[words.length - 1]
+  const prevEmote = lastEmoteByChannel.get(channel)
+
+  if (lastWord && emoteSet.has(lastWord)) {
+    if (lastWord === prevEmote) {
+      // same emote as last message — strip it
+      words.pop()
+      lastEmoteByChannel.set(channel, '')
+      return words.join(' ').trim()
+    }
+    lastEmoteByChannel.set(channel, lastWord)
+  } else {
+    lastEmoteByChannel.set(channel, '')
+  }
+  return text
 }
 
 // --- rolling summary ---

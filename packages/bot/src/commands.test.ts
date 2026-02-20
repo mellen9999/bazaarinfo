@@ -66,6 +66,7 @@ mock.module('./ai', () => ({
   initSummarizer: mock(() => {}),
   invalidatePromptCache: mock(() => {}),
   sanitize: mock((t: string) => ({ text: t, mentions: [] })),
+  dedupeEmote: mock((t: string) => t),
 }))
 
 // --- mock trivia ---

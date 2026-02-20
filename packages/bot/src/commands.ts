@@ -3,7 +3,7 @@ import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
-import { aiRespond } from './ai'
+import { aiRespond, dedupeEmote } from './ai'
 
 const ALIAS_ADMINS = new Set(
   (process.env.ALIAS_ADMINS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
@@ -263,7 +263,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     }
     for (const m of (suffix.match(/@\w+/g) ?? [])) allMentions.add(m.toLowerCase())
     const tags = allMentions.size > 0 ? ' ' + [...allMentions].join(' ') : ''
-    return aiResult.text + tags
+    return dedupeEmote(aiResult.text, ctx.channel) + tags
   }
 
   // AI failed — show suggestions for short queries, shrug for everything else
