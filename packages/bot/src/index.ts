@@ -1,7 +1,7 @@
 import { TwitchClient, getUserId } from './twitch'
 import type { ChannelInfo } from './twitch'
 import { loadStore, reloadStore, CACHE_PATH } from './store'
-import { handleCommand, setLobbyChannel } from './commands'
+import { handleCommand, setLobbyChannel, setRefreshHandler } from './commands'
 import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily } from './scheduler'
 import { scrapeDump } from '@bazaarinfo/data'
@@ -12,6 +12,7 @@ import { invalidatePromptCache, initSummarizer } from './ai'
 import { refreshRedditDigest } from './reddit'
 import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes } from './emotes'
+import { loadDescriptionCache, describeEmotes } from './emote-describe'
 import { preloadStyles } from './style'
 import { log } from './log'
 
@@ -97,13 +98,57 @@ log(`bot: ${BOT_USERNAME} (${botUserId}), channels: ${channels.map((c) => `${c.n
 
 setLobbyChannel(BOT_USERNAME.toLowerCase())
 
-// load emotes then preload style cache (non-blocking)
-Promise.all([
-  refreshGlobalEmotes().catch((e) => log(`global emote load failed: ${e}`)),
-  ...channels.map((ch) => refreshChannelEmotes(ch.name, ch.userId).catch((e) => log(`emote load failed for #${ch.name}: ${e}`))),
-]).then(() => {
+// owner-only !b refresh — re-scrapes data + reddit digest
+setRefreshHandler(async () => {
+  try {
+    const before = { items: 0, skills: 0, monsters: 0 }
+    try {
+      const old = await Bun.file(CACHE_PATH).json() as any
+      before.items = old.items?.length ?? 0
+      before.skills = old.skills?.length ?? 0
+      before.monsters = old.monsters?.length ?? 0
+    } catch {}
+
+    await refreshData()
+    await reloadStore()
+    invalidatePromptCache()
+    await refreshRedditDigest()
+
+    const fresh = await Bun.file(CACHE_PATH).json() as any
+    const di = (fresh.items?.length ?? 0) - before.items
+    const ds = (fresh.skills?.length ?? 0) - before.skills
+    const dm = (fresh.monsters?.length ?? 0) - before.monsters
+    const changes = [
+      di ? `${di > 0 ? '+' : ''}${di} items` : null,
+      ds ? `${ds > 0 ? '+' : ''}${ds} skills` : null,
+      dm ? `${dm > 0 ? '+' : ''}${dm} monsters` : null,
+    ].filter(Boolean)
+    return changes.length > 0
+      ? `refreshed! ${changes.join(', ')}`
+      : `refreshed, no new data (${fresh.items.length} items)`
+  } catch (e) {
+    log(`manual refresh failed: ${e}`)
+    return `refresh failed: ${e instanceof Error ? e.message : e}`
+  }
+})
+
+// load emote descriptions cache, then refresh emotes + describe new ones
+loadDescriptionCache().then(async () => {
+  const emoteData = []
+  try {
+    const globals = await refreshGlobalEmotes()
+    emoteData.push(...globals)
+  } catch (e) { log(`global emote load failed: ${e}`) }
+  for (const ch of channels) {
+    try {
+      const data = await refreshChannelEmotes(ch.name, ch.userId)
+      emoteData.push(...data)
+    } catch (e) { log(`emote load failed for #${ch.name}: ${e}`) }
+  }
+  // describe any new emotes via vision (non-blocking, runs in background)
+  await describeEmotes(emoteData).catch((e) => log(`emote describe failed: ${e}`))
   preloadStyles(channels.map((c) => c.name))
-}).catch((e) => log(`style preload failed: ${e}`))
+}).catch((e) => log(`emote startup failed: ${e}`))
 
 // load reddit digest (non-blocking)
 refreshRedditDigest().catch((e) => log(`reddit digest load failed: ${e}`))
@@ -200,10 +245,15 @@ scheduleDaily(4, async () => {
     log(`daily data refresh failed: ${e}`)
   }
   try {
-    await refreshGlobalEmotes()
-    // refresh all currently joined channels, not just startup list
+    const dailyEmoteData = []
+    const globals = await refreshGlobalEmotes()
+    dailyEmoteData.push(...globals)
     const currentChannels = client.getChannels()
-    for (const ch of currentChannels) await refreshChannelEmotes(ch.name, ch.userId)
+    for (const ch of currentChannels) {
+      const data = await refreshChannelEmotes(ch.name, ch.userId)
+      dailyEmoteData.push(...data)
+    }
+    await describeEmotes(dailyEmoteData)
   } catch (e) { log(`daily emote refresh failed: ${e}`) }
   log('daily refresh complete')
 })

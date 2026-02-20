@@ -61,6 +61,10 @@ export function parseArgs(words: string[]): ParsedArgs {
 let lobbyChannel = ''
 export function setLobbyChannel(name: string) { lobbyChannel = name }
 
+const OWNER = 'mellen'
+let onRefresh: (() => Promise<string>) | null = null
+export function setRefreshHandler(handler: () => Promise<string>) { onRefresh = handler }
+
 const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/enchants/trivia/score/stats | bazaardb.gg'
 const JOIN_USAGE = () => lobbyChannel ? ` | add bot: type !join in ${lobbyChannel}'s chat` : ''
 
@@ -110,6 +114,11 @@ const subcommands: [RegExp, SubHandler][] = [
     const removed = store.removeDynamicAlias(query)
     if (removed) invalidateAliasCache()
     return removed ? `removed alias "${query}"` : `no alias found for "${query}"`
+  }],
+  [/^refresh$/i, async (_q, ctx) => {
+    if (ctx.user !== OWNER) return null
+    if (!onRefresh) return 'refresh not available'
+    return onRefresh()
   }],
   [/^(?:mob|monster)$/i, () => 'usage: !b mob <name>'],
   [/^hero$/i, () => 'usage: !b hero <name>'],
