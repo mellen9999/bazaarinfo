@@ -1704,3 +1704,63 @@ describe('command proxy: mod bypass', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// AI command management (mod asks AI to add/edit/delete streamlabs commands)
+// ---------------------------------------------------------------------------
+describe('AI command management', () => {
+  it('mod AI response with !addcom gets sent to chat', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: '!addcom !harem 42 cuties in the harem Kreygasm', mentions: [] }))
+    const result = await handleCommand('!b hey add a command called harem', { user: 'mod', channel: 'stream', privileged: true })
+    expect(result).toBe('!addcom !harem 42 cuties in the harem Kreygasm')
+  })
+
+  it('mod AI response with !editcom gets sent to chat', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: '!editcom !harem 99 cuties in the harem', mentions: [] }))
+    const result = await handleCommand('!b edit the harem command to say 99', { user: 'mod', channel: 'stream', privileged: true })
+    expect(result).toBe('!editcom !harem 99 cuties in the harem')
+  })
+
+  it('mod AI response with !delcom gets sent to chat', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: '!delcom !harem', mentions: [] }))
+    const result = await handleCommand('!b delete the harem command', { user: 'mod', channel: 'stream', privileged: true })
+    expect(result).toBe('!delcom !harem')
+  })
+
+  it('non-mod cannot get AI to output commands', async () => {
+    // real sanitize strips command prefix for non-privileged, so aiRespond returns empty
+    // here we simulate what happens: AI tried to output !addcom but sanitizer killed it
+    mockAiRespond.mockImplementation(() => null)
+    const result = await handleCommand('!b add a command called harem', { user: 'viewer', channel: 'stream' })
+    // no AI result → falls through to shrug
+    expect(result).toContain('¯\\_(ツ)_/¯')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Copypasta via AI
+// ---------------------------------------------------------------------------
+describe('copypasta via AI', () => {
+  it('returns copypasta prefixed with from claude:', async () => {
+    const pasta = 'from claude: listen here chat, i have been PERSONALLY victimized by boomerang players who think they are hot stuff just because they deal 60 damage'
+    mockAiRespond.mockImplementation(() => ({ text: pasta, mentions: [] }))
+    const result = await handleCommand('!b give me a copypasta about boomerang', { user: 'chatter', channel: 'stream' })
+    expect(result).toContain('from claude:')
+    expect(result).toContain('boomerang')
+  })
+
+  it('copypasta works for non-mods', async () => {
+    const pasta = 'from claude: we are ALL vanessa mains on this blessed day'
+    mockAiRespond.mockImplementation(() => ({ text: pasta, mentions: [] }))
+    const result = await handleCommand('!b write a copypasta about vanessa', { user: 'viewer', channel: 'stream' })
+    expect(result).toBe(pasta)
+  })
+
+  it('copypasta can use full message length', async () => {
+    const longPasta = 'from claude: ' + 'a'.repeat(400)
+    mockAiRespond.mockImplementation(() => ({ text: longPasta, mentions: [] }))
+    const result = await handleCommand('!b copypasta about gaming', { user: 'chatter', channel: 'stream' })
+    expect(result).toBeTruthy()
+    expect(result!.startsWith('from claude:')).toBe(true)
+  })
+})
+

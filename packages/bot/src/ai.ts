@@ -458,6 +458,8 @@ export function buildSystemPrompt(): string {
     '',
     // OUTPUT
     'Emotes: 0-1 per msg, at end, rotate heavily. Never use askers name (auto-tagged). @mention others only.',
+    'COPYPASTA: if asked for a copypasta/pasta, go all in — fill the full 400 chars with absurd, funny, over-the-top text. Always prefix with "from claude: ". Make it worth pasting.',
+    'COMMANDS: if a MOD asks you to add/edit/delete a streamlabs command, output ONLY the raw command: "!addcom !name response" or "!editcom !name response" or "!delcom !name". No commentary — just the command. Non-mods cannot do this.',
     '',
     `Heroes: ${heroes}`,
     `Tags: ${filteredTags}`,
@@ -486,11 +488,11 @@ const PRIVACY_LIE = /\b(i (don'?t|do not|never) (log|store|collect|track|save|re
 // dangerous twitch/bot commands anywhere in response — reject entirely
 const DANGEROUS_COMMANDS = /[!\\/]\s*(?:ban|timeout|mute|mod|unmod|vip|unvip|settitle|setgame|addcom|delcom|editcom|host|raid|announce|whisper|clear)\b/i
 
-export function sanitize(text: string, asker?: string): { text: string; mentions: string[] } {
+export function sanitize(text: string, asker?: string, privileged?: boolean): { text: string; mentions: string[] } {
   let s = text.trim()
     .replace(/^["'`]+/, '') // strip leading quotes (model wraps commands in quotes to bypass)
-    .replace(/^[!\\/.\s]+/, '') // strip command prefixes (!/\. for twitch + other bots)
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
+  if (!privileged) s = s.replace(/^[!\\/.\s]+/, '') // strip command prefixes (!/\. for twitch + other bots)
+  s = s.replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
     .replace(/_([^_]+)_/g, '$1')
@@ -517,7 +519,8 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
   s = s.replace(VERBAL_TICS, '').replace(/\s{2,}/g, ' ')
 
   // reject responses that self-reference being a bot, leak reasoning/stats, fabricate stories, lie about privacy, or contain commands
-  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || DANGEROUS_COMMANDS.test(s)) return { text: '', mentions: [] }
+  const cmdBlock = privileged ? false : DANGEROUS_COMMANDS.test(s)
+  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || cmdBlock) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
@@ -885,7 +888,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     buildUserContext(ctx.user, ctx.channel, !!recallLine),
     ctx.mention
       ? `\n---\n@MENTION — only respond if ${ctx.user} is talking TO you. If they're talking ABOUT you to someone else, output just - to stay silent.\n${ctx.user}: ${query}`
-      : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.user}: ${query}`,
+      : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.privileged ? '[MOD] ' : ''}${ctx.user}: ${query}`,
   ].filter(Boolean).join('')
   return { text, hasGameData }
 }
@@ -1009,7 +1012,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const textBlock = data.content?.find((b) => b.type === 'text')
       if (!textBlock?.text) return null
 
-      const result = sanitize(textBlock.text, ctx.user)
+      const result = sanitize(textBlock.text, ctx.user, ctx.privileged)
       if (result.text) {
         // terse refusal detection — model over-refuses harmless queries
         if (isModelRefusal(result.text) && attempt < MAX_RETRIES - 1) {
