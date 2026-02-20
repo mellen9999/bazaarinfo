@@ -104,7 +104,7 @@ mock.module('./emotes', () => ({
   removeChannelEmotes: mock(() => {}),
 }))
 
-const { handleCommand, parseArgs, resetDedup } = await import('./commands')
+const { handleCommand, parseArgs, resetDedup, resetProxyCooldowns, PROXY_COOLDOWN } = await import('./commands')
 
 // --- test fixtures ---
 function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
@@ -151,6 +151,7 @@ const shield = makeCard({
 
 beforeEach(() => {
   resetDedup()
+  resetProxyCooldowns()
   mockLogCommand.mockReset()
   mockExact.mockReset()
   mockSearch.mockReset()
@@ -1425,88 +1426,241 @@ describe('AI fallback path', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Command proxy (! and / commands)
+// Command proxy — direct ! commands
 // ---------------------------------------------------------------------------
-describe('command proxy', () => {
-  it('proxies custom ! commands as-is', async () => {
+describe('command proxy: direct !cmd', () => {
+  it('proxies custom commands as-is', async () => {
     expect(await handleCommand('!b !jory')).toBe('!jory')
-    expect(await handleCommand('!b !jory 932')).toBe('!jory 932')
     expect(await handleCommand('!b !lurk')).toBe('!lurk')
     expect(await handleCommand('!b !hug')).toBe('!hug')
   })
 
-  it('blocks streamlabs system commands', async () => {
-    expect(await handleCommand('!b !so')).toBeNull()
-    expect(await handleCommand('!b !shoutout')).toBeNull()
-    expect(await handleCommand('!b !commands')).toBeNull()
-    expect(await handleCommand('!b !addcom')).toBeNull()
-    expect(await handleCommand('!b !editcom')).toBeNull()
-    expect(await handleCommand('!b !delcom')).toBeNull()
-    expect(await handleCommand('!b !permit')).toBeNull()
-    expect(await handleCommand('!b !sr')).toBeNull()
-    expect(await handleCommand('!b !songrequest')).toBeNull()
+  it('proxies with numeric args', async () => {
+    expect(await handleCommand('!b !jory 932')).toBe('!jory 932')
   })
 
-  it('blocks streamelements system commands', async () => {
-    expect(await handleCommand('!b !points')).toBeNull()
-    expect(await handleCommand('!b !top')).toBeNull()
-    expect(await handleCommand('!b !leaderboard')).toBeNull()
-    expect(await handleCommand('!b !roulette')).toBeNull()
-    expect(await handleCommand('!b !gamble')).toBeNull()
-    expect(await handleCommand('!b !slots')).toBeNull()
-    expect(await handleCommand('!b !duel')).toBeNull()
-    expect(await handleCommand('!b !giveaway')).toBeNull()
+  it('proxies with text args', async () => {
+    expect(await handleCommand('!b !quote add this is funny')).toBe('!quote add this is funny')
   })
 
-  it('blocks moderation commands', async () => {
-    expect(await handleCommand('!b !ban')).toBeNull()
-    expect(await handleCommand('!b !unban')).toBeNull()
-    expect(await handleCommand('!b !timeout')).toBeNull()
-    expect(await handleCommand('!b !mod')).toBeNull()
-    expect(await handleCommand('!b !unmod')).toBeNull()
-    expect(await handleCommand('!b !vip')).toBeNull()
-    expect(await handleCommand('!b !nuke')).toBeNull()
-    expect(await handleCommand('!b !clear')).toBeNull()
+  it('blocks every streamlabs system command', async () => {
+    for (const cmd of ['so', 'shoutout', 'commands', 'addcom', 'editcom', 'delcom',
+      'deletecom', 'disablecom', 'enablecom', 'permit', 'sr', 'songrequest',
+      'songs', 'skip', 'wrongsong', 'volume', 'queue', 'playlist']) {
+      expect(await handleCommand(`!b !${cmd}`)).toBeNull()
+    }
   })
 
-  it('blocks stream control commands', async () => {
-    expect(await handleCommand('!b !title')).toBeNull()
-    expect(await handleCommand('!b !game')).toBeNull()
-    expect(await handleCommand('!b !raid')).toBeNull()
-    expect(await handleCommand('!b !commercial')).toBeNull()
-    expect(await handleCommand('!b !host')).toBeNull()
-    expect(await handleCommand('!b !marker')).toBeNull()
+  it('blocks every streamelements system command', async () => {
+    for (const cmd of ['points', 'loyalty', 'givepoints', 'removepoints', 'top',
+      'leaderboard', 'roulette', 'gamble', 'slots', 'duel']) {
+      expect(await handleCommand(`!b !${cmd}`)).toBeNull()
+    }
   })
 
-  it('is case insensitive for blocked ! commands', async () => {
+  it('blocks every moderation command', async () => {
+    for (const cmd of ['ban', 'unban', 'timeout', 'untimeout', 'permit',
+      'nuke', 'unnuke', 'mod', 'unmod', 'vip', 'unvip', 'block', 'unblock']) {
+      expect(await handleCommand(`!b !${cmd}`)).toBeNull()
+    }
+  })
+
+  it('blocks every stream control command', async () => {
+    for (const cmd of ['title', 'game', 'commercial', 'raid', 'unraid',
+      'host', 'unhost', 'marker', 'so', 'shoutout']) {
+      expect(await handleCommand(`!b !${cmd}`)).toBeNull()
+    }
+  })
+
+  it('blocks every chat mode command', async () => {
+    for (const cmd of ['slow', 'slowoff', 'followers', 'followersoff',
+      'subscribers', 'subscribersoff', 'emoteonly', 'emoteonlyoff',
+      'uniquechat', 'uniquechatoff', 'clear']) {
+      expect(await handleCommand(`!b !${cmd}`)).toBeNull()
+    }
+  })
+
+  it('blocks every giveaway/poll command', async () => {
+    for (const cmd of ['giveaway', 'raffle', 'enter', 'poll', 'vote', 'winner']) {
+      expect(await handleCommand(`!b !${cmd}`)).toBeNull()
+    }
+  })
+
+  it('blocks every nightbot command', async () => {
+    for (const cmd of ['regulars', 'filters', 'timers']) {
+      expect(await handleCommand(`!b !${cmd}`)).toBeNull()
+    }
+  })
+
+  it('blocked commands are case insensitive', async () => {
     expect(await handleCommand('!b !SO')).toBeNull()
     expect(await handleCommand('!b !Ban')).toBeNull()
     expect(await handleCommand('!b !ROULETTE')).toBeNull()
+    expect(await handleCommand('!b !TimeOut')).toBeNull()
+    expect(await handleCommand('!b !NUKE')).toBeNull()
   })
 
-  // slash commands: allowlist only
-  it('allows safe / commands', async () => {
+  it('blocked commands with args still blocked', async () => {
+    expect(await handleCommand('!b !ban someone')).toBeNull()
+    expect(await handleCommand('!b !timeout user 300')).toBeNull()
+    expect(await handleCommand('!b !so streamer123')).toBeNull()
+    expect(await handleCommand('!b !raid coolchannel')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Command proxy — embedded !cmd in conversational text
+// ---------------------------------------------------------------------------
+describe('command proxy: embedded in chat', () => {
+  it('"so can u run !jory pls brotherman" → !jory', async () => {
+    expect(await handleCommand('!b so can u run !jory pls brotherman')).toBe('!jory')
+  })
+
+  it('"run !jory 932 please" → !jory 932', async () => {
+    expect(await handleCommand('!b run !jory 932 please')).toBe('!jory 932')
+  })
+
+  it('"yo do !lurk for me" → !lurk', async () => {
+    expect(await handleCommand('!b yo do !lurk for me')).toBe('!lurk')
+  })
+
+  it('"can you type !hug" → !hug', async () => {
+    expect(await handleCommand('!b can you type !hug')).toBe('!hug')
+  })
+
+  it('"pls !jory" → !jory', async () => {
+    expect(await handleCommand('!b pls !jory')).toBe('!jory')
+  })
+
+  it('"hey !jory 100 thanks bro" → !jory 100', async () => {
+    expect(await handleCommand('!b hey !jory 100 thanks bro')).toBe('!jory 100')
+  })
+
+  it('embedded blocked command is silently dropped', async () => {
+    // "can you !ban this guy" — blocked cmd, falls through to item lookup / AI
+    const result = await handleCommand('!b can you !ban this guy', { user: 'u', channel: 'c' })
+    // should NOT return "!ban" — should fall through
+    expect(result).not.toContain('!ban')
+  })
+
+  it('embedded blocked command falls through to AI', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'nah i cant ban people', mentions: [] }))
+    const result = await handleCommand('!b can you !ban this guy', { user: 'u', channel: 'c' })
+    expect(result).toContain('nah i cant ban people')
+  })
+
+  it('preserves original case of command name', async () => {
+    expect(await handleCommand('!b run !Jory pls')).toBe('!Jory')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Command proxy — cooldowns
+// ---------------------------------------------------------------------------
+describe('command proxy: cooldowns', () => {
+  const ctx = { user: 'tidolar', channel: 'mellen' }
+
+  it('first use succeeds', async () => {
+    expect(await handleCommand('!b !jory', ctx)).toBe('!jory')
+  })
+
+  it('second use within window shows cooldown', async () => {
+    await handleCommand('!b !jory', ctx)
+    const result = await handleCommand('!b !jory', ctx)
+    expect(result).toContain('!jory is on cooldown')
+    expect(result).toMatch(/\d+s/)
+  })
+
+  it('cooldown message shows remaining seconds', async () => {
+    await handleCommand('!b !jory', ctx)
+    const result = (await handleCommand('!b !jory', ctx))!
+    // should be close to 30s
+    const match = result.match(/(\d+)s/)
+    expect(match).toBeTruthy()
+    const secs = parseInt(match![1])
+    expect(secs).toBeGreaterThan(0)
+    expect(secs).toBeLessThanOrEqual(30)
+  })
+
+  it('different commands have independent cooldowns', async () => {
+    await handleCommand('!b !jory', ctx)
+    // !lurk should work even though !jory just fired
+    expect(await handleCommand('!b !lurk', ctx)).toBe('!lurk')
+  })
+
+  it('different channels have independent cooldowns', async () => {
+    await handleCommand('!b !jory', { user: 'a', channel: 'ch1' })
+    // same command, different channel — should work
+    expect(await handleCommand('!b !jory', { user: 'b', channel: 'ch2' })).toBe('!jory')
+  })
+
+  it('cooldown applies to embedded commands too', async () => {
+    await handleCommand('!b !jory', ctx)
+    const result = await handleCommand('!b yo run !jory pls', ctx)
+    expect(result).toContain('!jory is on cooldown')
+  })
+
+  it('embedded command triggers cooldown for direct use', async () => {
+    await handleCommand('!b hey do !jory pls', ctx)
+    const result = await handleCommand('!b !jory', ctx)
+    expect(result).toContain('!jory is on cooldown')
+  })
+
+  it('no cooldown without channel context', async () => {
+    await handleCommand('!b !jory')
+    // no channel = no cooldown tracking
+    expect(await handleCommand('!b !jory')).toBe('!jory')
+  })
+
+  it('slash commands have no cooldown', async () => {
+    expect(await handleCommand('!b /me dances', { user: 'a', channel: 'ch1' })).toBe('/me dances')
+    expect(await handleCommand('!b /me dances', { user: 'a', channel: 'ch2' })).toBe('/me dances')
+  })
+
+  it('cooldown is case insensitive', async () => {
+    await handleCommand('!b !Jory', { user: 'a', channel: 'cd1' })
+    resetDedup()
+    const result = await handleCommand('!b !jory', { user: 'b', channel: 'cd1' })
+    expect(result).toContain('on cooldown')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Command proxy — slash commands (allowlist)
+// ---------------------------------------------------------------------------
+describe('command proxy: slash commands', () => {
+  it('allows /me', async () => {
     expect(await handleCommand('!b /me dances')).toBe('/me dances')
-    expect(await handleCommand('!b /announce hello')).toBe('/announce hello')
+  })
+
+  it('allows /announce', async () => {
+    expect(await handleCommand('!b /announce hello everyone')).toBe('/announce hello everyone')
+  })
+
+  it('allows /color', async () => {
     expect(await handleCommand('!b /color blue')).toBe('/color blue')
   })
 
-  it('blocks all dangerous / commands', async () => {
-    expect(await handleCommand('!b /ban someone')).toBeNull()
-    expect(await handleCommand('!b /timeout user 300')).toBeNull()
-    expect(await handleCommand('!b /mod user')).toBeNull()
-    expect(await handleCommand('!b /clear')).toBeNull()
-    expect(await handleCommand('!b /raid channel')).toBeNull()
-    expect(await handleCommand('!b /slow 30')).toBeNull()
-    expect(await handleCommand('!b /subscribers')).toBeNull()
-    expect(await handleCommand('!b /delete')).toBeNull()
-    expect(await handleCommand('!b /w someone secret')).toBeNull()
-    expect(await handleCommand('!b /host channel')).toBeNull()
-    expect(await handleCommand('!b /commercial')).toBeNull()
+  it('blocks every dangerous / command', async () => {
+    for (const cmd of ['ban', 'unban', 'timeout', 'untimeout', 'mod', 'unmod',
+      'vip', 'unvip', 'clear', 'slow', 'slowoff', 'followers', 'followersoff',
+      'subscribers', 'subscribersoff', 'emoteonly', 'emoteonlyoff',
+      'uniquechat', 'uniquechatoff', 'raid', 'unraid', 'host', 'unhost',
+      'delete', 'commercial', 'marker', 'w', 'whisper', 'block', 'unblock',
+      'disconnect']) {
+      expect(await handleCommand(`!b /${cmd} arg`)).toBeNull()
+    }
   })
 
-  it('blocks unknown / commands (allowlist-only)', async () => {
+  it('blocks unknown / commands (allowlist enforced)', async () => {
     expect(await handleCommand('!b /whatever')).toBeNull()
     expect(await handleCommand('!b /hack')).toBeNull()
+    expect(await handleCommand('!b /exec')).toBeNull()
+    expect(await handleCommand('!b /sudo')).toBeNull()
+  })
+
+  it('slash allowlist is case insensitive', async () => {
+    expect(await handleCommand('!b /ME dances')).toBe('/ME dances')
+    expect(await handleCommand('!b /ANNOUNCE hi')).toBe('/ANNOUNCE hi')
   })
 })

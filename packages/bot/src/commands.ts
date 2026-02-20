@@ -54,6 +54,23 @@ const ALLOWED_SLASH_CMDS = new Set([
   'me', 'announce', 'color',
 ])
 
+// --- proxy cooldown: per-channel per-command, 30s window ---
+const PROXY_COOLDOWN = 30_000
+const proxyCooldowns = new Map<string, number>()
+
+function proxyWithCooldown(channel: string | undefined, cmdStr: string, cmd: string): string {
+  if (!channel) return cmdStr
+  const key = `${channel}:${cmd.toLowerCase()}`
+  const now = Date.now()
+  const last = proxyCooldowns.get(key)
+  if (last && now - last < PROXY_COOLDOWN) {
+    const left = Math.ceil((PROXY_COOLDOWN - (now - last)) / 1000)
+    return `!${cmd} is on cooldown (${left}s)`
+  }
+  proxyCooldowns.set(key, now)
+  return cmdStr
+}
+
 export interface CommandContext {
   user?: string
   channel?: string
@@ -365,15 +382,12 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     return 'twitch chatbot for The Bazaar by mellen. looks up items/heroes/monsters from bazaardb.gg, runs trivia, and answers questions with AI. try: !b <item> | !b hero <name> | !b trivia'
   }
 
-  // suppress duplicate lookups within 30s per channel
-  if (ctx.channel && isDuplicate(ctx.channel, cleanArgs)) return null
-
-  // proxy bot/slash commands: !b !jory 932 → sends "!jory 932" in chat
+  // proxy ! and / commands — before dedup so cooldown messages always show
   const bangMatch = cleanArgs.match(/^!(\w+)(.*)$/)
   if (bangMatch) {
     const cmd = bangMatch[1].toLowerCase()
     if (BLOCKED_BANG_CMDS.has(cmd)) return null
-    return cleanArgs
+    return proxyWithCooldown(ctx.channel, cleanArgs, cmd)
   }
   const slashMatch = cleanArgs.match(/^\/(\w+)(.*)$/)
   if (slashMatch) {
@@ -381,6 +395,18 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     if (!ALLOWED_SLASH_CMDS.has(cmd)) return null
     return cleanArgs
   }
+  // embedded command: "so can u run !jory pls" → "!jory"
+  const embeddedMatch = cleanArgs.match(/!(\w+)(?:\s+(\d+))?/)
+  if (embeddedMatch) {
+    const cmd = embeddedMatch[1].toLowerCase()
+    if (!BLOCKED_BANG_CMDS.has(cmd)) {
+      const cmdStr = embeddedMatch[2] ? `!${embeddedMatch[1]} ${embeddedMatch[2]}` : `!${embeddedMatch[1]}`
+      return proxyWithCooldown(ctx.channel, cmdStr, cmd)
+    }
+  }
+
+  // suppress duplicate lookups within 30s per channel
+  if (ctx.channel && isDuplicate(ctx.channel, cleanArgs)) return null
 
   const suffix = ''
 
@@ -446,3 +472,9 @@ export async function handleCommand(text: string, ctx: CommandContext = {}): Pro
 export function resetDedup() {
   recentQueries.clear()
 }
+
+export function resetProxyCooldowns() {
+  proxyCooldowns.clear()
+}
+
+export { PROXY_COOLDOWN }
