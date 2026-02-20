@@ -13,34 +13,23 @@ const MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 55
 const TIMEOUT = 15_000
 const MAX_ROUNDS = 3
-// --- frequency-based brevity (heavy users get shorter responses) ---
+// --- per-user AI cooldown ---
 
-const userHistory = new Map<string, number[]>()
-const BREVITY_WINDOW = 10 * 60_000 // 10 min window
+const userHistory = new Map<string, number>()
 
-/** returns a brevity level 0-3 based on recent usage. 0 = normal, 3 = ultra terse */
-export function getBrevity(user: string): number {
-  const now = Date.now()
-  const times = (userHistory.get(user) ?? []).filter((t) => now - t < BREVITY_WINDOW)
-  userHistory.set(user, times)
-  // 1st use = 0, 2nd = 1, 3rd = 2, 4+ = 3
-  return Math.min(3, Math.max(0, times.length - 1))
+const AI_USER_CD = 60_000 // 60s per user
+
+/** returns seconds remaining on cooldown, or 0 if ready */
+export function getAiCooldown(user: string): number {
+  const last = userHistory.get(user)
+  if (!last) return 0
+  const elapsed = Date.now() - last
+  return elapsed >= AI_USER_CD ? 0 : Math.ceil((AI_USER_CD - elapsed) / 1000)
 }
 
 export function recordUsage(user: string) {
-  const now = Date.now()
-  const times = (userHistory.get(user) ?? []).filter((t) => now - t < BREVITY_WINDOW)
-  times.push(now)
-  userHistory.set(user, times)
+  userHistory.set(user, Date.now())
 }
-
-const BREVITY_TOKENS = [55, 40, 30, 25] as const
-const BREVITY_HINTS = [
-  '',
-  '\n(keep it short, ~80 chars)',
-  '\n(be terse. ~60 chars max.)',
-  '\n(ultra brief. one punchy line. 40 chars.)',
-] as const
 
 // --- low-value filter ---
 
@@ -286,12 +275,12 @@ function buildSystemPrompt(): string {
     '',
 
     // HONESTY + TOOLS
-    'You CAN see recent chat messages (~last 20) for context. Be honest about this if asked.',
+    'You CAN see recent chat messages (~last 20) and a rolling stream summary. You KNOW what chat has been talking about. If asked to summarize or recall chat, DO IT using the context above — never claim you cant see chat.',
     'You do NOT have memory across conversations or per-user history.',
     'NEVER fabricate stories, dreams, events, or lore. If you dont know a game fact, say so or deflect with humor.',
-    'NEVER misquote or misattribute what chatters said. If you cant remember exactly, dont summarize them.',
+    'NEVER misquote or misattribute what chatters said. If you cant remember exactly, paraphrase loosely.',
     'NEVER make up item stats, abilities, synergies, or game mechanics. Only cite what tools actually return.',
-    'NEVER lie about what you can or cant do. If someone asks about your capabilities, be straight.',
+    'NEVER deny a capability you actually have. If someone asks you to do something and you CAN do it, just do it.',
     '',
     // TOOLS + GAME
     'You have search tools — use them ONLY when someone asks about a specific item/hero/monster.',
@@ -471,6 +460,9 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (isLowValue(query)) return null
   if (!ctx.user || !ctx.channel) return null
 
+  const cd = getAiCooldown(ctx.user)
+  if (cd > 0) return { text: `${cd}s`, mentions: [] }
+
   if (aiQueueDepth >= AI_MAX_QUEUE) {
     log('ai: queue full, dropping')
     return null
@@ -510,7 +502,6 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     ? `\nActive convos: ${threads.map((t) => `${t.users.join('+')} re: ${t.topic}`).join(' | ')}`
     : ''
 
-  const brevity = getBrevity(ctx.user)
   recordUsage(ctx.user)
 
   const userMessage = [
@@ -519,7 +510,6 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     threadLine,
     contextLine,
     emoteLine,
-    BREVITY_HINTS[brevity],
     `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.user}: ${query}`,
   ].filter(Boolean).join('')
 
@@ -535,7 +525,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
 
       const body: Record<string, unknown> = {
         model: MODEL,
-        max_tokens: BREVITY_TOKENS[brevity],
+        max_tokens: MAX_TOKENS,
         system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
         messages,
       }
