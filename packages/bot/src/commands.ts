@@ -378,8 +378,8 @@ async function handleMention(text: string, ctx: CommandContext): Promise<string 
   if (ctx.channel && isDuplicate(ctx.channel, `mention:${query}`)) return null
   if (ctx.user && getAiCooldown(ctx.user, ctx.channel) > 0) return null
 
-  const aiResult = await aiRespond(query, ctx)
-  if (aiResult?.text) {
+  const aiResult = await aiRespond(query, { ...ctx, mention: true })
+  if (aiResult?.text && aiResult.text.trim() !== '-') {
     try { db.logCommand(ctx, 'ai', query, 'mention') } catch {}
     const response = dedupeEmote(aiResult.text, ctx.channel)
     return ctx.user ? `${response} @${ctx.user}` : response

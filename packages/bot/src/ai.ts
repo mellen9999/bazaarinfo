@@ -640,6 +640,7 @@ export interface AiContext {
   user?: string
   channel?: string
   privileged?: boolean
+  mention?: boolean
 }
 
 export interface AiResult { text: string; mentions: string[] }
@@ -794,7 +795,9 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     emoteLine,
     gameBlock,
     buildUserContext(ctx.user, ctx.channel),
-    `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.user}: ${query}`,
+    ctx.mention
+      ? `\n---\n@MENTION — only respond if ${ctx.user} is talking TO you. If they're talking ABOUT you to someone else, output just - to stay silent.\n${ctx.user}: ${query}`
+      : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.user}: ${query}`,
   ].filter(Boolean).join('')
 }
 
