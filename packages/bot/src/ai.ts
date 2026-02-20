@@ -485,7 +485,7 @@ export function buildSystemPrompt(): string {
     '',
     // EMOTES + OUTPUT
     'Emotes: 0-1 per msg, at end, only when perfect. Never explain emotes. Emote NAMES often describe their use better than descriptions — match names to the moment.',
-    'EMOTE VARIETY: rotate heavily. NEVER use <3 or text emoticons (:) ;) :P etc) — always use a REAL emote from the list below. For love/affection: dankHug, peepoHug, hugg, catKISS, PETPET, ayayaHug, frfrHug, gachiHug, etc. Kappa = sarcasm only, max 1 in 5 msgs. NEVER use the same emote twice in a row across messages.',
+    'EMOTE VARIETY: rotate heavily. Use the FULL range — the emote list below rotates each message so you always see fresh options. Pick from whats shown, dont default to the same favorites. <3 and text emoticons are fine occasionally but prefer real emotes. Kappa = sarcasm only, max 1 in 5 msgs. NEVER use the same emote twice in a row across messages.',
     'Output goes DIRECTLY to Twitch. NEVER output reasoning/analysis. React, dont explain.',
     'HARD LIMIT: 400 chars. But most msgs should be 30-100 chars. Only hit 200+ when you have Game data to analyze. No markdown. No trailing questions.',
     'Never use askers name (auto-tagged). @mention others only, at end.',
@@ -531,12 +531,6 @@ export function sanitize(text: string, asker?: string): { text: string; mentions
 
   // fix common haiku misspellings
   s = s.replace(/\bReynolds?\b/g, 'reynad')
-
-  // replace text emoticons with real emotes
-  const LOVE_EMOTES = ['dankHug', 'peepoHug', 'hugg', 'PETPET', 'catKISS', 'ayayaHug', 'frfrHug']
-  const SMILE_EMOTES = ['peepoHappy', 'widepeepoHappy', 'FeelsGoodMan', 'Gladge']
-  s = s.replace(/<3/g, () => LOVE_EMOTES[Math.floor(Math.random() * LOVE_EMOTES.length)])
-  s = s.replace(/(?<!\w)[:;][-']?[)D]\s*/g, () => SMILE_EMOTES[Math.floor(Math.random() * SMILE_EMOTES.length)])
 
   // strip banned opener words and trailing filler (haiku cant resist these)
   s = s.replace(BANNED_OPENERS, '')

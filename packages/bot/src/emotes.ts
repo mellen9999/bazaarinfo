@@ -185,15 +185,21 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[]): string
     byMood.get(mood)!.push(`${name}(${desc.desc})`)
   }
 
-  // prioritize channel favorites: sort each mood bucket so top emotes come first
-  if (topSet.size > 0) {
-    for (const [mood, entries] of byMood) {
-      byMood.set(mood, entries.sort((a, b) => {
-        const aTop = topSet.has(a.split('(')[0]) ? 0 : 1
-        const bTop = topSet.has(b.split('(')[0]) ? 0 : 1
-        return aTop - bTop
-      }))
+  // shuffle non-favorite emotes within each mood bucket for variety per-request
+  // channel favorites stay pinned at front, rest get randomized
+  for (const [mood, entries] of byMood) {
+    const pinned: string[] = []
+    const rest: string[] = []
+    for (const e of entries) {
+      if (topSet.has(e.split('(')[0])) pinned.push(e)
+      else rest.push(e)
     }
+    // fisher-yates shuffle on the non-pinned entries
+    for (let i = rest.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [rest[i], rest[j]] = [rest[j], rest[i]]
+    }
+    byMood.set(mood, [...pinned, ...rest])
   }
 
   // high-value moods get more slots — these are the ones chatters actually use expressively
@@ -221,7 +227,7 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[]): string
     lines.push(`  [OVERLAYS]: ${overlays.slice(0, 3).join(' ')}`)
   }
 
-  return `Emotes (0-1 per msg, only when perfect. NEVER use <3 or :) — use a real emote instead):\n${lines.join('\n')}`
+  return `Emotes (0-1 per msg, only when perfect — list rotates so pick from whats here):\n${lines.join('\n')}`
 }
 
 /** pick a random emote by mood for a channel — returns empty string if none found */
