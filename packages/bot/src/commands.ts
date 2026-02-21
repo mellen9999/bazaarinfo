@@ -4,7 +4,7 @@ import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
-import { aiRespond, dedupeEmote, getAiCooldown } from './ai'
+import { aiRespond, dedupeEmote, fixEmoteCase, getAiCooldown } from './ai'
 import { isEmote } from './emotes'
 
 const MAX_LEN = 480
@@ -319,7 +319,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     try { aiResult = await aiRespond(cleanArgs, ctx) } catch {}
     if (aiResult?.text) {
       logHit('ai', cleanArgs, 'ai', ctx)
-      return dedupeEmote(aiResult.text, ctx.channel)
+      return dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
     }
     // AI failed — fall through to normal lookup
   }
@@ -363,7 +363,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   try { aiResult = await aiRespond(cleanArgs, ctx) } catch {}
   if (aiResult?.text) {
     logHit('ai', cleanArgs, 'ai', ctx)
-    return dedupeEmote(aiResult.text, ctx.channel)
+    return dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
   }
 
   // AI failed — show suggestions for short queries, shrug for everything else
@@ -453,7 +453,7 @@ async function handleMention(text: string, ctx: CommandContext): Promise<string 
   const aiResult = await aiRespond(query, { ...ctx, mention: true })
   if (aiResult?.text && aiResult.text.trim() !== '-') {
     try { db.logCommand(ctx, 'ai', query, 'mention') } catch {}
-    const response = dedupeEmote(aiResult.text, ctx.channel)
+    const response = dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
     return ctx.user ? `${response} @${ctx.user}` : response
   }
   return null

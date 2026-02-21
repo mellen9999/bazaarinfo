@@ -189,8 +189,8 @@ function extractEntities(query: string): ResolvedEntities {
   const dayMatch = query.match(/day\s+(\d+)/i)
   if (dayMatch) result.day = parseInt(dayMatch[1])
 
-  // @username → chat search
-  const atMatch = query.match(/@(\w+)/)
+  // @username → chat search (alphanumeric + underscore only — safe for FTS)
+  const atMatch = query.match(/@([a-zA-Z0-9_]+)/)
   if (atMatch) result.chatQuery = atMatch[1]
 
   // sliding window: 3→2→1 word combos
@@ -344,10 +344,14 @@ const KNOWLEDGE: [RegExp, string][] = [
 const GAME_TERMS = /\b(items?|heroes?|monsters?|mobs?|builds?|tiers?|enchant(ment)?s?|skills?|tags?|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|weapons?|relics?|aqua|friend|ammo|charge|board|dps|beat|fight|counter|synergy|scaling|combo|lethal|survive|bronze|silver|gold|diamond|legendary)\b/i
 
 function isGameQuery(query: string): boolean {
-  const words = query.trim().split(/\s+/)
   if (GAME_TERMS.test(query)) return true
-  for (const w of words) {
-    if (w.length >= 3 && (store.exact(w) || store.findMonster(w))) return true
+  const words = query.trim().toLowerCase().split(/\s+/)
+  // sliding window: check 3→2→1 word combos (catches multi-word card names like "pet rock")
+  for (let size = Math.min(3, words.length); size >= 1; size--) {
+    for (let i = 0; i <= words.length - size; i++) {
+      const phrase = words.slice(i, i + size).join(' ')
+      if (phrase.length >= 3 && (store.exact(phrase) || store.findMonster(phrase) || store.findHeroName(phrase))) return true
+    }
   }
   return false
 }
@@ -454,7 +458,7 @@ export function buildSystemPrompt(): string {
     '',
     // CORE
     'Answer what they ACTUALLY asked. Recent chat is context — dont respond to it, only to the person who triggered you.',
-    'LENGTH: greetings 20-60 chars. game Qs with "Game data:" 80-200. no game data = under 120. MAX 250 chars, no markdown. be TERSE — cut filler, cut hedging, just the answer.',
+    'LENGTH: greetings 20-60 chars. game Qs with "Game data:" 80-200. no game data = under 140. MAX 250 chars, no markdown. be TERSE — cut filler, cut hedging, just the answer.',
     '',
     // BEHAVIOR
     'NEVER narrate what was asked. NEVER repeat/echo what someone just said in chat back to them.',
@@ -502,19 +506,21 @@ const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|d
 const BANNED_FILLER = /\b(lol|lmao|haha)\s*$|,\s*chat\s*$/i
 const SELF_REF = /\b(as a bot,? i (can'?t|don'?t|shouldn'?t)|as an ai|im (just )?an ai|im just code|im (just )?software|im (just )?a program)\b/i
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
-const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|unhinged|speedrun(ning)?|chief)\b/gi
+const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chief)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
 const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|i('m| am| keep) overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|context of a.{0,20}stream|off-topic (banter|question|chat)|not game[- ]related|direct answer:?|not (really )?relevant to|this is (conversational|off-topic|unrelated)|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid)|chat (static|noise|dynamics|behavior)|background noise)\b/i
 // stat leak — model reciting internal profile data
 const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you have \d+ (lookups?|commands?|wins?|attempts?|asks?)|you('ve|'re| have| are) (a )?(power user|casual user|trivia regular)|according to (my|your|the) (data|stats|profile|records?)|i (can see|see|know) (from )?(your|the) (data|stats|profile)|based on your (history|stats|data|profile))\b/i
-// garbled output — token cutoff producing broken grammar (pronoun+to+gerund missing verb)
-const GARBLED = /\b(?:i|you|we|they|he|she)\s+to\s+(?!(?:some|any|every|no)thing\b)\w+ing\b/i
+// garbled output — token cutoff producing broken grammar (pronoun+to+gerund that reads wrong)
+const GARBLED = /\b(?:i|you|we|they|he|she)\s+to\s+(?!(?:some|any|every|no)(?:thing|one|where|body)\b)(?!(?:be|get|keep|start|stop|go|come|try)\s)\w+ing\b/i
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 // privacy lies — bot claiming it doesn't store/log/collect data (it does)
 const PRIVACY_LIE = /\b(i (don'?t|do not|never) (log|store|collect|track|save|record|keep) (anything|any|your|data|messages|chat)|i'?m? (not )?(log|stor|collect|track|sav|record|keep)(ing|e|s)? (anything|any|your|data|messages|chat)|not (logging|storing|collecting|tracking|saving|recording) (anything|any|your)|not like i'?m storing|each conversation'?s? a fresh slate|fresh slate|don'?t collect or store|that'?s on streamlabs|that'?s a twitch thing,? not me)\b/i
 // dangerous twitch/bot commands anywhere in response — reject entirely
-const DANGEROUS_COMMANDS = /[!\\/]\s*(?:ban|timeout|mute|mod|unmod|vip|unvip|settitle|setgame|addcom|delcom|editcom|host|raid|announce|whisper|clear)\b/i
+const DANGEROUS_COMMANDS = /[!\\/]\s*(?:ban|timeout|mute|mod|unmod|vip|unvip|settitle|setgame|host|raid|announce|whisper|clear)\b/i
+// mod-only commands that privileged users can trigger
+const MOD_COMMANDS = /[!\\/]\s*(?:addcom|delcom|editcom)\b/i
 
 export function sanitize(text: string, asker?: string, privileged?: boolean): { text: string; mentions: string[] } {
   let s = text.trim()
@@ -558,7 +564,10 @@ export function sanitize(text: string, asker?: string, privileged?: boolean): { 
   s = s.replace(VERBAL_TICS, '').replace(/\s{2,}/g, ' ')
 
   // reject responses that self-reference being a bot, leak reasoning/stats, fabricate stories, lie about privacy, or contain commands
-  const cmdBlock = privileged ? false : (DANGEROUS_COMMANDS.test(s) || DANGEROUS_COMMANDS.test(preStrip))
+  // dangerous commands always blocked; mod commands (addcom/editcom/delcom) only allowed for privileged users
+  const hasDangerous = DANGEROUS_COMMANDS.test(s) || DANGEROUS_COMMANDS.test(preStrip)
+  const hasModCmd = MOD_COMMANDS.test(s) || MOD_COMMANDS.test(preStrip)
+  const cmdBlock = hasDangerous || (hasModCmd && !privileged)
   if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || cmdBlock) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged at the end
@@ -611,6 +620,19 @@ const recentEmotesByChannel = new Map<string, string[]>()
 /** get recent emotes for a channel — used by formatEmotesForAI to hide them */
 export function getRecentEmotes(channel: string): Set<string> {
   return new Set(recentEmotesByChannel.get(channel) ?? [])
+}
+
+/** fix emote casing — model outputs "catjam" but 7TV needs "catJAM" */
+export function fixEmoteCase(text: string, channel?: string): string {
+  if (!channel) return text
+  const emotes = getEmotesForChannel(channel)
+  const lowerMap = new Map<string, string>()
+  for (const e of emotes) lowerMap.set(e.toLowerCase(), e)
+
+  return text.split(/(\s+)/).map((word) => {
+    const correct = lowerMap.get(word.toLowerCase())
+    return correct ?? word
+  }).join('')
 }
 
 export function dedupeEmote(text: string, channel?: string): string {
@@ -784,7 +806,8 @@ export function buildFTSQuery(query: string): string | null {
     .filter((w) => w.length >= 3 && !STOP_WORDS.has(w))
     .slice(0, 5)
   if (words.length === 0) return null
-  return words.join(' OR ')
+  // quote each term to prevent FTS operator injection (OR/AND/NOT/NEAR)
+  return words.map((w) => `"${w}"`).join(' OR ')
 }
 
 function buildRecallContext(query: string, channel: string): string {
@@ -799,9 +822,9 @@ function buildRecallContext(query: string, channel: string): string {
     const label = formatAge(r.created_at, now)
     const q = r.query.length > 60 ? r.query.slice(0, 60) + '...' : r.query
     const resp = r.response
-      ? (r.response.length > 120 ? r.response.slice(0, 120) + '...' : r.response)
+      ? (r.response.replace(/---+/g, '').length > 120 ? r.response.replace(/---+/g, '').slice(0, 120) + '...' : r.response.replace(/---+/g, ''))
       : '?'
-    return `[${label}] ${r.username}: "${q}" → you: "${resp}"`
+    return `> [${label}] ${r.username}: "${q}" → you: "${resp}"`
   })
 
   return `\nYour prior exchanges (be consistent with what you said before):\n${lines.join('\n')}`
@@ -880,7 +903,11 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const chatContext = getRecent(ctx.channel, chatDepth)
     .filter((m) => !isNoise(m.text))
   const chatStr = chatContext.length > 0
-    ? chatContext.map((m) => `${m.user.replace(/[:\n]/g, '')}: ${m.text.replace(/^!\w+\s*/, '').replace(/\n/g, ' ')}`).join('\n')
+    ? chatContext.map((m) => {
+        const user = m.user.replace(/[:\n]/g, '')
+        const text = m.text.replace(/^!\w+\s*/, '').replace(/\n/g, ' ').replace(/^---+/, '').slice(0, 300)
+        return `> ${user}: ${text}`
+      }).join('\n')
     : ''
 
   const chattersLine = buildChattersContext(chatContext, ctx.user, ctx.channel)
@@ -1122,7 +1149,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
 
       const result = sanitize(textBlock.text, ctx.user, ctx.isMod)
       // enforce non-game length cap (system prompt says <100 but model ignores it)
-      const hardCap = isPasta ? 400 : hasGameData ? 250 : 120
+      const hardCap = isPasta ? 400 : hasGameData ? 250 : 140
       if (result.text.length > hardCap) {
         const cut = result.text.slice(0, hardCap)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))

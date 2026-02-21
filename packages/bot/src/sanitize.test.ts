@@ -109,12 +109,12 @@ describe('sanitize', () => {
   it('strips verbal tics', () => {
     expect(sanitize('respect the commitment but Birdge is the purest form').text).toBe('but Birdge is the purest form')
     expect(sanitize('thats just how it goes in ranked').text).toBe('in ranked')
-    expect(sanitize('chats been absolutely unhinged today').text).toBe("chats been absolutely today")
+    expect(sanitize('chats been absolutely unhinged today').text).toBe("chats been absolutely unhinged today")
   })
 
-  it('strips "unhinged" in all contexts', () => {
-    expect(sanitize("chat's just unhinged right now").text).toBe("chat's just right now")
-    expect(sanitize('completely unhinged energy here').text).toBe('completely energy here')
+  it('allows "unhinged" (normal twitch vocab)', () => {
+    expect(sanitize("chat's just unhinged right now").text).toBe("chat's just unhinged right now")
+    expect(sanitize('completely unhinged energy here').text).toBe('completely unhinged energy here')
   })
 
   it('handles empty string', () => {
@@ -301,13 +301,13 @@ describe('sanitize', () => {
     expect(r.text).toBe(exact)
   })
 
-  // --- speedrun verbal tic ---
-  it('strips "speedrunning" verbal tic', () => {
-    expect(sanitize('speedrunning the loss streak').text).toBe('the loss streak')
+  // --- speedrun is normal twitch vocab ---
+  it('allows "speedrunning" (normal twitch vocab)', () => {
+    expect(sanitize('speedrunning the loss streak').text).toBe('speedrunning the loss streak')
   })
 
-  it('strips "speedrun" verbal tic', () => {
-    expect(sanitize('nice speedrun of the whole game').text).toBe('nice of the whole game')
+  it('allows "speedrun" (normal twitch vocab)', () => {
+    expect(sanitize('nice speedrun of the whole game').text).toBe('nice speedrun of the whole game')
   })
 
   // --- smart quote normalization ---
@@ -443,11 +443,11 @@ describe('getAiCooldown', () => {
 
 describe('buildFTSQuery', () => {
   it('extracts meaningful words and joins with OR', () => {
-    expect(buildFTSQuery('reynad lizard conspiracy')).toBe('reynad OR lizard OR conspiracy')
+    expect(buildFTSQuery('reynad lizard conspiracy')).toBe('"reynad" OR "lizard" OR "conspiracy"')
   })
 
   it('filters stop words', () => {
-    expect(buildFTSQuery('what is the best build')).toBe('best OR build')
+    expect(buildFTSQuery('what is the best build')).toBe('"best" OR "build"')
   })
 
   it('filters short words', () => {
@@ -459,7 +459,7 @@ describe('buildFTSQuery', () => {
   })
 
   it('strips non-alphanumeric', () => {
-    expect(buildFTSQuery("reynad's lizard?")).toBe('reynads OR lizard')
+    expect(buildFTSQuery("reynad's lizard?")).toBe('"reynads" OR "lizard"')
   })
 
   it('limits to 5 terms', () => {
