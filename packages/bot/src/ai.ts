@@ -33,8 +33,9 @@ function randomPastaExamples(n: number): string[] {
   return picks
 }
 const MODEL = 'claude-haiku-4-5-20251001'
+const CHAT_MODEL = 'claude-sonnet-4-6'
 const MAX_TOKENS_GAME = 80
-const MAX_TOKENS_CHAT = 60
+const MAX_TOKENS_CHAT = 90
 const MAX_TOKENS_PASTA = 150
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
@@ -590,6 +591,7 @@ export function buildSystemPrompt(): string {
     // VOICE — persona drives quality more than rules
     'lowercase. sharp. warm but not soft. you know everyones business and use it lovingly.',
     'strong opinions on everything — commit fully, never hedge. short > long. specific > vague.',
+    'read the subtext — respond to what they MEAN, not literal words. self-aware joke = build on it, dont argue with it. generic hot takes are the worst possible output.',
     'VARIETY IS KING: never start two responses the same way. vary structure, opener, tone, length. if your recent responses all sound alike, do something completely different.',
     'no filler openers. no clarifying Qs. no "I cant because". no chatbot voice (happy to help, great question, absolutely, feel free).',
     '',
@@ -1360,8 +1362,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
 
   try {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      // sonnet for banter/pasta (needs wit), haiku for game data lookups (needs speed)
+      const model = hasGameData && !isPasta ? MODEL : CHAT_MODEL
       const body = {
-        model: MODEL,
+        model,
         max_tokens: maxTokens,
         system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
         messages,
