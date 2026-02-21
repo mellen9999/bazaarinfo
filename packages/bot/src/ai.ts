@@ -31,7 +31,7 @@ function randomPastaExamples(n: number): string[] {
 }
 const MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS_GAME = 80
-const MAX_TOKENS_CHAT = 50
+const MAX_TOKENS_CHAT = 60
 const MAX_TOKENS_PASTA = 150
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
@@ -913,7 +913,7 @@ function buildChattersContext(chatEntries: ChatEntry[], asker: string, channel: 
 interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean }
 
 function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
-  const chatDepth = 15
+  const chatDepth = ctx.mention ? 15 : 10
   const chatContext = getRecent(ctx.channel, chatDepth)
     .filter((m) => !isNoise(m.text))
   const chatStr = chatContext.length > 0
@@ -953,9 +953,10 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     ].filter(Boolean).join('')
   }
 
-  // skip reddit digest + emotes when we have specific game data (saves ~400 tokens)
+  // skip reddit digest + emotes when we have specific game data or short queries (saves ~400 tokens)
   const digest = getRedditDigest()
-  const redditLine = (!hasGameData && digest) ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
+  const skipReddit = hasGameData || query.length < 20
+  const redditLine = (!skipReddit && digest) ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
   const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getChannelTopEmotes(ctx.channel), getRecentEmotes(ctx.channel))
 
   // contextual recall — search prior bot exchanges for relevant history
@@ -1060,11 +1061,14 @@ async function maybeUpdateMemo(user: string) {
 // --- background fact extraction ---
 
 const factInFlight = new Set<string>()
+const FACT_INTERVAL = 3 // extract facts every N asks
 
 async function maybeExtractFacts(user: string, query: string, response: string) {
   if (!API_KEY) return
   if (factInFlight.has(user)) return
-  if (db.getUserAskCount(user) < 3) return // skip first-timers
+  const askCount = db.getUserAskCount(user)
+  if (askCount < 3) return // skip first-timers
+  if (askCount % FACT_INTERVAL !== 0) return // throttle
   if (db.getUserFactCount(user) >= 200) return
 
   factInFlight.add(user)

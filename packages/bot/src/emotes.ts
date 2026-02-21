@@ -222,12 +222,12 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
   }
 
   const MOOD_BUDGET: Record<string, number> = {
-    love: 5, funny: 4, hype: 4, sad: 3, happy: 3, greeting: 3,
-    sarcasm: 3, dance: 2, cute: 2, celebration: 2, chad: 2,
-    shock: 2, scared: 2, thinking: 2, rage: 2, cringe: 2,
+    love: 3, funny: 3, hype: 3, sad: 2, happy: 2, greeting: 2,
+    sarcasm: 2, dance: 1, cute: 1, celebration: 1, chad: 1,
+    shock: 1, scared: 1, thinking: 1, rage: 1, cringe: 1,
     cool: 1, confused: 1, neutral: 1,
   }
-  const MAX_SPOTLIGHT = 30
+  const MAX_SPOTLIGHT = 20
   let spotlightTotal = 0
   const lines: string[] = []
   const sortedMoods = [...byMood.keys()].sort((a, b) => (MOOD_BUDGET[b] ?? 1) - (MOOD_BUDGET[a] ?? 1))
@@ -238,9 +238,7 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
     const take = Math.min(budget, MAX_SPOTLIGHT - spotlightTotal)
     const spotlight = entries.slice(0, take)
     const rest = entries.slice(take).map((e) => e.split('(')[0]).slice(0, 5)
-    let line = `  ${mood}: ${spotlight.join(' ')}`
-    if (rest.length > 0) line += ` | also: ${rest.join(' ')}`
-    lines.push(line)
+    lines.push(`  ${mood}: ${spotlight.join(' ')}`)
     spotlightTotal += spotlight.length
   }
 
