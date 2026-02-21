@@ -34,8 +34,8 @@ function randomPastaExamples(n: number): string[] {
 }
 const MODEL = 'claude-haiku-4-5-20251001'
 const CHAT_MODEL = MODEL // keep single model for now
-const MAX_TOKENS_GAME = 80
-const MAX_TOKENS_CHAT = 90
+const MAX_TOKENS_GAME = 60
+const MAX_TOKENS_CHAT = 65
 const MAX_TOKENS_PASTA = 150
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
@@ -797,10 +797,10 @@ export function sanitize(text: string, asker?: string, privileged?: boolean): { 
     }
   }
 
-  // hard cap at 440 chars (480 twitch limit minus @username overhead)
+  // hard cap at 350 chars (keep responses punchy, 480 twitch limit)
   s = s.trim()
-  if (s.length > 440) {
-    const cut = s.slice(0, 440)
+  if (s.length > 350) {
+    const cut = s.slice(0, 350)
     const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '), cut.lastIndexOf(' — '))
     s = lastBreak > 200 ? cut.slice(0, lastBreak) : cut.replace(/\s+\S*$/, '')
   }
