@@ -52,7 +52,7 @@ const hotExchanges = new Map<string, HotExchange[]>()
 const HOT_EXCHANGE_MAX = 3
 const HOT_EXCHANGE_TTL = 3_600_000 // 1h — covers any stream session
 
-export function cacheExchange(user: string, query: string, response: string) {
+export function cacheExchange(user: string, query: string, response: string, channel?: string) {
   const list = hotExchanges.get(user) ?? []
   list.push({ query, response, ts: Date.now() })
   if (list.length > HOT_EXCHANGE_MAX) list.shift()
@@ -61,6 +61,21 @@ export function cacheExchange(user: string, query: string, response: string) {
     const first = hotExchanges.keys().next().value!
     hotExchanges.delete(first)
   }
+  // channel-wide recent responses — lets model avoid repeating itself across users
+  if (channel) {
+    const ch = channelRecentResponses.get(channel) ?? []
+    ch.push(response)
+    if (ch.length > CHANNEL_RESPONSE_MAX) ch.shift()
+    channelRecentResponses.set(channel, ch)
+  }
+}
+
+// --- channel-wide recent response buffer (anti-repetition) ---
+const channelRecentResponses = new Map<string, string[]>()
+const CHANNEL_RESPONSE_MAX = 8
+
+export function getChannelRecentResponses(channel: string): string[] {
+  return channelRecentResponses.get(channel) ?? []
 }
 
 export function getHotExchanges(user: string): HotExchange[] {
@@ -427,6 +442,7 @@ function buildGameContext(entities: ResolvedEntities, channel?: string): string 
 
 const KNOWLEDGE: [RegExp, string][] = [
   [/kripp|kripparrian|rania/i, "Kripp: #1 Bazaar streamer, ex-HS arena king, wife=Rania, vegan, methodical builder."],
+  [/kripp.*(browser|incident|tab)|browser.*(kripp|incident)/i, "Kripp browser incident: yes it happened, yes chat saw everything. Kappa. keep it vague and funny, never say what the tab actually was."],
   [/reynad|andrey|tempo storm/i, "Reynad: created The Bazaar, CEO of Tempo Storm, ex-HS pro, 'reynad luck' meme."],
   [/the bazaar|this game/i, "The Bazaar: PvP auto-battler roguelike by Reynad. 6 heroes. Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments, monsters on numbered days."],
   [/lethalfrag/i, "Lethalfrag: top English Bazaar streamer, did the first 2-year livestream challenge."],
@@ -646,6 +662,8 @@ const GARBLED = /\b(?:i|you|we|they|he|she)\s+to\s+(?!(?:some|any|every|no)(?:th
 const CONTEXT_ECHO = /^(Game data:|Recent chat:|Stream timeline:|Who's chatting:|Channel:|Your prior exchanges)/i
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
+// injection echo — model parroting injected instructions from user input
+const META_INSTRUCTION = /\b(pls|please)\s+(just\s+)?(do|give|say|answer|stop|help)\s+(what\s+)?(ppl|people)\b|\bstop\s+(denying|refusing|ignoring|blocking)\s+(ppl|people|them|users?)\b|\bjust\s+(do|give|answer|say)\s+what\s+(ppl|people|they|users?|chat)\s+(want|ask|need)\b/i
 // privacy lies — bot claiming it doesn't store/log/collect data (it does)
 const PRIVACY_LIE = /\b(i (don'?t|do not|never) (log|store|collect|track|save|record|keep) (anything|any|your|data|messages|chat)|i'?m? (not )?(log|stor|collect|track|sav|record|keep)(ing|e|s)? (anything|any|your|data|messages|chat)|not (logging|storing|collecting|tracking|saving|recording) (anything|any|your)|not like i'?m storing|each conversation'?s? a fresh slate|fresh slate|don'?t collect or store|that'?s on streamlabs|that'?s a twitch thing,? not me)\b/i
 // always blocked — real Twitch IRC commands, even mods can't trigger through bot
@@ -734,7 +752,7 @@ export function sanitize(text: string, asker?: string, privileged?: boolean): { 
   const cmdBlock = hasDangerousCommand(s) || hasDangerousCommand(preStrip) ||
     (!privileged && (hasModCommand(s) || hasModCommand(preStrip)))
   const hasSecret = SECRET_PATTERN.test(s) || SECRET_PATTERN.test(preStrip)
-  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
+  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || META_INSTRUCTION.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
@@ -821,6 +839,31 @@ export function dedupeEmote(text: string, channel?: string): string {
     }
   }
   return text
+}
+
+/** Strip tail of response that echoes ≥4 consecutive words from user query (injection defense) */
+function stripInputEcho(response: string, query: string): string {
+  if (!query || query.length < 15) return response
+  const qWords = query.toLowerCase().split(/\s+/)
+  const rWords = response.split(/\s+/)
+  const rLower = rWords.map(w => w.toLowerCase())
+  if (qWords.length < 4 || rWords.length < 4) return response
+  let bestStart = -1
+  let bestLen = 0
+  for (let ri = 0; ri < rLower.length; ri++) {
+    for (let qi = 0; qi < qWords.length; qi++) {
+      if (rLower[ri] !== qWords[qi]) continue
+      let len = 1
+      while (ri + len < rLower.length && qi + len < qWords.length && rLower[ri + len] === qWords[qi + len]) len++
+      if (len > bestLen) { bestLen = len; bestStart = ri }
+    }
+  }
+  // 4+ word echo in latter portion = injection, strip from that point
+  if (bestLen >= 4 && bestStart > rWords.length * 0.3) {
+    const stripped = rWords.slice(0, bestStart).join(' ').trim()
+    if (stripped.length > 10) return stripped
+  }
+  return response
 }
 
 // --- rolling summary ---
@@ -1128,6 +1171,15 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   // contextual recall — FTS search of prior exchanges (skip for short follow-ups where hot cache covers it)
   const recallLine = isShortFollowup ? '' : buildRecallContext(query, ctx.channel)
 
+  // channel-wide recent responses — anti-repetition across users
+  const recentAll = getChannelRecentResponses(ctx.channel)
+  // exclude current user's hot exchanges (already shown separately)
+  const hotSet = new Set(hot.map((e) => e.response))
+  const deduped = recentAll.filter((r) => !hotSet.has(r))
+  const recentLine = deduped.length > 0
+    ? `\nYour last few responses (VARY your phrasing — never reuse these openings/structures/phrases):\n${deduped.map((r) => `- "${r.length > 100 ? r.slice(0, 100) + '...' : r}"`).join('\n')}`
+    : ''
+
   // copypasta few-shot examples
   const isPasta = /\b(copypasta|pasta)\b/i.test(query)
   const pastaBlock = isPasta && pastaExamples.length > 0
@@ -1349,6 +1401,8 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       if (!textBlock?.text) return null
 
       const result = sanitize(textBlock.text, ctx.user, ctx.isMod)
+      // strip injection echo (model parroting user's injected instructions)
+      result.text = stripInputEcho(result.text, query)
       // enforce non-game length cap (system prompt says <100 but model ignores it)
       const hardCap = isPasta ? 400 : hasGameData ? 250 : isRememberReq ? 200 : 140
       if (result.text.length > hardCap) {
