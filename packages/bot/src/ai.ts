@@ -33,9 +33,9 @@ function randomPastaExamples(n: number): string[] {
   return picks
 }
 const MODEL = 'claude-haiku-4-5-20251001'
-const CHAT_MODEL = MODEL // keep single model for now
-const MAX_TOKENS_GAME = 60
-const MAX_TOKENS_CHAT = 65
+const CHAT_MODEL = 'claude-sonnet-4-5-20250929'
+const MAX_TOKENS_GAME = 80
+const MAX_TOKENS_CHAT = 80
 const MAX_TOKENS_PASTA = 150
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
@@ -1376,8 +1376,8 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
 
   try {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      // sonnet for banter/pasta (needs wit), haiku for game data lookups (needs speed)
-      const model = hasGameData && !isPasta ? MODEL : CHAT_MODEL
+      // sonnet for all user-facing responses (1/min budget = quality over speed)
+      const model = CHAT_MODEL
       const body = {
         model,
         max_tokens: maxTokens,
