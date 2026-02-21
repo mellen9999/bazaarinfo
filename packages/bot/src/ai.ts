@@ -1114,26 +1114,33 @@ async function maybeUpdateMemo(user: string) {
 const factInFlight = new Set<string>()
 const FACT_INTERVAL = 3 // extract facts every N asks
 
-async function maybeExtractFacts(user: string, query: string, response: string) {
+// detect explicit "remember me" / identity requests
+const REMEMBER_RE = /\b(remember|call me|my name is|i('m| am) (a |an |the |from )|know that i|i go by|refer to me|don'?t forget)\b/i
+
+async function maybeExtractFacts(user: string, query: string, response: string, force = false) {
   if (!API_KEY) return
   if (factInFlight.has(user)) return
-  const askCount = db.getUserAskCount(user)
-  if (askCount < 3) return // skip first-timers
-  if (askCount % FACT_INTERVAL !== 0) return // throttle
+  if (!force) {
+    const askCount = db.getUserAskCount(user)
+    if (askCount < 3) return // skip first-timers
+    if (askCount % FACT_INTERVAL !== 0) return // throttle
+  }
   if (db.getUserFactCount(user) >= 200) return
 
   factInFlight.add(user)
   try {
     const prompt = [
-      `User said: "${query.slice(0, 120).replace(/\n/g, ' ')}"`,
+      `User said: "${query.slice(0, 200).replace(/\n/g, ' ')}"`,
       `Bot responded: "${response.slice(0, 120).replace(/\n/g, ' ')}"`,
       '',
       `Extract 0-3 specific facts about ${user}. Only extract facts clearly stated BY the user, not inferred.`,
+      '- Identity ("call me mommy", "my name is X", "i go by Y")',
       '- Personal ("from ohio", "has a cat named mochi")',
       '- Gameplay ("mains vanessa", "loves pygmy", "hates day 5")',
       '- Preferences ("always goes weapons", "thinks burn is OP")',
+      force ? 'The user EXPLICITLY asked to be remembered. Extract what they want stored.' : '',
       'One fact per line, lowercase, <40 chars each. If nothing notable, output nothing.',
-    ].join('\n')
+    ].filter(Boolean).join('\n')
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -1243,8 +1250,9 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         // hot cache for instant follow-up context
         cacheExchange(ctx.user, query, result.text)
         // fire-and-forget memo + fact extraction
+        const isRememberReq = REMEMBER_RE.test(query)
         maybeUpdateMemo(ctx.user).catch(() => {})
-        maybeExtractFacts(ctx.user, query, result.text).catch(() => {})
+        maybeExtractFacts(ctx.user, query, result.text, isRememberReq).catch(() => {})
         return result
       }
 
