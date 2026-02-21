@@ -211,7 +211,7 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
     shock: 2, scared: 2, thinking: 2, rage: 2, cringe: 2,
     cool: 1, confused: 1, neutral: 1,
   }
-  const MAX_SPOTLIGHT = 45
+  const MAX_SPOTLIGHT = 30
   let spotlightTotal = 0
   const lines: string[] = []
   const sortedMoods = [...byMood.keys()].sort((a, b) => (MOOD_BUDGET[b] ?? 1) - (MOOD_BUDGET[a] ?? 1))
@@ -223,8 +223,8 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
 
     // spotlight entries with full descriptions
     const spotlight = entries.slice(0, take)
-    // remaining entries — names only (model knows most from name alone)
-    const rest = entries.slice(take).map((e) => e.split('(')[0])
+    // remaining entries — names only, capped at 5 (model rarely picks from these)
+    const rest = entries.slice(take).map((e) => e.split('(')[0]).slice(0, 5)
 
     let line = `  ${mood}: ${spotlight.join(' ')}`
     if (rest.length > 0) line += ` | also: ${rest.join(' ')}`

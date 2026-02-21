@@ -155,8 +155,12 @@ describe('sanitize', () => {
     expect(sanitize('looking at the reddit digest, people are saying').text).toBe('')
   })
 
-  it('rejects "overusing" self-commentary COT leak', () => {
-    expect(sanitize('nice play overusing kappa now').text).toBe('')
+  it('rejects "i\'m overusing" self-commentary COT leak', () => {
+    expect(sanitize("i'm overusing kappa, let me switch it up").text).toBe('')
+  })
+
+  it('allows "overusing" in game advice context', () => {
+    expect(sanitize('you might be overusing that item').text).not.toBe('')
   })
 
   it('rejects "i keep using" self-commentary COT leak', () => {
