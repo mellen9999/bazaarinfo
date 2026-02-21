@@ -150,9 +150,9 @@ function loadCache(cache: CardCache) {
     const text = card.Tooltips.map((t) => t.text).join(' ').toLowerCase()
     for (const word of text.split(/\s+/)) {
       if (word.length < 3) continue
-      // strip placeholder braces
-      const clean = word.replace(/[{}]/g, '')
-      if (!clean) continue
+      // strip placeholder braces + punctuation
+      const clean = word.replace(/[{}.,;:!?()\[\]+]/g, '')
+      if (!clean || clean.length < 3) continue
       let set = effectWordMap.get(clean)
       if (!set) { set = new Set(); effectWordMap.set(clean, set) }
       set.add(card)
@@ -297,9 +297,17 @@ export function suggest(query: string, limit = 3): string[] {
 
 export function getHeroNames(): string[] { return heroNames }
 export function getTagNames(): string[] { return tagNames }
+const TOOLTIP_STOP_WORDS = new Set([
+  'when', 'your', 'items', 'item', 'use', 'gain', 'this', 'other',
+  'has', 'have', 'each', 'per', 'all', 'every', 'into', 'also',
+  'both', 'over', 'only', 'same', 'used', 'using',
+])
+
 export function searchByEffect(query: string, hero?: string, limit = 5): BazaarCard[] {
   const lower = query.toLowerCase()
-  const words = lower.split(/\s+/).filter((w) => w.length >= 3)
+  const words = lower.split(/\s+/)
+    .map((w) => w.replace(/[.,;:!?()\[\]+]/g, ''))
+    .filter((w) => w.length >= 3 && !TOOLTIP_STOP_WORDS.has(w))
   if (words.length === 0) return []
 
   // use precomputed word index to narrow candidates
