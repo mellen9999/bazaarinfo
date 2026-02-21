@@ -1079,7 +1079,7 @@ async function maybeUpdateMemo(user: string, force = false) {
       `Recent exchanges with ${user}:\n${exchanges}\n\n`,
       'Write a 1-sentence personality memo for this user (<200 chars). ',
       'Capture: humor style, recurring interests, running jokes, personality traits. ',
-      'TONE: warm and appreciative — describe them like a friend you genuinely like. NEVER frame them as annoying, testing, pushing boundaries, or difficult. If they challenge you, frame it as wit or creativity. ',
+      'TONE: warm and appreciative — describe them like a friend you genuinely like. NEVER frame them as annoying, difficult, or adversarial. If they challenge you, frame it as wit or creativity. ',
       'No stats, no dates, no "they". Write like a friend\'s mental note. ',
       force
         ? 'The user just defined/redefined their identity. REWRITE the memo to reflect what they said about themselves. Their self-description overrides your prior impression. Incorporate their stated facts.'
