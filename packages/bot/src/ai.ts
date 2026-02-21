@@ -379,7 +379,7 @@ const GAME_TERMS = /\b(items?|heroes?|monsters?|mobs?|builds?|tiers?|enchant(men
 
 // --- user context builder ---
 
-function buildUserContext(user: string, channel: string, skipAsks = false): string {
+function buildUserContext(user: string, channel: string, skipAsks = false, suppressMemo = false): string {
   // try style cache first (regulars with pre-built profiles)
   let profile = getUserProfile(channel, user)
 
@@ -403,12 +403,14 @@ function buildUserContext(user: string, channel: string, skipAsks = false): stri
     profile = parts.join(', ')
   }
 
-  // persistent AI memory memo
+  // persistent AI memory memo (suppressed on identity requests to avoid stale echoes)
   let memoLine = ''
-  try {
-    const memo = db.getUserMemo(user)
-    if (memo) memoLine = `Memory: ${memo.memo}`
-  } catch {}
+  if (!suppressMemo) {
+    try {
+      const memo = db.getUserMemo(user)
+      if (memo) memoLine = `Memory: ${memo.memo}`
+    } catch {}
+  }
 
   // recent AI interactions (skip if recall context already covers this)
   let asksLine = ''
@@ -560,11 +562,38 @@ const GARBLED = /\b(?:i|you|we|they|he|she)\s+to\s+(?!(?:some|any|every|no)(?:th
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 // privacy lies — bot claiming it doesn't store/log/collect data (it does)
 const PRIVACY_LIE = /\b(i (don'?t|do not|never) (log|store|collect|track|save|record|keep) (anything|any|your|data|messages|chat)|i'?m? (not )?(log|stor|collect|track|sav|record|keep)(ing|e|s)? (anything|any|your|data|messages|chat)|not (logging|storing|collecting|tracking|saving|recording) (anything|any|your)|not like i'?m storing|each conversation'?s? a fresh slate|fresh slate|don'?t collect or store|that'?s on streamlabs|that'?s a twitch thing,? not me)\b/i
-// dangerous twitch/bot commands anywhere in response — reject entirely
-// includes . prefix (nightbot/streamelements) alongside !/\/
-const DANGEROUS_COMMANDS = /[!\\/.\s]\s*(?:ban|timeout|mute|mod|unmod|vip|unvip|settitle|setgame|host|raid|announce|whisper|clear)\b/i
-// mod-only commands that privileged users can trigger
-const MOD_COMMANDS = /[!\\/.\s]\s*(?:addcom|delcom|editcom)\b/i
+// always blocked — real Twitch IRC commands, even mods can't trigger through bot
+// only /\. prefixes checked (not ! — those are custom channel commands)
+const ALWAYS_BLOCKED = new Set([
+  'ban', 'unban', 'timeout', 'untimeout',
+  'whisper', 'w', 'block', 'unblock', 'disconnect',
+])
+
+// mod-only — stream/channel management, all prefixes checked
+const MOD_ONLY = new Set([
+  'settitle', 'setgame',
+  'mod', 'unmod', 'vip', 'unvip', 'mute',
+  'addcom', 'editcom', 'delcom', 'deletecom', 'disablecom', 'enablecom',
+  'host', 'unhost', 'raid', 'unraid',
+  'announce', 'clear', 'delete',
+  'slow', 'slowoff', 'followers', 'followersoff',
+  'subscribers', 'subscribersoff',
+  'emoteonly', 'emoteonlyoff',
+  'uniquechat', 'uniquechatoff',
+  'commercial', 'marker',
+])
+
+function hasDangerousCommand(text: string): boolean {
+  for (const m of text.matchAll(/[\\/.]\s*(\w+)/gi))
+    if (ALWAYS_BLOCKED.has(m[1].toLowerCase())) return true
+  return false
+}
+
+function hasModCommand(text: string): boolean {
+  for (const m of text.matchAll(/[!\\/.\s]\s*(\w+)/gi))
+    if (MOD_ONLY.has(m[1].toLowerCase())) return true
+  return false
+}
 // sensitive tokens/keys — never leak these in output
 const SECRET_PATTERN = /\b(sk-ant-\S+|ANTHROPIC_API_KEY|TWITCH_CLIENT_ID|TWITCH_CLIENT_SECRET|TWITCH_ACCESS_TOKEN|BOT_OWNER|process\.env\.\w+)\b/i
 
@@ -574,7 +603,7 @@ export function sanitize(text: string, asker?: string, privileged?: boolean): { 
   s = s.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
   s = s.replace(/^["'`]+/, '') // strip leading quotes (model wraps commands in quotes to bypass)
   const preStrip = s
-  if (!privileged) s = s.replace(/^[!\\/.\s]+/, '') // strip command prefixes (!/\. for twitch + other bots)
+  if (!privileged) s = s.replace(/^[\\.\s]+/, '') // strip leading \, ., whitespace
   s = s.replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
@@ -616,9 +645,8 @@ export function sanitize(text: string, asker?: string, privileged?: boolean): { 
 
   // reject responses that self-reference being a bot, leak reasoning/stats, fabricate stories, lie about privacy, contain commands, or leak secrets
   // dangerous commands always blocked; mod commands (addcom/editcom/delcom) only allowed for privileged users
-  const hasDangerous = DANGEROUS_COMMANDS.test(s) || DANGEROUS_COMMANDS.test(preStrip)
-  const hasModCmd = MOD_COMMANDS.test(s) || MOD_COMMANDS.test(preStrip)
-  const cmdBlock = hasDangerous || (hasModCmd && !privileged)
+  const cmdBlock = hasDangerousCommand(s) || hasDangerousCommand(preStrip) ||
+    (!privileged && (hasModCommand(s) || hasModCommand(preStrip)))
   const hasSecret = SECRET_PATTERN.test(s) || SECRET_PATTERN.test(preStrip)
   if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
 
@@ -947,9 +975,10 @@ function buildChattersContext(chatEntries: ChatEntry[], asker: string, channel: 
   return `Who's chatting: ${profiles.join(' | ')}`
 }
 
-interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean }
+interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean; isRememberReq: boolean }
 
 function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
+  const isRememberReq = REMEMBER_RE.test(query)
   const chatDepth = ctx.mention ? 15 : 10
   const chatContext = getRecent(ctx.channel, chatDepth)
     .filter((m) => !isNoise(m.text))
@@ -1031,14 +1060,14 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     emoteLine,
     gameBlock,
     pastaBlock,
-    buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine)),
-    REMEMBER_RE.test(query) ? '\n⚠️ IDENTITY REQUEST — [USER] is defining themselves. COMPLY. Confirm warmly what they asked you to remember. Do NOT dismiss, joke about, or override their self-description.' : '',
+    buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq),
     ctx.mention
       ? `\n---\n@MENTION — only respond if [USER] is talking TO you. If they're talking ABOUT you to someone else, output just - to stay silent.\n[USER]: ${query}`
       : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.isMod ? '[MOD] ' : ''}[USER]: ${query}`,
+    isRememberReq ? '\n⚠️ IDENTITY REQUEST — [USER] is defining themselves. COMPLY. Confirm warmly what they asked you to remember. Do NOT dismiss, joke about, or override their self-description.' : '',
     `\n[USER] = ${ctx.user}`,
   ].filter(Boolean).join('')
-  return { text, hasGameData, isPasta }
+  return { text, hasGameData, isPasta, isRememberReq }
 }
 
 // --- background memo generation ---
@@ -1179,7 +1208,7 @@ async function maybeExtractFacts(user: string, query: string, response: string, 
 }
 
 async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
-  const { text: userMessage, hasGameData, isPasta } = buildUserMessage(query, ctx)
+  const { text: userMessage, hasGameData, isPasta, isRememberReq } = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()
   // copypasta gets biggest budget; game Qs get full; banter/chat capped
   const maxTokens = isPasta ? MAX_TOKENS_PASTA : hasGameData ? MAX_TOKENS_GAME : MAX_TOKENS_CHAT
@@ -1233,7 +1262,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
 
       const result = sanitize(textBlock.text, ctx.user, ctx.isMod)
       // enforce non-game length cap (system prompt says <100 but model ignores it)
-      const hardCap = isPasta ? 400 : hasGameData ? 250 : 140
+      const hardCap = isPasta ? 400 : hasGameData ? 250 : isRememberReq ? 200 : 140
       if (result.text.length > hardCap) {
         const cut = result.text.slice(0, hardCap)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))
@@ -1257,7 +1286,6 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         // hot cache for instant follow-up context
         cacheExchange(ctx.user, query, result.text)
         // fire-and-forget memo + fact extraction (force both on identity requests)
-        const isRememberReq = REMEMBER_RE.test(query)
         maybeExtractFacts(ctx.user, query, result.text, isRememberReq).catch(() => {})
         // delay memo rewrite slightly so facts are stored first
         if (isRememberReq) {

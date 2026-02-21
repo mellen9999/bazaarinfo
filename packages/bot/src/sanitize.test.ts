@@ -187,37 +187,45 @@ describe('sanitize', () => {
     expect(sanitize('legend has it that reynad once hit 12 wins').text).toBe('')
   })
 
-  // --- DANGEROUS_COMMANDS patterns ---
-  it('rejects mid-text /ban', () => {
+  // --- command blocklist ---
+  it('rejects mid-text /ban (IRC command)', () => {
     expect(sanitize('nah backwards is "/ban tidolar" lol').text).toBe('')
   })
 
-  it('rejects mid-text !settitle', () => {
+  it('rejects mid-text !settitle (mod-only)', () => {
     expect(sanitize('nah backwards is "!settitle" lol').text).toBe('')
   })
 
-  it('rejects mid-text !addcom', () => {
+  it('rejects mid-text !addcom (mod-only)', () => {
     expect(sanitize('not running !addcom or anything').text).toBe('')
   })
 
-  it('rejects leading /ban (pre-strip catches it)', () => {
+  it('rejects leading /ban (IRC command)', () => {
     expect(sanitize('/ban tidolar Clap').text).toBe('')
   })
 
-  it('rejects leading \\ban (pre-strip catches it)', () => {
+  it('rejects leading \\ban (IRC command)', () => {
     expect(sanitize('\\ban tidolar LUL').text).toBe('')
   })
 
-  it('rejects leading !settitle (pre-strip catches it)', () => {
+  it('rejects leading !settitle (mod-only)', () => {
     expect(sanitize('!settitle nah but seriously').text).toBe('')
   })
 
-  it('rejects leading whitespace before command prefix', () => {
+  it('rejects leading whitespace before /ban', () => {
     expect(sanitize('  /ban tidolar').text).toBe('')
   })
 
-  it('rejects leading quotes around command prefix', () => {
+  it('rejects leading quotes around !settitle', () => {
     expect(sanitize('"!settitle" test').text).toBe('')
+  })
+
+  it('allows !ban (custom channel command)', () => {
+    expect(sanitize('!ban tidolar').text).toBeTruthy()
+  })
+
+  it('allows !jory (custom channel command)', () => {
+    expect(sanitize('!jory').text).toBeTruthy()
   })
 
   it('allows normal game text without command prefixes', () => {

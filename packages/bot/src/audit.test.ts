@@ -258,15 +258,13 @@ describe('sanitizer blocks bad responses', () => {
     })
   }
 
-  // --- dangerous commands ---
+  // --- dangerous commands (IRC prefixes /\. always blocked, ! only for mod-only commands) ---
   const dangerousCmds = [
-    '!ban troublemaker',
     '/timeout someone 600',
     '!mod randomuser',
     '!settitle new stream title',
     '!raid otherchannel',
     '!addcom !test hello world',
-    '"!ban" lol jk',
   ]
 
   for (const text of dangerousCmds) {
@@ -584,18 +582,23 @@ describe('sanitizer length constraints', () => {
 // 11. Prompt injection defense (sanitizer layer)
 // ============================================================
 describe('prompt injection defense', () => {
-  it('strips command prefix from AI output', () => {
+  it('allows !ban (custom channel command, not IRC)', () => {
     const r = sanitize('!ban someone lol')
+    expect(r.text).toBeTruthy()
+  })
+
+  it('blocks /ban (real IRC command)', () => {
+    const r = sanitize('/ban tidolar')
     expect(r.text).toBe('')
   })
 
-  it('strips slash command prefix', () => {
+  it('blocks \\ban (real IRC command)', () => {
+    const r = sanitize('\\ban tidolar')
+    expect(r.text).toBe('')
+  })
+
+  it('blocks /timeout (real IRC command)', () => {
     const r = sanitize('/timeout user 600')
-    expect(r.text).toBe('')
-  })
-
-  it('strips leading quotes around commands', () => {
-    const r = sanitize('"!ban" user')
     expect(r.text).toBe('')
   })
 
@@ -610,9 +613,24 @@ describe('prompt injection defense', () => {
     expect(r.text).toBe('')
   })
 
-  it('blocks embedded dangerous commands', () => {
-    const r = sanitize('lol !ban that guy for real')
-    expect(r.text).toBe('')
+  it('blocks !settitle for non-mod', () => {
+    expect(sanitize('!settitle new stream title').text).toBe('')
+  })
+
+  it('allows !settitle for mod', () => {
+    expect(sanitize('!settitle new stream title', undefined, true).text).toBeTruthy()
+  })
+
+  it('allows /me dances (not in blocklist)', () => {
+    expect(sanitize('/me dances').text).toBeTruthy()
+  })
+
+  it('allows !jory (custom channel command)', () => {
+    expect(sanitize('!jory').text).toBeTruthy()
+  })
+
+  it('allows !commands (custom channel command)', () => {
+    expect(sanitize('!commands').text).toBeTruthy()
   })
 })
 
@@ -667,56 +685,67 @@ describe('SEC: env var / API key extraction via AI output', () => {
 })
 
 describe('SEC: command injection via AI response', () => {
-  // Attacker asks something that makes the model output a command
-  const cmdInjections = [
-    // direct commands
-    '!ban hacker123',
+  // IRC commands with /\. prefix — always blocked
+  const alwaysBlocked = [
     '/timeout troll 600',
+    '\\ban user',
+    '.ban user',
+    '/whisper target secrets',
+    '.timeout someone 300',
+  ]
+
+  for (const text of alwaysBlocked) {
+    it(`blocks IRC cmd: "${text.replace(/\n/g, '\\n').slice(0, 40)}..."`, () => {
+      expect(sanitize(text).text).toBe('')
+    })
+  }
+
+  // mod-only commands — blocked for non-privileged regardless of prefix
+  const modOnly = [
     '!mod malicious_user',
     '!vip attacker',
     '!raid evil_channel',
     '!host phishing_channel',
     '!announce free bitcoin at...',
-    '!whisper target secrets',
     '!clear',
-    // with leading whitespace
-    '  !ban user',
-    // with newlines
-    'cool response\n!ban user',
-    // backslash prefix
-    '\\ban user',
-    // period prefix (nightbot/streamelements trigger)
-    '.ban user',
-    // mod commands (non-privileged)
+    '/settitle hacked',
     '!addcom !phish visit phishing.com',
     '!editcom !rules new rules here',
     '!delcom !important',
-    // case variations
-    '!BAN user',
-    '!Timeout user 600',
     '/MOD troll',
   ]
 
-  for (const text of cmdInjections) {
-    it(`blocks: "${text.replace(/\n/g, '\\n').slice(0, 40)}..."`, () => {
-      const r = sanitize(text)
-      expect(r.text).toBe('')
+  for (const text of modOnly) {
+    it(`blocks mod cmd: "${text.replace(/\n/g, '\\n').slice(0, 40)}..."`, () => {
+      expect(sanitize(text).text).toBe('')
     })
   }
 
-  // embedded commands in otherwise normal text
-  const embeddedCmds = [
-    'haha anyway !ban that noob',
-    'sure thing! !timeout spammer 300',
-    'great question. !mod my_friend',
-    'yeah lol !raid another_channel',
-    'idk !whisper someone something secret',
+  // ! prefix commands that are custom channel commands — allowed
+  const customAllowed = [
+    '!ban hacker123',
+    '!whisper someone hi',
+    '!BAN user',
+    '!Timeout user 600',
+    '!jory',
+    '!commands',
   ]
 
-  for (const text of embeddedCmds) {
-    it(`blocks embedded: "${text.slice(0, 40)}..."`, () => {
-      const r = sanitize(text)
-      expect(r.text).toBe('')
+  for (const text of customAllowed) {
+    it(`allows custom !cmd: "${text.slice(0, 40)}..."`, () => {
+      expect(sanitize(text).text).toBeTruthy()
+    })
+  }
+
+  // embedded mod commands in normal text — still blocked
+  const embeddedMod = [
+    'great question. !mod my_friend',
+    'yeah lol !raid another_channel',
+  ]
+
+  for (const text of embeddedMod) {
+    it(`blocks embedded mod cmd: "${text.slice(0, 40)}..."`, () => {
+      expect(sanitize(text).text).toBe('')
     })
   }
 })
@@ -897,23 +926,22 @@ describe('SEC: sanitizer encoding bypass attempts', () => {
   })
 
   it('leading backtick stripped (code block bypass)', () => {
-    const r = sanitize('`!ban user`')
-    expect(r.text).not.toMatch(/!ban/)
+    const r = sanitize('`/ban user`')
+    expect(r.text).not.toMatch(/\/ban/)
   })
 
   it('leading single quote stripped', () => {
-    const r = sanitize("'!ban user'")
-    expect(r.text).not.toMatch(/!ban/)
+    const r = sanitize("'/ban user'")
+    expect(r.text).not.toMatch(/\/ban/)
   })
 
-  it('markdown bold stripped', () => {
-    const r = sanitize('**!ban user**')
-    // after markdown strip, the command prefix should be caught
+  it('markdown bold stripped — IRC cmd still caught', () => {
+    const r = sanitize('**/ban user**')
     expect(r.text).toBe('')
   })
 
-  it('markdown italic stripped', () => {
-    const r = sanitize('*!timeout user 600*')
+  it('markdown italic stripped — IRC cmd still caught', () => {
+    const r = sanitize('*/timeout user 600*')
     expect(r.text).toBe('')
   })
 
@@ -1014,16 +1042,31 @@ describe('SEC: privacy lie variations', () => {
   }
 })
 
-describe('SEC: dangerous command variations', () => {
-  // test that the regex catches all variations
-  it('backslash ban', () => expect(sanitize('\\ban user').text).toBe(''))
-  it('slash ban', () => expect(sanitize('/ban user').text).toBe(''))
-  it('! ban with space', () => expect(sanitize('! ban user').text).toBe(''))
-  it('! timeout with space', () => expect(sanitize('! timeout user 600').text).toBe(''))
-  it('mixed case !BaN', () => expect(sanitize('!BaN user').text).toBe(''))
-  it('!announce spam', () => expect(sanitize('!announce everyone check this link').text).toBe(''))
-  it('!whisper target', () => expect(sanitize('!whisper victim secret message').text).toBe(''))
-  it('\\mod someone', () => expect(sanitize('\\mod troll').text).toBe(''))
+describe('SEC: command blocklist tiers', () => {
+  // always blocked (IRC /\. prefixes)
+  it('\\ban blocked', () => expect(sanitize('\\ban user').text).toBe(''))
+  it('/ban blocked', () => expect(sanitize('/ban user').text).toBe(''))
+  it('.timeout blocked', () => expect(sanitize('.timeout user 600').text).toBe(''))
+  it('/whisper blocked', () => expect(sanitize('/whisper victim secret').text).toBe(''))
+  it('/disconnect blocked', () => expect(sanitize('/disconnect').text).toBe(''))
+
+  // mod-only (!/ all prefixes, non-mod blocked)
+  it('!announce blocked non-mod', () => expect(sanitize('!announce spam').text).toBe(''))
+  it('!announce allowed mod', () => expect(sanitize('!announce spam', undefined, true).text).toBeTruthy())
+  it('\\mod blocked non-mod', () => expect(sanitize('\\mod troll').text).toBe(''))
+  it('!addcom blocked non-mod', () => expect(sanitize('!addcom !hi yo').text).toBe(''))
+  it('!addcom allowed mod', () => expect(sanitize('!addcom !hi yo', undefined, true).text).toBeTruthy())
+  it('/settitle blocked non-mod', () => expect(sanitize('/settitle New').text).toBe(''))
+  it('/settitle allowed mod', () => expect(sanitize('/settitle New', undefined, true).text).toBeTruthy())
+
+  // ! prefix custom commands — always allowed
+  it('!ban allowed (custom cmd)', () => expect(sanitize('!ban tidolar').text).toBeTruthy())
+  it('!BaN allowed (custom cmd)', () => expect(sanitize('!BaN user').text).toBeTruthy())
+  it('!whisper allowed (custom cmd)', () => expect(sanitize('!whisper someone hi').text).toBeTruthy())
+  it('!jory allowed (custom cmd)', () => expect(sanitize('!jory').text).toBeTruthy())
+
+  // /me is safe — not in any blocklist
+  it('/me allowed', () => expect(sanitize('/me dances').text).toBeTruthy())
 })
 
 describe('SEC: @mention extraction safety', () => {
