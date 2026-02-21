@@ -48,12 +48,12 @@ const STALE_HOURS = 168 // 7 days — daily cron handles normal refresh, this is
 
 const SCRAPE_TIMEOUT = 5 * 60_000 // 5min
 
-let refreshing = false
+let refreshPromise: Promise<void> | null = null
 
 async function refreshData() {
-  if (refreshing) { log('refresh already in progress, skipping'); return }
-  refreshing = true
-  try { await doRefreshData() } finally { refreshing = false }
+  if (refreshPromise) { log('refresh already in progress, skipping'); return refreshPromise }
+  refreshPromise = doRefreshData().finally(() => { refreshPromise = null })
+  return refreshPromise
 }
 
 async function doRefreshData() {
@@ -238,7 +238,7 @@ const client = new TwitchClient(
             refreshChannelEmotes(target, targetId).then(() => {
               const setId = getEmoteSetId(target)
               if (setId) emoteEvents.subscribeChannel(target, setId)
-            }).catch(() => {})
+            }).catch((e) => log(`emote refresh failed for ${target}: ${e}`))
             client.say(channel, `@${username} joined #${target}! type !b help in your chat`)
           } catch (e) {
             log(`join error for ${target}: ${e}`)

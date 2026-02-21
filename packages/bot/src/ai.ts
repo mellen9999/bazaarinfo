@@ -317,7 +317,7 @@ function buildGameContext(entities: ResolvedEntities, channel?: string): string 
   if (entities.chatQuery && channel) {
     const hits = db.searchChatFTS(channel, entities.chatQuery, 10)
     if (hits.length > 0) {
-      sections.push(`Chat search "${entities.chatQuery}":\n${hits.map((h) => `[${h.created_at}] ${h.username}: ${h.message}`).join('\n')}`)
+      sections.push(`Chat search "${entities.chatQuery}":\n${hits.map((h) => `[${h.created_at}] ${h.username.replace(/[:\n]/g, '')}: ${h.message.replace(/\n/g, ' ')}`).join('\n')}`)
     }
   }
 
@@ -880,7 +880,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const chatContext = getRecent(ctx.channel, chatDepth)
     .filter((m) => !isNoise(m.text))
   const chatStr = chatContext.length > 0
-    ? chatContext.map((m) => `${m.user}: ${m.text.replace(/^!\w+\s*/, '')}`).join('\n')
+    ? chatContext.map((m) => `${m.user.replace(/[:\n]/g, '')}: ${m.text.replace(/^!\w+\s*/, '').replace(/\n/g, ' ')}`).join('\n')
     : ''
 
   const chattersLine = buildChattersContext(chatContext, ctx.user, ctx.channel)
@@ -939,8 +939,9 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     pastaBlock,
     buildUserContext(ctx.user, ctx.channel, !!recallLine),
     ctx.mention
-      ? `\n---\n@MENTION — only respond if ${ctx.user} is talking TO you. If they're talking ABOUT you to someone else, output just - to stay silent.\n${ctx.user}: ${query}`
-      : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.isMod ? '[MOD] ' : ''}${ctx.user}: ${query}`,
+      ? `\n---\n@MENTION — only respond if [USER] is talking TO you. If they're talking ABOUT you to someone else, output just - to stay silent.\n[USER]: ${query}`
+      : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.isMod ? '[MOD] ' : ''}[USER]: ${query}`,
+    `\n[USER] = ${ctx.user}`,
   ].filter(Boolean).join('')
   return { text, hasGameData, isPasta }
 }
@@ -1027,8 +1028,8 @@ async function maybeExtractFacts(user: string, query: string, response: string) 
   factInFlight.add(user)
   try {
     const prompt = [
-      `User ${user} said: "${query.slice(0, 120)}"`,
-      `Bot responded: "${response.slice(0, 120)}"`,
+      `User said: "${query.slice(0, 120).replace(/\n/g, ' ')}"`,
+      `Bot responded: "${response.slice(0, 120).replace(/\n/g, ' ')}"`,
       '',
       `Extract 0-3 specific facts about ${user}. Only extract facts clearly stated BY the user, not inferred.`,
       '- Personal ("from ohio", "has a cat named mochi")',

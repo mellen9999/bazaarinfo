@@ -407,7 +407,7 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
   const gameId = db.createTriviaGame(channel, q.type, q.question, q.answer)
 
   const timeout = setTimeout(() => {
-    const msg = endTrivia(channel)
+    const msg = endTrivia(channel, gameId)
     if (msg) globalSay(channel, msg)
   }, ROUND_DURATION)
 
@@ -426,9 +426,11 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
   return `Trivia! ${q.question} (30s to answer)`
 }
 
-function endTrivia(channel: string): string | null {
+function endTrivia(channel: string, expectedGameId?: number): string | null {
   const game = activeGames.get(channel)
   if (!game) return null
+  // if called from a timer, only end the game that started it
+  if (expectedGameId !== undefined && game.gameId !== expectedGameId) return null
 
   clearTimeout(game.timeout)
   activeGames.delete(channel)
@@ -467,6 +469,8 @@ export function checkAnswer(
   db.recordTriviaAnswer(game.gameId, userId, text, isCorrect, answerTimeMs)
 
   if (isCorrect) {
+    // re-check game is still active (another correct answer could have won in same tick)
+    if (!activeGames.has(channel)) return
     db.recordTriviaWin(game.gameId, userId, answerTimeMs, game.participants.size)
     clearTimeout(game.timeout)
     activeGames.delete(channel)

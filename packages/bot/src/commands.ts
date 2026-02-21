@@ -145,8 +145,8 @@ function isDuplicate(channel: string, query: string): boolean {
   const last = recentQueries.get(key)
   if (last && now - last < DEDUP_WINDOW) return true
   recentQueries.set(key, now)
-  // prune old entries periodically
-  if (recentQueries.size > 500) {
+  // prune old entries periodically (aggressive threshold to prevent unbounded growth)
+  if (recentQueries.size > 200) {
     for (const [k, t] of recentQueries) {
       if (now - t > DEDUP_WINDOW) recentQueries.delete(k)
     }
@@ -315,7 +315,8 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 
   // conversational game questions → AI for analysis (it has tools to look up cards)
   if (!tier && !enchant && words.length >= 3 && (QUESTION_PREFIX.test(query) || query.includes('?'))) {
-    const aiResult = await aiRespond(cleanArgs, ctx)
+    let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
+    try { aiResult = await aiRespond(cleanArgs, ctx) } catch {}
     if (aiResult?.text) {
       logHit('ai', cleanArgs, 'ai', ctx)
       return dedupeEmote(aiResult.text, ctx.channel)
@@ -358,7 +359,8 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   logMiss(query, ctx)
 
   // always try AI first — every miss is an opportunity to be interesting
-  const aiResult = await aiRespond(cleanArgs, ctx)
+  let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
+  try { aiResult = await aiRespond(cleanArgs, ctx) } catch {}
   if (aiResult?.text) {
     logHit('ai', cleanArgs, 'ai', ctx)
     return dedupeEmote(aiResult.text, ctx.channel)

@@ -133,6 +133,7 @@ export class TwitchClient {
 
   close() {
     this.closing = true
+    this.ircReconnecting = false
     if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
     if (this.ircPingTimeout) clearTimeout(this.ircPingTimeout)
     this.eventsub?.close()
@@ -195,6 +196,7 @@ export class TwitchClient {
       if (!newUrl) { log('session_reconnect missing url, ignoring'); return }
       log('eventsub reconnecting to', newUrl)
       const oldWs = this.eventsub
+      if (oldWs) { oldWs.onmessage = null; oldWs.onclose = null; oldWs.onerror = null }
       this.eventsub = this.wireEventSub(new WebSocket(newUrl))
       this.eventsub.onopen = () => oldWs?.close()
     }
@@ -321,9 +323,9 @@ export class TwitchClient {
   private connectIrc() {
     this.ircReady = false
     this.ircReconnecting = false
-    // close old socket if still lingering
+    // close old socket if still lingering — clear all handlers to prevent stray events
     if (this.irc) {
-      try { this.irc.onclose = null; this.irc.close() } catch {}
+      try { this.irc.onmessage = null; this.irc.onclose = null; this.irc.onerror = null; this.irc.close() } catch {}
     }
     this.irc = new WebSocket(IRC_URL)
 
@@ -360,8 +362,8 @@ export class TwitchClient {
             log('irc notice:', line)
             break
         }
-        this.resetIrcPingTimeout()
       }
+      this.resetIrcPingTimeout()
     }
 
     this.irc.onclose = (ev) => {
@@ -519,6 +521,10 @@ export class TwitchClient {
   async say(channel: string, text: string, replyTo?: string) {
     // strip command prefixes — / . for twitch, ! for other bots (nightbot, streamelements)
     text = text.replace(/^[!/.]+/, '')
+    // proactively trim stale sendTimes entries
+    const now = Date.now()
+    const cutoff = now - this.SEND_WINDOW
+    while (this.sendTimes.length > 0 && this.sendTimes[0] < cutoff) this.sendTimes.shift()
     if (text.length > 490) text = text.slice(0, 487) + '...'
     if (!this.canSend()) {
       if (this.ircQueue.length >= MAX_QUEUE) {
