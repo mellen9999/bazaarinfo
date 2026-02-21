@@ -272,14 +272,16 @@ const client = new TwitchClient(
       const isMod = badges.some((b) => b === 'moderator' || b === 'broadcaster')
       const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId })
       if (response) {
-        // debounce: drop if another response was sent to this channel <2s ago
+        // debounce: delay if another response was sent to this channel recently
         const now = Date.now()
         const lastSent = lastResponseTime.get(channel) ?? 0
-        if (now - lastSent < DEBOUNCE_MS) {
-          log(`[#${channel}] debounced: ${text.slice(0, 40)}`)
-          return
+        const gap = now - lastSent
+        if (gap < DEBOUNCE_MS) {
+          const delay = DEBOUNCE_MS - gap
+          log(`[#${channel}] delaying ${delay}ms: ${text.slice(0, 40)}`)
+          await new Promise((r) => setTimeout(r, delay))
         }
-        lastResponseTime.set(channel, now)
+        lastResponseTime.set(channel, Date.now())
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
         client.say(channel, response, messageId)
         chatbuf.record(channel, BOT_USERNAME, response)
