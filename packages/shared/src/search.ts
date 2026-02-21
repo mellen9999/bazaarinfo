@@ -31,13 +31,11 @@ export function searchPrefix(cards: BazaarCard[], query: string, limit = 5): Baz
 }
 
 export function buildTitleMap(cards: BazaarCard[]): Map<string, BazaarCard> {
-  const map = new Map<string, BazaarCard>()
-  for (const c of cards) map.set(c.Title.toLowerCase(), c)
-  return map
+  return new Map(cards.map((c) => [c.Title.toLowerCase(), c]))
 }
 
 export function findExact(cards: BazaarCard[], name: string, titleMap?: Map<string, BazaarCard>) {
-  if (titleMap) return titleMap.get(name.toLowerCase())
   const lower = name.toLowerCase()
+  if (titleMap) return titleMap.get(lower)
   return cards.find((c) => c.Title.toLowerCase() === lower)
 }

@@ -20,6 +20,11 @@ const userHistory = new Map<string, number>()
 const USER_HISTORY_MAX = 5_000
 
 const AI_USER_CD = 60_000 // 60s per user
+
+function formatAge(createdAt: string, now: number): string {
+  const mins = Math.round((now - new Date(createdAt + 'Z').getTime()) / 60_000)
+  return mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`
+}
 const AI_VIP = new Set(['tidolar'])
 
 // only spend AI tokens in these channels
@@ -367,9 +372,7 @@ function buildUserContext(user: string, channel: string, skipAsks = false): stri
       if (asks.length > 0) {
         const now = Date.now()
         const parts = asks.map((a) => {
-          const age = now - new Date(a.created_at + 'Z').getTime()
-          const mins = Math.round(age / 60_000)
-          const label = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`
+          const label = formatAge(a.created_at, now)
           const q = a.query.length > 50 ? a.query.slice(0, 50) + '...' : a.query
           const r = a.response ? (a.response.length > 120 ? a.response.slice(0, 120) + '...' : a.response) : '?'
           return `${label}: "${q}" → "${r}"`
@@ -392,10 +395,7 @@ function buildTimeline(channel: string): string {
 
   const now = Date.now()
   const lines = rows.reverse().map((r) => {
-    const age = now - new Date(r.created_at + 'Z').getTime()
-    const mins = Math.round(age / 60_000)
-    const label = mins < 60 ? `${mins}m ago` : `${Math.round(mins / 60)}h ago`
-    return `${label}: ${r.summary}`
+    return `${formatAge(r.created_at, now)}: ${r.summary}`
   })
 
   const current = getSummary(channel)
@@ -764,9 +764,7 @@ function buildRecallContext(query: string, channel: string): string {
 
   const now = Date.now()
   const lines = results.map((r) => {
-    const age = now - new Date(r.created_at + 'Z').getTime()
-    const mins = Math.round(age / 60_000)
-    const label = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`
+    const label = formatAge(r.created_at, now)
     const q = r.query.length > 60 ? r.query.slice(0, 60) + '...' : r.query
     const resp = r.response
       ? (r.response.length > 120 ? r.response.slice(0, 120) + '...' : r.response)

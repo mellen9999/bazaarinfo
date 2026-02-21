@@ -15,55 +15,44 @@ let heroSizeMap: [string, string[]][] = []      // ["Hero|Size", lowercaseTitles
 let heroTagMap: [string, string[]][] = []       // ["Hero|Tag", lowercaseTitles] filtered to 3..30
 let mechanicMap: [string, string[]][] = []      // [keyword, lowercaseTitles] filtered to >=5
 
+function pushToMap(map: Map<string, string[]>, key: string, val: string) {
+  let arr = map.get(key)
+  if (!arr) { arr = []; map.set(key, arr) }
+  arr.push(val)
+}
+
 export function rebuildTriviaMaps() {
   const FAKE = new Set(['Common', '???'])
   const items = store.getItems()
-
-  // tag → items
   const tMap = new Map<string, string[]>()
-  for (const item of items) {
-    for (const tag of item.HiddenTags) {
-      if (!tMap.has(tag)) tMap.set(tag, [])
-      tMap.get(tag)!.push(item.Title.toLowerCase())
-    }
-  }
-  tagItemMap = [...tMap.entries()].filter(([, v]) => v.length >= TAG_MIN && v.length <= TAG_MAX)
-
-  // hero+size → items
   const hsMap = new Map<string, string[]>()
-  for (const item of items) {
-    if (item.Heroes.length !== 1 || FAKE.has(item.Heroes[0])) continue
-    const key = `${item.Heroes[0]}|${item.Size}`
-    if (!hsMap.has(key)) hsMap.set(key, [])
-    hsMap.get(key)!.push(item.Title.toLowerCase())
-  }
-  heroSizeMap = [...hsMap.entries()].filter(([, v]) => v.length >= 5)
-
-  // hero+tag → items
   const htMap = new Map<string, string[]>()
-  for (const item of items) {
-    if (item.Heroes.length !== 1 || FAKE.has(item.Heroes[0]) || item.DisplayTags.length === 0) continue
-    for (const tag of item.DisplayTags) {
-      const key = `${item.Heroes[0]}|${tag}`
-      if (!htMap.has(key)) htMap.set(key, [])
-      htMap.get(key)!.push(item.Title.toLowerCase())
-    }
-  }
-  heroTagMap = [...htMap.entries()].filter(([, v]) => v.length >= 3 && v.length <= 30)
-
-  // mechanic → items
   const mMap = new Map<string, string[]>()
+
   for (const item of items) {
+    const lower = item.Title.toLowerCase()
+    const singleHero = item.Heroes.length === 1 && !FAKE.has(item.Heroes[0]) ? item.Heroes[0] : null
+
+    for (const tag of item.HiddenTags) pushToMap(tMap, tag, lower)
+
+    if (singleHero) {
+      pushToMap(hsMap, `${singleHero}|${item.Size}`, lower)
+      for (const tag of item.DisplayTags) pushToMap(htMap, `${singleHero}|${tag}`, lower)
+    }
+
     for (const t of item.Tooltips) {
       for (const keyword of Object.keys(MECHANIC_VERBS)) {
         if (t.text.includes(keyword)) {
-          if (!mMap.has(keyword)) mMap.set(keyword, [])
-          const lower = item.Title.toLowerCase()
-          if (!mMap.get(keyword)!.includes(lower)) mMap.get(keyword)!.push(lower)
+          const arr = mMap.get(keyword)
+          if (!arr || !arr.includes(lower)) pushToMap(mMap, keyword, lower)
         }
       }
     }
   }
+
+  tagItemMap = [...tMap.entries()].filter(([, v]) => v.length >= TAG_MIN && v.length <= TAG_MAX)
+  heroSizeMap = [...hsMap.entries()].filter(([, v]) => v.length >= 5)
+  heroTagMap = [...htMap.entries()].filter(([, v]) => v.length >= 3 && v.length <= 30)
   mechanicMap = [...mMap.entries()].filter(([, v]) => v.length >= 5)
 }
 

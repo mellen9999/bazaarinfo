@@ -84,6 +84,14 @@ export function removeChannelEmotes(channel: string) {
 }
 
 // well-known twitch/bttv/ffz globals the model should know
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+  return arr
+}
+
 const KNOWN_GLOBALS = [
   'Kappa', 'KappaPride', 'Keepo', 'PogChamp', 'LUL', 'OMEGALUL', 'monkaS',
   'PepeHands', 'FeelsBadMan', 'FeelsGoodMan', 'FeelsStrongMan', 'Sadge', 'widepeepoHappy',
@@ -196,11 +204,7 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
       if (topSet.has(e.split('(')[0])) pinned.push(e)
       else rest.push(e)
     }
-    // fisher-yates shuffle on the non-pinned entries
-    for (let i = rest.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [rest[i], rest[j]] = [rest[j], rest[i]]
-    }
+    shuffle(rest)
     byMood.set(mood, [...pinned, ...rest])
   }
 
@@ -233,10 +237,7 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
   }
 
   if (overlays.length > 0) {
-    for (let i = overlays.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [overlays[i], overlays[j]] = [overlays[j], overlays[i]]
-    }
+    shuffle(overlays)
     const spotlightOv = overlays.slice(0, 5)
     const restOv = overlays.slice(5).map((e) => e.split('(')[0])
     let line = `  [OVERLAYS — combine with another emote]: ${spotlightOv.join(' ')}`
