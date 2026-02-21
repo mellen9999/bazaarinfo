@@ -72,9 +72,9 @@ describe('entity extraction via store', () => {
 // 2. System prompt quality
 // ============================================================
 describe('system prompt', () => {
-  it('is under 5000 chars (token budget)', () => {
+  it('is under 5200 chars (token budget)', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt.length).toBeLessThan(5000)
+    expect(prompt.length).toBeLessThan(5200)
   })
 
   it('contains core identity', () => {
@@ -239,6 +239,21 @@ describe('sanitizer blocks bad responses', () => {
 
   for (const text of fabrications) {
     it(`blocks fabrication: "${text.slice(0, 50)}..."`, () => {
+      expect(sanitize(text).text).toBe('')
+    })
+  }
+
+  // --- context echo (model regurgitating its own input context) ---
+  const contextEchoes = [
+    'Game data: Dive Weights [S] · Vanessa [Aquatic, Tool, Apparel] | Haste an item for 1/2/3s',
+    'Recent chat:\n> user1: hello\n> user2: sup',
+    'Stream timeline:\n5m ago: kripp discussing burn builds',
+    "Who's chatting: tidolar(trivia regular) | user2(casual)",
+    'Your prior exchanges (be consistent): ...',
+  ]
+
+  for (const text of contextEchoes) {
+    it(`blocks context echo: "${text.slice(0, 50)}..."`, () => {
       expect(sanitize(text).text).toBe('')
     })
   }

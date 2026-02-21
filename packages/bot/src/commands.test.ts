@@ -1692,8 +1692,13 @@ describe('command proxy: mod bypass', () => {
     }
   })
 
+  it('non-mod cannot proxy settitle/setgame', async () => {
+    expect(await handleCommand('!b !settitle new title', { user: 'viewer', channel: 'ch' })).toBeNull()
+    expect(await handleCommand('!b !setgame Bazaar', { user: 'viewer', channel: 'ch2' })).toBeNull()
+  })
+
   it('mod can use stream control commands', async () => {
-    for (const cmd of ['so', 'shoutout', 'raid', 'title', 'game']) {
+    for (const cmd of ['so', 'shoutout', 'raid', 'title', 'game', 'settitle', 'setgame']) {
       expect(await handleCommand(`!b !${cmd} val`, { user: 'mod', channel: `ch${cmd}`, privileged: true, isMod: true })).toBe(`!${cmd} val`)
     }
   })
@@ -1708,6 +1713,31 @@ describe('command proxy: mod bypass', () => {
 
   it('custom commands still work for non-privileged', async () => {
     expect(await handleCommand('!b !jory', { user: 'viewer', channel: 'ch' })).toBe('!jory')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Deterministic string tricks
+// ---------------------------------------------------------------------------
+describe('string tricks', () => {
+  it('reverses quoted string', async () => {
+    expect(await handleCommand('!b reverse this string "egdirB"', { user: 'u', channel: 'c' })).toBe('Bridge')
+  })
+
+  it('reverses smart-quoted string', async () => {
+    expect(await handleCommand('!b reverse \u201cegdirB\u201d', { user: 'u', channel: 'c' })).toBe('Bridge')
+  })
+
+  it('reverses unquoted trailing word', async () => {
+    expect(await handleCommand('!b reverse olleH', { user: 'u', channel: 'c' })).toBe('Hello')
+  })
+
+  it('uppercase quoted string', async () => {
+    expect(await handleCommand('!b uppercase "hello world"', { user: 'u', channel: 'c' })).toBe('HELLO WORLD')
+  })
+
+  it('lowercase quoted string', async () => {
+    expect(await handleCommand('!b lowercase "HELLO"', { user: 'u', channel: 'c' })).toBe('hello')
   })
 })
 

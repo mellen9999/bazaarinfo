@@ -31,7 +31,7 @@ const BLOCKED_BANG_CMDS = new Set([
   'ban', 'unban', 'timeout', 'untimeout', 'permit', 'nuke', 'unnuke',
   'mod', 'unmod', 'vip', 'unvip', 'block', 'unblock',
   // stream control
-  'title', 'game', 'commercial', 'raid', 'unraid', 'host', 'unhost', 'marker',
+  'title', 'settitle', 'game', 'setgame', 'commercial', 'raid', 'unraid', 'host', 'unhost', 'marker',
   'so', 'shoutout',
   // chat modes
   'slow', 'slowoff', 'followers', 'followersoff', 'subscribers', 'subscribersoff',
@@ -307,6 +307,27 @@ function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: Tie
   return { tier: undefined, note: null }
 }
 
+// --- deterministic string tricks (reverse, uppercase, etc.) ---
+// uses raw args (before quote stripping) so quoted strings are preserved
+
+const Q = '[""\u201C\u201D]' // ASCII + smart quotes
+const STRING_TRICK_RE = new RegExp(`\\breverse\\b.*?${Q}(.+?)${Q}|\\breverse\\b.*\\b(\\S+)$`, 'i')
+const UPPERCASE_TRICK_RE = new RegExp(`\\b(?:uppercase|upcase|caps)\\b.*?${Q}(.+?)${Q}|\\b(?:uppercase|upcase|caps)\\b.*\\b(\\S+)$`, 'i')
+const LOWERCASE_TRICK_RE = new RegExp(`\\b(?:lowercase|downcase)\\b.*?${Q}(.+?)${Q}|\\b(?:lowercase|downcase)\\b.*\\b(\\S+)$`, 'i')
+
+function handleStringTrick(raw: string): string | null {
+  let m = raw.match(STRING_TRICK_RE)
+  if (m) {
+    const target = m[1] ?? m[2]
+    return [...target].reverse().join('')
+  }
+  m = raw.match(UPPERCASE_TRICK_RE)
+  if (m) return (m[1] ?? m[2]).toUpperCase()
+  m = raw.match(LOWERCASE_TRICK_RE)
+  if (m) return (m[1] ?? m[2]).toLowerCase()
+  return null
+}
+
 // questions with 3+ words starting with these go straight to AI for analysis
 const QUESTION_PREFIX = /^(why|how|should|would|could|does|do|did|is|are|was|were|can|will|who|where|when|what)\b/i
 
@@ -384,6 +405,10 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {
+  // deterministic string tricks — check raw args before quote stripping
+  const trick = handleStringTrick(args)
+  if (trick) return trick
+
   const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
 
   if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()

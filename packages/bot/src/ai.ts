@@ -648,6 +648,8 @@ const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote
 const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you have \d+ (lookups?|commands?|wins?|attempts?|asks?)|you('ve|'re| have| are) (a )?(power user|casual user|trivia regular)|according to (my|your|the) (data|stats|profile|records?)|i (can see|see|know) (from )?(your|the) (data|stats|profile)|based on your (history|stats|data|profile))\b/i
 // garbled output — token cutoff producing broken grammar (pronoun+to+gerund that reads wrong)
 const GARBLED = /\b(?:i|you|we|they|he|she)\s+to\s+(?!(?:some|any|every|no)(?:thing|one|where|body)\b)(?!(?:be|get|keep|start|stop|go|come|try)\s)\w+ing\b/i
+// context echo — model regurgitating its own input context labels
+const CONTEXT_ECHO = /^(Game data:|Recent chat:|Stream timeline:|Who's chatting:|Channel:|Your prior exchanges)/i
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 // privacy lies — bot claiming it doesn't store/log/collect data (it does)
@@ -738,7 +740,7 @@ export function sanitize(text: string, asker?: string, privileged?: boolean): { 
   const cmdBlock = hasDangerousCommand(s) || hasDangerousCommand(preStrip) ||
     (!privileged && (hasModCommand(s) || hasModCommand(preStrip)))
   const hasSecret = SECRET_PATTERN.test(s) || SECRET_PATTERN.test(preStrip)
-  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
+  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
