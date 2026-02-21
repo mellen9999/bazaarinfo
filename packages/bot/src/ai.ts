@@ -30,8 +30,8 @@ function randomPastaExamples(n: number): string[] {
   return picks
 }
 const MODEL = 'claude-haiku-4-5-20251001'
-const MAX_TOKENS_GAME = 120
-const MAX_TOKENS_CHAT = 50
+const MAX_TOKENS_GAME = 200
+const MAX_TOKENS_CHAT = 150
 const MAX_TOKENS_PASTA = 250
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
