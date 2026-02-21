@@ -39,12 +39,10 @@ const MAX_TOKENS_CHAT = 65
 const MAX_TOKENS_PASTA = 150
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
-// --- per-user AI cooldown ---
+// --- global AI cooldown ---
 
-const userHistory = new Map<string, number>()
-const USER_HISTORY_MAX = 5_000
-
-const AI_USER_CD = 60_000 // 60s per user
+let lastAiResponse = 0
+const AI_GLOBAL_CD = 60_000 // 60s global
 
 // --- hot exchange cache (in-memory, instant access for follow-ups) ---
 
@@ -161,22 +159,15 @@ function maybeFetchTwitchInfo(user: string, channel: string) {
   })()
 }
 
-/** returns seconds remaining on cooldown, or 0 if ready */
-export function getAiCooldown(user: string, channel?: string): number {
-  if (AI_VIP.has(user)) return 0
+/** returns seconds remaining on global cooldown, or 0 if ready */
+export function getAiCooldown(_user?: string, channel?: string): number {
   if (channel && !liveChannels.has(channel.toLowerCase())) return 0
-  const last = userHistory.get(user)
-  if (!last) return 0
-  const elapsed = Date.now() - last
-  return elapsed >= AI_USER_CD ? 0 : Math.ceil((AI_USER_CD - elapsed) / 1000)
+  const elapsed = Date.now() - lastAiResponse
+  return elapsed >= AI_GLOBAL_CD ? 0 : Math.ceil((AI_GLOBAL_CD - elapsed) / 1000)
 }
 
-export function recordUsage(user: string) {
-  if (userHistory.size >= USER_HISTORY_MAX) {
-    const first = userHistory.keys().next().value!
-    userHistory.delete(first)
-  }
-  userHistory.set(user, Date.now())
+export function recordUsage() {
+  lastAiResponse = Date.now()
 }
 
 // --- low-value filter ---
@@ -992,7 +983,9 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   await prev
 
   try {
-    return await doAiCall(query, ctx as AiContext & { user: string; channel: string })
+    const result = await doAiCall(query, ctx as AiContext & { user: string; channel: string })
+    if (result?.text) recordUsage()
+    return result
   } finally {
     aiQueueDepth--
     release()
@@ -1446,7 +1439,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           continue
         }
         cbRecordSuccess()
-        recordUsage(ctx.user)
+        recordUsage()
         try {
           const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
           db.logAsk(ctx, query, result.text, tokens, latency)

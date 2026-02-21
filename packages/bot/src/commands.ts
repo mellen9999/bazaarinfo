@@ -390,14 +390,17 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     return dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
   }
 
-  // AI failed — show suggestions for short queries, shrug for everything else
+  // AI failed — check if on cooldown, otherwise show suggestions
+  const cd = getAiCooldown(ctx.user, ctx.channel)
+  if (cd > 0) return withSuffix(`on cooldown (${cd}s)`, suffix)
+
   if (queryWords.length <= 2) {
     const suggestions = store.suggest(query, 3)
     if (suggestions.length > 0) {
       return withSuffix(`no "${query}" — did you mean: ${suggestions.join(', ')}?`, suffix)
     }
   }
-  return withSuffix('¯\\_(ツ)_/¯', suffix)
+  return withSuffix(`no match for "${truncate(query, 40)}"`, suffix)
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {

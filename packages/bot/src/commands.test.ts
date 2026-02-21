@@ -449,9 +449,9 @@ describe('!b item lookup', () => {
     expect(mockSearch).toHaveBeenCalledWith('boomrang', 1)
   })
 
-  it('returns shrug when no match and AI unavailable', async () => {
+  it('returns no-match message when no match and AI unavailable', async () => {
     const result = await handleCommand('!b xyznonexistent')
-    expect(result).toContain('¯\\_(ツ)_/¯')
+    expect(result).toContain('no match for')
   })
 
   it('handles multi-word item names', async () => {
@@ -629,12 +629,12 @@ describe('!b enchantment (any order)', () => {
 
   it('single word alone is item lookup not enchant', async () => {
     const result = await handleCommand('!b fiery')
-    expect(result).toContain('¯\\_(ツ)_/¯')
+    expect(result).toContain('no match for')
   })
 
   it('single word alone is item lookup not enchant (toxic)', async () => {
     const result = await handleCommand('!b toxic')
-    expect(result).toContain('¯\\_(ツ)_/¯')
+    expect(result).toContain('no match for')
   })
 })
 
@@ -896,7 +896,7 @@ describe('!b mob/monster', () => {
 describe('!b edge cases', () => {
   it('handles single character input', async () => {
     const result = await handleCommand('!b x')
-    expect(result).toContain('¯\\_(ツ)_/¯')
+    expect(result).toContain('no match for')
   })
 
   it('handles extra whitespace between words', async () => {
@@ -1382,15 +1382,15 @@ describe('AI fallback path', () => {
     expect(result).not.toContain('@chatter')
   })
 
-  it('conversational query + AI failure = shrug fallback', async () => {
+  it('conversational query + AI failure = no-match fallback', async () => {
     mockAiRespond.mockImplementation(() => null)
     const result = await handleCommand('!b is vanessa good', { user: 'chatter', channel: 'stream' })
-    expect(result).toContain('¯\\_(ツ)_/¯')
+    expect(result).toContain('no match for')
   })
 
-  it('short query + no match + AI fail = shrug fallback', async () => {
+  it('short query + no match + AI fail = no-match fallback', async () => {
     const result = await handleCommand('!b asdfghjkl', { user: 'chatter', channel: 'stream' })
-    expect(result).toContain('¯\\_(ツ)_/¯')
+    expect(result).toContain('no match for')
   })
 
   it('short query + AI success = AI response (not boring error)', async () => {
@@ -1529,8 +1529,8 @@ describe('command proxy: embedded in chat', () => {
   it('embedded blocked command is silently dropped', async () => {
     // "can you !ban this guy" — blocked cmd, falls through to item lookup / AI
     const result = await handleCommand('!b can you !ban this guy', { user: 'u', channel: 'c' })
-    // should NOT return "!ban" — should fall through
-    expect(result).not.toContain('!ban')
+    // should NOT execute !ban — should fall through to no-match or AI
+    expect(result).toContain('no match for')
   })
 
   it('embedded blocked command falls through to AI', async () => {
@@ -1756,8 +1756,8 @@ describe('AI command management', () => {
     // here we simulate what happens: AI tried to output !addcom but sanitizer killed it
     mockAiRespond.mockImplementation(() => null)
     const result = await handleCommand('!b add a command called harem', { user: 'viewer', channel: 'stream' })
-    // no AI result → falls through to shrug
-    expect(result).toContain('¯\\_(ツ)_/¯')
+    // no AI result → falls through to no-match
+    expect(result).toContain('no match for')
   })
 })
 

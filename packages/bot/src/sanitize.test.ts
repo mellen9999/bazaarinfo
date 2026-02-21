@@ -478,14 +478,13 @@ describe('real response regressions', () => {
 })
 
 describe('getAiCooldown', () => {
-  it('returns 0 for first-time user', () => {
-    expect(getAiCooldown('newuser_' + Date.now())).toBe(0)
+  it('returns 0 when no prior usage', () => {
+    expect(getAiCooldown()).toBe(0)
   })
 
   it('returns ~60s after use', () => {
-    const user = 'cd_' + Date.now()
-    recordUsage(user)
-    const cd = getAiCooldown(user)
+    recordUsage()
+    const cd = getAiCooldown()
     expect(cd).toBeGreaterThan(55)
     expect(cd).toBeLessThanOrEqual(60)
   })
