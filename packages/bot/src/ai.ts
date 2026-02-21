@@ -1046,22 +1046,24 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
 const MEMO_INTERVAL = 5 // update memo every N asks
 const memoInFlight = new Set<string>()
 
-async function maybeUpdateMemo(user: string) {
+async function maybeUpdateMemo(user: string, force = false) {
   if (!API_KEY) return
   if (memoInFlight.has(user)) return
 
   try {
     const askCount = db.getUserAskCount(user)
-    if (askCount < MEMO_INTERVAL) return
-
-    const existing = db.getUserMemo(user)
-    if (existing && askCount - existing.ask_count_at < MEMO_INTERVAL) return
+    if (!force) {
+      if (askCount < MEMO_INTERVAL) return
+      const existing = db.getUserMemo(user)
+      if (existing && askCount - existing.ask_count_at < MEMO_INTERVAL) return
+    }
 
     const asks = db.getAsksForMemo(user, 15)
-    if (asks.length < 3) return
+    if (asks.length < 1) return
 
     memoInFlight.add(user)
 
+    const existing = db.getUserMemo(user)
     const facts = db.getUserFacts(user, 10)
     const factsStr = facts.length > 0 ? `\nKnown facts about ${user}: ${facts.join(', ')}\n` : ''
 
@@ -1078,7 +1080,9 @@ async function maybeUpdateMemo(user: string) {
       'Write a 1-sentence personality memo for this user (<200 chars). ',
       'Capture: humor style, recurring interests, running jokes, personality traits. ',
       'No stats, no dates, no "they". Write like a friend\'s mental note. ',
-      existing ? 'Update the existing memo — keep what\'s still true, add new patterns.' : '',
+      force
+        ? 'The user just defined/redefined their identity. REWRITE the memo to reflect what they said about themselves. Their self-description overrides your prior impression. Incorporate their stated facts.'
+        : existing ? 'Update the existing memo — keep what\'s still true, add new patterns.' : '',
     ].join('')
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1251,10 +1255,15 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         log(`ai: responded in ${latency}ms`)
         // hot cache for instant follow-up context
         cacheExchange(ctx.user, query, result.text)
-        // fire-and-forget memo + fact extraction
+        // fire-and-forget memo + fact extraction (force both on identity requests)
         const isRememberReq = REMEMBER_RE.test(query)
-        maybeUpdateMemo(ctx.user).catch(() => {})
         maybeExtractFacts(ctx.user, query, result.text, isRememberReq).catch(() => {})
+        // delay memo rewrite slightly so facts are stored first
+        if (isRememberReq) {
+          setTimeout(() => maybeUpdateMemo(ctx.user, true).catch(() => {}), 3_000)
+        } else {
+          maybeUpdateMemo(ctx.user).catch(() => {})
+        }
         return result
       }
 
