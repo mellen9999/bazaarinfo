@@ -43,7 +43,7 @@ const MAX_RETRIES = 3
 const userHistory = new Map<string, number>()
 const USER_HISTORY_MAX = 5_000
 
-const AI_USER_CD = 30_000 // 30s per user
+const AI_USER_CD = 60_000 // 60s per user
 
 // --- hot exchange cache (in-memory, instant access for follow-ups) ---
 
