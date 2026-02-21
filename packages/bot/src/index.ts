@@ -267,7 +267,8 @@ const client = new TwitchClient(
       }
 
       const privileged = badges.some((b) => b === 'subscriber' || b === 'moderator' || b === 'broadcaster' || b === 'vip')
-      const response = await handleCommand(text, { user: username, channel, privileged, messageId })
+      const isMod = badges.some((b) => b === 'moderator' || b === 'broadcaster')
+      const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId })
       if (response) {
         // debounce: drop if another response was sent to this channel <2s ago
         const now = Date.now()

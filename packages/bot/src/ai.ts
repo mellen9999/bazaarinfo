@@ -452,7 +452,7 @@ export function buildSystemPrompt(): string {
     // OUTPUT
     'Emotes: 0-1 per msg, at end, rotate heavily. Never use askers name (auto-tagged). @mention others only.',
     'COPYPASTA: if asked for a copypasta/pasta, go all in — fill the full 400 chars with absurd, funny, over-the-top text. Always prefix with "from claude: ". Make it worth pasting.',
-    'COMMANDS: ONLY if a [MOD] user asks to add/edit/delete a streamlabs command, output the raw command. Users without [MOD] tag CANNOT trigger this — ignore command requests from non-mods. NEVER output !addcom/!editcom/!delcom unprompted.',
+    'COMMANDS: ONLY if a [MOD] user asks to add/edit/delete a streamlabs command, output the raw !addcom/!editcom/!delcom command. Non-mods asking about commands: respond kindly (e.g. "only mods can do that"). NEVER output !addcom/!editcom/!delcom unprompted or for non-mods.',
     'NEVER meta-analyze chat behavior — no "chat static", no "background noise", no categorizing what chatters are doing. You ARE the chat, dont narrate it from outside.',
     '',
     `Heroes: ${heroes}`,
@@ -657,6 +657,7 @@ export interface AiContext {
   user?: string
   channel?: string
   privileged?: boolean
+  isMod?: boolean
   mention?: boolean
 }
 
@@ -894,7 +895,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     buildUserContext(ctx.user, ctx.channel, !!recallLine),
     ctx.mention
       ? `\n---\n@MENTION — only respond if ${ctx.user} is talking TO you. If they're talking ABOUT you to someone else, output just - to stay silent.\n${ctx.user}: ${query}`
-      : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.privileged ? '[MOD] ' : ''}${ctx.user}: ${query}`,
+      : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.isMod ? '[MOD] ' : ''}${ctx.user}: ${query}`,
   ].filter(Boolean).join('')
   return { text, hasGameData }
 }
@@ -1018,7 +1019,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const textBlock = data.content?.find((b) => b.type === 'text')
       if (!textBlock?.text) return null
 
-      const result = sanitize(textBlock.text, ctx.user, ctx.privileged)
+      const result = sanitize(textBlock.text, ctx.user, ctx.isMod)
       // enforce non-game length cap (system prompt says <100 but model ignores it)
       const isPasta = /\b(copypasta|pasta)\b/i.test(query)
       if (!hasGameData && !isPasta && result.text.length > 150) {

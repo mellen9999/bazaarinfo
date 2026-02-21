@@ -1669,30 +1669,35 @@ describe('command proxy: slash commands', () => {
 // Mod bypass for blocked commands
 // ---------------------------------------------------------------------------
 describe('command proxy: mod bypass', () => {
-  it('privileged user can proxy blocked commands', async () => {
-    expect(await handleCommand('!b !so streamer', { user: 'mod', channel: 'ch', privileged: true })).toBe('!so streamer')
-    expect(await handleCommand('!b !addcom', { user: 'mod', channel: 'ch2', privileged: true })).toBe('!addcom')
+  it('mod can proxy blocked commands', async () => {
+    expect(await handleCommand('!b !so streamer', { user: 'mod', channel: 'ch', privileged: true, isMod: true })).toBe('!so streamer')
+    expect(await handleCommand('!b !addcom', { user: 'mod', channel: 'ch2', privileged: true, isMod: true })).toBe('!addcom')
   })
 
-  it('non-privileged user cannot proxy blocked commands', async () => {
+  it('non-mod cannot proxy blocked commands', async () => {
     expect(await handleCommand('!b !so streamer', { user: 'viewer', channel: 'ch' })).toBeNull()
     expect(await handleCommand('!b !ban user', { user: 'viewer', channel: 'ch' })).toBeNull()
   })
 
-  it('privileged can use moderation commands', async () => {
+  it('subscriber cannot proxy blocked commands', async () => {
+    expect(await handleCommand('!b !so streamer', { user: 'sub', channel: 'chsub', privileged: true })).toBeNull()
+    expect(await handleCommand('!b !addcom !test hi', { user: 'sub', channel: 'chsub2', privileged: true })).toBeNull()
+  })
+
+  it('mod can use moderation commands', async () => {
     for (const cmd of ['ban', 'timeout', 'mod', 'vip', 'clear', 'nuke']) {
-      expect(await handleCommand(`!b !${cmd} target`, { user: 'mod', channel: `ch${cmd}`, privileged: true })).toBe(`!${cmd} target`)
+      expect(await handleCommand(`!b !${cmd} target`, { user: 'mod', channel: `ch${cmd}`, privileged: true, isMod: true })).toBe(`!${cmd} target`)
     }
   })
 
-  it('privileged can use stream control commands', async () => {
+  it('mod can use stream control commands', async () => {
     for (const cmd of ['so', 'shoutout', 'raid', 'title', 'game']) {
-      expect(await handleCommand(`!b !${cmd} val`, { user: 'mod', channel: `ch${cmd}`, privileged: true })).toBe(`!${cmd} val`)
+      expect(await handleCommand(`!b !${cmd} val`, { user: 'mod', channel: `ch${cmd}`, privileged: true, isMod: true })).toBe(`!${cmd} val`)
     }
   })
 
-  it('privileged still gets cooldown on blocked commands', async () => {
-    const ctx = { user: 'mod', channel: 'cdmod', privileged: true }
+  it('mod still gets cooldown on blocked commands', async () => {
+    const ctx = { user: 'mod', channel: 'cdmod', privileged: true, isMod: true }
     expect(await handleCommand('!b !so streamer', ctx)).toBe('!so streamer')
     resetDedup()
     const result = await handleCommand('!b !so streamer', ctx)
@@ -1710,19 +1715,19 @@ describe('command proxy: mod bypass', () => {
 describe('AI command management', () => {
   it('mod AI response with !addcom gets sent to chat', async () => {
     mockAiRespond.mockImplementation(() => ({ text: '!addcom !harem 42 cuties in the harem Kreygasm', mentions: [] }))
-    const result = await handleCommand('!b hey add a command called harem', { user: 'mod', channel: 'stream', privileged: true })
+    const result = await handleCommand('!b hey add a command called harem', { user: 'mod', channel: 'stream', privileged: true, isMod: true })
     expect(result).toBe('!addcom !harem 42 cuties in the harem Kreygasm')
   })
 
   it('mod AI response with !editcom gets sent to chat', async () => {
     mockAiRespond.mockImplementation(() => ({ text: '!editcom !harem 99 cuties in the harem', mentions: [] }))
-    const result = await handleCommand('!b edit the harem command to say 99', { user: 'mod', channel: 'stream', privileged: true })
+    const result = await handleCommand('!b edit the harem command to say 99', { user: 'mod', channel: 'stream', privileged: true, isMod: true })
     expect(result).toBe('!editcom !harem 99 cuties in the harem')
   })
 
   it('mod AI response with !delcom gets sent to chat', async () => {
     mockAiRespond.mockImplementation(() => ({ text: '!delcom !harem', mentions: [] }))
-    const result = await handleCommand('!b delete the harem command', { user: 'mod', channel: 'stream', privileged: true })
+    const result = await handleCommand('!b delete the harem command', { user: 'mod', channel: 'stream', privileged: true, isMod: true })
     expect(result).toBe('!delcom !harem')
   })
 

@@ -75,6 +75,7 @@ export interface CommandContext {
   user?: string
   channel?: string
   privileged?: boolean
+  isMod?: boolean
   messageId?: string
 }
 
@@ -386,7 +387,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   const bangMatch = cleanArgs.match(/^!(\w+)(.*)$/)
   if (bangMatch) {
     const cmd = bangMatch[1].toLowerCase()
-    if (BLOCKED_BANG_CMDS.has(cmd) && !ctx.privileged) return null
+    if (BLOCKED_BANG_CMDS.has(cmd) && !ctx.isMod) return null
     return proxyWithCooldown(ctx.channel, cleanArgs, cmd)
   }
   const slashMatch = cleanArgs.match(/^\/(\w+)(.*)$/)
