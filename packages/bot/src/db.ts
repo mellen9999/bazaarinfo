@@ -567,6 +567,7 @@ export function logChat(channel: string, username: string, message: string) {
 export interface UserStats {
   username: string
   total_commands: number
+  ask_count: number
   trivia_wins: number
   trivia_attempts: number
   trivia_streak: number
@@ -585,6 +586,7 @@ export function getUserStats(username: string): UserStats | null {
   return {
     username: user.username,
     total_commands: user.total_commands,
+    ask_count: user.ask_count ?? 0,
     trivia_wins: user.trivia_wins,
     trivia_attempts: user.trivia_attempts,
     trivia_streak: user.trivia_streak,
@@ -593,6 +595,17 @@ export function getUserStats(username: string): UserStats | null {
     first_seen: user.first_seen,
     favorite_item: fav?.match_name ?? null,
   }
+}
+
+export function formatAccountAge(isoDate: string): string {
+  const ms = Date.now() - new Date(isoDate).getTime()
+  const days = Math.floor(ms / 86_400_000)
+  if (days < 30) return `${days}d old`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months}mo old`
+  const years = Math.floor(months / 12)
+  const rem = months % 12
+  return rem > 0 ? `${years}y${rem}mo old` : `${years}y old`
 }
 
 export function getChannelLeaderboard(channel: string, limit = 5): { username: string; total_commands: number }[] {

@@ -1,4 +1,5 @@
 import * as db from './db'
+import { formatAccountAge } from './db'
 import { getEmotesForChannel } from './emotes'
 import { log } from './log'
 
@@ -36,8 +37,13 @@ function buildUserProfile(username: string, channel: string, knownEmotes: Set<st
   try { stats = db.getUserStats(username) } catch {}
 
   if (stats) {
-    const since = stats.first_seen?.slice(0, 7) ?? '?'
-    parts.push(`around since ${since}`)
+    // prefer real Twitch account age over first_seen
+    const twitchUser = db.getCachedTwitchUser(username)
+    if (twitchUser?.account_created_at) {
+      parts.push(`account ${formatAccountAge(twitchUser.account_created_at)}`)
+    } else if (stats.first_seen) {
+      parts.push(`around since ${stats.first_seen.slice(0, 7)}`)
+    }
     if (stats.total_commands > 0) parts.push(stats.total_commands > 50 ? 'power user' : 'casual user')
     if (stats.trivia_wins > 0) parts.push(stats.trivia_wins > 10 ? 'trivia regular' : 'plays trivia')
     if (stats.favorite_item) parts.push(`fav: ${stats.favorite_item}`)

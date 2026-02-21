@@ -100,18 +100,6 @@ function isAboutOtherUser(query: string): boolean {
   return /@\w+/.test(query)
 }
 
-// --- account age formatting ---
-function formatAccountAge(isoDate: string): string {
-  const ms = Date.now() - new Date(isoDate).getTime()
-  const days = Math.floor(ms / 86_400_000)
-  if (days < 30) return `${days}d old`
-  const months = Math.floor(days / 30)
-  if (months < 12) return `${months}mo old`
-  const years = Math.floor(months / 12)
-  const rem = months % 12
-  return rem > 0 ? `${years}y${rem}mo old` : `${years}y old`
-}
-
 // --- background Twitch user data fetch ---
 const twitchFetchInFlight = new Set<string>()
 
@@ -466,7 +454,7 @@ function buildUserContext(user: string, channel: string, skipAsks = false, suppr
     try {
       const twitchUser = db.getCachedTwitchUser(user)
       if (twitchUser?.account_created_at) {
-        parts.push(`account ${formatAccountAge(twitchUser.account_created_at)}`)
+        parts.push(`account ${db.formatAccountAge(twitchUser.account_created_at)}`)
       } else {
         const stats = db.getUserStats(user)
         if (stats?.first_seen) {
@@ -484,7 +472,7 @@ function buildUserContext(user: string, channel: string, skipAsks = false, suppr
     try {
       const stats = db.getUserStats(user)
       if (stats) {
-        if (stats.total_commands > 0) parts.push(stats.total_commands > 50 ? 'power user' : 'casual user')
+        if (stats.total_commands > 0) parts.push(stats.total_commands > 50 ? 'regular' : 'casual')
         if (stats.trivia_wins > 0) parts.push(stats.trivia_wins > 10 ? 'trivia regular' : 'plays trivia')
         if (stats.favorite_item) parts.push(`fav: ${stats.favorite_item}`)
       }
@@ -501,7 +489,7 @@ function buildUserContext(user: string, channel: string, skipAsks = false, suppr
   try {
     const follow = db.getCachedFollowage(user, channel)
     if (follow?.followed_at) {
-      followLine = `following #${channel} since ${formatAccountAge(follow.followed_at).replace(' old', '')}`
+      followLine = `following #${channel} since ${db.formatAccountAge(follow.followed_at).replace(' old', '')}`
     }
   } catch {}
 
@@ -1213,7 +1201,7 @@ async function maybeUpdateMemo(user: string, force = false) {
       'Write a 1-sentence personality memo for this user (<200 chars). ',
       'Capture: humor style, recurring interests, running jokes, personality traits. ',
       'TONE: warm and appreciative — describe them like a friend you genuinely like. NEVER frame them as annoying, difficult, or adversarial. If they challenge you, frame it as wit or creativity. ',
-      'No stats, no dates, no "they". Write like a friend\'s mental note. ',
+      'NEVER mention how often they use the bot, how long they\'ve been around, account age, or any stats/numbers. No stats, no dates, no "they". Write like a friend\'s mental note. ',
       force
         ? 'The user just defined/redefined their identity. REWRITE the memo to reflect what they said about themselves. Their self-description overrides your prior impression. Incorporate their stated facts.'
         : existing ? 'Update the existing memo — keep what\'s still true, add new patterns.' : '',
