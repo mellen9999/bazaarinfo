@@ -618,7 +618,7 @@ describe('!b enchantment (any order)', () => {
 
   it('returns not found when enchantment item doesnt exist', async () => {
     const result = await handleCommand('!b fiery nonexistent')
-    expect(result).toContain('no item found for nonexistent')
+    expect(result).toContain('no item found for "nonexistent"')
   })
 
   it('multi-word item after enchantment', async () => {
@@ -772,7 +772,7 @@ describe('!b hero', () => {
 
   it('returns not found for unknown hero', async () => {
     const result = await handleCommand('!b hero nobody')
-    expect(result).toContain('no items found for hero nobody')
+    expect(result).toContain('no items found for hero "nobody"')
   })
 
   it('hero keyword is case-insensitive', async () => {
@@ -1328,7 +1328,7 @@ describe('!b skill', () => {
 
   it('returns not found for unknown skill', async () => {
     const result = await handleCommand('!b skill xyzskill')
-    expect(result).toContain('no skill found for xyzskill')
+    expect(result).toContain('no skill found for "xyzskill"')
   })
 
   it('is case-insensitive keyword', async () => {

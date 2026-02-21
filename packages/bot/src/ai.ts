@@ -724,7 +724,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (cbIsOpen()) return null
 
   const cd = getAiCooldown(ctx.user, ctx.channel)
-  if (cd > 0) return { text: `${cd}s`, mentions: [] }
+  if (cd > 0) return null
 
   if (aiQueueDepth >= AI_MAX_QUEUE) {
     log('ai: queue full, dropping')

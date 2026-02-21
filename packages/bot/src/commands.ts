@@ -109,7 +109,7 @@ export function parseArgs(words: string[]): ParsedArgs {
 
   // extract enchantment from any position if other words remain for item
   // require exact match or prefix within 2 chars of full name to avoid "shield"→"shielded"
-  if (remaining.length > 1) {
+  if (remaining.length > 1 && remaining.length <= 8) {
     for (let i = 0; i < remaining.length; i++) {
       const lower = remaining[i].toLowerCase()
       const matches = enchList.filter((e) => e.startsWith(lower))
@@ -233,7 +233,7 @@ const subcommands: [RegExp, SubHandler][] = [
   [/^hero\s+(.+)$/i, (query, ctx, suffix) => {
     const resolved = store.findHeroName(query)
     const items = store.byHero(query)
-    if (items.length === 0) return `no items found for hero ${query}`
+    if (items.length === 0) return `no items found for hero "${query}"`
     const displayName = resolved ?? query
     logHit('hero', query, `${items.length} items`, ctx)
     return withSuffix(truncate(`[${displayName}] ${items.map((i) => i.Title).join(', ')}`), suffix)
@@ -258,7 +258,7 @@ const subcommands: [RegExp, SubHandler][] = [
   }],
   [/^day\s+(\d+)$/i, (query, ctx, suffix) => {
     const day = parseInt(query)
-    if (day < 1 || day > 99) return `invalid day number`
+    if (day < 1 || day > 99) return `invalid day number (1-99)`
     const mobs = store.monstersByDay(day)
     if (mobs.length === 0) { logMiss(query, ctx); return `no monsters found for day ${day}` }
     logHit('day', query, `${mobs.length} monsters`, ctx)
@@ -266,7 +266,7 @@ const subcommands: [RegExp, SubHandler][] = [
   }],
   [/^skill\s+(.+)$/i, (query, ctx, suffix) => {
     const skill = store.findSkill(query)
-    if (!skill) { logMiss(query, ctx); return `no skill found for ${query}` }
+    if (!skill) { logMiss(query, ctx); return `no skill found for "${query}"` }
     logHit('skill', query, skill.Title, ctx)
     return withSuffix(formatItem(skill), suffix)
   }],
@@ -325,7 +325,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 
   if (enchant) {
     const card = store.exact(query) ?? store.search(query, 1)[0]
-    if (!card) { logMiss(query, ctx); return `no item found for ${query}` }
+    if (!card) { logMiss(query, ctx); return `no item found for "${query}"` }
     logHit('enchant', query, `${card.Title}+${enchant}`, ctx, tier)
     return withSuffix(formatEnchantment(card, enchant, tier), suffix)
   }
