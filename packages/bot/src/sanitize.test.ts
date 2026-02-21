@@ -453,12 +453,12 @@ describe('getAiCooldown', () => {
     expect(getAiCooldown('newuser_' + Date.now())).toBe(0)
   })
 
-  it('returns ~60s after use', () => {
+  it('returns ~30s after use', () => {
     const user = 'cd_' + Date.now()
     recordUsage(user)
     const cd = getAiCooldown(user)
-    expect(cd).toBeGreaterThan(55)
-    expect(cd).toBeLessThanOrEqual(60)
+    expect(cd).toBeGreaterThan(25)
+    expect(cd).toBeLessThanOrEqual(30)
   })
 })
 

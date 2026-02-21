@@ -40,7 +40,32 @@ const MAX_RETRIES = 3
 const userHistory = new Map<string, number>()
 const USER_HISTORY_MAX = 5_000
 
-const AI_USER_CD = 60_000 // 60s per user
+const AI_USER_CD = 30_000 // 30s per user
+
+// --- hot exchange cache (in-memory, instant access for follow-ups) ---
+
+interface HotExchange { query: string; response: string; ts: number }
+const hotExchanges = new Map<string, HotExchange[]>()
+const HOT_EXCHANGE_MAX = 3
+const HOT_EXCHANGE_TTL = 3_600_000 // 1h — covers any stream session
+
+export function cacheExchange(user: string, query: string, response: string) {
+  const list = hotExchanges.get(user) ?? []
+  list.push({ query, response, ts: Date.now() })
+  if (list.length > HOT_EXCHANGE_MAX) list.shift()
+  hotExchanges.set(user, list)
+  if (hotExchanges.size > USER_HISTORY_MAX) {
+    const first = hotExchanges.keys().next().value!
+    hotExchanges.delete(first)
+  }
+}
+
+export function getHotExchanges(user: string): HotExchange[] {
+  const list = hotExchanges.get(user)
+  if (!list) return []
+  const now = Date.now()
+  return list.filter((e) => now - e.ts < HOT_EXCHANGE_TTL)
+}
 
 function formatAge(createdAt: string, now: number): string {
   const mins = Math.round((now - new Date(createdAt + 'Z').getTime()) / 60_000)
@@ -970,8 +995,22 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const redditLine = (!skipReddit && digest) ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
   const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getChannelTopEmotes(ctx.channel), getRecentEmotes(ctx.channel))
 
-  // contextual recall — search prior bot exchanges for relevant history
-  const recallLine = buildRecallContext(query, ctx.channel)
+  // hot exchange cache — instant follow-up context from this session
+  const hot = getHotExchanges(ctx.user)
+  const isShortFollowup = query.split(/\s+/).length <= 5 && hot.length > 0
+  let hotLine = ''
+  if (hot.length > 0) {
+    const now = Date.now()
+    const lines = hot.map((e) => {
+      const ago = Math.round((now - e.ts) / 60_000)
+      const label = ago < 1 ? 'just now' : `${ago}m ago`
+      return `${label}: "${e.query}" → you: "${e.response}"`
+    })
+    hotLine = `\nYour recent convo with ${ctx.user}:\n${lines.join('\n')}`
+  }
+
+  // contextual recall — FTS search of prior exchanges (skip for short follow-ups where hot cache covers it)
+  const recallLine = isShortFollowup ? '' : buildRecallContext(query, ctx.channel)
 
   // copypasta few-shot examples
   const isPasta = /\b(copypasta|pasta)\b/i.test(query)
@@ -985,12 +1024,13 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     chattersLine ? `\n${chattersLine}` : '',
     threadLine,
     contextLine,
+    hotLine,
     recallLine,
     redditLine,
     emoteLine,
     gameBlock,
     pastaBlock,
-    buildUserContext(ctx.user, ctx.channel, !!recallLine),
+    buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine)),
     ctx.mention
       ? `\n---\n@MENTION — only respond if [USER] is talking TO you. If they're talking ABOUT you to someone else, output just - to stay silent.\n[USER]: ${query}`
       : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.isMod ? '[MOD] ' : ''}[USER]: ${query}`,
@@ -1200,6 +1240,8 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           db.logAsk(ctx, query, result.text, tokens, latency)
         } catch {}
         log(`ai: responded in ${latency}ms`)
+        // hot cache for instant follow-up context
+        cacheExchange(ctx.user, query, result.text)
         // fire-and-forget memo + fact extraction
         maybeUpdateMemo(ctx.user).catch(() => {})
         maybeExtractFacts(ctx.user, query, result.text).catch(() => {})
