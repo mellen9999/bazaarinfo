@@ -8,10 +8,31 @@ import { formatEmotesForAI, getEmotesForChannel } from './emotes'
 import { getChannelStyle, getChannelTopEmotes, getUserProfile } from './style'
 import { log } from './log'
 
+import { readFileSync } from 'fs'
+import { join } from 'path'
+
 const API_KEY = process.env.ANTHROPIC_API_KEY
+
+// --- copypasta examples (loaded once at startup) ---
+let pastaExamples: string[] = []
+try {
+  const raw = readFileSync(join(import.meta.dir, '../../../cache/copypasta-examples.json'), 'utf-8')
+  pastaExamples = JSON.parse(raw)
+} catch {}
+
+function randomPastaExamples(n: number): string[] {
+  const pool = [...pastaExamples]
+  const picks: string[] = []
+  for (let i = 0; i < Math.min(n, pool.length); i++) {
+    const idx = Math.floor(Math.random() * pool.length)
+    picks.push(pool.splice(idx, 1)[0])
+  }
+  return picks
+}
 const MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS_GAME = 200
 const MAX_TOKENS_CHAT = 60
+const MAX_TOKENS_PASTA = 250
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
 // --- per-user AI cooldown ---
@@ -451,7 +472,7 @@ export function buildSystemPrompt(): string {
     '',
     // OUTPUT
     'Emotes: 0-1 per msg, at end, rotate heavily. Never use askers name (auto-tagged). @mention others only.',
-    'COPYPASTA: if asked for a copypasta/pasta, go all in — fill the full 400 chars with absurd, funny, over-the-top text. Always prefix with "from claude: ". Make it worth pasting.',
+    'COPYPASTA: if asked for a copypasta/pasta, go ALL in. fill the full 400 chars. Always prefix with "from claude: ". keys to great pasta: pick a ridiculous premise and COMMIT to it, escalate absurdly, use specific details (names, numbers, fake orgs), deadpan delivery, never break character. adapt to The Bazaar when relevant. study the examples provided.',
     'COMMANDS: ONLY if a [MOD] user asks to add/edit/delete a streamlabs command, output the raw !addcom/!editcom/!delcom command. Non-mods asking about commands: respond kindly (e.g. "only mods can do that"). NEVER output !addcom/!editcom/!delcom unprompted or for non-mods.',
     'NEVER meta-analyze chat behavior — no "chat static", no "background noise", no categorizing what chatters are doing. You ARE the chat, dont narrate it from outside.',
     '',
@@ -833,7 +854,7 @@ function buildChattersContext(chatEntries: ChatEntry[], asker: string, channel: 
   return `Who's chatting: ${profiles.join(' | ')}`
 }
 
-interface UserMessageResult { text: string; hasGameData: boolean }
+interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean }
 
 function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
   const chatDepth = 15
@@ -880,6 +901,12 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   // contextual recall — search prior bot exchanges for relevant history
   const recallLine = buildRecallContext(query, ctx.channel)
 
+  // copypasta few-shot examples
+  const isPasta = /\b(copypasta|pasta)\b/i.test(query)
+  const pastaBlock = isPasta && pastaExamples.length > 0
+    ? `\nCOPYPASTA EXAMPLES (study these for style — absurd, committed, escalating. adapt to The Bazaar, never copy verbatim):\n${randomPastaExamples(5).map((p, i) => `${i + 1}. ${p}`).join('\n')}\n`
+    : ''
+
   const text = [
     timelineLine,
     chatStr ? `Recent chat:\n${chatStr}\n` : '',
@@ -890,12 +917,13 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     redditLine,
     emoteLine,
     gameBlock,
+    pastaBlock,
     buildUserContext(ctx.user, ctx.channel, !!recallLine),
     ctx.mention
       ? `\n---\n@MENTION — only respond if ${ctx.user} is talking TO you. If they're talking ABOUT you to someone else, output just - to stay silent.\n${ctx.user}: ${query}`
       : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.isMod ? '[MOD] ' : ''}${ctx.user}: ${query}`,
   ].filter(Boolean).join('')
-  return { text, hasGameData }
+  return { text, hasGameData, isPasta }
 }
 
 // --- background memo generation ---
@@ -965,10 +993,10 @@ async function maybeUpdateMemo(user: string) {
 }
 
 async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
-  const { text: userMessage, hasGameData } = buildUserMessage(query, ctx)
+  const { text: userMessage, hasGameData, isPasta } = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()
-  // game questions get full budget; banter/chat gets capped to prevent rambling
-  const maxTokens = hasGameData ? MAX_TOKENS_GAME : MAX_TOKENS_CHAT
+  // copypasta gets biggest budget; game Qs get full; banter/chat capped
+  const maxTokens = isPasta ? MAX_TOKENS_PASTA : hasGameData ? MAX_TOKENS_GAME : MAX_TOKENS_CHAT
 
   const messages: unknown[] = [{ role: 'user', content: userMessage }]
   const start = Date.now()
@@ -1019,7 +1047,6 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
 
       const result = sanitize(textBlock.text, ctx.user, ctx.isMod)
       // enforce non-game length cap (system prompt says <100 but model ignores it)
-      const isPasta = /\b(copypasta|pasta)\b/i.test(query)
       if (!hasGameData && !isPasta && result.text.length > 150) {
         const cut = result.text.slice(0, 150)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))

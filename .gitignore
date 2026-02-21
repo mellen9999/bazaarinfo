@@ -1,5 +1,6 @@
 node_modules/
 dist/
 cache/*.json
+!cache/copypasta-examples.json
 .env
 *.log
