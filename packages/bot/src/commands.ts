@@ -408,6 +408,8 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   const trick = handleStringTrick(args)
   if (trick) return trick
 
+  // extract @mentions to tag at end of response
+  const mentions = args.match(/@\w+/g) ?? []
   const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
 
   if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
@@ -442,7 +444,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // suppress duplicate lookups within 30s per channel
   if (ctx.channel && isDuplicate(ctx.channel, cleanArgs)) return null
 
-  const suffix = ''
+  const suffix = mentions.length ? ` ${mentions.join(' ')}` : ''
 
   // alias add: !b alias <slang> = <target>
   const aliasAdd = cleanArgs.match(/^alias\s+(.+?)\s*=\s*(.+)$/i)

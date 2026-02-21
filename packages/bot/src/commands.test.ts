@@ -1108,10 +1108,10 @@ describe('@mention passthrough', () => {
     mockLogCommand.mockReset()
   })
 
-  it('strips @mention from search query but does not tag in response', async () => {
+  it('strips @mention from search but tags in response', async () => {
     mockExact.mockImplementation(() => boomerang)
     const result = await handleCommand('!b boomerang @hamstornado')
-    expect(result).not.toContain('@hamstornado')
+    expect(result).toContain('@hamstornado')
     expect(result).toContain('Boomerang')
   })
 
@@ -1121,17 +1121,17 @@ describe('@mention passthrough', () => {
     expect(mockExact).toHaveBeenCalledWith('boomerang')
   })
 
-  it('handles multiple mentions without tagging', async () => {
+  it('handles multiple mentions by tagging all', async () => {
     mockExact.mockImplementation(() => boomerang)
     const result = await handleCommand('!b boomerang @user1 @user2')
-    expect(result).not.toContain('@user1')
-    expect(result).not.toContain('@user2')
+    expect(result).toContain('@user1')
+    expect(result).toContain('@user2')
   })
 
   it('mention anywhere in args', async () => {
     mockExact.mockImplementation(() => boomerang)
     const result = await handleCommand('!b @someone boomerang')
-    expect(result).not.toContain('@someone')
+    expect(result).toContain('@someone')
     expect(result).toContain('Boomerang')
   })
 
@@ -1176,11 +1176,11 @@ describe('!b enchants', () => {
     expect(mockLogCommand).toHaveBeenCalled()
   })
 
-  it('does not append @mention (reply threading only)', async () => {
+  it('appends @mention to enchants response', async () => {
     mockGetEnchantments.mockImplementation(() => ['deadly'])
     const result = await handleCommand('!b enchants @someone')
     expect(result).toContain('Enchantments: Deadly')
-    expect(result).not.toContain('@someone')
+    expect(result).toContain('@someone')
   })
 })
 
@@ -1222,10 +1222,10 @@ describe('!b tag', () => {
     )
   })
 
-  it('does not append @mention to tag results', async () => {
+  it('appends @mention to tag results', async () => {
     mockByTag.mockImplementation(() => [boomerang])
     const result = await handleCommand('!b tag Burn @friend')
-    expect(result).not.toContain('@friend')
+    expect(result).toContain('@friend')
     expect(result).toContain('Boomerang')
   })
 
@@ -1298,10 +1298,10 @@ describe('!b day', () => {
     )
   })
 
-  it('does not append @mention', async () => {
+  it('appends @mention to day results', async () => {
     mockMonstersByDay.mockImplementation(() => [lich])
     const result = await handleCommand('!b day 5 @viewer')
-    expect(result).not.toContain('@viewer')
+    expect(result).toContain('@viewer')
   })
 })
 
@@ -1344,11 +1344,11 @@ describe('!b skill', () => {
     )
   })
 
-  it('does not append @mention', async () => {
+  it('appends @mention to skill results', async () => {
     const skill = makeCard({ Title: 'Zap', Type: 'Skill' })
     mockFindSkill.mockImplementation(() => skill)
     const result = await handleCommand('!b skill zap @someone')
-    expect(result).not.toContain('@someone')
+    expect(result).toContain('@someone')
     expect(result).toContain('Zap')
   })
 })
