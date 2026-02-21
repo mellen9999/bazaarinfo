@@ -335,7 +335,6 @@ scheduleDaily(4, async () => {
   } catch (e) { log(`daily reddit refresh failed: ${e}`) }
   try {
     db.pruneOldChats(180)
-    db.pruneOldAsks(90)
     db.pruneOldSummaries(365)
   } catch (e) { log(`daily prune failed: ${e}`) }
   try {

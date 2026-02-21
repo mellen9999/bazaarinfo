@@ -49,6 +49,9 @@ let stmts: {
   selectMemo: Statement
   upsertMemo: Statement
   recentAsksForMemo: Statement
+  insertUserFact: Statement
+  getUserFacts: Statement
+  countUserFacts: Statement
 }
 
 function prepareStatements() {
@@ -176,6 +179,9 @@ function prepareStatements() {
        WHERE aq.user_id = ? AND aq.response IS NOT NULL
        ORDER BY aq.created_at DESC LIMIT ?`,
     ),
+    insertUserFact: db.prepare('INSERT INTO user_facts (username, fact) VALUES (?, ?)'),
+    getUserFacts: db.prepare('SELECT fact FROM user_facts WHERE LOWER(username) = ? ORDER BY created_at DESC LIMIT ?'),
+    countUserFacts: db.prepare('SELECT COUNT(*) as cnt FROM user_facts WHERE LOWER(username) = ?'),
   }
 }
 
@@ -193,6 +199,7 @@ type WriteOp =
   | { type: 'incr_commands'; userId: number }
   | { type: 'incr_asks'; userId: number }
   | { type: 'summary'; channel: string; sessionId: number; summary: string; msgCount: number }
+  | { type: 'user_fact'; username: string; fact: string }
 
 const writeQueue: WriteOp[] = []
 let flushTimer: Timer | null = null
@@ -228,6 +235,9 @@ export function flushWrites() {
             break
           case 'summary':
             stmts.insertSummary.run(op.channel, op.sessionId, op.summary, op.msgCount)
+            break
+          case 'user_fact':
+            stmts.insertUserFact.run(op.username, op.fact)
             break
         }
       }
@@ -387,6 +397,27 @@ const migrations: (() => void)[] = [
       ask_count_at INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`)
+  },
+  // migration 7: per-user extracted facts (long-term memory)
+  () => {
+    db.run(`CREATE TABLE user_facts (
+      id INTEGER PRIMARY KEY,
+      username TEXT NOT NULL COLLATE NOCASE,
+      fact TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+    db.run(`CREATE INDEX idx_user_facts_username ON user_facts(LOWER(username))`)
+
+    db.run(`CREATE VIRTUAL TABLE user_facts_fts USING fts5(
+      fact, content='user_facts', content_rowid='id'
+    )`)
+    db.run(`CREATE TRIGGER user_facts_fts_insert AFTER INSERT ON user_facts BEGIN
+      INSERT INTO user_facts_fts(rowid, fact) VALUES (new.id, new.fact);
+    END`)
+    db.run(`CREATE TRIGGER user_facts_fts_delete AFTER DELETE ON user_facts BEGIN
+      INSERT INTO user_facts_fts(user_facts_fts, rowid, fact)
+        VALUES ('delete', old.id, old.fact);
+    END`)
   },
 ]
 
@@ -722,6 +753,23 @@ export function pruneOldAsks(days = 90) {
   } catch (e) {
     log(`ask prune error: ${e}`)
   }
+}
+
+// --- user facts helpers ---
+
+export function insertUserFact(username: string, fact: string): void {
+  writeQueue.push({ type: 'user_fact', username: username.toLowerCase(), fact })
+  scheduleFlush()
+}
+
+export function getUserFacts(username: string, limit = 10): string[] {
+  const rows = stmts.getUserFacts.all(username.toLowerCase(), limit) as { fact: string }[]
+  return rows.map(r => r.fact)
+}
+
+export function getUserFactCount(username: string): number {
+  const row = stmts.countUserFacts.get(username.toLowerCase()) as { cnt: number }
+  return row.cnt
 }
 
 export function pruneOldSummaries(days = 30) {

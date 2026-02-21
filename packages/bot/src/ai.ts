@@ -403,7 +403,14 @@ function buildUserContext(user: string, channel: string, skipAsks = false): stri
     } catch {}
   }
 
-  const sections = [profile, memoLine, asksLine].filter(Boolean)
+  // extracted facts (long-term memory)
+  let factsLine = ''
+  try {
+    const facts = db.getUserFacts(user, 5)
+    if (facts.length > 0) factsLine = `Facts: ${facts.join(', ')}`
+  } catch {}
+
+  const sections = [profile, memoLine, factsLine, asksLine].filter(Boolean)
   if (sections.length === 0) return ''
   return `[${user}] ${sections.join('. ')}`
 }
@@ -843,6 +850,14 @@ function buildChattersContext(chatEntries: ChatEntry[], asker: string, channel: 
       } catch {}
     }
 
+    // facts fallback for users with no memo/style/stats
+    if (!profile) {
+      try {
+        const facts = db.getUserFacts(user, 2)
+        if (facts.length > 0) profile = facts.join(', ')
+      } catch {}
+    }
+
     if (!profile) continue
 
     const entry = `${user}(${profile})`
@@ -929,7 +944,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
 
 // --- background memo generation ---
 
-const MEMO_INTERVAL = 3 // update memo every N asks
+const MEMO_INTERVAL = 2 // update memo every N asks
 const memoInFlight = new Set<string>()
 
 async function maybeUpdateMemo(user: string) {
@@ -948,6 +963,9 @@ async function maybeUpdateMemo(user: string) {
 
     memoInFlight.add(user)
 
+    const facts = db.getUserFacts(user, 10)
+    const factsStr = facts.length > 0 ? `\nKnown facts about ${user}: ${facts.join(', ')}\n` : ''
+
     const exchanges = asks.reverse().map((a) => {
       const q = a.query.length > 80 ? a.query.slice(0, 80) + '...' : a.query
       const r = a.response.length > 80 ? a.response.slice(0, 80) + '...' : a.response
@@ -956,8 +974,9 @@ async function maybeUpdateMemo(user: string) {
 
     const prompt = [
       existing ? `Current memo: ${existing.memo}\n\n` : '',
+      factsStr,
       `Recent exchanges with ${user}:\n${exchanges}\n\n`,
-      'Write a 1-sentence personality memo for this user (<120 chars). ',
+      'Write a 1-sentence personality memo for this user (<200 chars). ',
       'Capture: humor style, recurring interests, running jokes, personality traits. ',
       'No stats, no dates, no "they". Write like a friend\'s mental note. ',
       existing ? 'Update the existing memo — keep what\'s still true, add new patterns.' : '',
@@ -991,6 +1010,57 @@ async function maybeUpdateMemo(user: string) {
   } finally {
     memoInFlight.delete(user)
   }
+}
+
+// --- background fact extraction ---
+
+const factInFlight = new Set<string>()
+
+async function maybeExtractFacts(user: string, query: string, response: string) {
+  if (!API_KEY) return
+  if (factInFlight.has(user)) return
+  if (db.getUserFactCount(user) >= 200) return
+
+  factInFlight.add(user)
+  try {
+    const prompt = [
+      `User ${user} said: "${query.slice(0, 120)}"`,
+      `Bot responded: "${response.slice(0, 120)}"`,
+      '',
+      `Extract 0-3 specific facts about ${user}. Only extract facts clearly stated BY the user, not inferred.`,
+      '- Personal ("from ohio", "has a cat named mochi")',
+      '- Gameplay ("mains vanessa", "loves pygmy", "hates day 5")',
+      '- Preferences ("always goes weapons", "thinks burn is OP")',
+      'One fact per line, lowercase, <40 chars each. If nothing notable, output nothing.',
+    ].join('\n')
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({ model: MODEL, max_tokens: 60, messages: [{ role: 'user', content: prompt }] }),
+      signal: AbortSignal.timeout(10_000),
+    })
+
+    if (res.ok) {
+      const data = await res.json() as { content: { type: string; text?: string }[] }
+      const text = data.content?.find(b => b.type === 'text')?.text?.trim()
+      if (text) {
+        const facts = text.split('\n')
+          .map(l => l.replace(/^[-•*]\s*/, '').trim())
+          .filter(l => l.length >= 5 && l.length <= 60)
+          .slice(0, 3)
+        for (const fact of facts) {
+          db.insertUserFact(user, fact)
+          log(`fact: ${user} → ${fact}`)
+        }
+      }
+    }
+  } catch {}
+  finally { factInFlight.delete(user) }
 }
 
 async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
@@ -1069,8 +1139,9 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           db.logAsk(ctx, query, result.text, tokens, latency)
         } catch {}
         log(`ai: responded in ${latency}ms`)
-        // fire-and-forget memo update
+        // fire-and-forget memo + fact extraction
         maybeUpdateMemo(ctx.user).catch(() => {})
+        maybeExtractFacts(ctx.user, query, result.text).catch(() => {})
         return result
       }
 
