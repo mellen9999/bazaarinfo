@@ -301,8 +301,8 @@ function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: Tie
   return { tier: undefined, note: null }
 }
 
-// questions with 4+ words starting with these go straight to AI for analysis
-const QUESTION_PREFIX = /^(why|how|should|would|could|does|is it worth|what.+(?:best|worst|good|bad|better|counter))\b/i
+// questions with 3+ words starting with these go straight to AI for analysis
+const QUESTION_PREFIX = /^(why|how|should|would|could|does|do|did|is|are|was|were|can|will|who|where|when|what)\b/i
 
 async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string | null> {
   const words = cleanArgs.split(/\s+/)
@@ -314,7 +314,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   if (!tier && !enchant && isEmote(query)) return null
 
   // conversational game questions → AI for analysis (it has tools to look up cards)
-  if (!tier && !enchant && words.length >= 4 && QUESTION_PREFIX.test(query)) {
+  if (!tier && !enchant && words.length >= 3 && (QUESTION_PREFIX.test(query) || query.includes('?'))) {
     const aiResult = await aiRespond(cleanArgs, ctx)
     if (aiResult?.text) {
       logHit('ai', cleanArgs, 'ai', ctx)
