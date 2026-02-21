@@ -46,7 +46,9 @@ function formatAge(createdAt: string, now: number): string {
   const mins = Math.round((now - new Date(createdAt + 'Z').getTime()) / 60_000)
   return mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`
 }
-const AI_VIP = new Set(['tidolar'])
+const AI_VIP = new Set(
+  ['tidolar', process.env.BOT_OWNER ?? ''].map((s) => s.trim().toLowerCase()).filter(Boolean),
+)
 
 // only spend AI tokens in these channels
 const AI_CHANNELS = new Set(
