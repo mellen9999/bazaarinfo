@@ -337,6 +337,27 @@ describe('sanitize', () => {
     expect(sanitize("it was already background noise by then").text).toBe('')
   })
 
+  // --- self-instruction COT_LEAK ---
+  it('rejects "output style" meta-reasoning', () => {
+    expect(sanitize('so this lets tune the output style: it should say doing well tonight').text).toBe('')
+  })
+
+  it('rejects "it should say" instruction leak', () => {
+    expect(sanitize('fair enough. it should say something more casual next time').text).toBe('')
+  })
+
+  it('rejects "it should respond" instruction leak', () => {
+    expect(sanitize('it should respond with a greeting first').text).toBe('')
+  })
+
+  it('rejects "lets tune the" meta-reasoning', () => {
+    expect(sanitize('lets tune the format a bit more').text).toBe('')
+  })
+
+  it('rejects "the response should be" meta-reasoning', () => {
+    expect(sanitize('the response should be shorter and punchier').text).toBe('')
+  })
+
   // --- banned opener haha/hehe ---
   it('strips "haha" opener', () => {
     expect(sanitize('haha that was wild').text).toBe('that was wild')
