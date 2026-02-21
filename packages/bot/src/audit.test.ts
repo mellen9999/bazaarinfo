@@ -101,8 +101,8 @@ describe('system prompt', () => {
 
   it('contains privacy honesty rule', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt).toContain('PRIVACY')
-    expect(prompt).toContain('yeah i see recent chat')
+    expect(prompt).toContain('Privacy')
+    expect(prompt).toContain('mellen built me')
   })
 
   it('contains copypasta instructions', () => {
@@ -113,14 +113,14 @@ describe('system prompt', () => {
 
   it('contains length constraints', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt).toContain('MAX 250 chars')
+    expect(prompt).toContain('80-250')
     expect(prompt).toContain('no markdown')
   })
 
   it('bans URL/link generation', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt).toContain('NEVER output URLs')
-    expect(prompt).toContain('never invent links')
+    expect(prompt).toContain('Only links')
+    expect(prompt).toContain('bazaardb.gg')
   })
 })
 
@@ -431,17 +431,14 @@ describe('command routing with real data', () => {
     expect(result).toBeNull()
   })
 
-  it('greeting bypass — !b hello → null', async () => {
+  it('greetings are never silently ignored — !b hello gets a response', async () => {
     const result = await handleCommand('!b hello', ctx)
-    expect(result).toBeNull()
+    expect(result).not.toBeNull()
   })
 
-  it('emote input → null', async () => {
-    // single word that looks like an emote shouldn't trigger lookup
+  it('emote names are never silently ignored — !b KEKW gets a response', async () => {
     const result = await handleCommand('!b KEKW', ctx)
-    // might be null (emote filter) or a miss — either is acceptable
-    // the key is it shouldn't crash
-    expect(result === null || typeof result === 'string').toBe(true)
+    expect(typeof result).toBe('string')
   })
 })
 

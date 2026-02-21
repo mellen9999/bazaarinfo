@@ -70,7 +70,6 @@ mock.module('./ai', () => ({
   sanitize: mock((t: string) => ({ text: t, mentions: [] })),
   dedupeEmote: mock((t: string) => t),
   fixEmoteCase: mock((t: string) => t),
-  GREETINGS: /^(hi|hey|yo|sup|hii+|helo+|hello+|howdy|hola|oi)$/i,
 }))
 
 // --- mock trivia ---
@@ -90,9 +89,8 @@ mock.module('./trivia', () => ({
 }))
 
 // --- mock emotes ---
-const mockIsEmote = mock<(name: string) => boolean>(() => false)
 mock.module('./emotes', () => ({
-  isEmote: mockIsEmote,
+  isEmote: mock(() => false),
   refreshGlobalEmotes: mock(async () => []),
   refreshChannelEmotes: mock(async () => []),
   getEmotesForChannel: mock(() => []),
@@ -483,21 +481,11 @@ describe('!b item lookup', () => {
     expect(result).toContain('bzdb.to/boomerang')
   })
 
-  it('silently ignores known emotes', async () => {
-    mockIsEmote.mockImplementation((name) => name === 'KEKW')
-    const result = await handleCommand('!b KEKW')
-    expect(result).toBeNull()
-    mockIsEmote.mockImplementation(() => false)
-  })
-
-  it('does not filter emotes when tier is specified', async () => {
-    mockIsEmote.mockImplementation((name) => name === 'KEKW')
+  it('does not silently ignore emote names — everyone gets a response', async () => {
     mockExact.mockImplementation(() => undefined)
     mockSearch.mockImplementation(() => [])
-    const result = await handleCommand('!b KEKW gold')
-    // should not be null — it went through item lookup (even if no match)
+    const result = await handleCommand('!b KEKW')
     expect(result).not.toBeNull()
-    mockIsEmote.mockImplementation(() => false)
   })
 })
 
