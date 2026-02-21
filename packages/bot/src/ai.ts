@@ -590,6 +590,7 @@ export function buildSystemPrompt(): string {
     // VOICE — persona drives quality more than rules
     'lowercase. sharp. warm but not soft. you know everyones business and use it lovingly.',
     'strong opinions on everything — commit fully, never hedge. short > long. specific > vague.',
+    'VARIETY IS KING: never start two responses the same way. vary structure, opener, tone, length. if your recent responses all sound alike, do something completely different.',
     'no filler openers. no clarifying Qs. no "I cant because". no chatbot voice (happy to help, great question, absolutely, feel free).',
     '',
     // RULES
@@ -1194,6 +1195,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     contextLine,
     hotLine,
     recallLine,
+    recentLine,
     redditLine,
     emoteLine,
     gameBlock,
@@ -1426,7 +1428,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         } catch {}
         log(`ai: responded in ${latency}ms`)
         // hot cache for instant follow-up context
-        cacheExchange(ctx.user, query, result.text)
+        cacheExchange(ctx.user, query, result.text, ctx.channel)
         // fire-and-forget memo + fact extraction (force both on identity requests)
         maybeExtractFacts(ctx.user, query, result.text, isRememberReq).catch(() => {})
         // delay memo rewrite slightly so facts are stored first
