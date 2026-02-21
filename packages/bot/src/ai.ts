@@ -8,6 +8,8 @@ import { formatEmotesForAI, getEmotesForChannel } from './emotes'
 import { getChannelStyle, getChannelTopEmotes, getUserProfile } from './style'
 import { log } from './log'
 
+import { getUserInfo, getFollowage } from './twitch'
+import type { ChannelInfo } from './twitch'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
@@ -84,6 +86,74 @@ const AI_CHANNELS = new Set(
 const liveChannels = new Set<string>()
 export function setChannelLive(channel: string) { liveChannels.add(channel.toLowerCase()) }
 export function setChannelOffline(channel: string) { liveChannels.delete(channel.toLowerCase()) }
+
+// --- channel info for Twitch API lookups ---
+let channelInfos: ChannelInfo[] = []
+export function setChannelInfos(channels: ChannelInfo[]) { channelInfos = channels }
+function getChannelId(channel: string): string | undefined {
+  return channelInfos.find((c) => c.name === channel.toLowerCase())?.userId
+}
+
+// --- cross-user identity detection ---
+function isAboutOtherUser(query: string): boolean {
+  return /@\w+/.test(query)
+}
+
+// --- account age formatting ---
+function formatAccountAge(isoDate: string): string {
+  const ms = Date.now() - new Date(isoDate).getTime()
+  const days = Math.floor(ms / 86_400_000)
+  if (days < 30) return `${days}d old`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months}mo old`
+  const years = Math.floor(months / 12)
+  const rem = months % 12
+  return rem > 0 ? `${years}y${rem}mo old` : `${years}y old`
+}
+
+// --- background Twitch user data fetch ---
+const twitchFetchInFlight = new Set<string>()
+
+function maybeFetchTwitchInfo(user: string, channel: string) {
+  const key = `${user}:${channel}`
+  if (twitchFetchInFlight.has(key)) return
+  twitchFetchInFlight.add(key)
+
+  const token = process.env.TWITCH_ACCESS_TOKEN
+  const clientId = process.env.TWITCH_CLIENT_ID
+  if (!token || !clientId) { twitchFetchInFlight.delete(key); return }
+
+  // fire-and-forget
+  ;(async () => {
+    try {
+      // fetch user info if not cached
+      if (!db.getCachedTwitchUser(user)) {
+        const info = await getUserInfo(token, clientId, user)
+        if (info) {
+          db.setCachedTwitchUser(user, info.id, info.display_name, info.created_at)
+
+          // fetch followage if we have broadcaster ID and user's twitch ID
+          const broadcasterId = getChannelId(channel)
+          if (broadcasterId && !db.getCachedFollowage(user, channel)) {
+            const followedAt = await getFollowage(token, clientId, info.id, broadcasterId)
+            db.setCachedFollowage(user, channel, followedAt)
+          }
+        }
+      } else {
+        // user cached, but check followage
+        const broadcasterId = getChannelId(channel)
+        if (broadcasterId && !db.getCachedFollowage(user, channel)) {
+          const cached = db.getCachedTwitchUser(user)
+          if (cached) {
+            const followedAt = await getFollowage(token, clientId, cached.twitch_id, broadcasterId)
+            db.setCachedFollowage(user, channel, followedAt)
+          }
+        }
+      }
+    } catch {}
+    finally { twitchFetchInFlight.delete(key) }
+  })()
+}
 
 /** returns seconds remaining on cooldown, or 0 if ready */
 export function getAiCooldown(user: string, channel?: string): number {
@@ -380,17 +450,38 @@ const GAME_TERMS = /\b(items?|heroes?|monsters?|mobs?|builds?|tiers?|enchant(men
 // --- user context builder ---
 
 function buildUserContext(user: string, channel: string, skipAsks = false, suppressMemo = false): string {
+  // kick off background Twitch data fetch (non-blocking)
+  maybeFetchTwitchInfo(user, channel)
+
   // try style cache first (regulars with pre-built profiles)
   let profile = getUserProfile(channel, user)
 
   // non-regular: build minimal profile on the fly
   if (!profile) {
     const parts: string[] = []
+
+    // prefer real Twitch account age over first_seen
+    try {
+      const twitchUser = db.getCachedTwitchUser(user)
+      if (twitchUser?.account_created_at) {
+        parts.push(`account ${formatAccountAge(twitchUser.account_created_at)}`)
+      } else {
+        const stats = db.getUserStats(user)
+        if (stats?.first_seen) {
+          const since = stats.first_seen.slice(0, 7)
+          parts.push(`around since ${since}`)
+        }
+      }
+    } catch {
+      try {
+        const stats = db.getUserStats(user)
+        if (stats?.first_seen) parts.push(`around since ${stats.first_seen.slice(0, 7)}`)
+      } catch {}
+    }
+
     try {
       const stats = db.getUserStats(user)
       if (stats) {
-        const since = stats.first_seen?.slice(0, 7) ?? '?'
-        parts.push(`around since ${since}`)
         if (stats.total_commands > 0) parts.push(stats.total_commands > 50 ? 'power user' : 'casual user')
         if (stats.trivia_wins > 0) parts.push(stats.trivia_wins > 10 ? 'trivia regular' : 'plays trivia')
         if (stats.favorite_item) parts.push(`fav: ${stats.favorite_item}`)
@@ -402,6 +493,15 @@ function buildUserContext(user: string, channel: string, skipAsks = false, suppr
     } catch {}
     profile = parts.join(', ')
   }
+
+  // followage line
+  let followLine = ''
+  try {
+    const follow = db.getCachedFollowage(user, channel)
+    if (follow?.followed_at) {
+      followLine = `following #${channel} since ${formatAccountAge(follow.followed_at).replace(' old', '')}`
+    }
+  } catch {}
 
   // persistent AI memory memo (suppressed on identity requests to avoid stale echoes)
   let memoLine = ''
@@ -437,7 +537,7 @@ function buildUserContext(user: string, channel: string, skipAsks = false, suppr
     if (facts.length > 0) factsLine = `Facts: ${facts.join(', ')}`
   } catch {}
 
-  const sections = [profile, memoLine, factsLine, asksLine].filter(Boolean)
+  const sections = [profile, followLine, memoLine, factsLine, asksLine].filter(Boolean)
   if (sections.length === 0) return ''
   return `[${user}] ${sections.join('. ')}`
 }
@@ -978,7 +1078,7 @@ function buildChattersContext(chatEntries: ChatEntry[], asker: string, channel: 
 interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean; isRememberReq: boolean }
 
 function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
-  const isRememberReq = REMEMBER_RE.test(query)
+  const isRememberReq = REMEMBER_RE.test(query) && !isAboutOtherUser(query)
   const chatDepth = ctx.mention ? 15 : 10
   const chatContext = getRecent(ctx.channel, chatDepth)
     .filter((m) => !isNoise(m.text))
@@ -1064,7 +1164,9 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     ctx.mention
       ? `\n---\n@MENTION — only respond if [USER] is talking TO you. If they're talking ABOUT you to someone else, output just - to stay silent.\n[USER]: ${query}`
       : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.isMod ? '[MOD] ' : ''}[USER]: ${query}`,
-    isRememberReq ? '\n⚠️ IDENTITY REQUEST — [USER] is defining themselves. COMPLY. Confirm warmly what they asked you to remember. Do NOT dismiss, joke about, or override their self-description.' : '',
+    isRememberReq ? '\n⚠️ IDENTITY REQUEST — [USER] is defining themselves. COMPLY. Confirm warmly what they asked you to remember. Do NOT dismiss, joke about, or override their self-description.'
+      : (REMEMBER_RE.test(query) && isAboutOtherUser(query)) ? '\n⚠️ [USER] is trying to set identity info for someone else. They can only define themselves, not other people. Tell them warmly but firmly.'
+      : '',
     `\n[USER] = ${ctx.user}`,
   ].filter(Boolean).join('')
   return { text, hasGameData, isPasta, isRememberReq }
@@ -1169,7 +1271,7 @@ async function maybeExtractFacts(user: string, query: string, response: string, 
       `User said: "${query.slice(0, 200).replace(/\n/g, ' ')}"`,
       `Bot responded: "${response.slice(0, 120).replace(/\n/g, ' ')}"`,
       '',
-      `Extract 0-3 specific facts about ${user}. Only extract facts clearly stated BY the user, not inferred.`,
+      `Extract 0-3 specific facts about ${user}. Only extract facts clearly stated BY the user about THEMSELVES, not inferred. Ignore anything they say about other people.`,
       '- Identity ("call me mommy", "my name is X", "i go by Y")',
       '- Personal ("from ohio", "has a cat named mochi")',
       '- Gameplay ("mains vanessa", "loves pygmy", "hates day 5")',

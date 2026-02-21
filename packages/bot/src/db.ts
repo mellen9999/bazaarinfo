@@ -52,6 +52,10 @@ let stmts: {
   insertUserFact: Statement
   getUserFacts: Statement
   countUserFacts: Statement
+  getCachedTwitchUser: Statement
+  setCachedTwitchUser: Statement
+  getCachedFollowage: Statement
+  setCachedFollowage: Statement
 }
 
 function prepareStatements() {
@@ -182,6 +186,18 @@ function prepareStatements() {
     insertUserFact: db.prepare('INSERT INTO user_facts (username, fact) VALUES (?, ?)'),
     getUserFacts: db.prepare('SELECT fact FROM user_facts WHERE LOWER(username) = ? ORDER BY created_at DESC LIMIT ?'),
     countUserFacts: db.prepare('SELECT COUNT(*) as cnt FROM user_facts WHERE LOWER(username) = ?'),
+    getCachedTwitchUser: db.prepare('SELECT twitch_id, display_name, account_created_at, cached_at FROM twitch_users WHERE username = ?'),
+    setCachedTwitchUser: db.prepare(
+      `INSERT INTO twitch_users (username, twitch_id, display_name, account_created_at, cached_at)
+       VALUES (?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(username) DO UPDATE SET twitch_id = excluded.twitch_id, display_name = excluded.display_name, account_created_at = excluded.account_created_at, cached_at = datetime('now')`,
+    ),
+    getCachedFollowage: db.prepare('SELECT followed_at, cached_at FROM channel_follows WHERE username = ? AND channel = ?'),
+    setCachedFollowage: db.prepare(
+      `INSERT INTO channel_follows (username, channel, followed_at, cached_at)
+       VALUES (?, ?, ?, datetime('now'))
+       ON CONFLICT(username, channel) DO UPDATE SET followed_at = excluded.followed_at, cached_at = datetime('now')`,
+    ),
   }
 }
 
@@ -418,6 +434,26 @@ const migrations: (() => void)[] = [
       INSERT INTO user_facts_fts(user_facts_fts, rowid, fact)
         VALUES ('delete', old.id, old.fact);
     END`)
+  },
+  // migration 8: twitch user cache (account age, display name)
+  () => {
+    db.run(`CREATE TABLE twitch_users (
+      username TEXT PRIMARY KEY COLLATE NOCASE,
+      twitch_id TEXT NOT NULL,
+      display_name TEXT,
+      account_created_at TEXT,
+      cached_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+  },
+  // migration 9: channel followage cache
+  () => {
+    db.run(`CREATE TABLE channel_follows (
+      username TEXT NOT NULL COLLATE NOCASE,
+      channel TEXT NOT NULL COLLATE NOCASE,
+      followed_at TEXT,
+      cached_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (username, channel)
+    )`)
   },
 ]
 
@@ -771,6 +807,45 @@ export function getUserFacts(username: string, limit = 10): string[] {
 export function getUserFactCount(username: string): number {
   const row = stmts.countUserFacts.get(username.toLowerCase()) as { cnt: number }
   return row.cnt
+}
+
+// --- twitch user cache helpers ---
+
+export interface CachedTwitchUser {
+  twitch_id: string
+  display_name: string | null
+  account_created_at: string | null
+  cached_at: string
+}
+
+const TWITCH_USER_TTL = 7 * 86_400_000 // 7 days
+const FOLLOWAGE_TTL = 86_400_000 // 1 day
+
+export function getCachedTwitchUser(username: string): CachedTwitchUser | null {
+  const row = stmts.getCachedTwitchUser.get(username.toLowerCase()) as CachedTwitchUser | null
+  if (!row) return null
+  if (Date.now() - new Date(row.cached_at + 'Z').getTime() > TWITCH_USER_TTL) return null
+  return row
+}
+
+export function setCachedTwitchUser(username: string, twitchId: string, displayName: string | null, accountCreatedAt: string | null) {
+  stmts.setCachedTwitchUser.run(username.toLowerCase(), twitchId, displayName, accountCreatedAt)
+}
+
+export interface CachedFollowage {
+  followed_at: string | null
+  cached_at: string
+}
+
+export function getCachedFollowage(username: string, channel: string): CachedFollowage | null {
+  const row = stmts.getCachedFollowage.get(username.toLowerCase(), channel.toLowerCase()) as CachedFollowage | null
+  if (!row) return null
+  if (Date.now() - new Date(row.cached_at + 'Z').getTime() > FOLLOWAGE_TTL) return null
+  return row
+}
+
+export function setCachedFollowage(username: string, channel: string, followedAt: string | null) {
+  stmts.setCachedFollowage.run(username.toLowerCase(), channel.toLowerCase(), followedAt)
 }
 
 export function pruneOldSummaries(days = 30) {

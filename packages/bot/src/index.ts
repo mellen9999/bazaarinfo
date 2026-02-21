@@ -9,7 +9,7 @@ import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel } from './trivia'
-import { invalidatePromptCache, initSummarizer, setChannelLive, setChannelOffline } from './ai'
+import { invalidatePromptCache, initSummarizer, setChannelLive, setChannelOffline, setChannelInfos } from './ai'
 import { refreshRedditDigest } from './reddit'
 import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes, getEmoteSetId, getAllEmoteSetIds, removeChannelEmotes } from './emotes'
@@ -113,6 +113,7 @@ const channels: ChannelInfo[] = await Promise.all(
 )
 log(`bot: ${BOT_USERNAME} (${botUserId}), channels: ${channels.map((c) => `${c.name}(${c.userId})`).join(', ')}`)
 
+setChannelInfos(channels)
 setLobbyChannel(BOT_USERNAME.toLowerCase())
 
 // owner-only !b refresh — re-scrapes data + reddit digest
@@ -234,6 +235,7 @@ const client = new TwitchClient(
             const targetId = await getUserId(getAccessToken(), CLIENT_ID, target, doRefresh)
             const info: ChannelInfo = { name: target, userId: targetId }
             await client.joinChannel(info)
+            setChannelInfos(client.getChannels())
             await channelStore.add(target)
             refreshChannelEmotes(target, targetId).then(() => {
               const setId = getEmoteSetId(target)

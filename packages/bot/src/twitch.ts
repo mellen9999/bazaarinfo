@@ -555,6 +555,51 @@ export class TwitchClient {
   }
 }
 
+// --- Helix user data ---
+
+export interface HelixUserData {
+  id: string
+  login: string
+  display_name: string
+  created_at: string
+}
+
+export async function getUserInfo(
+  token: string,
+  clientId: string,
+  login: string,
+): Promise<HelixUserData | null> {
+  try {
+    const res = await fetchWithTimeout(`${HELIX_URL}/users?login=${encodeURIComponent(login)}`, {
+      headers: { Authorization: `Bearer ${token}`, 'Client-Id': clientId },
+    })
+    if (!res.ok) return null
+    const data = await res.json() as { data: HelixUserData[] }
+    return data.data[0] ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function getFollowage(
+  token: string,
+  clientId: string,
+  userId: string,
+  broadcasterId: string,
+): Promise<string | null> {
+  try {
+    const res = await fetchWithTimeout(
+      `${HELIX_URL}/channels/followers?broadcaster_id=${broadcasterId}&user_id=${userId}`,
+      { headers: { Authorization: `Bearer ${token}`, 'Client-Id': clientId } },
+    )
+    if (!res.ok) return null // 403 = missing scope, degrade gracefully
+    const data = await res.json() as { data: { followed_at: string }[] }
+    return data.data[0]?.followed_at ?? null
+  } catch {
+    return null
+  }
+}
+
 export async function getUserId(
   token: string,
   clientId: string,
