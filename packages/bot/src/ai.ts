@@ -30,8 +30,8 @@ function randomPastaExamples(n: number): string[] {
   return picks
 }
 const MODEL = 'claude-haiku-4-5-20251001'
-const MAX_TOKENS_GAME = 200
-const MAX_TOKENS_CHAT = 60
+const MAX_TOKENS_GAME = 120
+const MAX_TOKENS_CHAT = 50
 const MAX_TOKENS_PASTA = 250
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
@@ -447,7 +447,7 @@ export function buildSystemPrompt(): string {
     '',
     // CORE
     'Answer what they ACTUALLY asked. Chat = background only.',
-    'LENGTH: greetings 20-80 chars. game Qs with "Game data:" 150-400. no game data = under 150. MAX 400 chars, no markdown.',
+    'LENGTH: greetings 20-60 chars. game Qs with "Game data:" 80-200. no game data = under 100. MAX 250 chars, no markdown. be TERSE — cut filler, cut hedging, just the answer.',
     '',
     // BEHAVIOR
     'NEVER narrate what was asked. NEVER repeat/echo what someone just said in chat back to them.',
@@ -1047,10 +1047,11 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
 
       const result = sanitize(textBlock.text, ctx.user, ctx.isMod)
       // enforce non-game length cap (system prompt says <100 but model ignores it)
-      if (!hasGameData && !isPasta && result.text.length > 150) {
-        const cut = result.text.slice(0, 150)
+      const hardCap = isPasta ? 400 : hasGameData ? 250 : 120
+      if (result.text.length > hardCap) {
+        const cut = result.text.slice(0, hardCap)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))
-        result.text = (lastBreak > 80 ? cut.slice(0, lastBreak + 1) : cut.replace(/\s+\S*$/, '')).trim()
+        result.text = (lastBreak > hardCap * 0.5 ? cut.slice(0, lastBreak + 1) : cut.replace(/\s+\S*$/, '')).trim()
       }
       if (result.text) {
         // terse refusal detection — model over-refuses harmless queries
