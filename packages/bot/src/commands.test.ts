@@ -1745,27 +1745,25 @@ describe('AI command management', () => {
 // Copypasta via AI
 // ---------------------------------------------------------------------------
 describe('copypasta via AI', () => {
-  it('returns copypasta prefixed with from claude:', async () => {
-    const pasta = 'from claude: listen here chat, i have been PERSONALLY victimized by boomerang players who think they are hot stuff just because they deal 60 damage'
+  it('returns copypasta from AI', async () => {
+    const pasta = 'listen here chat, i have been PERSONALLY victimized by boomerang players who think they are hot stuff just because they deal 60 damage'
     mockAiRespond.mockImplementation(() => ({ text: pasta, mentions: [] }))
     const result = await handleCommand('!b give me a copypasta about boomerang', { user: 'chatter', channel: 'stream' })
-    expect(result).toContain('from claude:')
     expect(result).toContain('boomerang')
   })
 
   it('copypasta works for non-mods', async () => {
-    const pasta = 'from claude: we are ALL vanessa mains on this blessed day'
+    const pasta = 'we are ALL vanessa mains on this blessed day'
     mockAiRespond.mockImplementation(() => ({ text: pasta, mentions: [] }))
     const result = await handleCommand('!b write a copypasta about vanessa', { user: 'viewer', channel: 'stream' })
     expect(result).toBe(pasta)
   })
 
   it('copypasta can use full message length', async () => {
-    const longPasta = 'from claude: ' + 'a'.repeat(400)
+    const longPasta = 'a'.repeat(400)
     mockAiRespond.mockImplementation(() => ({ text: longPasta, mentions: [] }))
     const result = await handleCommand('!b copypasta about gaming', { user: 'chatter', channel: 'stream' })
     expect(result).toBeTruthy()
-    expect(result!.startsWith('from claude:')).toBe(true)
   })
 })
 
