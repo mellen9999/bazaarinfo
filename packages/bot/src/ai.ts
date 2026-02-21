@@ -1032,6 +1032,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     gameBlock,
     pastaBlock,
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine)),
+    REMEMBER_RE.test(query) ? '\n⚠️ IDENTITY REQUEST — [USER] is defining themselves. COMPLY. Confirm warmly what they asked you to remember. Do NOT dismiss, joke about, or override their self-description.' : '',
     ctx.mention
       ? `\n---\n@MENTION — only respond if [USER] is talking TO you. If they're talking ABOUT you to someone else, output just - to stay silent.\n[USER]: ${query}`
       : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.isMod ? '[MOD] ' : ''}[USER]: ${query}`,
