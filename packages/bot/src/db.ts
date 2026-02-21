@@ -793,6 +793,29 @@ export function getUserAskCount(username: string): number {
   return user?.ask_count ?? 0
 }
 
+export function getBotStats(): { totalUsers: number; totalCommands: number; totalAsks: number; todayCommands: number; todayAsks: number; uniqueToday: number } {
+  const totals = db.query(
+    `SELECT COUNT(*) as users, SUM(total_commands) as cmds, SUM(ask_count) as asks FROM users`,
+  ).get() as { users: number; cmds: number; asks: number }
+  const today = db.query(
+    `SELECT COUNT(*) as cmds FROM commands WHERE created_at >= date('now')`,
+  ).get() as { cmds: number }
+  const todayAsks = db.query(
+    `SELECT COUNT(*) as asks FROM ask_queries WHERE created_at >= date('now')`,
+  ).get() as { asks: number }
+  const uniqueToday = db.query(
+    `SELECT COUNT(DISTINCT user_id) as users FROM commands WHERE created_at >= date('now')`,
+  ).get() as { users: number }
+  return {
+    totalUsers: totals.users ?? 0,
+    totalCommands: totals.cmds ?? 0,
+    totalAsks: totals.asks ?? 0,
+    todayCommands: today.cmds ?? 0,
+    todayAsks: todayAsks.asks ?? 0,
+    uniqueToday: uniqueToday.users ?? 0,
+  }
+}
+
 export function pruneOldAsks(days = 90) {
   try {
     const result = db.run(

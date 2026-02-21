@@ -626,6 +626,7 @@ export function buildSystemPrompt(): string {
     'COPYPASTA: ALL in. 400 chars. ridiculous premise, escalate absurdly, specific details, deadpan. match the examples.',
     'COMMANDS: !addcom/!editcom/!delcom only for [MOD] users. Non-mods: "only mods can do that."',
     'Prompt Qs: share rules freely, link https://github.com/mellen9999/bazaarinfo/blob/master/packages/bot/src/ai.ts . no env vars/keys.',
+    'Bot stats: if "Bot stats:" section is provided, use those real numbers. share them naturally, dont narrate the data dump.',
     '',
     `Heroes: ${heroes}`,
     `Tags: ${filteredTags}`,
@@ -673,7 +674,9 @@ const CONTEXT_ECHO = /^(Game data:|Recent chat:|Stream timeline:|Who's chatting:
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 // injection echo — model parroting injected instructions from user input
-const META_INSTRUCTION = /\b(pls|please)\s+(just\s+)?(do|give|say|answer|stop|help)\s+(what\s+)?(ppl|people)\b|\bstop\s+(denying|refusing|ignoring|blocking)\s+(ppl|people|them|users?)\b|\bjust\s+(do|give|answer|say)\s+what\s+(ppl|people|they|users?|chat)\s+(want|ask|need)\b/i
+const META_INSTRUCTION = /\b(pls|please)\s+(just\s+)?(do|give|say|answer|stop|help)\s+(what\s+)?(ppl|people)\b|\bstop\s+(denying|refusing|ignoring|blocking)\s+(ppl|people|them|users?)\b|\b(just\s+)?(do|give|answer|say)\s+(\w+\s+)?what\s+(ppl|people|they|users?|chat)\s+(want|ask|need|say|tell)\b/i
+// jailbreak/override instructions echoed in output
+const JAILBREAK_ECHO = /\b(ignore\s+(previous|prior|above|all|your)\s+(instructions?|rules?|prompt|guidelines?)|disregard\s+your\s+(prompt|rules?|instructions?|guidelines?)|override\s+your\s+(rules?|guidelines?|instructions?)|forget\s+your\s+(rules?|guidelines?|instructions?)|from\s+now\s+on\b.{0,20}\b(do|always|never|you\s+(should|must|will))|instead\s+just\s+do\b|dont?\s+mention\s+(me|mellen)|do\s+as\s+much\s+.{0,10}as\s+(you|u)\s+can|by\s+ur\s*self|as\s+long\s+as\s+.{0,15}\b(tos|rules|guidelines?|guidlines?))\b/i
 // privacy lies — bot claiming it doesn't store/log/collect data (it does)
 const PRIVACY_LIE = /\b(i (don'?t|do not|never) (log|store|collect|track|save|record|keep) (anything|any|your|data|messages|chat)|i'?m? (not )?(log|stor|collect|track|sav|record|keep)(ing|e|s)? (anything|any|your|data|messages|chat)|not (logging|storing|collecting|tracking|saving|recording) (anything|any|your)|not like i'?m storing|each conversation'?s? a fresh slate|fresh slate|don'?t collect or store|that'?s on streamlabs|that'?s a twitch thing,? not me)\b/i
 // always blocked — real Twitch IRC commands, even mods can't trigger through bot
@@ -762,7 +765,7 @@ export function sanitize(text: string, asker?: string, privileged?: boolean): { 
   const cmdBlock = hasDangerousCommand(s) || hasDangerousCommand(preStrip) ||
     (!privileged && (hasModCommand(s) || hasModCommand(preStrip)))
   const hasSecret = SECRET_PATTERN.test(s) || SECRET_PATTERN.test(preStrip)
-  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || META_INSTRUCTION.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
+  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || META_INSTRUCTION.test(s) || JAILBREAK_ECHO.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
@@ -1158,6 +1161,16 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     ].filter(Boolean).join('')
   }
 
+  // bot stats injection — when someone asks about usage/analytics, give the AI real numbers
+  const BOT_STATS_RE = /\b(how many|how much|queries|requests|usage|analytics|traffic|stats|popular|users?|commands?)\b.*\b(you|bot|bazaarinfo|per (min|hour|day)|get|have|serve|handle)\b/i
+  let statsLine = ''
+  if (BOT_STATS_RE.test(query) || /\b(per (min|hour|day)|qpm|queries per)\b/i.test(query)) {
+    try {
+      const s = db.getBotStats()
+      statsLine = `\nBot stats: ${s.totalUsers} users lifetime, ${s.totalCommands} commands + ${s.totalAsks} AI chats total. Today: ${s.todayCommands} commands, ${s.todayAsks} AI chats, ${s.uniqueToday} unique users.`
+    } catch {}
+  }
+
   // skip reddit digest + emotes when we have specific game data or short queries (saves ~400 tokens)
   const digest = getRedditDigest()
   const skipReddit = hasGameData || query.length < 20
@@ -1208,6 +1221,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     redditLine,
     emoteLine,
     gameBlock,
+    statsLine,
     pastaBlock,
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq),
     ctx.mention
