@@ -106,13 +106,21 @@ export function getChannelTopEmotes(channel: string): string[] {
 
 
 
+const buildingStyle = new Set<string>()
+
 function ensureCache(channel: string) {
   const now = Date.now()
   const last = lastRefresh.get(channel) ?? 0
   if (now - last > REFRESH_INTERVAL || !styleCache.has(channel)) {
-    const style = buildStyle(channel)
-    styleCache.set(channel, style)
-    lastRefresh.set(channel, now)
+    if (buildingStyle.has(channel)) return // in-flight guard
+    buildingStyle.add(channel)
+    try {
+      const style = buildStyle(channel)
+      styleCache.set(channel, style)
+      lastRefresh.set(channel, now)
+    } finally {
+      buildingStyle.delete(channel)
+    }
   }
 }
 

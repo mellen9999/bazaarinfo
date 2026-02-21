@@ -74,6 +74,7 @@ let tagNames: string[] = []
 let heroCardMap: Map<string, BazaarCard[]> = new Map()
 let tagCardMap: Map<string, BazaarCard[]> = new Map()
 let effectWordMap: Map<string, Set<BazaarCard>> = new Map()
+let dayMap: Map<number, Monster[]> = new Map()
 
 function dedup<T extends { Title: string }>(cards: T[]): T[] {
   const seen = new Set<string>()
@@ -144,6 +145,16 @@ function loadCache(cache: CardCache) {
     }
   }
 
+  // precompute day → monsters map
+  dayMap = new Map()
+  for (const m of monsters) {
+    const d = m.MonsterMetadata.day
+    if (d == null) continue
+    let list = dayMap.get(d)
+    if (!list) { list = []; dayMap.set(d, list) }
+    list.push(m)
+  }
+
   // precompute effect word → cards index for searchByEffect
   effectWordMap = new Map()
   for (const card of allCards) {
@@ -194,6 +205,20 @@ function resolveAlias(query: string): string {
 
 const SCORE_GATE = 0.15
 
+const wordReCache = new Map<string, RegExp>()
+function wordBoundaryRe(lower: string): RegExp {
+  let re = wordReCache.get(lower)
+  if (!re) {
+    re = new RegExp(`\\b${lower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+    wordReCache.set(lower, re)
+    if (wordReCache.size > 500) {
+      const first = wordReCache.keys().next().value!
+      wordReCache.delete(first)
+    }
+  }
+  return re
+}
+
 export function search(query: string, limit = 5) {
   const resolved = resolveAlias(query)
   // try alias exact match first
@@ -207,7 +232,7 @@ export function search(query: string, limit = 5) {
   if (results.length === 0) return searchPrefix(allCards, resolved, limit)
   // boost exact word matches — "moose" should prefer "Staff of the Moose" over "Mouse Trap"
   const lower = resolved.toLowerCase()
-  const wordRe = new RegExp(`\\b${lower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+  const wordRe = wordBoundaryRe(lower)
   const exact: BazaarCard[] = []
   const rest: BazaarCard[] = []
   for (const r of results) {
@@ -280,7 +305,7 @@ export function byTag(tag: string): BazaarCard[] {
 }
 
 export function monstersByDay(day: number): Monster[] {
-  return monsters.filter((m) => m.MonsterMetadata.day === day)
+  return dayMap.get(day) ?? []
 }
 
 export function findSkill(query: string): BazaarCard | undefined {

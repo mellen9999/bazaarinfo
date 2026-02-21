@@ -91,7 +91,8 @@ export class TwitchClient {
   private keepaliveMs = 15_000
   private closing = false
   private ircReady = false
-  private ircPingTimeout: Timer | null = null
+  private ircLastData = Date.now()
+  private ircWatchdog: Timer | null = null
   private ircReconnecting = false
   private ircQueue: { channel: string; text: string; replyTo?: string }[] = []
   private sendTimes: number[] = []
@@ -135,7 +136,7 @@ export class TwitchClient {
     this.closing = true
     this.ircReconnecting = false
     if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
-    if (this.ircPingTimeout) clearTimeout(this.ircPingTimeout)
+    if (this.ircWatchdog) clearInterval(this.ircWatchdog)
     this.eventsub?.close()
     this.irc?.close()
     log('connections closed')
@@ -349,6 +350,7 @@ export class TwitchClient {
           case 'welcome':
             this.ircBackoff = BACKOFF_BASE
             for (const ch of this.config.channels) this.ircSend(`JOIN #${ch.name}`)
+            this.startIrcWatchdog()
             break
           case 'join':
             log(`irc joined #${msg.channel}`)
@@ -363,26 +365,30 @@ export class TwitchClient {
             break
         }
       }
-      this.resetIrcPingTimeout()
+      this.ircLastData = Date.now()
     }
 
     this.irc.onclose = (ev) => {
       log(`irc closed: ${ev.code} ${ev.reason}`)
       this.ircReady = false
-      if (this.ircPingTimeout) clearTimeout(this.ircPingTimeout)
+      if (this.ircWatchdog) clearInterval(this.ircWatchdog)
+      this.ircWatchdog = null
       this.reconnectIrc()
     }
 
     this.irc.onerror = (ev) => log('irc error:', ev)
   }
 
-  // Twitch sends PING every ~5min. If we hear nothing for 6min, connection is dead.
-  private resetIrcPingTimeout() {
-    if (this.ircPingTimeout) clearTimeout(this.ircPingTimeout)
-    this.ircPingTimeout = setTimeout(() => {
-      log('irc ping timeout (6min no data) — reconnecting')
-      this.irc?.close()
-    }, 360_000)
+  // Twitch sends PING every ~5min. Watchdog checks every 60s if we've heard anything in 6min.
+  private startIrcWatchdog() {
+    if (this.ircWatchdog) clearInterval(this.ircWatchdog)
+    this.ircLastData = Date.now()
+    this.ircWatchdog = setInterval(() => {
+      if (Date.now() - this.ircLastData > 360_000) {
+        log('irc ping timeout (6min no data) — reconnecting')
+        this.irc?.close()
+      }
+    }, 60_000)
   }
 
   private async handleIrcAuthFailure() {

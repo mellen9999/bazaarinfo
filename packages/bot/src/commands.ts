@@ -68,6 +68,11 @@ function proxyWithCooldown(channel: string | undefined, cmdStr: string, cmd: str
     return `!${cmd} is on cooldown (${left}s)`
   }
   proxyCooldowns.set(key, now)
+  if (proxyCooldowns.size > 200) {
+    for (const [k, t] of proxyCooldowns) {
+      if (now - t > PROXY_COOLDOWN) proxyCooldowns.delete(k)
+    }
+  }
   return cmdStr
 }
 
@@ -129,6 +134,7 @@ export function setLobbyChannel(name: string) { lobbyChannel = name }
 
 const OWNER = (process.env.BOT_OWNER ?? '').toLowerCase()
 const BOT_NAME = (process.env.TWITCH_USERNAME ?? '').toLowerCase()
+const mentionRe = BOT_NAME ? new RegExp(`@${BOT_NAME}\\b`, 'i') : null
 let onRefresh: (() => Promise<string>) | null = null
 export function setRefreshHandler(handler: () => Promise<string>) { onRefresh = handler }
 
@@ -441,8 +447,7 @@ const commands: Record<string, CommandHandler> = {
 }
 
 async function handleMention(text: string, ctx: CommandContext): Promise<string | null> {
-  if (!BOT_NAME) return null
-  const mentionRe = new RegExp(`@${BOT_NAME}\\b`, 'i')
+  if (!mentionRe) return null
   if (!mentionRe.test(text)) return null
 
   const query = text.replace(mentionRe, '').replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()

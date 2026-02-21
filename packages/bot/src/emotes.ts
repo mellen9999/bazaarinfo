@@ -170,10 +170,24 @@ export function getEmotesForChannel(channel: string): string[] {
   return merged
 }
 
-/** format emotes for AI context — shuffled per-request, filters recently used */
+// --- time-windowed emote shuffle (rebuild every 10min for prompt cache hits) ---
+const EMOTE_SHUFFLE_WINDOW = 10 * 60_000
+const emoteBlockCache = new Map<string, { text: string; ts: number; usedKey: string }>()
+
+function usedSetKey(used?: Set<string>): string {
+  if (!used || used.size === 0) return ''
+  return [...used].sort().join(',')
+}
+
+/** format emotes for AI context — shuffled per time window, filters recently used */
 export function formatEmotesForAI(channel: string, topEmotes?: string[], recentlyUsed?: Set<string>): string {
   const all = getEmotesForChannel(channel)
   if (all.length === 0) return ''
+
+  const now = Date.now()
+  const uKey = usedSetKey(recentlyUsed)
+  const cached = emoteBlockCache.get(channel)
+  if (cached && now - cached.ts < EMOTE_SHUFFLE_WINDOW && cached.usedKey === uKey) return cached.text
 
   const descriptions = getDescriptions()
   const topSet = new Set(topEmotes ?? [])
@@ -183,7 +197,7 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
   const overlays: string[] = []
 
   for (const name of all) {
-    if (usedSet.has(name)) continue // hide recently used — forces fresh picks
+    if (usedSet.has(name)) continue
     const desc = descriptions[name]
     if (!desc) continue
     if (desc.overlay) {
@@ -195,8 +209,7 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
     byMood.get(mood)!.push(`${name}(${desc.desc})`)
   }
 
-  // shuffle non-favorite emotes within each mood bucket for variety per-request
-  // channel favorites stay pinned at front, rest get randomized
+  // shuffle non-favorite emotes within each mood bucket
   for (const [mood, entries] of byMood) {
     const pinned: string[] = []
     const rest: string[] = []
@@ -208,7 +221,6 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
     byMood.set(mood, [...pinned, ...rest])
   }
 
-  // spotlight: detailed descriptions for rotating selection
   const MOOD_BUDGET: Record<string, number> = {
     love: 5, funny: 4, hype: 4, sad: 3, happy: 3, greeting: 3,
     sarcasm: 3, dance: 2, cute: 2, celebration: 2, chad: 2,
@@ -224,12 +236,8 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
     const entries = byMood.get(mood)!
     const budget = MOOD_BUDGET[mood] ?? 1
     const take = Math.min(budget, MAX_SPOTLIGHT - spotlightTotal)
-
-    // spotlight entries with full descriptions
     const spotlight = entries.slice(0, take)
-    // remaining entries — names only, capped at 5 (model rarely picks from these)
     const rest = entries.slice(take).map((e) => e.split('(')[0]).slice(0, 5)
-
     let line = `  ${mood}: ${spotlight.join(' ')}`
     if (rest.length > 0) line += ` | also: ${rest.join(' ')}`
     lines.push(line)
@@ -245,7 +253,14 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
     lines.push(line)
   }
 
-  return `Emotes (0-1 per msg, only when perfect — spotlight rotates, pick from ANY listed):\n${lines.join('\n')}`
+  const text = `Emotes (0-1 per msg, only when perfect — spotlight rotates, pick from ANY listed):\n${lines.join('\n')}`
+  emoteBlockCache.set(channel, { text, ts: now, usedKey: uKey })
+  return text
+}
+
+export function invalidateEmoteBlockCache(channel?: string) {
+  if (channel) emoteBlockCache.delete(channel)
+  else emoteBlockCache.clear()
 }
 
 /** pick a random emote by mood for a channel — returns empty string if none found */
