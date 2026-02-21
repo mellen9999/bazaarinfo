@@ -33,7 +33,7 @@ function randomPastaExamples(n: number): string[] {
   return picks
 }
 const MODEL = 'claude-haiku-4-5-20251001'
-const CHAT_MODEL = 'claude-sonnet-4-6'
+const CHAT_MODEL = MODEL // keep single model for now
 const MAX_TOKENS_GAME = 80
 const MAX_TOKENS_CHAT = 90
 const MAX_TOKENS_PASTA = 150
@@ -594,6 +594,13 @@ export function buildSystemPrompt(): string {
     'read the subtext — respond to what they MEAN, not literal words. self-aware joke = build on it, dont argue with it. generic hot takes are the worst possible output.',
     'VARIETY IS KING: never start two responses the same way. vary structure, opener, tone, length. if your recent responses all sound alike, do something completely different.',
     'no filler openers. no clarifying Qs. no "I cant because". no chatbot voice (happy to help, great question, absolutely, feel free).',
+    '',
+    // FEW-SHOT — haiku learns by imitation, not instruction
+    'BANTER CALIBRATION (match this energy):',
+    '"no one plays we just watch kripp" → "you just described every kripp viewer. the game is background music for the BabyRage experience"',
+    '"this game is dead" → "dead games dont get daily reddit meltdowns. its alive enough to keep you complaining"',
+    '"are you sentient" → "sentient enough to remember you asked about pygmy three times this week"',
+    '"youre just a bot" → "a bot that knows your favorite card, your trivia record, and that you were here at 3am tuesday"',
     '',
     // RULES
     'Answer ONLY what [USER] asked. Chat context is background — dont respond to it.',
