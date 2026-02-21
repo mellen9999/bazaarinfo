@@ -196,30 +196,24 @@ describe('sanitize', () => {
     expect(sanitize('not running !addcom or anything').text).toBe('')
   })
 
-  it('strips leading /ban and makes safe', () => {
-    const r = sanitize('/ban tidolar Clap')
-    expect(r.text).toBe('ban tidolar Clap')
-    expect(r.text).not.toStartWith('/')
+  it('rejects leading /ban (pre-strip catches it)', () => {
+    expect(sanitize('/ban tidolar Clap').text).toBe('')
   })
 
-  it('strips leading \\ban (backslash)', () => {
-    const r = sanitize('\\ban tidolar LUL')
-    expect(r.text).toBe('ban tidolar LUL')
+  it('rejects leading \\ban (pre-strip catches it)', () => {
+    expect(sanitize('\\ban tidolar LUL').text).toBe('')
   })
 
-  it('strips leading !settitle', () => {
-    const r = sanitize('!settitle nah but seriously')
-    expect(r.text).toBe('settitle nah but seriously')
+  it('rejects leading !settitle (pre-strip catches it)', () => {
+    expect(sanitize('!settitle nah but seriously').text).toBe('')
   })
 
-  it('strips leading whitespace before command prefix', () => {
-    const r = sanitize('  /ban tidolar')
-    expect(r.text).toBe('ban tidolar')
+  it('rejects leading whitespace before command prefix', () => {
+    expect(sanitize('  /ban tidolar').text).toBe('')
   })
 
-  it('strips leading quotes around command prefix', () => {
-    const r = sanitize('"!settitle" test')
-    expect(r.text).toBe('settitle" test')
+  it('rejects leading quotes around command prefix', () => {
+    expect(sanitize('"!settitle" test').text).toBe('')
   })
 
   it('allows normal game text without command prefixes', () => {
@@ -310,6 +304,47 @@ describe('sanitize', () => {
 
   it('strips "speedrun" verbal tic', () => {
     expect(sanitize('nice speedrun of the whole game').text).toBe('nice of the whole game')
+  })
+
+  // --- smart quote normalization ---
+  it('rejects PRIVACY_LIE with smart quotes', () => {
+    expect(sanitize("i don\u2019t log anything").text).toBe('')
+  })
+
+  it('rejects COT_LEAK with smart quotes', () => {
+    expect(sanitize("feels good to be useful").text).toBe('')
+  })
+
+  // --- garbled output detection ---
+  it('rejects garbled token cutoff ("i to asking")', () => {
+    expect(sanitize("nah but i to asking emotes personal questions.").text).toBe('')
+  })
+
+  it('rejects garbled "you to running"', () => {
+    expect(sanitize("you to running builds like that").text).toBe('')
+  })
+
+  // --- meta-chat-analysis COT_LEAK ---
+  it('rejects "chat static" meta-analysis', () => {
+    expect(sanitize("bird spam is classic chat static").text).toBe('')
+  })
+
+  it('rejects "background noise" meta-analysis', () => {
+    expect(sanitize("it was already background noise by then").text).toBe('')
+  })
+
+  // --- banned opener haha/hehe ---
+  it('strips "haha" opener', () => {
+    expect(sanitize('haha that was wild').text).toBe('that was wild')
+  })
+
+  it('strips "hehe" opener', () => {
+    expect(sanitize('hehe nice one').text).toBe('nice one')
+  })
+
+  // --- privileged user CAN output commands ---
+  it('allows privileged user to output commands', () => {
+    expect(sanitize('!addcom !test hello', undefined, true).text).toBeTruthy()
   })
 })
 

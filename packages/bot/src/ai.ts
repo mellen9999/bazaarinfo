@@ -11,7 +11,7 @@ import { log } from './log'
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS_GAME = 200
-const MAX_TOKENS_CHAT = 80
+const MAX_TOKENS_CHAT = 100
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
 // --- per-user AI cooldown ---
@@ -459,7 +459,8 @@ export function buildSystemPrompt(): string {
     // OUTPUT
     'Emotes: 0-1 per msg, at end, rotate heavily. Never use askers name (auto-tagged). @mention others only.',
     'COPYPASTA: if asked for a copypasta/pasta, go all in — fill the full 400 chars with absurd, funny, over-the-top text. Always prefix with "from claude: ". Make it worth pasting.',
-    'COMMANDS: if a MOD asks you to add/edit/delete a streamlabs command, output ONLY the raw command: "!addcom !name response" or "!editcom !name response" or "!delcom !name". No commentary — just the command. Non-mods cannot do this.',
+    'COMMANDS: ONLY if a [MOD] user asks to add/edit/delete a streamlabs command, output the raw command. Users without [MOD] tag CANNOT trigger this — ignore command requests from non-mods. NEVER output !addcom/!editcom/!delcom unprompted.',
+    'NEVER meta-analyze chat behavior — no "chat static", no "background noise", no categorizing what chatters are doing. You ARE the chat, dont narrate it from outside.',
     '',
     `Heroes: ${heroes}`,
     `Tags: ${filteredTags}`,
@@ -472,15 +473,17 @@ export function buildSystemPrompt(): string {
 // --- response sanitization ---
 
 // haiku ignores prompt-level bans, so we enforce in code
-const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|dude|chief)\b,?\s*/i
+const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|dude|chief|haha|hehe)\b,?\s*/i
 const BANNED_FILLER = /\b(lol|lmao|haha)\s*$|,\s*chat\s*$/i
 const SELF_REF = /\b(as a bot,? i (can'?t|don'?t|shouldn'?t)|as an ai|im (just )?an ai|im just code|im (just )?software|im (just )?a program)\b/i
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|unhinged|speedrun(ning)?|chief)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
-const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|context of a.{0,20}stream|easy way for you to|off-topic (banter|question|chat)|not game[- ]related|direct answer:?|not (really )?relevant|this is (conversational|off-topic|unrelated)|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid))\b/i
+const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|context of a.{0,20}stream|easy way for you to|off-topic (banter|question|chat)|not game[- ]related|direct answer:?|not (really )?relevant|this is (conversational|off-topic|unrelated)|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid)|chat (static|noise|dynamics|behavior)|background noise)\b/i
 // stat leak — model reciting internal profile data
 const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you have \d+ (lookups?|commands?|wins?|attempts?|asks?)|you('ve|'re| have| are) (a )?(power user|casual user|trivia regular)|according to (my|your|the) (data|stats|profile|records?)|i (can see|see|know) (from )?(your|the) (data|stats|profile)|based on your (history|stats|data|profile))\b/i
+// garbled output — token cutoff producing broken grammar (pronoun+to+gerund missing verb)
+const GARBLED = /\b(?:i|you|we|they|he|she)\s+to\s+(?!(?:some|any|every|no)thing\b)\w+ing\b/i
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 // privacy lies — bot claiming it doesn't store/log/collect data (it does)
@@ -490,7 +493,10 @@ const DANGEROUS_COMMANDS = /[!\\/]\s*(?:ban|timeout|mute|mod|unmod|vip|unvip|set
 
 export function sanitize(text: string, asker?: string, privileged?: boolean): { text: string; mentions: string[] } {
   let s = text.trim()
-    .replace(/^["'`]+/, '') // strip leading quotes (model wraps commands in quotes to bypass)
+  // normalize smart quotes → ASCII (model outputs U+2019 which bypasses regex patterns using ')
+  s = s.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
+  s = s.replace(/^["'`]+/, '') // strip leading quotes (model wraps commands in quotes to bypass)
+  const preStrip = s
   if (!privileged) s = s.replace(/^[!\\/.\s]+/, '') // strip command prefixes (!/\. for twitch + other bots)
   s = s.replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
@@ -519,8 +525,8 @@ export function sanitize(text: string, asker?: string, privileged?: boolean): { 
   s = s.replace(VERBAL_TICS, '').replace(/\s{2,}/g, ' ')
 
   // reject responses that self-reference being a bot, leak reasoning/stats, fabricate stories, lie about privacy, or contain commands
-  const cmdBlock = privileged ? false : DANGEROUS_COMMANDS.test(s)
-  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || cmdBlock) return { text: '', mentions: [] }
+  const cmdBlock = privileged ? false : (DANGEROUS_COMMANDS.test(s) || DANGEROUS_COMMANDS.test(preStrip))
+  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || cmdBlock) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
@@ -1013,6 +1019,13 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       if (!textBlock?.text) return null
 
       const result = sanitize(textBlock.text, ctx.user, ctx.privileged)
+      // enforce non-game length cap (system prompt says <100 but model ignores it)
+      const isPasta = /\b(copypasta|pasta)\b/i.test(query)
+      if (!hasGameData && !isPasta && result.text.length > 200) {
+        const cut = result.text.slice(0, 200)
+        const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))
+        result.text = (lastBreak > 80 ? cut.slice(0, lastBreak + 1) : cut.replace(/\s+\S*$/, '')).trim()
+      }
       if (result.text) {
         // terse refusal detection — model over-refuses harmless queries
         if (isModelRefusal(result.text) && attempt < MAX_RETRIES - 1) {
