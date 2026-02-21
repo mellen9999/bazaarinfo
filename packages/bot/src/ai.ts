@@ -78,7 +78,7 @@ export function recordUsage(user: string) {
 
 // --- low-value filter ---
 
-const GREETINGS = /^(hi|hey|yo|sup|hii+|helo+|hello+|howdy|hola|oi)$/i
+export const GREETINGS = /^(hi|hey|yo|sup|hii+|helo+|hello+|howdy|hola|oi)$/i
 
 function isLowValue(query: string): boolean {
   if (query.length <= 2 && !GREETINGS.test(query)) return true

@@ -4,7 +4,7 @@ import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
-import { aiRespond, dedupeEmote, fixEmoteCase, getAiCooldown } from './ai'
+import { aiRespond, dedupeEmote, fixEmoteCase, getAiCooldown, GREETINGS } from './ai'
 import { isEmote } from './emotes'
 
 const MAX_LEN = 480
@@ -318,6 +318,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 
   // silently ignore known emotes — they're not item names
   if (!tier && !enchant && isEmote(query)) return null
+  if (!tier && !enchant && GREETINGS.test(query)) return null
 
   // conversational game questions → AI for analysis (it has tools to look up cards)
   if (!tier && !enchant && words.length >= 3 && (QUESTION_PREFIX.test(query) || query.includes('?'))) {

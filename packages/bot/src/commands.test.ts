@@ -70,6 +70,7 @@ mock.module('./ai', () => ({
   sanitize: mock((t: string) => ({ text: t, mentions: [] })),
   dedupeEmote: mock((t: string) => t),
   fixEmoteCase: mock((t: string) => t),
+  GREETINGS: /^(hi|hey|yo|sup|hii+|helo+|hello+|howdy|hola|oi)$/i,
 }))
 
 // --- mock trivia ---
