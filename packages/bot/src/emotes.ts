@@ -222,12 +222,12 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
   }
 
   const MOOD_BUDGET: Record<string, number> = {
-    love: 3, funny: 3, hype: 3, sad: 2, happy: 2, greeting: 2,
+    love: 2, funny: 2, hype: 2, sad: 1, happy: 2, greeting: 1,
     sarcasm: 2, dance: 1, cute: 1, celebration: 1, chad: 1,
     shock: 1, scared: 1, thinking: 1, rage: 1, cringe: 1,
     cool: 1, confused: 1, neutral: 1,
   }
-  const MAX_SPOTLIGHT = 20
+  const MAX_SPOTLIGHT = 15
   let spotlightTotal = 0
   const lines: string[] = []
   const sortedMoods = [...byMood.keys()].sort((a, b) => (MOOD_BUDGET[b] ?? 1) - (MOOD_BUDGET[a] ?? 1))
@@ -236,22 +236,25 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
     const entries = byMood.get(mood)!
     const budget = MOOD_BUDGET[mood] ?? 1
     const take = Math.min(budget, MAX_SPOTLIGHT - spotlightTotal)
-    const spotlight = entries.slice(0, take)
-    const rest = entries.slice(take).map((e) => e.split('(')[0]).slice(0, 5)
-    lines.push(`  ${mood}: ${spotlight.join(' ')}`)
-    spotlightTotal += spotlight.length
+    if (take <= 0) continue
+    // first entry per mood keeps description for context, rest are names only (saves ~300 tokens)
+    const parts = entries.slice(0, take).map((e, i) => {
+      return (i === 0 || topSet.has(e.split('(')[0])) ? e : e.split('(')[0]
+    })
+    lines.push(`  ${mood}: ${parts.join(' ')}`)
+    spotlightTotal += take
   }
 
   if (overlays.length > 0) {
     shuffle(overlays)
-    const spotlightOv = overlays.slice(0, 5)
-    const restOv = overlays.slice(5).map((e) => e.split('(')[0])
-    let line = `  [OVERLAYS — combine with another emote]: ${spotlightOv.join(' ')}`
-    if (restOv.length > 0) line += ` | also: ${restOv.join(' ')}`
+    const spotlightOv = overlays.slice(0, 3)
+    const restOv = overlays.slice(3).map((e) => e.split('(')[0])
+    let line = `  overlays: ${spotlightOv.join(' ')}`
+    if (restOv.length > 0) line += ` ${restOv.join(' ')}`
     lines.push(line)
   }
 
-  const text = `Emotes (0-1 per msg, only when perfect — spotlight rotates, pick from ANY listed):\n${lines.join('\n')}`
+  const text = `Emotes:\n${lines.join('\n')}`
   emoteBlockCache.set(channel, { text, ts: now, usedKey: uKey })
   return text
 }
