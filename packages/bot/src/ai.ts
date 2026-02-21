@@ -10,6 +10,7 @@ import { log } from './log'
 
 import { getUserInfo, getFollowage } from './twitch'
 import type { ChannelInfo } from './twitch'
+import { getAccessToken } from './auth'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
@@ -119,9 +120,10 @@ function maybeFetchTwitchInfo(user: string, channel: string) {
   if (twitchFetchInFlight.has(key)) return
   twitchFetchInFlight.add(key)
 
-  const token = process.env.TWITCH_ACCESS_TOKEN
+  let token: string
+  try { token = getAccessToken() } catch { twitchFetchInFlight.delete(key); return }
   const clientId = process.env.TWITCH_CLIENT_ID
-  if (!token || !clientId) { twitchFetchInFlight.delete(key); return }
+  if (!clientId) { twitchFetchInFlight.delete(key); return }
 
   // fire-and-forget
   ;(async () => {
