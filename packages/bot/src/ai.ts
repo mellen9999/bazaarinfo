@@ -1199,10 +1199,6 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const styleLine = getChannelStyle(ctx.channel)
   const contextLine = styleLine ? `\nChannel: ${styleLine}` : ''
 
-  // channel voice — how chat actually talks (compact for game Qs, full for banter)
-  const voiceLine = getChannelVoiceContext(ctx.channel, entities.isGame)
-  const voiceBlock = voiceLine ? `\n${voiceLine}` : ''
-
   const timeline = buildTimeline(ctx.channel)
   const timelineLine = timeline !== 'No stream history yet' ? `\nStream timeline:\n${timeline}` : ''
 
@@ -1213,6 +1209,10 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
 
   // pre-resolved game data + knowledge (extractEntities also detects game queries)
   const entities = extractEntities(query)
+
+  // channel voice — how chat actually talks (compact for game Qs, full for banter)
+  const voiceLine = getChannelVoiceContext(ctx.channel, entities.isGame)
+  const voiceBlock = voiceLine ? `\n${voiceLine}` : ''
   let gameBlock = ''
   let hasGameData = false
   if (entities.isGame) {
