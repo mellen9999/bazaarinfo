@@ -159,7 +159,7 @@ function isDuplicate(channel: string, query: string): boolean {
   return false
 }
 
-const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/enchants/trivia/score/stats | bazaardb.gg'
+const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/enchants/trivia/score/stats | !a <question> | bazaardb.gg'
 const JOIN_USAGE = () => lobbyChannel ? ` | add bot: type !join in ${lobbyChannel}'s chat` : ''
 
 function logMiss(query: string, ctx: CommandContext) {
@@ -392,7 +392,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
 
   if (/^(how (do you|does this( bot)?) work|what are you|what is this)\b/i.test(cleanArgs)) {
-    return 'twitch chatbot for The Bazaar by mellen. looks up items/heroes/monsters from bazaardb.gg, runs trivia, and answers questions with AI. try: !b <item> | !b hero <name> | !b <question>'
+    return 'twitch chatbot for The Bazaar by mellen. looks up items/heroes/monsters from bazaardb.gg, runs trivia, and answers questions with AI. try: !b <item> | !b hero <name> | !a <question>'
   }
 
   // proxy ! and / commands — before dedup so cooldown messages always show
@@ -448,7 +448,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   // AI fallback for conversational queries that missed game data
   const cd = getAiChatCooldown(ctx.user)
-  if (cd > 0) return `on cd (${cd}s)`
+  if (cd > 0) return `on cd (${cd}s) — try !a`
 
   let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
   try { aiResult = await aiRespond(cleanArgs, { ...ctx, direct: true }) } catch {}
@@ -469,7 +469,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   return null
 }
 
-// --- AI fallback cooldown: 30s per-user ---
+// --- !a cooldown: 30s per-user ---
 const AI_CHAT_CD = 30_000
 const aiChatCooldowns = new Map<string, number>()
 
@@ -481,8 +481,38 @@ function getAiChatCooldown(user?: string): number {
   return elapsed >= AI_CHAT_CD ? 0 : Math.ceil((AI_CHAT_CD - elapsed) / 1000)
 }
 
+async function aiChat(args: string, ctx: CommandContext): Promise<string | null> {
+  const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
+
+  if (!cleanArgs) return '!a <question> — ask me anything (game context included for bazaar Qs)'
+
+  if (ctx.channel && isDuplicate(ctx.channel, `ai:${cleanArgs}`)) return null
+
+  const cd = getAiChatCooldown(ctx.user)
+  if (cd > 0) return `!a on cd (${cd}s)`
+
+  let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
+  try { aiResult = await aiRespond(cleanArgs, { ...ctx, direct: true }) } catch {}
+  if (aiResult?.text) {
+    if (ctx.user) {
+      aiChatCooldowns.set(ctx.user.toLowerCase(), Date.now())
+      if (aiChatCooldowns.size > 500) {
+        const now = Date.now()
+        for (const [k, t] of aiChatCooldowns) {
+          if (now - t > AI_CHAT_CD) aiChatCooldowns.delete(k)
+        }
+      }
+    }
+    try { db.logCommand(ctx, 'ai', cleanArgs, 'direct') } catch {}
+    return dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
+  }
+
+  return null
+}
+
 const commands: Record<string, CommandHandler> = {
   b: bazaarinfo,
+  a: aiChat,
 }
 
 async function handleMention(text: string, ctx: CommandContext): Promise<string | null> {
