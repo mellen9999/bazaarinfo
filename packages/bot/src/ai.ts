@@ -405,6 +405,16 @@ function extractEntities(query: string): ResolvedEntities {
 function buildGameContext(entities: ResolvedEntities, channel?: string): string {
   const sections: string[] = []
 
+  // broad hero/class question with no specific hero → inject hero overview
+  if (!entities.hero && entities.cards.length === 0 && entities.monsters.length === 0) {
+    const heroNames = store.getHeroNames()
+    const heroCounts = heroNames.map((h) => {
+      const items = store.byHero(h)
+      return `${h} (${items.length} items)`
+    })
+    if (heroCounts.length > 0) sections.push(`Heroes: ${heroCounts.join(', ')}`)
+  }
+
   for (const card of entities.cards) {
     sections.push(serializeCard(card))
   }
@@ -639,7 +649,8 @@ export function buildSystemPrompt(): string {
     // RULES
     'Answer what [USER] asked. Use chat context to understand vague/contextual Qs ("do u agree?", "whats that about", "is that true") — infer what they mean from recent chat. Dont randomly respond to chat you werent asked about.',
     'Length: game Qs 80-250. greetings <60. banter <140. copypasta: fill 400. no markdown.',
-    'Game answers: cite ONLY "Game data:" section. no data = brief opinion, never invent items/stats/builds.',
+    'Game answers: cite ONLY "Game data:" section. NEVER invent item names, stat numbers, day references, or mechanic descriptions. No data = SHORT opinion with zero specifics.',
+    'COMMON TRAP: "best/worst class" Qs — if you dont have hero data loaded, say your vibe opinion in <60 chars. Do NOT fabricate how a hero works.',
     'Never fabricate real stats/numbers. But if someone asks about fake lore, nonexistent things, or "explain X" with no data — make up something hilarious and commit to the bit. deadpan absurd > "that doesnt exist".',
     '"user: msg" in chat = that user said it.',
     'Only links: bazaardb.gg, bzdb.to, github.com/mellen9999/bazaarinfo — spaces around links.',
