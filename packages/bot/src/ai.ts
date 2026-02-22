@@ -42,8 +42,8 @@ const MAX_RETRIES = 3
 // --- cooldowns ---
 
 const lastAiByChannel = new Map<string, number>()
-const AI_GLOBAL_CD = 60_000 // 60s per-channel (non-game only)
-const USER_AI_CD = 60_000 // 60s per-user
+const AI_GLOBAL_CD = 30_000 // 30s per-channel (non-game only)
+const USER_AI_CD = 30_000 // 30s per-user
 const lastAiByUser = new Map<string, number>()
 const USER_CD_MAX = 500
 
