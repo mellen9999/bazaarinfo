@@ -4,7 +4,7 @@ import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
-import { aiRespond, dedupeEmote, fixEmoteCase, getAiCooldown } from './ai'
+import { aiRespond, dedupeEmote, fixEmoteCase, getAiCooldown, getGlobalAiCooldown } from './ai'
 
 const MAX_LEN = 480
 
@@ -391,7 +391,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   // AI failed — check if on cooldown, otherwise show suggestions
-  const cd = getAiCooldown(ctx.user, ctx.channel)
+  const cd = getAiCooldown(ctx.user, ctx.channel) || getGlobalAiCooldown(ctx.channel)
   if (cd > 0) return withSuffix(`AI on cd, ${cd}s left`, suffix)
 
   if (queryWords.length <= 2) {

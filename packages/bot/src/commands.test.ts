@@ -65,6 +65,7 @@ const mockGetAiCooldown = mock<(user: string, channel?: string) => number>(() =>
 mock.module('./ai', () => ({
   aiRespond: mockAiRespond,
   getAiCooldown: mockGetAiCooldown,
+  getGlobalAiCooldown: mock(() => 0),
   initSummarizer: mock(() => {}),
   invalidatePromptCache: mock(() => {}),
   sanitize: mock((t: string) => ({ text: t, mentions: [] })),

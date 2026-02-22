@@ -469,7 +469,7 @@ const KNOWLEDGE: [RegExp, string][] = [
 ]
 
 // detect game-related terms (used by extractEntities to flag game queries)
-const GAME_TERMS = /\b(items?|heroes?|monsters?|mobs?|builds?|tiers?|enchant(ment)?s?|skills?|tags?|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|weapons?|relics?|aqua|friend|ammo|charge|board|dps|beat|fight|counter|synergy|scaling|combo|lethal|survive|bronze|silver|gold|diamond|legendary)\b/i
+const GAME_TERMS = /\b(items?|heroes?|monsters?|mobs?|builds?|tiers?|enchant(ment)?s?|skills?|tags?|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|weapons?|relics?|aqua|friend|ammo|charge|board|dps|beat|fight|counter|synergy|scaling|combo|lethal|survive|bronze|silver|gold|diamond|legendary|lifesteal|multicast|luck|cooldown|pygmy|vanessa|dooley|stelle|jules|mak|common|run|pick|draft|comp|strat(egy)?|nerf|buff|patch|meta|broken)\b/i
 
 // --- user context builder ---
 
