@@ -52,6 +52,7 @@ let stmts: {
   insertUserFact: Statement
   getUserFacts: Statement
   countUserFacts: Statement
+  userMessagesDetailed: Statement
   getCachedTwitchUser: Statement
   setCachedTwitchUser: Statement
   getCachedFollowage: Statement
@@ -189,6 +190,9 @@ function prepareStatements() {
     insertUserFact: db.prepare('INSERT INTO user_facts (username, fact) VALUES (?, ?)'),
     getUserFacts: db.prepare('SELECT fact FROM user_facts WHERE LOWER(username) = ? ORDER BY created_at DESC LIMIT ?'),
     countUserFacts: db.prepare('SELECT COUNT(*) as cnt FROM user_facts WHERE LOWER(username) = ?'),
+    userMessagesDetailed: db.prepare(
+      'SELECT username, message, created_at FROM chat_messages WHERE LOWER(username) = ? AND channel = ? ORDER BY created_at DESC LIMIT ?',
+    ),
     getCachedTwitchUser: db.prepare('SELECT twitch_id, display_name, account_created_at, cached_at FROM twitch_users WHERE username = ?'),
     setCachedTwitchUser: db.prepare(
       `INSERT INTO twitch_users (username, twitch_id, display_name, account_created_at, cached_at)
@@ -707,6 +711,11 @@ export function getChannelMessages(channel: string, limit = 5000): string[] {
 export function getUserMessages(username: string, channel: string, limit = 500): string[] {
   const rows = stmts.userMessages.all(username.toLowerCase(), channel, limit) as { message: string }[]
   return rows.map((r) => r.message)
+}
+
+// per-user chat messages with timestamps (for chat recall context)
+export function getUserMessagesDetailed(username: string, channel: string, limit = 15): FTSResult[] {
+  return stmts.userMessagesDetailed.all(username.toLowerCase(), channel, limit) as FTSResult[]
 }
 
 // user's top looked-up items

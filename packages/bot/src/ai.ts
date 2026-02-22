@@ -1105,6 +1105,59 @@ function buildRecallContext(query: string, channel: string): string {
   return `\nPrior exchanges:\n${lines.join('\n')}`
 }
 
+// --- chat history recall (search a referenced user's past messages) ---
+
+function findReferencedUser(query: string, channel: string): string | null {
+  const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
+
+  // @username explicit
+  const atMatch = query.match(/@([a-zA-Z0-9_]+)/)
+  if (atMatch) {
+    const name = atMatch[1].toLowerCase()
+    if (name !== botName && db.getUserMessagesDetailed(name, channel, 1).length > 0) return name
+  }
+
+  // implicit — check words against chat history in this channel
+  for (const word of query.split(/\s+/)) {
+    const clean = word.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase()
+    if (clean.length < 3 || STOP_WORDS.has(clean) || clean === botName) continue
+    if (db.getUserMessagesDetailed(clean, channel, 1).length > 0) return clean
+  }
+  return null
+}
+
+function buildChatRecall(query: string, channel: string): string {
+  const user = findReferencedUser(query, channel)
+  if (!user) return ''
+
+  const now = Date.now()
+  const lines: string[] = []
+  const seen = new Set<string>()
+
+  // topic-specific FTS search by user
+  const ftsQuery = buildFTSQuery(query)
+  if (ftsQuery) {
+    for (const h of db.searchChatFTS(channel, ftsQuery, 8, user)) {
+      seen.add(h.message)
+      lines.push(`[${formatAge(h.created_at, now)}] ${h.username}: ${h.message.replace(/\n/g, ' ')}`)
+    }
+  }
+
+  // recent messages fallback (covers when FTS keywords don't match)
+  if (lines.length < 5) {
+    for (const r of db.getUserMessagesDetailed(user, channel, 10)) {
+      if (lines.length >= 10) break
+      if (seen.has(r.message)) continue
+      lines.push(`[${formatAge(r.created_at, now)}] ${r.username}: ${r.message.replace(/\n/g, ' ')}`)
+    }
+  }
+
+  if (lines.length === 0) return ''
+  let text = `Chat history (${user}):\n${lines.join('\n')}`
+  if (text.length > 600) text = text.slice(0, 600)
+  return text
+}
+
 // --- chatters context (compact profiles for everyone in chat, not just asker) ---
 
 function buildChattersContext(chatEntries: ChatEntry[], asker: string, channel: string): string {
@@ -1264,6 +1317,9 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   // contextual recall — FTS search of prior exchanges (skip for short follow-ups where hot cache covers it)
   const recallLine = isShortFollowup ? '' : buildRecallContext(query, ctx.channel)
 
+  // chat history recall — search referenced user's past messages
+  const chatRecallLine = buildChatRecall(query, ctx.channel)
+
   // channel-wide recent responses — anti-repetition across users
   const recentAll = getChannelRecentResponses(ctx.channel)
   // exclude current user's hot exchanges (already shown separately)
@@ -1288,6 +1344,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     voiceBlock,
     hotLine,
     recallLine,
+    chatRecallLine ? `\n${chatRecallLine}` : '',
     recentLine,
     redditLine,
     emoteLine,
