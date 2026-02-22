@@ -76,7 +76,7 @@ export function cacheExchange(user: string, query: string, response: string, cha
 
 // --- channel-wide recent response buffer (anti-repetition) ---
 const channelRecentResponses = new Map<string, string[]>()
-const CHANNEL_RESPONSE_MAX = 3
+const CHANNEL_RESPONSE_MAX = 5
 
 export function getChannelRecentResponses(channel: string): string[] {
   return channelRecentResponses.get(channel) ?? []
@@ -586,7 +586,7 @@ function buildUserContext(user: string, channel: string, skipAsks = false, suppr
 // --- timeline builder ---
 
 function buildTimeline(channel: string): string {
-  const rows = db.getLatestSummaries(channel, 1)
+  const rows = db.getLatestSummaries(channel, 3)
   if (rows.length === 0) return 'No stream history yet'
 
   const now = Date.now()
@@ -1103,7 +1103,7 @@ function buildChattersContext(chatEntries: ChatEntry[], asker: string, channel: 
   const profiles: string[] = []
   let totalLen = 0
 
-  for (const user of users.slice(0, 5)) {
+  for (const user of users.slice(0, 10)) {
     const parts: string[] = []
 
     // followage — most important identity signal
@@ -1162,7 +1162,7 @@ interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boole
 
 function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
   const isRememberReq = REMEMBER_RE.test(query) && !isAboutOtherUser(query)
-  const chatDepth = ctx.mention ? 10 : 12
+  const chatDepth = ctx.mention ? 15 : 20
   const chatContext = getRecent(ctx.channel, chatDepth)
     .filter((m) => !isNoise(m.text))
   const chatStr = chatContext.length > 0
@@ -1218,7 +1218,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
 
   // skip reddit digest + emotes when we have specific game data or short queries (saves ~400 tokens)
   const digest = getRedditDigest()
-  const skipReddit = hasGameData || query.length < 30
+  const skipReddit = hasGameData || query.length < 20
   const redditLine = (!skipReddit && digest) ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
   const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getChannelTopEmotes(ctx.channel), getRecentEmotes(ctx.channel))
 
