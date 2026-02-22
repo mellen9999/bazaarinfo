@@ -374,6 +374,8 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
       return withSuffix(`no "${query}" — did you mean: ${suggestions.join(', ')}?`, suffix)
     }
   }
+  // conversational queries (>2 words) return null to trigger AI fallback in bazaarinfo
+  if (queryWords.length > 2) return null
   return withSuffix(`no match for "${truncate(query, 40)}"`, suffix)
 }
 
@@ -440,7 +442,30 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     if (match) return handler(match[1]?.trim() ?? cleanArgs, ctx, suffix)
   }
 
-  return itemLookup(cleanArgs, ctx, suffix)
+  const lookupResult = await itemLookup(cleanArgs, ctx, suffix)
+  if (lookupResult !== null) return lookupResult
+
+  // AI fallback for conversational queries that missed game data
+  const cd = getAiChatCooldown(ctx.user)
+  if (cd > 0) return `on cd (${cd}s) — try !a`
+
+  let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
+  try { aiResult = await aiRespond(cleanArgs, { ...ctx, direct: true }) } catch {}
+  if (aiResult?.text) {
+    if (ctx.user) {
+      aiChatCooldowns.set(ctx.user.toLowerCase(), Date.now())
+      if (aiChatCooldowns.size > 500) {
+        const now = Date.now()
+        for (const [k, t] of aiChatCooldowns) {
+          if (now - t > AI_CHAT_CD) aiChatCooldowns.delete(k)
+        }
+      }
+    }
+    try { db.logCommand(ctx, 'ai', cleanArgs, 'fallback') } catch {}
+    return dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
+  }
+
+  return null
 }
 
 // --- !a cooldown: 30s per-user ---

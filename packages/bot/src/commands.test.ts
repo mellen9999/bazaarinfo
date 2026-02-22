@@ -1377,13 +1377,14 @@ describe('usage string', () => {
 })
 
 // ---------------------------------------------------------------------------
-// !b no-match (no AI fallback — AI moved to !a)
+// !b AI fallback — conversational queries (>2 words) fall through to AI
 // ---------------------------------------------------------------------------
-describe('!b no-match (no AI)', () => {
-  it('conversational query returns no-match (not AI)', async () => {
+describe('!b AI fallback', () => {
+  it('conversational query falls through to AI', async () => {
     const result = await handleCommand('!b is vanessa good', { user: 'chatter', channel: 'stream' })
-    expect(result).toContain('no match for')
-    expect(mockAiRespond).not.toHaveBeenCalled()
+    // AI mock returns null by default → null result
+    expect(result).toBeNull()
+    expect(mockAiRespond).toHaveBeenCalled()
   })
 
   it('short query + no match = no-match fallback', async () => {
@@ -1585,15 +1586,15 @@ describe('command proxy: embedded in chat', () => {
   })
 
   it('embedded blocked command is silently dropped', async () => {
-    // "can you !ban this guy" — blocked cmd, falls through to item lookup / AI
+    // "can you !ban this guy" — blocked cmd, falls through to item lookup / AI fallback
     const result = await handleCommand('!b can you !ban this guy', { user: 'u', channel: 'c' })
-    // should NOT execute !ban — should fall through to no-match or AI
-    expect(result).toContain('no match for')
+    // should NOT execute !ban — should fall through to AI fallback (null when mock returns null)
+    expect(result).toBeNull()
   })
 
-  it('embedded blocked command falls through to no-match', async () => {
+  it('embedded blocked command falls through to AI fallback', async () => {
     const result = await handleCommand('!b can you !ban this guy', { user: 'u', channel: 'c' })
-    expect(result).toContain('no match for')
+    expect(result).toBeNull()
   })
 
   it('preserves original case of command name', async () => {
