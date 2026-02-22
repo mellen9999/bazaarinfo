@@ -391,8 +391,14 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   // AI failed — check if on cooldown, otherwise show suggestions
-  const cd = getAiCooldown(ctx.user, ctx.channel) || getGlobalAiCooldown(ctx.channel)
-  if (cd > 0) return withSuffix(`AI on cd, ${cd}s left`, suffix)
+  const userCd = getAiCooldown(ctx.user, ctx.channel)
+  const globalCd = getGlobalAiCooldown(ctx.channel)
+  if (userCd > 0 || globalCd > 0) {
+    const parts: string[] = []
+    if (userCd > 0) parts.push(`user ${userCd}s`)
+    if (globalCd > 0) parts.push(`non-bazaar ${globalCd}s`)
+    return withSuffix(`AI on cd (${parts.join(', ')})`, suffix)
+  }
 
   if (queryWords.length <= 2) {
     const suggestions = store.suggest(query, 3)
