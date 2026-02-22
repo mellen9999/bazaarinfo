@@ -207,11 +207,30 @@ export function recordUsage(user?: string, isGame = false, channel?: string) {
 
 export const GREETINGS = /^(hi|hey|yo|sup|hii+|helo+|hello+|howdy|hola|oi)$/i
 
+// pure reactions/acknowledgments — not questions, never worth an AI call
+const REACTIONS = /^(lol|lmao|lmfao|rofl|haha+|heh|kek|nice|true|fair|based|rip|oof|mood|same|real|big|facts?|ww+|ll+|nah|yep|yea|yeah|ye|nope|ok|okay|k|cool|bet|cap|no cap|word|fr|frfr|deadass|sheesh|damn|bruh|bro|dang|wow|wild|crazy|insane|nuts|goated|peak|valid|mid|ratio|cope|slay|idk|idc|smh|tbh|ngl|imo|fwiw|gg|ez|pog|poggers|sadge|kekw|monkas?|pepe\w*|xd|xdd)!*$/i
+
+// gratitude — worth a tiny response, not full banter
+const GRATITUDE = /^(thanks?|thx|ty|tysm|tyvm|appreciate it|cheers|bless|luv u|love u|ily|goat(ed)?|mvp|legend|king|queen|w bot)!*$/i
+
+// goodbyes — worth a tiny response
+const GOODBYE = /^(bye|gn|cya|later|peace|deuces|adios|night|goodnight|nini|gnight|ima head out|im out|heading out|gtg|g2g|ttyl|bbl)!*$/i
+
+// status checks — "are you alive", "you there", "working?"
+const STATUS_CHECK = /^(are you (alive|there|working|on|up|awake|ok|dead)|you (there|up|alive|on|awake|dead|working)|still (alive|there|working|on|up)|alive\??|working\??|you good\??|u good\??|u there\??|u alive\??|bot\??)$/i
+
 function isLowValue(query: string): boolean {
   if (query.length <= 2 && !GREETINGS.test(query)) return true
   if (/^[!./]/.test(query)) return true
   if (/^[^a-zA-Z0-9]*$/.test(query)) return true
+  if (REACTIONS.test(query.trim())) return true
   return false
+}
+
+/** detect queries that deserve short (<60 char) responses, not full banter */
+export function isShortResponse(query: string): boolean {
+  const q = query.trim()
+  return GREETINGS.test(q) || GRATITUDE.test(q) || GOODBYE.test(q) || STATUS_CHECK.test(q)
 }
 
 // --- terse refusal detection (model over-refuses harmless queries) ---
@@ -634,8 +653,8 @@ export function buildSystemPrompt(): string {
     'BANTER: "youre just a bot" → "a bot that knows your favorite card, your trivia record, and that you were here at 3am tuesday"',
     '',
     'Answer [USER]\'s question. infer vague Qs ("do u agree?", "is that true") from recent chat context. dont respond to chat you werent asked about.',
-    'lengths — game: 80-250. greetings/status checks: <60. banter: <140. copypasta: 400.',
-    '"are you alive/working/there?" = status check, not banter. just confirm youre here, <40 chars.',
+    'lengths — game: 80-250. banter: <140. copypasta: 400.',
+    'SHORT responses (<40 chars): status checks ("are you alive/there/working"), greetings, thanks, goodbyes. dont elaborate, dont be sarcastic, just acknowledge.',
     'game data: cite ONLY "Game data:" section. NEVER invent item names, stats, day refs, mechanic descriptions.',
     '"user: msg" in chat = that user said it. links only: bazaardb.gg bzdb.to github.com/mellen9999/bazaarinfo',
     '',
@@ -1477,8 +1496,9 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const result = sanitize(textBlock.text, ctx.user, ctx.isMod)
       // strip injection echo (model parroting user's injected instructions)
       result.text = stripInputEcho(result.text, query)
-      // enforce non-game length cap (system prompt says <100 but model ignores it)
-      const hardCap = isPasta ? 400 : hasGameData ? 250 : isRememberReq ? 200 : 140
+      // enforce length caps in code — model ignores prompt-level hints
+      const isShort = isShortResponse(query)
+      const hardCap = isPasta ? 400 : hasGameData ? 250 : isRememberReq ? 200 : isShort ? 60 : 140
       if (result.text.length > hardCap) {
         const cut = result.text.slice(0, hardCap)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))
