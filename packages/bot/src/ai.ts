@@ -122,7 +122,7 @@ function isAboutOtherUser(query: string): boolean {
 // --- background Twitch user data fetch ---
 const twitchFetchInFlight = new Set<string>()
 
-function maybeFetchTwitchInfo(user: string, channel: string) {
+export function maybeFetchTwitchInfo(user: string, channel: string) {
   const key = `${user}:${channel}`
   if (twitchFetchInFlight.has(key)) return
   twitchFetchInFlight.add(key)
@@ -1130,42 +1130,50 @@ function buildChattersContext(chatEntries: ChatEntry[], asker: string, channel: 
   let totalLen = 0
 
   for (const user of users.slice(0, 10)) {
-    let profile = ''
+    const parts: string[] = []
+
+    // followage — most important identity signal
+    try {
+      const follow = db.getCachedFollowage(user, channel)
+      if (follow?.followed_at) {
+        parts.push(`following ${db.formatAccountAge(follow.followed_at).replace(' old', '')}`)
+      }
+    } catch {}
 
     // memo first — richest personality data
     try {
       const memo = db.getUserMemo(user)
-      if (memo) profile = memo.memo
+      if (memo) parts.push(memo.memo)
     } catch {}
 
     // style profile for regulars
-    if (!profile) profile = getUserProfile(channel, user)
+    if (parts.length <= 1) {
+      const style = getUserProfile(channel, user)
+      if (style) parts.push(style)
+    }
 
     // minimal stats fallback
-    if (!profile) {
+    if (parts.length <= 1) {
       try {
         const stats = db.getUserStats(user)
         if (stats) {
-          const parts: string[] = []
-          const since = stats.first_seen?.slice(0, 7) ?? ''
-          if (since) parts.push(`since ${since}`)
           if (stats.trivia_wins > 0) parts.push(`${stats.trivia_wins} trivia wins`)
           if (stats.favorite_item) parts.push(`fav: ${stats.favorite_item}`)
-          profile = parts.join(', ')
         }
       } catch {}
     }
 
-    // facts fallback for users with no memo/style/stats
-    if (!profile) {
+    // facts fallback
+    if (parts.length === 0) {
       try {
         const facts = db.getUserFacts(user, 2)
-        if (facts.length > 0) profile = facts.join(', ')
+        if (facts.length > 0) parts.push(facts.join(', '))
       } catch {}
     }
 
-    if (!profile) continue
+    if (parts.length === 0) continue
 
+    const profile = parts.join(', ')
     const entry = `${user}(${profile})`
     if (totalLen + entry.length > 400) break
     profiles.push(entry)

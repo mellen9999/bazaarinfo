@@ -9,7 +9,7 @@ import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel } from './trivia'
-import { invalidatePromptCache, initSummarizer, setChannelLive, setChannelOffline, setChannelInfos } from './ai'
+import { invalidatePromptCache, initSummarizer, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo } from './ai'
 import { refreshRedditDigest } from './reddit'
 import { refreshActivity } from './activity'
 import * as chatbuf from './chatbuf'
@@ -221,6 +221,10 @@ const client = new TwitchClient(
 
       try { db.logChat(channel, username, text) } catch {}
       chatbuf.record(channel, username, text)
+
+      // pre-fetch Twitch user info + followage for every chatter (fire-and-forget)
+      // so data is ready BEFORE they use !a, not after
+      maybeFetchTwitchInfo(username, channel)
 
       // check trivia answers before command routing
       if (isGameActive(channel)) {
