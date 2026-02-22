@@ -52,6 +52,7 @@ const USER_CD_MAX = 500
 interface HotExchange { query: string; response: string; ts: number }
 const hotExchanges = new Map<string, HotExchange[]>()
 const HOT_EXCHANGE_MAX = 3
+const USER_HISTORY_MAX = 5_000
 const HOT_EXCHANGE_TTL = 3_600_000 // 1h — covers any stream session
 
 export function cacheExchange(user: string, query: string, response: string, channel?: string) {
