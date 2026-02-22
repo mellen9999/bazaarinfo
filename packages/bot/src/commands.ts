@@ -488,8 +488,9 @@ async function aiChat(args: string, ctx: CommandContext): Promise<string | null>
 
   if (ctx.channel && isDuplicate(ctx.channel, `ai:${cleanArgs}`)) return null
 
+  const isOwner = ctx.user?.toLowerCase() === 'mellen'
   const cd = getAiChatCooldown(ctx.user)
-  if (cd > 0) return `!a on cd (${cd}s)`
+  if (cd > 0 && !isOwner) return `!a on cd (${cd}s)`
 
   let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
   try { aiResult = await aiRespond(cleanArgs, { ...ctx, direct: true }) } catch {}
