@@ -159,7 +159,7 @@ function isDuplicate(channel: string, query: string): boolean {
   return false
 }
 
-const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/enchants/trivia/score/stats | bazaardb.gg'
+const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/enchants/trivia/score/stats | !a <question> | bazaardb.gg'
 const JOIN_USAGE = () => lobbyChannel ? ` | add bot: type !join in ${lobbyChannel}'s chat` : ''
 
 function logMiss(query: string, ctx: CommandContext) {
@@ -327,26 +327,12 @@ function handleStringTrick(raw: string): string | null {
   return null
 }
 
-// questions with 3+ words starting with these go straight to AI for analysis
-const QUESTION_PREFIX = /^(why|how|should|would|could|does|do|did|is|are|was|were|can|will|who|where|when|what)\b/i
-
 async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string | null> {
   const words = cleanArgs.split(/\s+/)
   const { item: query, tier, enchant } = parseArgs(words)
 
   if (!query) return BASE_USAGE + JOIN_USAGE()
 
-
-  // conversational game questions → AI for analysis (it has tools to look up cards)
-  if (!tier && !enchant && words.length >= 3 && (QUESTION_PREFIX.test(query) || query.includes('?'))) {
-    let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
-    try { aiResult = await aiRespond(cleanArgs, ctx) } catch {}
-    if (aiResult?.text) {
-      logHit('ai', cleanArgs, 'ai', ctx)
-      return dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
-    }
-    // AI failed — fall through to normal lookup
-  }
 
   if (enchant) {
     const card = store.exact(query) ?? store.search(query, 1)[0]
@@ -382,24 +368,6 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 
   logMiss(query, ctx)
 
-  // always try AI first — every miss is an opportunity to be interesting
-  let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
-  try { aiResult = await aiRespond(cleanArgs, ctx) } catch {}
-  if (aiResult?.text) {
-    logHit('ai', cleanArgs, 'ai', ctx)
-    return dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
-  }
-
-  // AI failed — check if on cooldown, otherwise show suggestions
-  const userCd = getAiCooldown(ctx.user, ctx.channel)
-  const globalCd = getGlobalAiCooldown(ctx.channel)
-  if (userCd > 0 || globalCd > 0) {
-    const parts: string[] = []
-    if (userCd > 0) parts.push(`user ${userCd}s`)
-    if (globalCd > 0) parts.push(`non-bazaar ${globalCd}s`)
-    return withSuffix(`AI on cd (${parts.join(', ')})`, suffix)
-  }
-
   if (queryWords.length <= 2) {
     const suggestions = store.suggest(query, 3)
     if (suggestions.length > 0) {
@@ -421,7 +389,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
 
   if (/^(how (do you|does this( bot)?) work|what are you|what is this)\b/i.test(cleanArgs)) {
-    return 'twitch chatbot for The Bazaar by mellen. looks up items/heroes/monsters from bazaardb.gg, runs trivia, and answers questions with AI. try: !b <item> | !b hero <name> | !b trivia'
+    return 'twitch chatbot for The Bazaar by mellen. looks up items/heroes/monsters from bazaardb.gg, runs trivia, and answers questions with AI. try: !b <item> | !b hero <name> | !a <question>'
   }
 
   // proxy ! and / commands — before dedup so cooldown messages always show
@@ -475,8 +443,35 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   return itemLookup(cleanArgs, ctx, suffix)
 }
 
+async function aiChat(args: string, ctx: CommandContext): Promise<string | null> {
+  const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
+
+  if (!cleanArgs) return '!a <question> — ask me anything (game context included for bazaar Qs)'
+
+  if (ctx.channel && isDuplicate(ctx.channel, `ai:${cleanArgs}`)) return null
+
+  let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
+  try { aiResult = await aiRespond(cleanArgs, ctx) } catch {}
+  if (aiResult?.text) {
+    try { db.logCommand(ctx, 'ai', cleanArgs, 'direct') } catch {}
+    return dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
+  }
+
+  const userCd = getAiCooldown(ctx.user, ctx.channel)
+  const globalCd = getGlobalAiCooldown(ctx.channel)
+  if (userCd > 0 || globalCd > 0) {
+    const parts: string[] = []
+    if (userCd > 0) parts.push(`user ${userCd}s`)
+    if (globalCd > 0) parts.push(`non-bazaar ${globalCd}s`)
+    return `AI on cd (${parts.join(', ')})`
+  }
+
+  return null
+}
+
 const commands: Record<string, CommandHandler> = {
   b: bazaarinfo,
+  a: aiChat,
 }
 
 async function handleMention(text: string, ctx: CommandContext): Promise<string | null> {

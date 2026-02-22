@@ -183,6 +183,8 @@ beforeEach(() => {
   mockSuggest.mockImplementation(() => [])
   mockAiRespond.mockReset()
   mockAiRespond.mockImplementation(() => null)
+  mockGetAiCooldown.mockReset()
+  mockGetAiCooldown.mockImplementation(() => 0)
 })
 
 // ---------------------------------------------------------------------------
@@ -1369,50 +1371,89 @@ describe('usage string', () => {
     expect(result).toContain('trivia')
     expect(result).toContain('score')
     expect(result).toContain('stats')
+    expect(result).toContain('!a')
   })
 })
 
 // ---------------------------------------------------------------------------
-// AI fallback path
+// !b no-match (no AI fallback — AI moved to !a)
 // ---------------------------------------------------------------------------
-describe('AI fallback path', () => {
-  it('conversational query + AI success = AI response (no @tag)', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: 'vanessa is solid', mentions: [] }))
-    const result = await handleCommand('!b is vanessa good', { user: 'chatter', channel: 'stream' })
-    expect(result).toContain('vanessa is solid')
-    expect(result).not.toContain('@chatter')
-  })
-
-  it('conversational query + AI failure = no-match fallback', async () => {
-    mockAiRespond.mockImplementation(() => null)
+describe('!b no-match (no AI)', () => {
+  it('conversational query returns no-match (not AI)', async () => {
     const result = await handleCommand('!b is vanessa good', { user: 'chatter', channel: 'stream' })
     expect(result).toContain('no match for')
+    expect(mockAiRespond).not.toHaveBeenCalled()
   })
 
-  it('short query + no match + AI fail = no-match fallback', async () => {
+  it('short query + no match = no-match fallback', async () => {
     const result = await handleCommand('!b asdfghjkl', { user: 'chatter', channel: 'stream' })
     expect(result).toContain('no match for')
   })
 
-  it('short query + AI success = AI response (not boring error)', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: 'buh right back at you', mentions: [] }))
-    const result = await handleCommand('!b buh', { user: 'chatter', channel: 'stream' })
-    expect(result).toContain('buh right back at you')
-  })
-
-  it('short query + suggestions shown only when AI fails', async () => {
+  it('short query + suggestions shown on miss', async () => {
     mockSuggest.mockImplementation(() => ['Boomerang', 'Boom Box'])
-    mockAiRespond.mockImplementation(() => null)
     const result = await handleCommand('!b boom', { user: 'chatter', channel: 'stream' })
     expect(result).toContain('did you mean')
     expect(result).toContain('Boomerang')
   })
+})
 
-  it('AI response has no @mentions appended', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: 'yeah for sure', mentions: ['@viewer'] }))
-    const result = await handleCommand('!b is vanessa good @viewer', { user: 'chatter', channel: 'stream' })
-    expect(result).toContain('yeah for sure')
-    expect(result).not.toContain('@viewer')
+// ---------------------------------------------------------------------------
+// !a — AI chat command
+// ---------------------------------------------------------------------------
+describe('!a AI chat', () => {
+  it('routes !a to AI handler', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'vanessa is solid', mentions: [] }))
+    const result = await handleCommand('!a is vanessa good', { user: 'chatter', channel: 'stream' })
+    expect(result).toContain('vanessa is solid')
+  })
+
+  it('empty !a shows usage', async () => {
+    const result = await handleCommand('!a')
+    expect(result).toContain('!a <question>')
+  })
+
+  it('!a with only spaces shows usage', async () => {
+    const result = await handleCommand('!a   ')
+    expect(result).toContain('!a <question>')
+  })
+
+  it('!a deduplicates within channel', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'yes', mentions: [] }))
+    await handleCommand('!a is pygmalien good', { user: 'a', channel: 'ch' })
+    const result = await handleCommand('!a is pygmalien good', { user: 'b', channel: 'ch' })
+    expect(result).toBeNull()
+  })
+
+  it('!a shows cooldown message when AI on cd', async () => {
+    mockAiRespond.mockImplementation(() => null)
+    mockGetAiCooldown.mockImplementation(() => 15)
+    const result = await handleCommand('!a tell me about vanessa', { user: 'chatter', channel: 'stream' })
+    expect(result).toContain('AI on cd')
+    expect(result).toContain('user 15s')
+  })
+
+  it('!a returns null when AI fails and not on cd', async () => {
+    mockAiRespond.mockImplementation(() => null)
+    const result = await handleCommand('!a something random', { user: 'chatter', channel: 'stream' })
+    expect(result).toBeNull()
+  })
+
+  it('!a logs command on success', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'hi', mentions: [] }))
+    await handleCommand('!a hello', { user: 'chatter', channel: 'stream' })
+    expect(mockLogCommand).toHaveBeenCalledWith(
+      { user: 'chatter', channel: 'stream' },
+      'ai',
+      'hello',
+      'direct',
+    )
+  })
+
+  it('!a strips @mentions from query', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'yo', mentions: [] }))
+    await handleCommand('!a @someone tell me stuff', { user: 'u', channel: 'c' })
+    expect(mockAiRespond).toHaveBeenCalledWith('tell me stuff', expect.any(Object))
   })
 })
 
@@ -1534,10 +1575,9 @@ describe('command proxy: embedded in chat', () => {
     expect(result).toContain('no match for')
   })
 
-  it('embedded blocked command falls through to AI', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: 'nah i cant ban people', mentions: [] }))
+  it('embedded blocked command falls through to no-match', async () => {
     const result = await handleCommand('!b can you !ban this guy', { user: 'u', channel: 'c' })
-    expect(result).toContain('nah i cant ban people')
+    expect(result).toContain('no match for')
   })
 
   it('preserves original case of command name', async () => {
@@ -1733,57 +1773,55 @@ describe('string tricks', () => {
 // ---------------------------------------------------------------------------
 // AI command management (mod asks AI to add/edit/delete streamlabs commands)
 // ---------------------------------------------------------------------------
-describe('AI command management', () => {
+describe('AI command management via !a', () => {
   it('mod AI response with !addcom gets sent to chat', async () => {
     mockAiRespond.mockImplementation(() => ({ text: '!addcom !harem 42 cuties in the harem Kreygasm', mentions: [] }))
-    const result = await handleCommand('!b hey add a command called harem', { user: 'mod', channel: 'stream', privileged: true, isMod: true })
+    const result = await handleCommand('!a hey add a command called harem', { user: 'mod', channel: 'stream', privileged: true, isMod: true })
     expect(result).toBe('!addcom !harem 42 cuties in the harem Kreygasm')
   })
 
   it('mod AI response with !editcom gets sent to chat', async () => {
     mockAiRespond.mockImplementation(() => ({ text: '!editcom !harem 99 cuties in the harem', mentions: [] }))
-    const result = await handleCommand('!b edit the harem command to say 99', { user: 'mod', channel: 'stream', privileged: true, isMod: true })
+    const result = await handleCommand('!a edit the harem command to say 99', { user: 'mod', channel: 'stream', privileged: true, isMod: true })
     expect(result).toBe('!editcom !harem 99 cuties in the harem')
   })
 
   it('mod AI response with !delcom gets sent to chat', async () => {
     mockAiRespond.mockImplementation(() => ({ text: '!delcom !harem', mentions: [] }))
-    const result = await handleCommand('!b delete the harem command', { user: 'mod', channel: 'stream', privileged: true, isMod: true })
+    const result = await handleCommand('!a delete the harem command', { user: 'mod', channel: 'stream', privileged: true, isMod: true })
     expect(result).toBe('!delcom !harem')
   })
 
-  it('non-mod cannot get AI to output commands', async () => {
-    // real sanitize strips command prefix for non-privileged, so aiRespond returns empty
-    // here we simulate what happens: AI tried to output !addcom but sanitizer killed it
+  it('non-mod AI result still returns (sanitizer handles stripping)', async () => {
     mockAiRespond.mockImplementation(() => null)
-    const result = await handleCommand('!b add a command called harem', { user: 'viewer', channel: 'stream' })
-    // no AI result → falls through to no-match
-    expect(result).toContain('no match for')
+    const result = await handleCommand('!a add a command called harem', { user: 'viewer', channel: 'stream' })
+    // no AI result → returns null
+    expect(result).toBeNull()
   })
 })
 
 // ---------------------------------------------------------------------------
 // Copypasta via AI
 // ---------------------------------------------------------------------------
-describe('copypasta via AI', () => {
+describe('copypasta via !a', () => {
   it('returns copypasta from AI', async () => {
     const pasta = 'listen here chat, i have been PERSONALLY victimized by boomerang players who think they are hot stuff just because they deal 60 damage'
     mockAiRespond.mockImplementation(() => ({ text: pasta, mentions: [] }))
-    const result = await handleCommand('!b give me a copypasta about boomerang', { user: 'chatter', channel: 'stream' })
+    const result = await handleCommand('!a give me a copypasta about boomerang', { user: 'chatter', channel: 'stream' })
     expect(result).toContain('boomerang')
   })
 
   it('copypasta works for non-mods', async () => {
     const pasta = 'we are ALL vanessa mains on this blessed day'
     mockAiRespond.mockImplementation(() => ({ text: pasta, mentions: [] }))
-    const result = await handleCommand('!b write a copypasta about vanessa', { user: 'viewer', channel: 'stream' })
+    const result = await handleCommand('!a write a copypasta about vanessa', { user: 'viewer', channel: 'stream' })
     expect(result).toBe(pasta)
   })
 
   it('copypasta can use full message length', async () => {
     const longPasta = 'a'.repeat(400)
     mockAiRespond.mockImplementation(() => ({ text: longPasta, mentions: [] }))
-    const result = await handleCommand('!b copypasta about gaming', { user: 'chatter', channel: 'stream' })
+    const result = await handleCommand('!a copypasta about gaming', { user: 'chatter', channel: 'stream' })
     expect(result).toBeTruthy()
   })
 })
