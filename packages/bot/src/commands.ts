@@ -4,7 +4,7 @@ import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
-import { aiRespond, dedupeEmote, fixEmoteCase, getAiCooldown, getGlobalAiCooldown } from './ai'
+import { aiRespond, dedupeEmote, fixEmoteCase, getAiCooldown } from './ai'
 
 const MAX_LEN = 480
 
@@ -443,6 +443,18 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   return itemLookup(cleanArgs, ctx, suffix)
 }
 
+// --- !a cooldown: 30s per-user ---
+const AI_CHAT_CD = 30_000
+const aiChatCooldowns = new Map<string, number>()
+
+function getAiChatCooldown(user?: string): number {
+  if (!user) return 0
+  const last = aiChatCooldowns.get(user.toLowerCase())
+  if (!last) return 0
+  const elapsed = Date.now() - last
+  return elapsed >= AI_CHAT_CD ? 0 : Math.ceil((AI_CHAT_CD - elapsed) / 1000)
+}
+
 async function aiChat(args: string, ctx: CommandContext): Promise<string | null> {
   const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
 
@@ -450,20 +462,23 @@ async function aiChat(args: string, ctx: CommandContext): Promise<string | null>
 
   if (ctx.channel && isDuplicate(ctx.channel, `ai:${cleanArgs}`)) return null
 
+  const cd = getAiChatCooldown(ctx.user)
+  if (cd > 0) return `!a on cd (${cd}s)`
+
   let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
-  try { aiResult = await aiRespond(cleanArgs, ctx) } catch {}
+  try { aiResult = await aiRespond(cleanArgs, { ...ctx, direct: true }) } catch {}
   if (aiResult?.text) {
+    if (ctx.user) {
+      aiChatCooldowns.set(ctx.user.toLowerCase(), Date.now())
+      if (aiChatCooldowns.size > 500) {
+        const now = Date.now()
+        for (const [k, t] of aiChatCooldowns) {
+          if (now - t > AI_CHAT_CD) aiChatCooldowns.delete(k)
+        }
+      }
+    }
     try { db.logCommand(ctx, 'ai', cleanArgs, 'direct') } catch {}
     return dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
-  }
-
-  const userCd = getAiCooldown(ctx.user, ctx.channel)
-  const globalCd = getGlobalAiCooldown(ctx.channel)
-  if (userCd > 0 || globalCd > 0) {
-    const parts: string[] = []
-    if (userCd > 0) parts.push(`user ${userCd}s`)
-    if (globalCd > 0) parts.push(`non-bazaar ${globalCd}s`)
-    return `AI on cd (${parts.join(', ')})`
   }
 
   return null
@@ -511,6 +526,10 @@ export function resetDedup() {
 
 export function resetProxyCooldowns() {
   proxyCooldowns.clear()
+}
+
+export function resetAiChatCooldowns() {
+  aiChatCooldowns.clear()
 }
 
 export { PROXY_COOLDOWN }

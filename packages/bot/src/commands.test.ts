@@ -105,7 +105,7 @@ mock.module('./emotes', () => ({
   removeChannelEmotes: mock(() => {}),
 }))
 
-const { handleCommand, parseArgs, resetDedup, resetProxyCooldowns, PROXY_COOLDOWN } = await import('./commands')
+const { handleCommand, parseArgs, resetDedup, resetProxyCooldowns, resetAiChatCooldowns, PROXY_COOLDOWN } = await import('./commands')
 
 // --- test fixtures ---
 function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
@@ -153,6 +153,7 @@ const shield = makeCard({
 beforeEach(() => {
   resetDedup()
   resetProxyCooldowns()
+  resetAiChatCooldowns()
   mockLogCommand.mockReset()
   mockExact.mockReset()
   mockSearch.mockReset()
@@ -1425,12 +1426,13 @@ describe('!a AI chat', () => {
     expect(result).toBeNull()
   })
 
-  it('!a shows cooldown message when AI on cd', async () => {
-    mockAiRespond.mockImplementation(() => null)
-    mockGetAiCooldown.mockImplementation(() => 15)
-    const result = await handleCommand('!a tell me about vanessa', { user: 'chatter', channel: 'stream' })
-    expect(result).toContain('AI on cd')
-    expect(result).toContain('user 15s')
+  it('!a shows cooldown message on second use within 30s', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'response', mentions: [] }))
+    await handleCommand('!a tell me about vanessa', { user: 'cduser', channel: 'stream' })
+    resetDedup()
+    const result = await handleCommand('!a another question', { user: 'cduser', channel: 'stream' })
+    expect(result).toContain('!a on cd')
+    expect(result).toMatch(/\d+s/)
   })
 
   it('!a returns null when AI fails and not on cd', async () => {
@@ -1454,6 +1456,20 @@ describe('!a AI chat', () => {
     mockAiRespond.mockImplementation(() => ({ text: 'yo', mentions: [] }))
     await handleCommand('!a @someone tell me stuff', { user: 'u', channel: 'c' })
     expect(mockAiRespond).toHaveBeenCalledWith('tell me stuff', expect.any(Object))
+  })
+
+  it('!a passes direct flag to aiRespond', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'hi', mentions: [] }))
+    await handleCommand('!a hello world', { user: 'u', channel: 'c' })
+    expect(mockAiRespond).toHaveBeenCalledWith('hello world', expect.objectContaining({ direct: true }))
+  })
+
+  it('different users can use !a back-to-back (no global cd)', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'reply', mentions: [] }))
+    await handleCommand('!a q1', { user: 'user1', channel: 'ch' })
+    resetDedup()
+    const result = await handleCommand('!a q2', { user: 'user2', channel: 'ch' })
+    expect(result).toBe('reply')
   })
 })
 

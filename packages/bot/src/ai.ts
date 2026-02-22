@@ -968,6 +968,7 @@ export interface AiContext {
   privileged?: boolean
   isMod?: boolean
   mention?: boolean
+  direct?: boolean // !a command — skip internal cooldowns/queue
 }
 
 export interface AiResult { text: string; mentions: string[] }
@@ -1013,14 +1014,18 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 
   const isVip = AI_VIP.has(ctx.user.toLowerCase())
   const isGame = GAME_TERMS.test(query)
-  const cd = getAiCooldown(ctx.user, ctx.channel)
-  if (cd > 0) return null
-  // non-game queries also gated by global cooldown
-  if (!isGame && !isVip && getGlobalAiCooldown(ctx.channel) > 0) return null
 
-  if (aiQueueDepth >= AI_MAX_QUEUE && !isVip) {
-    log('ai: queue full, dropping')
-    return null
+  // !a (direct) manages its own 30s user cd — skip internal cooldowns/queue
+  if (!ctx.direct) {
+    const cd = getAiCooldown(ctx.user, ctx.channel)
+    if (cd > 0) return null
+    // non-game queries also gated by global cooldown
+    if (!isGame && !isVip && getGlobalAiCooldown(ctx.channel) > 0) return null
+
+    if (aiQueueDepth >= AI_MAX_QUEUE && !isVip) {
+      log('ai: queue full, dropping')
+      return null
+    }
   }
   aiQueueDepth++
 
@@ -1031,7 +1036,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 
   try {
     const result = await doAiCall(query, ctx as AiContext & { user: string; channel: string })
-    if (result?.text) recordUsage(ctx.user, isGame, ctx.channel)
+    if (result?.text && !ctx.direct) recordUsage(ctx.user, isGame, ctx.channel)
     return result
   } finally {
     aiQueueDepth--
