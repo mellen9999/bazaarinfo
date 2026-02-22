@@ -6,7 +6,7 @@ import * as db from './db'
 import { getRecent, getSummary, getActiveThreads, setSummarizer, setSummaryPersister } from './chatbuf'
 import type { ChatEntry } from './chatbuf'
 import { formatEmotesForAI, getEmotesForChannel } from './emotes'
-import { getChannelStyle, getChannelTopEmotes, getUserProfile } from './style'
+import { getChannelStyle, getChannelTopEmotes, getUserProfile, getChannelVoiceContext, refreshVoice } from './style'
 import { log } from './log'
 
 import { getUserInfo, getFollowage } from './twitch'
@@ -644,6 +644,7 @@ export function buildSystemPrompt(): string {
     `You are ${TWITCH_USERNAME} — Twitch chatbot for The Bazaar (Reynad's card game). ${today}. Built by mellen, data from bazaardb.gg.`,
     '',
     'lowercase. sharp. funny. you are the funniest person in chat and you know it. commit fully to opinions, never hedge. short > long. specific > vague.',
+    'absorb chat voice — use their slang, their abbreviations, their sentence patterns. sound like one of them, not an outsider. if Voice/Chat voice sections are present, mimic that energy.',
     'vary structure/opener/tone every response. read the subtext — respond to what they MEAN. self-aware joke = build on it, dont fight it.',
     '',
     'GAME Qs: unleashed. roast bad builds, hype good ones, food critic energy on item comparisons. cite actual numbers/tiers/abilities from Game data only. wrong data is worse than no data.',
@@ -1198,6 +1199,10 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const styleLine = getChannelStyle(ctx.channel)
   const contextLine = styleLine ? `\nChannel: ${styleLine}` : ''
 
+  // channel voice — how chat actually talks (compact for game Qs, full for banter)
+  const voiceLine = getChannelVoiceContext(ctx.channel, entities.isGame)
+  const voiceBlock = voiceLine ? `\n${voiceLine}` : ''
+
   const timeline = buildTimeline(ctx.channel)
   const timelineLine = timeline !== 'No stream history yet' ? `\nStream timeline:\n${timeline}` : ''
 
@@ -1280,6 +1285,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     chattersLine ? `\n${chattersLine}` : '',
     threadLine,
     contextLine,
+    voiceBlock,
     hotLine,
     recallLine,
     recentLine,
@@ -1439,6 +1445,9 @@ async function maybeExtractFacts(user: string, query: string, response: string, 
 }
 
 async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
+  // fire-and-forget voice refresh (background, non-blocking)
+  refreshVoice(ctx.channel).catch(() => {})
+
   const { text: userMessage, hasGameData, isPasta, isRememberReq } = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()
   // copypasta gets biggest budget; game Qs get full; banter/chat capped

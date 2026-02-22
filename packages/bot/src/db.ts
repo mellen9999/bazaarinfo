@@ -56,6 +56,9 @@ let stmts: {
   setCachedTwitchUser: Statement
   getCachedFollowage: Statement
   setCachedFollowage: Statement
+  getChannelVoice: Statement
+  upsertChannelVoice: Statement
+  voiceMessages: Statement
 }
 
 function prepareStatements() {
@@ -197,6 +200,18 @@ function prepareStatements() {
       `INSERT INTO channel_follows (username, channel, followed_at, cached_at)
        VALUES (?, ?, ?, datetime('now'))
        ON CONFLICT(username, channel) DO UPDATE SET followed_at = excluded.followed_at, cached_at = datetime('now')`,
+    ),
+    getChannelVoice: db.prepare('SELECT voice, updated_at FROM channel_voices WHERE channel = ?'),
+    upsertChannelVoice: db.prepare(
+      `INSERT INTO channel_voices (channel, voice, updated_at)
+       VALUES (?, ?, datetime('now'))
+       ON CONFLICT(channel) DO UPDATE SET voice = excluded.voice, updated_at = datetime('now')`,
+    ),
+    voiceMessages: db.prepare(
+      `SELECT username, message FROM chat_messages
+       WHERE channel = ? AND LENGTH(message) BETWEEN 15 AND 200
+       AND message NOT LIKE '!%' AND message NOT LIKE '/%'
+       ORDER BY created_at DESC LIMIT ?`,
     ),
   }
 }
@@ -475,6 +490,14 @@ const migrations: (() => void)[] = [
   () => {
     db.run(`DROP INDEX IF EXISTS idx_chat_username`)
     db.run(`CREATE INDEX idx_chat_username ON chat_messages(LOWER(username))`)
+  },
+  // migration 11: channel voice profiles (chat style mimicry)
+  () => {
+    db.run(`CREATE TABLE channel_voices (
+      channel TEXT PRIMARY KEY COLLATE NOCASE,
+      voice TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
   },
 ]
 
@@ -893,6 +916,22 @@ export function getCachedFollowage(username: string, channel: string): CachedFol
 
 export function setCachedFollowage(username: string, channel: string, followedAt: string | null) {
   stmts.setCachedFollowage.run(username.toLowerCase(), channel.toLowerCase(), followedAt)
+}
+
+// --- channel voice helpers ---
+
+export interface ChannelVoiceRow { voice: string; updated_at: string }
+
+export function getChannelVoiceProfile(channel: string): ChannelVoiceRow | null {
+  return stmts.getChannelVoice.get(channel.toLowerCase()) as ChannelVoiceRow | null
+}
+
+export function upsertChannelVoice(channel: string, voice: string) {
+  stmts.upsertChannelVoice.run(channel.toLowerCase(), voice)
+}
+
+export function getVoiceMessages(channel: string, limit = 500): { username: string; message: string }[] {
+  return stmts.voiceMessages.all(channel, limit) as { username: string; message: string }[]
 }
 
 export function pruneOldSummaries(days = 30) {

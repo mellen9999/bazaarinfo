@@ -137,5 +137,122 @@ export function getUserProfile(channel: string, username: string): string {
 
 export function preloadStyles(channels: string[]) {
   for (const ch of channels) ensureCache(ch)
+  for (const ch of channels) refreshVoice(ch).catch(() => {})
   log(`preloaded style cache for ${channels.length} channels`)
+}
+
+// --- channel voice analysis ---
+
+const API_KEY = process.env.ANTHROPIC_API_KEY
+const VOICE_MODEL = 'claude-haiku-4-5-20251001'
+const VOICE_REFRESH = 6 * 60 * 60_000 // 6 hours
+
+interface VoiceData {
+  profile: string
+  samples: string[]
+  updatedAt: number
+}
+
+const voiceData = new Map<string, VoiceData>()
+const voiceInFlight = new Set<string>()
+
+function isGoodVoiceSample(msg: string, knownEmotes: Set<string>): boolean {
+  const words = msg.split(/\s+/)
+  if (words.length < 3) return false
+  const nonEmote = words.filter(w => !knownEmotes.has(w))
+  return nonEmote.length >= 2
+}
+
+export function getChannelVoiceContext(channel: string, compact = false): string {
+  const data = voiceData.get(channel.toLowerCase())
+  if (!data) return ''
+  const parts: string[] = []
+  if (data.profile) parts.push(`Voice: ${data.profile}`)
+  if (!compact && data.samples.length > 0) {
+    parts.push(`Chat voice:\n${data.samples.map(s => `> ${s}`).join('\n')}`)
+  }
+  return parts.join('\n')
+}
+
+export async function refreshVoice(channel: string) {
+  const ch = channel.toLowerCase()
+  const now = Date.now()
+  const existing = voiceData.get(ch)
+  if (existing && now - existing.updatedAt < VOICE_REFRESH) return
+  if (voiceInFlight.has(ch)) return
+  voiceInFlight.add(ch)
+
+  try {
+    const raw = db.getVoiceMessages(ch, 500)
+    if (raw.length < 20) return
+
+    const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
+    const knownEmotes = new Set(getEmotesForChannel(ch))
+    const good = raw.filter(m =>
+      m.username.toLowerCase() !== botName &&
+      isGoodVoiceSample(m.message, knownEmotes)
+    )
+    if (good.length < 10) return
+
+    // diverse samples — 1 per user, shuffled
+    const byUser = new Map<string, string[]>()
+    for (const m of good) {
+      const list = byUser.get(m.username) ?? []
+      list.push(m.message)
+      byUser.set(m.username, list)
+    }
+
+    const samples: string[] = []
+    for (const [, msgs] of byUser) {
+      if (samples.length >= 10) break
+      samples.push(msgs[Math.floor(Math.random() * msgs.length)])
+    }
+
+    // haiku voice analysis
+    let profile = ''
+    const cached = db.getChannelVoiceProfile(ch)
+
+    if (API_KEY && good.length >= 30) {
+      const sampleText = good.slice(0, 80).map(m => m.message).join('\n')
+
+      try {
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': API_KEY,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: VOICE_MODEL,
+            max_tokens: 40,
+            messages: [{ role: 'user', content: [
+              `Analyze these Twitch chat messages from #${channel}:\n`,
+              sampleText,
+              '\n\nDescribe how to mimic this chat style in <150 chars.',
+              '\nFocus: slang, abbreviations, grammar patterns, energy, humor style.',
+              '\nWrite as instructions: "use X, do Y, never Z"',
+            ].join('') }],
+          }),
+          signal: AbortSignal.timeout(10_000),
+        })
+
+        if (res.ok) {
+          const json = await res.json() as { content: { type: string; text?: string }[] }
+          const text = json.content?.find(b => b.type === 'text')?.text?.trim()
+          if (text && text.length <= 200) {
+            profile = text
+            db.upsertChannelVoice(ch, profile)
+            log(`voice #${ch}: ${profile}`)
+          }
+        }
+      } catch {}
+    }
+
+    if (!profile && cached) profile = cached.voice
+
+    voiceData.set(ch, { profile, samples, updatedAt: now })
+  } finally {
+    voiceInFlight.delete(ch)
+  }
 }
