@@ -420,14 +420,8 @@ export class TwitchClient {
     while (this.ircQueue.length > 0 && this.canSend()) {
       const { channel, text, replyTo } = this.ircQueue.shift()!
       this.sendTimes.push(Date.now())
-      const ircMsg = replyTo
-        ? `@reply-parent-msg-id=${replyTo} PRIVMSG #${channel} :${text}`
-        : `PRIVMSG #${channel} :${text}`
-      if (this.ircReady && this.ircSend(ircMsg)) {
-        // sent via IRC
-      } else {
-        await this.helixSend(channel, text, false, replyTo)
-      }
+      const sent = await this.helixSend(channel, text, false, replyTo)
+      if (!sent) log(`queued send failed for #${channel}`)
     }
     if (this.ircQueue.length > 0) {
       log(`${this.ircQueue.length} queued messages waiting for rate limit`)
@@ -542,20 +536,8 @@ export class TwitchClient {
       return
     }
     this.sendTimes.push(Date.now())
-    // prefer IRC (instant WebSocket) over Helix (HTTP round-trip)
-    const ircMsg = replyTo
-      ? `@reply-parent-msg-id=${replyTo} PRIVMSG #${channel} :${text}`
-      : `PRIVMSG #${channel} :${text}`
-    // prefer Helix (confirmed delivery) over IRC (fire-and-forget)
     const sent = await this.helixSend(channel, text, false, replyTo)
-    if (!sent) {
-      // helix failed — fall back to IRC
-      if (this.ircReady && this.ircSend(ircMsg)) {
-        log(`helix unavailable, sent via irc to #${channel}`)
-      } else {
-        log(`send failed for #${channel}: helix and irc both down`)
-      }
-    }
+    if (!sent) log(`send failed for #${channel}`)
   }
 }
 
