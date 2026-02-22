@@ -259,7 +259,23 @@ export function flushWrites() {
       }
     })()
   } catch (e) {
-    log(`flush error (${batch.length} writes lost): ${e}`)
+    log(`flush error (batch of ${batch.length}): ${e}`)
+    // retry individually — salvage what we can
+    for (const op of batch) {
+      try {
+        switch (op.type) {
+          case 'chat': stmts.insertChat.run(op.channel, op.username, op.message); break
+          case 'command': stmts.insertCommand.run(op.userId, op.channel, op.cmdType, op.query, op.matchName, op.tier); break
+          case 'ask': stmts.insertAsk.run(op.userId, op.channel, op.query, op.response, op.tokens, op.latency); break
+          case 'incr_commands': stmts.incrUserCommands.run(op.userId); break
+          case 'incr_asks': stmts.incrUserAsks.run(op.userId); break
+          case 'summary': stmts.insertSummary.run(op.channel, op.sessionId, op.summary, op.msgCount); break
+          case 'user_fact': stmts.insertUserFact.run(op.username, op.fact); break
+        }
+      } catch (e2) {
+        log(`flush retry failed (${op.type}): ${e2}`)
+      }
+    }
   }
 }
 
@@ -513,6 +529,7 @@ export function closeDb() {
   db?.close()
 }
 
+// test-only — direct db access for backdating rows in tests
 export function getDb(): Database {
   return db
 }
@@ -604,6 +621,7 @@ export function getUserStats(username: string): UserStats | null {
 
 export function formatAccountAge(isoDate: string): string {
   const ms = Date.now() - new Date(isoDate).getTime()
+  if (isNaN(ms) || ms < 0) return 'unknown'
   const days = Math.floor(ms / 86_400_000)
   if (days < 30) return `${days}d old`
   const months = Math.floor(days / 30)
@@ -818,18 +836,6 @@ export function getBotStats(): { totalUsers: number; totalCommands: number; tota
     todayCommands: today.cmds ?? 0,
     todayAsks: todayAsks.asks ?? 0,
     uniqueToday: uniqueToday.users ?? 0,
-  }
-}
-
-export function pruneOldAsks(days = 90) {
-  try {
-    const result = db.run(
-      `DELETE FROM ask_queries WHERE created_at < datetime('now', ?)`,
-      [`-${days} days`],
-    )
-    if (result.changes > 0) log(`pruned ${result.changes} ask queries older than ${days}d`)
-  } catch (e) {
-    log(`ask prune error: ${e}`)
   }
 }
 

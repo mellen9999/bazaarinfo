@@ -11,7 +11,6 @@ const OP_DISPATCH = 0
 const OP_HELLO = 1
 const OP_HEARTBEAT = 2
 const OP_RECONNECT = 4
-const OP_RESUME = 34
 const OP_SUBSCRIBE = 35
 const OP_UNSUBSCRIBE = 36
 

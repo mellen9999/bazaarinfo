@@ -162,6 +162,14 @@ export function record(channel: string, user: string, text: string) {
   maybeSummarize(channel)
 }
 
+export function cleanupChannel(channel: string) {
+  buffers.delete(channel)
+  lastMessageTime.delete(channel)
+  sessionIds.delete(channel)
+  summaries.delete(channel)
+  msgsSinceSummary.delete(channel)
+}
+
 export function getRecent(channel: string, count: number): ChatEntry[] {
   const buf = buffers.get(channel)
   if (!buf) return []

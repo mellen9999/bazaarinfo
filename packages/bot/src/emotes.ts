@@ -27,10 +27,6 @@ function rebuildAllEmoteNames() {
   allEmoteNames = names
 }
 
-export function isEmote(name: string): boolean {
-  return allEmoteNames.has(name)
-}
-
 export function getEmoteSetId(channel: string): string | undefined {
   return channelEmoteSetIds.get(channel)
 }
@@ -50,6 +46,7 @@ export function addChannelEmote(channel: string, name: string) {
     list.push(name)
     channelEmotes.set(channel, list)
     mergedCache.delete(channel)
+    emoteBlockCache.delete(channel)
     rebuildAllEmoteNames()
   }
 }
@@ -61,6 +58,7 @@ export function removeChannelEmote(channel: string, name: string) {
   if (idx !== -1) {
     list.splice(idx, 1)
     mergedCache.delete(channel)
+    emoteBlockCache.delete(channel)
     rebuildAllEmoteNames()
   }
 }

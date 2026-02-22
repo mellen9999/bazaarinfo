@@ -185,28 +185,3 @@ export function getActivityFor(query: string): string | null {
   return null
 }
 
-/** Get full activity digest for all tracked accounts */
-export function getActivityDigest(): string {
-  if (activityCache.size === 0) return ''
-
-  const lines: string[] = []
-  for (const acct of ACCOUNTS) {
-    const data = activityCache.get(acct.name)
-    if (!data) continue
-
-    const parts: string[] = []
-
-    if (data.stream) {
-      parts.push(data.stream.live ? `LIVE${data.stream.game ? ` (${data.stream.game})` : ''}` : 'offline')
-    }
-
-    if (data.recentVideos.length > 0) {
-      const latest = data.recentVideos[0]
-      parts.push(`latest YT: "${latest.title}" ${formatAge(latest.published)}`)
-    }
-
-    if (parts.length > 0) lines.push(`${acct.name}: ${parts.join(', ')}`)
-  }
-
-  return lines.length > 0 ? lines.join(' | ') : ''
-}

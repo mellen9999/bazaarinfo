@@ -183,10 +183,6 @@ export async function loadStore() {
   log(`loaded ${items.length} items + ${skills.length} skills + ${monsters.length} monsters (cached ${cache.fetchedAt})`)
 }
 
-export function hasData(): boolean {
-  return items.length > 0
-}
-
 export async function reloadStore() {
   try {
     const cache: CardCache = await Bun.file(CACHE_PATH).json()

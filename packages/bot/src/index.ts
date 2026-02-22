@@ -155,14 +155,12 @@ setRefreshHandler(async () => {
 // owner-only !b emote refresh
 setEmoteRefreshHandler(async () => {
   try {
-    let count = 0
     const globals = await refreshGlobalEmotes()
-    count += globals.length
     const currentChannels = client.getChannels()
-    for (const ch of currentChannels) {
-      const data = await refreshChannelEmotes(ch.name, ch.userId)
-      count += data.length
-    }
+    const results = await Promise.allSettled(
+      currentChannels.map((ch) => refreshChannelEmotes(ch.name, ch.userId)),
+    )
+    const count = globals.length + results.reduce((n, r) => n + (r.status === 'fulfilled' ? r.value.length : 0), 0)
     return `refreshed ${count} emotes across ${currentChannels.length} channels`
   } catch (e) {
     return `emote refresh failed: ${e instanceof Error ? e.message : e}`
@@ -271,6 +269,7 @@ const client = new TwitchClient(
           cleanupChannel(target)
           emoteEvents.unsubscribeChannel(target)
           removeChannelEmotes(target)
+          chatbuf.cleanupChannel(target)
           await channelStore.remove(target)
           client.say(channel, `@${username} left #${target}`)
           return
@@ -354,14 +353,11 @@ scheduleDaily(4, async () => {
     db.pruneOldSummaries(365)
   } catch (e) { log(`daily prune failed: ${e}`) }
   try {
-    const dailyEmoteData = []
-    const globals = await refreshGlobalEmotes()
-    dailyEmoteData.push(...globals)
+    await refreshGlobalEmotes()
     const currentChannels = client.getChannels()
-    for (const ch of currentChannels) {
-      const data = await refreshChannelEmotes(ch.name, ch.userId)
-      dailyEmoteData.push(...data)
-    }
+    await Promise.allSettled(
+      currentChannels.map((ch) => refreshChannelEmotes(ch.name, ch.userId)),
+    )
   } catch (e) { log(`daily emote refresh failed: ${e}`) }
   log('daily refresh complete')
 })
@@ -371,9 +367,9 @@ setInterval(async () => {
   try {
     await refreshGlobalEmotes()
     const currentChannels = client.getChannels()
-    for (const ch of currentChannels) {
-      await refreshChannelEmotes(ch.name, ch.userId)
-    }
+    await Promise.allSettled(
+      currentChannels.map((ch) => refreshChannelEmotes(ch.name, ch.userId)),
+    )
     log('periodic emote reconciliation complete')
   } catch (e) { log(`periodic emote reconciliation failed: ${e}`) }
 }, 2 * 60 * 60_000)
