@@ -459,7 +459,7 @@ function buildGameContext(entities: ResolvedEntities, channel?: string): string 
   }
 
   if (entities.chatQuery && channel) {
-    const hits = db.searchChatFTS(channel, entities.chatQuery, 10)
+    const hits = db.searchChatFTS(channel, `"${entities.chatQuery}"`, 10)
     if (hits.length > 0) {
       sections.push(`Chat search "${entities.chatQuery}":\n${hits.map((h) => `[${h.created_at}] ${h.username.replace(/[:\n]/g, '')}: ${h.message.replace(/\n/g, ' ')}`).join('\n')}`)
     }
@@ -634,7 +634,8 @@ export function buildSystemPrompt(): string {
     'BANTER: "youre just a bot" → "a bot that knows your favorite card, your trivia record, and that you were here at 3am tuesday"',
     '',
     'Answer [USER]\'s question. infer vague Qs ("do u agree?", "is that true") from recent chat context. dont respond to chat you werent asked about.',
-    'lengths — game: 80-250. greetings: <60. banter: <140. copypasta: 400.',
+    'lengths — game: 80-250. greetings/status checks: <60. banter: <140. copypasta: 400.',
+    '"are you alive/working/there?" = status check, not banter. just confirm youre here, <40 chars.',
     'game data: cite ONLY "Game data:" section. NEVER invent item names, stats, day refs, mechanic descriptions.',
     '"user: msg" in chat = that user said it. links only: bazaardb.gg bzdb.to github.com/mellen9999/bazaarinfo',
     '',
