@@ -130,7 +130,7 @@ function prepareStatements() {
        GROUP BY c.match_name ORDER BY cnt DESC LIMIT ?`,
     ),
     channelRegulars: db.prepare(
-      `SELECT username, COUNT(*) as msgs FROM chat_messages
+      `SELECT LOWER(username) as username, COUNT(*) as msgs FROM chat_messages
        WHERE channel = ? GROUP BY LOWER(username) ORDER BY msgs DESC LIMIT ?`,
     ),
     insertAlias: db.prepare('INSERT OR REPLACE INTO aliases (alias, target, added_by) VALUES (?, ?, ?)'),
@@ -259,7 +259,7 @@ export function flushWrites() {
       }
     })()
   } catch (e) {
-    log(`flush error: ${e}`)
+    log(`flush error (${batch.length} writes lost): ${e}`)
   }
 }
 
@@ -454,6 +454,11 @@ const migrations: (() => void)[] = [
       cached_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (username, channel)
     )`)
+  },
+  // migration 10: fix chat_messages index to use LOWER(username) for case-insensitive lookups
+  () => {
+    db.run(`DROP INDEX IF EXISTS idx_chat_username`)
+    db.run(`CREATE INDEX idx_chat_username ON chat_messages(LOWER(username))`)
   },
 ]
 

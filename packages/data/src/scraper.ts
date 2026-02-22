@@ -65,7 +65,7 @@ function toCard(entry: DumpEntry): BazaarCard {
     Tooltips: entry.Tooltips ?? [],
     TooltipReplacements: entry.TooltipReplacements ?? {},
     Enchantments: entry.Enchantments ?? {},
-    Shortlink: entry.Shortlink,
+    Shortlink: entry.Shortlink ?? '',
   }
 }
 
@@ -80,7 +80,7 @@ function toMonster(entry: DumpEntry): Monster | null {
     HiddenTags: entry.HiddenTags ?? [],
     Heroes: entry.Heroes ?? [],
     MonsterMetadata: entry.MonsterMetadata,
-    Shortlink: entry.Shortlink,
+    Shortlink: entry.Shortlink ?? '',
   }
 }
 
@@ -109,6 +109,10 @@ function parseDump(dump: Record<string, DumpEntry>, onProgress?: (msg: string) =
           if (m) monsters.push(m)
           break
         }
+        default:
+          skipped++
+          if (skipped <= 5) skippedNames.push(entry.Title ?? '(no title)')
+          break
       }
     } catch (e) {
       skipped++

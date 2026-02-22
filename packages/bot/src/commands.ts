@@ -172,6 +172,7 @@ function logHit(type: CmdType, query: string, match: string, ctx: CommandContext
 
 function resolveSkills(monster: Monster): Map<string, SkillDetail> {
   const details = new Map<string, SkillDetail>()
+  if (!monster.MonsterMetadata?.skills) return details
   for (const s of monster.MonsterMetadata.skills) {
     if (details.has(s.title)) continue
     const card = store.findCard(s.title)
@@ -376,7 +377,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
   // conversational queries (>2 words) return null to trigger AI fallback in bazaarinfo
   if (queryWords.length > 2) return null
-  return withSuffix(`no match for "${truncate(query, 40)}"`, suffix)
+  return withSuffix(`no match for "${query.slice(0, 40)}"`, suffix)
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {

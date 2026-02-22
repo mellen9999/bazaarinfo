@@ -50,7 +50,7 @@ export function addChannelEmote(channel: string, name: string) {
     list.push(name)
     channelEmotes.set(channel, list)
     mergedCache.delete(channel)
-    allEmoteNames.add(name)
+    rebuildAllEmoteNames()
   }
 }
 
@@ -80,6 +80,7 @@ export function removeChannelEmotes(channel: string) {
   channelEmotes.delete(channel)
   channelEmoteSetIds.delete(channel)
   mergedCache.delete(channel)
+  emoteBlockCache.delete(channel)
   rebuildAllEmoteNames()
 }
 

@@ -25,9 +25,17 @@ export function truncate(str: string): string {
 function resolveReplacement(val: ReplacementValue, tier?: TierName): string {
   if (typeof val !== 'object' || val === null) return String(val)
   if ('Fixed' in val) return String(val.Fixed)
-  if (tier && tier in val) {
-    const v = (val as Record<string, number>)[tier]
-    return v != null ? String(v) : '?'
+  if (tier) {
+    if (tier in val) {
+      const v = (val as Record<string, number>)[tier]
+      return v != null ? String(v) : '?'
+    }
+    // Legendary falls back to Diamond, etc. — find closest available tier
+    const available = TIER_ORDER.filter((t) => t in val)
+    if (available.length) {
+      const v = (val as Record<string, number>)[available[available.length - 1]]
+      return v != null ? String(v) : '?'
+    }
   }
   const parts = TIER_ORDER.filter((t) => t in val).map(
     (t) => `${TIER_EMOJI[t]}${(val as Record<string, number>)[t]}`,
