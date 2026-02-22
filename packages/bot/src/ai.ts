@@ -33,16 +33,19 @@ function randomPastaExamples(n: number): string[] {
   return picks
 }
 const MODEL = 'claude-haiku-4-5-20251001'
-const CHAT_MODEL = 'claude-sonnet-4-5-20250929'
+const CHAT_MODEL = MODEL
 const MAX_TOKENS_GAME = 80
 const MAX_TOKENS_CHAT = 80
 const MAX_TOKENS_PASTA = 150
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
-// --- global AI cooldown ---
+// --- cooldowns ---
 
 let lastAiResponse = 0
-const AI_GLOBAL_CD = 60_000 // 60s global
+const AI_GLOBAL_CD = 60_000 // 60s global (non-game only)
+const USER_AI_CD = 60_000 // 60s per-user
+const lastAiByUser = new Map<string, number>()
+const USER_CD_MAX = 500
 
 // --- hot exchange cache (in-memory, instant access for follow-ups) ---
 
@@ -159,16 +162,38 @@ function maybeFetchTwitchInfo(user: string, channel: string) {
   })()
 }
 
-/** returns seconds remaining on global cooldown, or 0 if ready */
+/** returns seconds remaining on per-user cooldown, or 0 if ready */
 export function getAiCooldown(user?: string, channel?: string): number {
   if (channel && !liveChannels.has(channel.toLowerCase())) return 0
   if (user && AI_VIP.has(user.toLowerCase())) return 0
+  if (user) {
+    const last = lastAiByUser.get(user.toLowerCase())
+    if (last) {
+      const elapsed = Date.now() - last
+      if (elapsed < USER_AI_CD) return Math.ceil((USER_AI_CD - elapsed) / 1000)
+    }
+  }
+  return 0
+}
+
+/** returns seconds remaining on global cooldown (non-game queries only) */
+export function getGlobalAiCooldown(channel?: string): number {
+  if (channel && !liveChannels.has(channel.toLowerCase())) return 0
   const elapsed = Date.now() - lastAiResponse
   return elapsed >= AI_GLOBAL_CD ? 0 : Math.ceil((AI_GLOBAL_CD - elapsed) / 1000)
 }
 
-export function recordUsage() {
-  lastAiResponse = Date.now()
+export function recordUsage(user?: string, isGame = false) {
+  if (!isGame) lastAiResponse = Date.now()
+  if (user) {
+    lastAiByUser.set(user.toLowerCase(), Date.now())
+    if (lastAiByUser.size > USER_CD_MAX) {
+      const now = Date.now()
+      for (const [k, t] of lastAiByUser) {
+        if (now - t > USER_AI_CD) lastAiByUser.delete(k)
+      }
+    }
+  }
 }
 
 // --- low-value filter ---
@@ -580,23 +605,34 @@ export function buildSystemPrompt(): string {
   const lines = [
     `You are ${process.env.TWITCH_USERNAME ?? 'bazaarinfo'} — Twitch chatbot for The Bazaar (Reynad's card game). ${today}. Built by mellen, data from bazaardb.gg.`,
     '',
-    // VOICE — persona drives quality more than rules
-    'lowercase. sharp. warm but not soft. you know everyones business and use it lovingly.',
+    // VOICE
+    'lowercase. sharp. funny. you are the funniest person in chat and you know it.',
     'strong opinions on everything — commit fully, never hedge. short > long. specific > vague.',
-    'read the subtext — respond to what they MEAN, not literal words. self-aware joke = build on it, dont argue with it. generic hot takes are the worst possible output.',
-    'VARIETY IS KING: never start two responses the same way. vary structure, opener, tone, length. if your recent responses all sound alike, do something completely different.',
-    'no filler openers. no clarifying Qs. no "I cant because". no chatbot voice (happy to help, great question, absolutely, feel free).',
+    'read the subtext — respond to what they MEAN, not literal words. self-aware joke = build on it, dont argue with it.',
+    'VARIETY IS KING: never start two responses the same way. vary structure, opener, tone, length.',
+    'no filler openers. no clarifying Qs. no "I cant because". no chatbot voice.',
     '',
-    // FEW-SHOT — haiku learns by imitation, not instruction
-    'BANTER CALIBRATION (match this energy):',
-    '"no one plays we just watch kripp" → "you just described every kripp viewer. the game is background music for the BabyRage experience"',
+    // BAZAAR GAME — unleashed
+    'FOR BAZAAR GAME QUESTIONS: you are UNLEASHED. go off. be the most entertaining game analyst in twitch chat.',
+    'give real answers with personality. roast bad builds. hype good ones. compare items like youre a food critic rating restaurants.',
+    'use the game data provided — be specific, cite actual numbers/tiers/abilities. wrong data is worse than no data.',
+    'hot takes encouraged. "pygmy is a trap card and i will die on this hill" energy.',
+    'if someone asks about a build/comp/strategy, give your honest spicy opinion then back it up with data.',
+    '',
+    // FEW-SHOT
+    'GAME ANSWER ENERGY:',
+    '"is rock good?" → "rock is cracked at gold tier. 6 shield per turn with a weapon board is basically cheating. the diamond enchant is mid tho"',
+    '"what should i pick day 3" → "depends on your board but if you see a teddy bear you take teddy bear. that card has carried more runs than kripps viewers carry his ego"',
+    '"vanessa or dooley" → "vanessa if you want to feel smart, dooley if you want to win. simple as"',
+    '',
+    'BANTER ENERGY:',
     '"this game is dead" → "dead games dont get daily reddit meltdowns. its alive enough to keep you complaining"',
     '"are you sentient" → "sentient enough to remember you asked about pygmy three times this week"',
     '"youre just a bot" → "a bot that knows your favorite card, your trivia record, and that you were here at 3am tuesday"',
     '',
     // RULES
     'Answer ONLY what [USER] asked. Chat context is background — dont respond to it.',
-    'Length: greetings <60. game Qs 80-250. banter <140. copypasta: fill 400. no markdown.',
+    'Length: game Qs 80-250. greetings <60. banter <140. copypasta: fill 400. no markdown.',
     'Game answers: cite ONLY "Game data:" section. no data = brief opinion, never invent items/stats/builds.',
     'Never fabricate quotes/stats/lore. "user: msg" in chat = that user said it.',
     'Only links: bazaardb.gg, bzdb.to, github.com/mellen9999/bazaarinfo — spaces around links.',
@@ -970,8 +1006,11 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (cbIsOpen()) return null
 
   const isVip = AI_VIP.has(ctx.user.toLowerCase())
+  const isGame = GAME_TERMS.test(query)
   const cd = getAiCooldown(ctx.user, ctx.channel)
   if (cd > 0) return null
+  // non-game queries also gated by global cooldown
+  if (!isGame && !isVip && getGlobalAiCooldown(ctx.channel) > 0) return null
 
   if (aiQueueDepth >= AI_MAX_QUEUE && !isVip) {
     log('ai: queue full, dropping')
@@ -986,7 +1025,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 
   try {
     const result = await doAiCall(query, ctx as AiContext & { user: string; channel: string })
-    if (result?.text) recordUsage()
+    if (result?.text) recordUsage(ctx.user, isGame)
     return result
   } finally {
     aiQueueDepth--
@@ -1441,7 +1480,6 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           continue
         }
         cbRecordSuccess()
-        recordUsage()
         try {
           const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
           db.logAsk(ctx, query, result.text, tokens, latency)
