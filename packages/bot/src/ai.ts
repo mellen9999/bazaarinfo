@@ -1107,26 +1107,67 @@ function buildRecallContext(query: string, channel: string): string {
 
 // --- chat history recall (search a referenced user's past messages) ---
 
+// only fire recall when query looks like it's asking about past events/other users
+const RECALL_INTENT = /\b(did|what did|when did|has|have|was|were|earlier|before|ago|said|told|say|suggest|recommend|mention|talk about|remember when|bring up|ask about|promise|claim|called? me)\b/i
+
+// common english words that could be twitch usernames — skip these in implicit detection
+const COMMON_WORDS = new Set([
+  'beau', 'grace', 'hope', 'jade', 'max', 'ruby', 'angel', 'chase', 'drew',
+  'finn', 'hunter', 'mason', 'nova', 'sage', 'storm', 'wolf', 'bear', 'blade',
+  'cash', 'echo', 'fire', 'ghost', 'hawk', 'ice', 'king', 'moon', 'night',
+  'rain', 'rock', 'shadow', 'star', 'stone', 'tiger', 'void', 'zero',
+  'movie', 'afraid', 'suggest', 'earlier', 'today', 'watch', 'play', 'start',
+  'stop', 'chat', 'stream', 'game', 'item', 'card', 'build', 'pick', 'best',
+  'worst', 'good', 'bad', 'nice', 'cool', 'love', 'hate', 'want', 'need',
+  'time', 'back', 'last', 'next', 'more', 'less', 'long', 'hard', 'easy',
+])
+
 function findReferencedUser(query: string, channel: string): string | null {
   const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
 
-  // @username explicit
+  // @username explicit — always trust
   const atMatch = query.match(/@([a-zA-Z0-9_]+)/)
   if (atMatch) {
     const name = atMatch[1].toLowerCase()
     if (name !== botName && db.getUserMessagesDetailed(name, channel, 1).length > 0) return name
   }
 
-  // implicit — check words against chat history in this channel
+  // implicit — score candidates by message count, pick the most active
+  interface Candidate { name: string; msgs: number }
+  const candidates: Candidate[] = []
+
   for (const word of query.split(/\s+/)) {
     const clean = word.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase()
-    if (clean.length < 3 || STOP_WORDS.has(clean) || clean === botName) continue
-    if (db.getUserMessagesDetailed(clean, channel, 1).length > 0) return clean
+    if (clean.length < 3 || STOP_WORDS.has(clean) || COMMON_WORDS.has(clean) || clean === botName) continue
+    // mixed case or underscores = strong username signal, skip length filter
+    const hasUsernameSyntax = /[A-Z].*[a-z]|[a-z].*[A-Z]|_/.test(word.replace(/[^a-zA-Z0-9_]/g, ''))
+    if (!hasUsernameSyntax && clean.length < 4) continue
+    const stats = db.getUserStats(clean)
+    if (stats && (stats.total_commands > 0 || stats.ask_count > 0)) {
+      candidates.push({ name: clean, msgs: stats.total_commands + stats.ask_count })
+    }
   }
-  return null
+
+  if (candidates.length === 0) return null
+  // pick the most active user (highest message count = most likely to be who they mean)
+  candidates.sort((a, b) => b.msgs - a.msgs)
+  return candidates[0].name
+}
+
+function buildChatRecallFTS(query: string, excludeUser: string): string | null {
+  // strip the detected username from FTS terms so search is purely topical
+  const words = query.toLowerCase().split(/\s+/)
+    .map((w) => w.replace(/[^a-z0-9]/g, ''))
+    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w) && w !== excludeUser)
+    .slice(0, 5)
+  if (words.length === 0) return null
+  return words.map((w) => `"${w}"`).join(' OR ')
 }
 
 function buildChatRecall(query: string, channel: string): string {
+  // intent gate — skip DB lookups when query isn't asking about past events
+  if (!RECALL_INTENT.test(query) && !/@[a-zA-Z0-9_]+/.test(query)) return ''
+
   const user = findReferencedUser(query, channel)
   if (!user) return ''
 
@@ -1134,8 +1175,8 @@ function buildChatRecall(query: string, channel: string): string {
   const lines: string[] = []
   const seen = new Set<string>()
 
-  // topic-specific FTS search by user
-  const ftsQuery = buildFTSQuery(query)
+  // topic-specific FTS search by user (excluding username from search terms)
+  const ftsQuery = buildChatRecallFTS(query, user)
   if (ftsQuery) {
     for (const h of db.searchChatFTS(channel, ftsQuery, 8, user)) {
       seen.add(h.message)
