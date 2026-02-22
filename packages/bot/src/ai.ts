@@ -75,7 +75,7 @@ export function cacheExchange(user: string, query: string, response: string, cha
 
 // --- channel-wide recent response buffer (anti-repetition) ---
 const channelRecentResponses = new Map<string, string[]>()
-const CHANNEL_RESPONSE_MAX = 8
+const CHANNEL_RESPONSE_MAX = 5
 
 export function getChannelRecentResponses(channel: string): string[] {
   return channelRecentResponses.get(channel) ?? []
@@ -741,7 +741,7 @@ function hasDangerousCommand(text: string): boolean {
 }
 
 function hasModCommand(text: string): boolean {
-  for (const m of text.matchAll(/[!\\/.\s]\s*(\w+)/gi))
+  for (const m of text.matchAll(/[!\\/.](\w+)/gi))
     if (MOD_ONLY.has(m[1].toLowerCase())) return true
   return false
 }
@@ -1423,7 +1423,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
 
   try {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      // sonnet for all user-facing responses (1/min budget = quality over speed)
+      // haiku for all user-facing responses (1/min budget = quality over speed)
       const model = CHAT_MODEL
       const body = {
         model,
