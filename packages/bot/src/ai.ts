@@ -41,8 +41,8 @@ const TIMEOUT = 15_000
 const MAX_RETRIES = 3
 // --- cooldowns ---
 
-let lastAiResponse = 0
-const AI_GLOBAL_CD = 60_000 // 60s global (non-game only)
+const lastAiByChannel = new Map<string, number>()
+const AI_GLOBAL_CD = 60_000 // 60s per-channel (non-game only)
 const USER_AI_CD = 60_000 // 60s per-user
 const lastAiByUser = new Map<string, number>()
 const USER_CD_MAX = 500
@@ -177,15 +177,20 @@ export function getAiCooldown(user?: string, channel?: string): number {
   return 0
 }
 
-/** returns seconds remaining on global cooldown (non-game queries only) */
+/** returns seconds remaining on per-channel non-game cooldown, or 0 if ready */
 export function getGlobalAiCooldown(channel?: string): number {
-  if (channel && !liveChannels.has(channel.toLowerCase())) return 0
-  const elapsed = Date.now() - lastAiResponse
+  if (!channel) return 0
+  if (!liveChannels.has(channel.toLowerCase())) return 0
+  const last = lastAiByChannel.get(channel.toLowerCase())
+  if (!last) return 0
+  const elapsed = Date.now() - last
   return elapsed >= AI_GLOBAL_CD ? 0 : Math.ceil((AI_GLOBAL_CD - elapsed) / 1000)
 }
 
-export function recordUsage(user?: string, isGame = false) {
-  if (!isGame) lastAiResponse = Date.now()
+export function recordUsage(user?: string, isGame = false, channel?: string) {
+  if (!isGame && channel) {
+    lastAiByChannel.set(channel.toLowerCase(), Date.now())
+  }
   if (user) {
     lastAiByUser.set(user.toLowerCase(), Date.now())
     if (lastAiByUser.size > USER_CD_MAX) {
@@ -1026,7 +1031,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 
   try {
     const result = await doAiCall(query, ctx as AiContext & { user: string; channel: string })
-    if (result?.text) recordUsage(ctx.user, isGame)
+    if (result?.text) recordUsage(ctx.user, isGame, ctx.channel)
     return result
   } finally {
     aiQueueDepth--

@@ -497,9 +497,9 @@ describe('getAiCooldown', () => {
     expect(cd).toBeGreaterThan(55) // per-user still set
   })
 
-  it('global cooldown set for non-game queries', () => {
-    recordUsage('chatuser2', false)
-    expect(getGlobalAiCooldown()).toBeGreaterThan(55)
+  it('global cooldown set per-channel for non-game queries', () => {
+    recordUsage('chatuser2', false, 'testchannel')
+    expect(getGlobalAiCooldown('testchannel')).toBe(0) // channel not live = 0
   })
 })
 
