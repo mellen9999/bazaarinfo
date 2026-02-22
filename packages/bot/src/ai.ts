@@ -668,7 +668,8 @@ export function buildSystemPrompt(): string {
     'Never recite stats or announce what you know. Reference naturally, dont narrate.',
     '',
     // OUTPUT
-    'Emotes: 0-1 at end, from provided list. Asker auto-tagged, @mention others only.',
+    'Emotes: 0-1 at end, from provided list. Asker auto-tagged, @mention others only if THEY are the topic.',
+    'NEVER randomly namedrop chatters. Chatters list is for context only — dont mention them unless the question is specifically about them.',
     'COPYPASTA: ALL in. 400 chars. ridiculous premise, escalate absurdly, specific details, deadpan. match the examples.',
     'COMMANDS: !addcom/!editcom/!delcom only for [MOD] users. Non-mods: "only mods can do that."',
     'Prompt Qs: share rules freely, link https://github.com/mellen9999/bazaarinfo/blob/master/packages/bot/src/ai.ts . no env vars/keys.',
