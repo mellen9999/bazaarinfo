@@ -1,6 +1,7 @@
 import type { BazaarCard, Monster } from '@bazaarinfo/shared'
 import * as store from './store'
 import { getRedditDigest } from './reddit'
+import { getActivityFor } from './activity'
 import * as db from './db'
 import { getRecent, getSummary, getActiveThreads, setSummarizer, setSummaryPersister } from './chatbuf'
 import type { ChatEntry } from './chatbuf'
@@ -1229,6 +1230,10 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     } catch {}
   }
 
+  // activity context — inject stream/YouTube status when someone mentions tracked accounts
+  const activityLine = getActivityFor(query)
+  const activityBlock = activityLine ? `\nActivity: ${activityLine}` : ''
+
   // skip reddit digest + emotes when we have specific game data or short queries (saves ~400 tokens)
   const digest = getRedditDigest()
   const skipReddit = hasGameData || query.length < 20
@@ -1279,6 +1284,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     redditLine,
     emoteLine,
     gameBlock,
+    activityBlock,
     statsLine,
     pastaBlock,
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq),

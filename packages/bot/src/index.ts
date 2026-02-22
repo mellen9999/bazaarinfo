@@ -11,6 +11,7 @@ import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel } from './trivia'
 import { invalidatePromptCache, initSummarizer, setChannelLive, setChannelOffline, setChannelInfos } from './ai'
 import { refreshRedditDigest } from './reddit'
+import { refreshActivity } from './activity'
 import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes, getEmoteSetId, getAllEmoteSetIds, removeChannelEmotes } from './emotes'
 import * as emoteEvents from './emote-events'
@@ -193,6 +194,10 @@ loadDescriptionCache().then(async () => {
 // load reddit digest (non-blocking)
 refreshRedditDigest().catch((e) => log(`reddit digest load failed: ${e}`))
 
+// load activity data (non-blocking) + refresh every 30 min
+refreshActivity().catch((e) => log(`activity load failed: ${e}`))
+setInterval(() => refreshActivity().catch((e) => log(`activity refresh failed: ${e}`)), 30 * 60_000)
+
 // init rolling chat summarizer
 initSummarizer()
 
@@ -337,6 +342,9 @@ scheduleDaily(4, async () => {
   try {
     await refreshRedditDigest()
   } catch (e) { log(`daily reddit refresh failed: ${e}`) }
+  try {
+    await refreshActivity()
+  } catch (e) { log(`daily activity refresh failed: ${e}`) }
   try {
     db.pruneOldChats(180)
     db.pruneOldSummaries(365)
