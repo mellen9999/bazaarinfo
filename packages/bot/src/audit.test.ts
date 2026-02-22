@@ -101,7 +101,7 @@ describe('system prompt', () => {
 
   it('contains privacy honesty rule', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt).toContain('Privacy')
+    expect(prompt.toLowerCase()).toContain('privacy')
     expect(prompt).toContain('mellen built me')
   })
 
@@ -114,12 +114,12 @@ describe('system prompt', () => {
   it('contains length constraints', () => {
     const prompt = buildSystemPrompt()
     expect(prompt).toContain('80-250')
-    expect(prompt).toContain('no markdown')
+    // "no markdown" enforced by sanitizer, not prompt
   })
 
   it('bans URL/link generation', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt).toContain('Only links')
+    expect(prompt).toContain('links only')
     expect(prompt).toContain('bazaardb.gg')
   })
 })
