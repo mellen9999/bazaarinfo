@@ -160,8 +160,9 @@ function maybeFetchTwitchInfo(user: string, channel: string) {
 }
 
 /** returns seconds remaining on global cooldown, or 0 if ready */
-export function getAiCooldown(_user?: string, channel?: string): number {
+export function getAiCooldown(user?: string, channel?: string): number {
   if (channel && !liveChannels.has(channel.toLowerCase())) return 0
+  if (user && AI_VIP.has(user.toLowerCase())) return 0
   const elapsed = Date.now() - lastAiResponse
   return elapsed >= AI_GLOBAL_CD ? 0 : Math.ceil((AI_GLOBAL_CD - elapsed) / 1000)
 }
@@ -968,10 +969,11 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (!AI_CHANNELS.has(ctx.channel.toLowerCase())) return null
   if (cbIsOpen()) return null
 
+  const isVip = AI_VIP.has(ctx.user.toLowerCase())
   const cd = getAiCooldown(ctx.user, ctx.channel)
   if (cd > 0) return null
 
-  if (aiQueueDepth >= AI_MAX_QUEUE) {
+  if (aiQueueDepth >= AI_MAX_QUEUE && !isVip) {
     log('ai: queue full, dropping')
     return null
   }
