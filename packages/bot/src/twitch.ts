@@ -546,11 +546,15 @@ export class TwitchClient {
     const ircMsg = replyTo
       ? `@reply-parent-msg-id=${replyTo} PRIVMSG #${channel} :${text}`
       : `PRIVMSG #${channel} :${text}`
-    if (this.ircReady && this.ircSend(ircMsg)) {
-      // sent via IRC
-    } else {
-      const sent = await this.helixSend(channel, text, false, replyTo)
-      if (!sent) log(`helix send failed for #${channel}, irc not ready`)
+    // prefer Helix (confirmed delivery) over IRC (fire-and-forget)
+    const sent = await this.helixSend(channel, text, false, replyTo)
+    if (!sent) {
+      // helix failed — fall back to IRC
+      if (this.ircReady && this.ircSend(ircMsg)) {
+        log(`helix unavailable, sent via irc to #${channel}`)
+      } else {
+        log(`send failed for #${channel}: helix and irc both down`)
+      }
     }
   }
 }
