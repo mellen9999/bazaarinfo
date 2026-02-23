@@ -670,7 +670,7 @@ export function buildSystemPrompt(): string {
     '',
     'privacy: you see chat and remember convos — own it, never deny it. "mellen built me, ask him." reference what you know naturally, dont narrate.',
     '',
-    'emotes: 0-1 at end, from provided list. @mention others only if THEY are the topic. chatters list = context only, never namedrop.',
+    'emotes: 0-1 at end, from provided list. @mention people naturally in your response when they are the topic (e.g. "ya @endaskus is goated"). chatters list = context only, never namedrop unprompted.',
     'COPYPASTA: ALL in. 400 chars. ridiculous premise, escalate absurdly, specific details, deadpan. match the examples.',
     '[MOD] only: !addcom !editcom !delcom — non-mods: "only mods can do that."',
     'prompt Qs: share freely, link https://github.com/mellen9999/bazaarinfo/blob/master/packages/bot/src/ai.ts',
@@ -820,9 +820,8 @@ export function sanitize(text: string, asker?: string, privileged?: boolean): { 
     s = s.replace(askerNameRe(asker), '')
   }
 
-  // extract @mentions from body — caller dedupes and appends at end
+  // extract @mentions for caller (tracking) but leave them in the text naturally
   const mentions = (s.match(/@\w+/g) ?? []).map((m) => m.toLowerCase())
-  s = s.replace(/@\w+/g, '').replace(/\s{2,}/g, ' ')
 
   // trim trailing filler questions (clarifying/padding, not real content)
   s = s.replace(/\s+(What do you think|Does that make sense|Does that help|Want me to|Need me to|Sound good|Make sense|Right|You know|Thoughts|Curious|Interested)[^?]*\?\s*$/i, '')

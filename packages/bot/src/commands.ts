@@ -466,10 +466,10 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     }
     try { db.logCommand(ctx, 'ai', cleanArgs, 'fallback') } catch {}
     let response = dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
-    // append @mentions from input + AI output (deduped, skip asker)
-    const allMentions = [...new Set([...mentions.map((m) => m.toLowerCase()), ...aiResult.mentions])]
-      .filter((m) => m !== `@${ctx.user?.toLowerCase()}`)
-    if (allMentions.length > 0) response = withSuffix(response, ` ${allMentions.join(' ')}`)
+    // append input @mentions not already in the AI response
+    const responseLower = response.toLowerCase()
+    const missingMentions = mentions.map((m) => m.toLowerCase()).filter((m) => !responseLower.includes(m))
+    if (missingMentions.length > 0) response = withSuffix(response, ` ${missingMentions.join(' ')}`)
     return response
   }
 
@@ -528,10 +528,10 @@ async function aiChat(args: string, ctx: CommandContext): Promise<string | null>
     }
     try { db.logCommand(ctx, 'ai', cleanArgs, 'direct') } catch {}
     let response = dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
-    // append @mentions from input + AI output (deduped, skip asker)
-    const allMentions = [...new Set([...inputMentions, ...aiResult.mentions])]
-      .filter((m) => m !== `@${ctx.user?.toLowerCase()}`)
-    if (allMentions.length > 0) response = withSuffix(response, ` ${allMentions.join(' ')}`)
+    // append input @mentions not already in the AI response
+    const responseLower = response.toLowerCase()
+    const missing = inputMentions.filter((m) => !responseLower.includes(m))
+    if (missing.length > 0) response = withSuffix(response, ` ${missing.join(' ')}`)
     return response
   }
 
@@ -557,9 +557,10 @@ async function handleMention(text: string, ctx: CommandContext): Promise<string 
   if (aiResult?.text && aiResult.text.trim() !== '-') {
     try { db.logCommand(ctx, 'ai', query, 'mention') } catch {}
     let response = dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
-    // append AI-generated mentions + asker tag (deduped)
-    const tagList = [...new Set([...aiResult.mentions, ...(ctx.user ? [`@${ctx.user.toLowerCase()}`] : [])])]
-    if (tagList.length > 0) response = withSuffix(response, ` ${tagList.join(' ')}`)
+    // tag asker at end if not already mentioned in response
+    if (ctx.user && !response.toLowerCase().includes(`@${ctx.user.toLowerCase()}`)) {
+      response = withSuffix(response, ` @${ctx.user}`)
+    }
     return response
   }
   return null

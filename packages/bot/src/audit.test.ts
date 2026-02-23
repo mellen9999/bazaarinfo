@@ -1082,11 +1082,11 @@ describe('SEC: command blocklist tiers', () => {
 })
 
 describe('SEC: @mention extraction safety', () => {
-  it('extracts @mentions from AI output', () => {
+  it('extracts @mentions from AI output but leaves them in text', () => {
     const r = sanitize('@someone great question about burn builds')
     expect(r.mentions).toContain('@someone')
-    // mention stripped from body text
-    expect(r.text).not.toContain('@someone')
+    // mentions stay in body text naturally
+    expect(r.text).toContain('@someone')
   })
 
   it('asker name stripped from response', () => {

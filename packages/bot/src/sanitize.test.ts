@@ -87,10 +87,11 @@ describe('sanitize', () => {
     expect(r.text).toBe('been spamming commands')
   })
 
-  it('extracts @mentions', () => {
+  it('extracts @mentions but leaves them in text', () => {
     const r = sanitize('nice one @kripp and @mellen')
     expect(r.mentions).toEqual(['@kripp', '@mellen'])
-    expect(r.text).not.toContain('@')
+    expect(r.text).toContain('@kripp')
+    expect(r.text).toContain('@mellen')
   })
 
   it('strips trailing question', () => {
