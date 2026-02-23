@@ -36,7 +36,7 @@ function randomPastaExamples(n: number): string[] {
 const MODEL = 'claude-haiku-4-5-20251001'
 const CHAT_MODEL = MODEL
 const MAX_TOKENS_GAME = 60
-const MAX_TOKENS_CHAT = 40
+const MAX_TOKENS_CHAT = 35
 const MAX_TOKENS_PASTA = 100
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
@@ -1607,7 +1607,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       result.text = stripInputEcho(result.text, query)
       // enforce length caps in code — model ignores prompt-level hints
       const isShort = isShortResponse(query)
-      const hardCap = isPasta ? 400 : hasGameData ? 180 : isRememberReq ? 150 : isShort ? 60 : 100
+      const hardCap = isPasta ? 400 : hasGameData ? 250 : isRememberReq ? 200 : isShort ? 60 : 140
       if (result.text.length > hardCap) {
         const cut = result.text.slice(0, hardCap)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))
