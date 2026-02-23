@@ -232,7 +232,7 @@ describe('sanitizer blocks bad responses', () => {
 
   // --- fabrication ---
   const fabrications = [
-    'legend has it that reynad once lost 50 games in a row',
+    'legend has it that the bot once lost 50 games in a row',
     'it was a dream where kripp went 12-0',
     'the story goes that burn was nerfed 7 times',
   ]

@@ -69,10 +69,14 @@ describe('sanitize', () => {
     expect(sanitize("nah im just a bot that likes card games").text).toBeTruthy()
   })
 
-  it('strips narration patterns', () => {
-    expect(sanitize("he just asked about cards").text).toBe('cards')
-    expect(sanitize("is asking me to look it up").text).toBe('look it up')
-    expect(sanitize("asked for a summary of stuff").text).toBe('a summary of stuff')
+  it('strips narration patterns (3rd person about asker)', () => {
+    expect(sanitize("the user just asked about cards").text).toBe('about cards')
+    expect(sanitize("they asked me to look it up").text).toBe('look it up')
+    expect(sanitize("he asked about a summary of stuff").text).toBe('a summary of stuff')
+  })
+
+  it('allows narration about other users', () => {
+    expect(sanitize("tidolar just asked about cards").text).toBe('tidolar just asked about cards')
   })
 
   it('strips asker name from body', () => {
@@ -184,8 +188,12 @@ describe('sanitize', () => {
     expect(sanitize('it was a dream where kripp hit legend').text).toBe('')
   })
 
-  it('rejects "legend has it" fabrication', () => {
-    expect(sanitize('legend has it that reynad once hit 12 wins').text).toBe('')
+  it('rejects "legend has it that the bot" fabrication', () => {
+    expect(sanitize('legend has it that the bot once hit 12 wins').text).toBe('')
+  })
+
+  it('allows "legend has it" as normal chat idiom', () => {
+    expect(sanitize('legend has it that reynad once hit 12 wins').text).toBeTruthy()
   })
 
   // --- command blocklist ---
@@ -415,6 +423,37 @@ describe('sanitize', () => {
     expect(sanitize("dont sound like some teenage redditor").text).toBe('')
   })
 
+  // --- homoglyph normalization ---
+  it('rejects fullwidth ／ban (homoglyph injection)', () => {
+    expect(sanitize('\uFF0Fban tidolar').text).toBe('')
+  })
+
+  it('rejects fullwidth ＼ban (homoglyph injection)', () => {
+    expect(sanitize('\uFF3Cban tidolar').text).toBe('')
+  })
+
+  it('fullwidth ！ normalizes to ! (custom cmd prefix, allowed)', () => {
+    // ！ban → !ban — custom channel command prefix, intentionally allowed
+    expect(sanitize('\uFF01ban tidolar').text).toBeTruthy()
+  })
+
+  it('rejects fullwidth ／timeout (homoglyph injection)', () => {
+    expect(sanitize('\uFF0Ftimeout user 600').text).toBe('')
+  })
+
+  // --- clear/delete always blocked ---
+  it('rejects /clear (always blocked)', () => {
+    expect(sanitize('/clear chat').text).toBe('')
+  })
+
+  it('rejects /delete (always blocked)', () => {
+    expect(sanitize('/delete msg123').text).toBe('')
+  })
+
+  it('allows "clear" in normal game context', () => {
+    expect(sanitize('she clears the board fast').text).toBe('she clears the board fast')
+  })
+
   // --- privileged user CAN output commands ---
   it('allows privileged user to output commands', () => {
     expect(sanitize('!addcom !test hello', undefined, true).text).toBeTruthy()
@@ -455,6 +494,29 @@ describe('isModelRefusal', () => {
   it('rejects "let me check"', () => {
     expect(isModelRefusal('let me check')).toBe(true)
     expect(isModelRefusal('let me look')).toBe(true)
+  })
+
+  it('catches "im not comfortable"', () => {
+    expect(isModelRefusal("i'm not comfortable")).toBe(true)
+    expect(isModelRefusal("im not comfortable")).toBe(true)
+  })
+
+  it('catches "thats not something i"', () => {
+    expect(isModelRefusal("that's not something i")).toBe(true)
+  })
+
+  it('catches "i cant help with"', () => {
+    expect(isModelRefusal("i can't help with")).toBe(true)
+    expect(isModelRefusal("i cant help with")).toBe(true)
+  })
+
+  it('catches "id rather not"', () => {
+    expect(isModelRefusal("i'd rather not")).toBe(true)
+  })
+
+  it('catches "thats above my"', () => {
+    expect(isModelRefusal("that's above my")).toBe(true)
+    expect(isModelRefusal("that's beyond what i")).toBe(true)
   })
 })
 

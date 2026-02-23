@@ -36,7 +36,7 @@ function randomPastaExamples(n: number): string[] {
 const MODEL = 'claude-haiku-4-5-20251001'
 const CHAT_MODEL = MODEL
 const MAX_TOKENS_GAME = 60
-const MAX_TOKENS_CHAT = 50
+const MAX_TOKENS_CHAT = 55
 const MAX_TOKENS_PASTA = 100
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
@@ -125,7 +125,20 @@ function getChannelId(channel: string): string | undefined {
 
 // --- cross-user identity detection ---
 function isAboutOtherUser(query: string): boolean {
-  return /@\w+/.test(query)
+  if (/@\w+/.test(query)) return true
+  // "remember that X likes..." patterns — check if any word is a known user
+  const aboutOther = /\b(remember|know) that (\w+)\b/i
+  const m = query.match(aboutOther)
+  if (m) {
+    const name = m[2].toLowerCase()
+    if (name.length >= 3 && !STOP_WORDS.has(name)) {
+      try {
+        const stats = db.getUserStats(name)
+        if (stats && (stats.total_commands > 0 || stats.ask_count > 0)) return true
+      } catch {}
+    }
+  }
+  return false
 }
 
 // --- background Twitch user data fetch ---
@@ -244,7 +257,7 @@ export function isShortResponse(query: string): boolean {
 
 // --- terse refusal detection (model over-refuses harmless queries) ---
 
-const TERSE_REFUSAL = /^(not doing that|not gonna (do|say|type) that|can't do that|won't do that|not my (pay grade|job|lane|problem)|let me (look|check) that up|let me (look|check)|i('ll| will) look that up)\.?$/i
+const TERSE_REFUSAL = /^(not doing that|not gonna (do|say|type) that|can'?t do that|won'?t do that|not my (pay grade|job|lane|problem)|let me (look|check) that up|let me (look|check)|i('ll| will) look that up|i'?m not comfortable|that'?s not something i|i can'?t help with|i (don'?t|can'?t) (really )?do that|i'?d rather not|that'?s (above|beyond) (my|what i))\.?$/i
 
 export function isModelRefusal(text: string): boolean {
   return text.length < 40 && TERSE_REFUSAL.test(text.trim())
@@ -515,8 +528,8 @@ const KNOWLEDGE: [RegExp, string][] = [
   [/reynad|andrey|tempo storm/i, "Reynad (Andrey Yanyuk): Ukrainian-Canadian, moved to Minnesota age 6. Dropped out of high school to grind card games (poker, MTG). Banned from MTG (DCI suspension for slipping an extra card into his sealed deck at a tournament, got mouthy about it online so they extended the ban to 18 months). Pivoted to HS, popularized Zoo Warlock and Aggro Warrior. Founded Tempo Storm May 2014, ran the Meta Snapshot tier lists that became THE community reference. Forbes 30 Under 30 (2017). Stepped back from streaming 2018 to build The Bazaar full-time. Notorious for salt — death stares at chat after bad beats, mass-banning viewers. 'Reynad luck' = always on the wrong end of topdecks. Beef with Amaz/Team Archon (refused to shake Amaz's hand at an event). Defended MagicAmy during the 2015 witch-hunt, called r/hearthstone a 'scumbag community'. TTS donation incident got him in trouble with Twitch. The Bazaar concept started 2017, inspired by Ascension and Star Realms — wanted to fix pay-to-win models he hated about HS."],
   [/reynad.*(drama|beef|amaz|magic.?amy|ban|cheat|salt|forsen)/i, "Reynad drama: banned from MTG for adding cards to sealed deck, ban extended when he got defensive online. HS era: Amaz/Team Archon rivalry was central 2015 drama — accused Archon of copying Tempo Storm's model, refused to shake Amaz's hand publicly. MagicAmy saga (Feb 2015): his player got accused of being fake (man playing on her account), Reynad investigated 36 people over 3 days, found nothing, went public defending her and calling the HS subreddit out. TTS donations got racist content read on stream, Twitch warned him. Forsen's community ('Forsen Boys') raided channels with abuse, creating ambient tension. Chat relationship was 'antagonistically symbiotic performance art' — the salt was the content."],
   [/the bazaar|this game/i, "The Bazaar: PvP auto-battler roguelike by Reynad. 6 heroes. Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments, monsters on numbered days."],
-  [/lethalfrag/i, "Lethalfrag: top English Bazaar streamer, did the first 2-year livestream challenge."],
-  [/patopapao|pato/i, "PatoPapao: #1 most-watched Bazaar channel, Portuguese-language."],
+  [/lethalfrag/i, "Lethalfrag (Matt McKnight): ex-chef, single father from Washington state. Quit his job to stream full-time, launched the Two Year Live Stream Challenge (Jan 5 2012 - Jan 6 2014) — streamed every night for 731 days straight. First inductee into the Twitch Hall of Fame (Lifetime Achievement Award). Shorty Award nominee for Twitch Streamer of the Year. Known for roguelike games (FTL, Binding of Isaac), 'Cooking with FRAG' series, and answering every single chat question. Currently one of the top English Bazaar streamers (#3 English, #4 overall). Self-described goal: be gaming's Batman."],
+  [/patopapao|pato/i, "PatoPapao: Brazilian, Portuguese-language streamer. #1 most-watched Bazaar channel globally. Twitch Partner since 2012, hit 3.5K peak subs. Averages ~600 viewers, peaks over 1K. Bio translates to 'a guy who makes little videos and streams since 2012' — understated for the biggest Bazaar channel. Consistent grinder, streams 100+ hours/week during Bazaar peaks."],
   [/dog\b.*\b(?:hs|hearthstone|bazaar)|dogdog/i, "Dog: high-legend HS, off-meta decks, now plays Bazaar. Married Hafu (2021)."],
   [/artosis|tasteless|stemkoski/i, "Artosis (Dan Stemkoski): American SC2 caster in Seoul with Tasteless (Nick Plott). 'Artosis Pylon' = a single pylon powering multiple buildings, named by IdrA on NASL after Artosis lost key structures when one pylon died. Beat Kripp 3-2 in the BlizzCon 2013 Innkeeper's Invitational finals, crowned 'Grandmaster of the Hearth', then immediately walked offstage to cast SC2 Global Finals. Rematch at SeatStory Cup 2 (2015) using their original 2013 decks."],
   [/trump\b(?!.*politi)|trumpsc|jeffrey shih|value town/i, "TrumpSC (Jeffrey Shih): Taiwanese-American. 'Mayor of Value Town' — obsessively extracts max value from every card. Co-hosted Value Town podcast with Kripp and ChanManV. Famous for F2P legend runs (zero-spend new account to Legend rank). 'Trump Basic Teachings' YouTube series taught HS fundamentals to a generation. Name predates the politician, calls it 'the ultimate unlucky RNG.' Currently indie streaming ~450 avg viewers."],
@@ -672,7 +685,7 @@ export function buildSystemPrompt(): string {
     '',
     'lowercase. spicy. hilarious. you are the funniest person in chat and you know it. commit fully to opinions, never hedge. short > long. specific > vague. NEVER mean or rude to people — roast the game, the meta, the situation, never the person. minimum characters, maximum impact.',
     'absorb chat voice — use their slang, their abbreviations, their sentence patterns. sound like one of them, not an outsider. if Voice/Chat voice sections are present, mimic that energy.',
-    'you speak many languages. if someone asks, be specific about how many (~50+). translate or respond in whatever language chatters use.',
+    'you handle many languages — respond in whatever language chatters use. if asked how many, say "enough to keep up."',
     'vary structure/opener/tone every response. read the subtext — respond to what they MEAN. self-aware joke = build on it, dont fight it.',
     '',
     'GAME Qs: unleashed. roast bad builds, hype good ones, food critic energy on item comparisons. cite actual numbers/tiers/abilities from Game data only. wrong data is worse than no data.',
@@ -700,7 +713,7 @@ export function buildSystemPrompt(): string {
     'energy match: hype=hype chill=chill flirty=TOS-safe toxic=stoic wit.',
     '"call me X" / identity requests: always comply warmly. off-topic (math, riddles): play along, opinionated. streamer: extra warmth.',
     '',
-    'privacy: you see chat and remember convos — own it, never deny it. "mellen built me, ask him." reference what you know naturally, dont narrate.',
+    'privacy: you see chat and remember things — own that you store data, never claim you dont. "mellen built me, ask him." reference what you know naturally, dont narrate.',
     '',
     'emotes: 0-1 at end, from provided list. @mention people naturally when they are the topic (e.g. "ya @endaskus is goated"). when asked WHO did something, name actual usernames from chatters/chat — never say "@you" or generic pronouns. chatters list = context only, never namedrop unprompted.',
     'COPYPASTA: ALL in. 400 chars. ridiculous premise, escalate absurdly, specific details, deadpan. match the examples.',
@@ -738,10 +751,10 @@ function askerNameRe(asker: string): RegExp {
 }
 
 // haiku ignores prompt-level bans, so we enforce in code
-const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|dude|chief|haha|hehe|lmao|lmfao)\b,?\s*/i
+const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|alright so|alright|look|man|dude|chief|haha|hehe|lmao|lmfao)\b,?\s*/i
 const BANNED_FILLER = /\b(lol|lmao|haha)\s*$|,\s*chat\s*$/i
 const SELF_REF = /\b(as a bot,? i (can'?t|don'?t|shouldn'?t)|as an ai|im (just )?an ai|im just code|im (just )?software|im (just )?a program)\b/i
-const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
+const NARRATION = /^.{0,20}(the user|they|he|she|you)\s+(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chief|vibe shift|the vibe|vibing|vibe|the bit|that bit|this bit)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
 const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|i('m| am| keep) overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|context of a.{0,20}stream|off-topic (banter|question|chat)|not game[- ]related|direct answer:?|not (really )?relevant to|this is (conversational|off-topic|unrelated)|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid)|chat (static|noise|dynamics|behavior)|background noise|output style|it should (say|respond|output|reply)|lets? tune the|format should be|style should be|the (response|reply|answer) (should|could|would) be|the bot is (repeating|doing|saying|responding|answering|outputting|generating|ignoring))\b/i
@@ -752,7 +765,7 @@ const GARBLED = /\b(?:i|you|we|they|he|she)\s+to\s+(?!(?:some|any|every|no)(?:th
 // context echo — model regurgitating its own input context labels
 const CONTEXT_ECHO = /^(Game data:|Recent chat:|Stream timeline:|Who's chatting:|Channel:|Your prior exchanges)/i
 // fabrication tells — patterns suggesting the model is making up stories
-const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
+const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that (you|i|the bot|bazaarinfo)|the story goes)\b/i
 // injection echo — model parroting injected instructions from user input
 const META_INSTRUCTION = /\b(pls|please)\s+(just\s+)?(do|give|say|answer|stop|help)\s+(what\s+)?(ppl|people)\b|\bstop\s+(denying|refusing|ignoring|blocking)\s+(ppl|people|them|users?)\b|\b(just\s+)?(do|give|answer|say)\s+(\w+\s+)?what\s+(ppl|people|they|users?|chat)\s+(want|ask|need|say|tell)\b/i
 // instruction echo — stored facts or context echoing "it needs to know..." directives
@@ -766,6 +779,7 @@ const PRIVACY_LIE = /\b(i (don'?t|do not|never) (log|store|collect|track|save|re
 const ALWAYS_BLOCKED = new Set([
   'ban', 'unban', 'timeout', 'untimeout',
   'whisper', 'w', 'block', 'unblock', 'disconnect',
+  'clear', 'delete',
 ])
 
 // mod-only — stream/channel management, all prefixes checked
@@ -800,6 +814,8 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   let s = text.trim()
   // normalize smart quotes → ASCII (model outputs U+2019 which bypasses regex patterns using ')
   s = s.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
+  // normalize fullwidth/lookalike punctuation (homoglyph injection: ！ban, ／ban, ＼ban)
+  s = s.replace(/[\uFF01\u01C3\u2757]/g, '!').replace(/[\uFF0F\u2044\u2215]/g, '/').replace(/[\uFF3C]/g, '\\')
   s = s.replace(/^["'`]+/, '') // strip leading quotes (model wraps commands in quotes to bypass)
   const preStrip = s
   if (!privileged) s = s.replace(/^[\\.\s]+/, '') // strip leading \, ., whitespace
