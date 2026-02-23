@@ -289,7 +289,7 @@ const subcommands: [RegExp, SubHandler][] = [
   [/^stats(?:\s+@?(\S+))?$/i, (query, ctx, suffix) => {
     const target = query || ctx.user
     if (!target) return null
-    return withSuffix(formatStats(target), suffix)
+    return withSuffix(formatStats(target, ctx.channel), suffix)
   }],
   [/^top$/i, (_query, ctx, suffix) => {
     if (!ctx.channel) return null

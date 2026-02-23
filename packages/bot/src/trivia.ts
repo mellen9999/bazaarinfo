@@ -504,12 +504,14 @@ export function getTriviaScore(channel: string): string {
   return `Trivia top 5: ${lines.join(' | ')}`
 }
 
-export function formatStats(username: string): string {
-  const stats = db.getUserStats(username)
+export function formatStats(username: string, channel?: string): string {
+  const stats = db.getUserStats(username, channel)
   if (!stats) return `no stats for ${username}`
 
   const parts = [`[${stats.username}]`]
+  if (stats.chat_messages > 0) parts.push(`msgs:${stats.chat_messages}`)
   if (stats.total_commands > 0) parts.push(`cmds:${stats.total_commands}`)
+  if (stats.ask_count > 0) parts.push(`asks:${stats.ask_count}`)
   if (stats.trivia_wins > 0) {
     const rate = stats.trivia_attempts > 0
       ? Math.round((stats.trivia_wins / stats.trivia_attempts) * 100)

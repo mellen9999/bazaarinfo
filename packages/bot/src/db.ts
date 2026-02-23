@@ -60,6 +60,9 @@ let stmts: {
   getChannelVoice: Statement
   upsertChannelVoice: Statement
   voiceMessages: Statement
+  insertRecentResponse: Statement
+  getRecentResponses: Statement
+  pruneRecentResponses: Statement
 }
 
 function prepareStatements() {
@@ -216,6 +219,17 @@ function prepareStatements() {
        WHERE channel = ? AND LENGTH(message) BETWEEN 15 AND 200
        AND message NOT LIKE '!%' AND message NOT LIKE '/%'
        ORDER BY created_at DESC LIMIT ?`,
+    ),
+    insertRecentResponse: db.prepare(
+      'INSERT INTO channel_recent_responses (channel, response) VALUES (?, ?)',
+    ),
+    getRecentResponses: db.prepare(
+      'SELECT response FROM channel_recent_responses WHERE channel = ? ORDER BY created_at DESC LIMIT ?',
+    ),
+    pruneRecentResponses: db.prepare(
+      `DELETE FROM channel_recent_responses WHERE channel = ? AND id NOT IN (
+        SELECT id FROM channel_recent_responses WHERE channel = ? ORDER BY created_at DESC LIMIT ?
+      )`,
     ),
   }
 }
@@ -507,6 +521,16 @@ const migrations: (() => void)[] = [
   () => {
     db.run(`DROP TABLE IF EXISTS daily_stats`)
   },
+  // migration 13: channel_recent_responses for cross-restart variety memory
+  () => {
+    db.run(`CREATE TABLE channel_recent_responses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel TEXT NOT NULL COLLATE NOCASE,
+      response TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+    db.run(`CREATE INDEX idx_crr_channel ON channel_recent_responses(channel, created_at DESC)`)
+  },
 ]
 
 function runMigrations() {
@@ -628,13 +652,27 @@ export interface UserStats {
   trivia_fastest_ms: number | null
   first_seen: string
   favorite_item: string | null
+  chat_messages: number
 }
 
-export function getUserStats(username: string): UserStats | null {
+export function getUserStats(username: string, channel?: string): UserStats | null {
   const user = stmts.selectUser.get(username.toLowerCase()) as (UserStats & { id: number }) | null
   if (!user) return null
 
   const fav = stmts.selectUserFav.get(user.id) as { match_name: string; cnt: number } | null
+
+  let chatMessages = 0
+  if (channel) {
+    const row = db.query(
+      'SELECT COUNT(*) as cnt FROM chat_messages WHERE LOWER(username) = ? AND channel = ?',
+    ).get(username.toLowerCase(), channel) as { cnt: number }
+    chatMessages = row.cnt
+  } else {
+    const row = db.query(
+      'SELECT COUNT(*) as cnt FROM chat_messages WHERE LOWER(username) = ?',
+    ).get(username.toLowerCase()) as { cnt: number }
+    chatMessages = row.cnt
+  }
 
   return {
     username: user.username,
@@ -647,6 +685,7 @@ export function getUserStats(username: string): UserStats | null {
     trivia_fastest_ms: user.trivia_fastest_ms,
     first_seen: user.first_seen,
     favorite_item: fav?.match_name ?? null,
+    chat_messages: chatMessages,
   }
 }
 
@@ -945,6 +984,18 @@ export function upsertChannelVoice(channel: string, voice: string) {
 
 export function getVoiceMessages(channel: string, limit = 500): { username: string; message: string }[] {
   return stmts.voiceMessages.all(channel, limit) as { username: string; message: string }[]
+}
+
+// --- channel recent responses (cross-restart variety memory) ---
+
+export function logRecentResponse(channel: string, response: string) {
+  stmts.insertRecentResponse.run(channel.toLowerCase(), response)
+  stmts.pruneRecentResponses.run(channel.toLowerCase(), channel.toLowerCase(), 20)
+}
+
+export function loadRecentResponses(channel: string, limit = 12): string[] {
+  const rows = stmts.getRecentResponses.all(channel.toLowerCase(), limit) as { response: string }[]
+  return rows.map((r) => r.response).reverse()
 }
 
 export function pruneOldSummaries(days = 30) {
