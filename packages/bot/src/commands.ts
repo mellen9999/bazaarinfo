@@ -463,7 +463,12 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
       }
     }
     try { db.logCommand(ctx, 'ai', cleanArgs, 'fallback') } catch {}
-    return dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
+    let response = dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
+    // append @mentions from input + AI output (deduped, skip asker)
+    const allMentions = [...new Set([...mentions.map((m) => m.toLowerCase()), ...aiResult.mentions])]
+      .filter((m) => m !== `@${ctx.user?.toLowerCase()}`)
+    if (allMentions.length > 0) response = withSuffix(response, ` ${allMentions.join(' ')}`)
+    return response
   }
 
   return null
@@ -494,6 +499,7 @@ function getAiChatCooldown(user?: string): number {
 }
 
 async function aiChat(args: string, ctx: CommandContext): Promise<string | null> {
+  const inputMentions = (args.match(/@\w+/g) ?? []).map((m) => m.toLowerCase())
   const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
 
   if (!cleanArgs) return '!a <question> — ask me anything (game context included for bazaar Qs)'
@@ -517,7 +523,12 @@ async function aiChat(args: string, ctx: CommandContext): Promise<string | null>
       }
     }
     try { db.logCommand(ctx, 'ai', cleanArgs, 'direct') } catch {}
-    return dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
+    let response = dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
+    // append @mentions from input + AI output (deduped, skip asker)
+    const allMentions = [...new Set([...inputMentions, ...aiResult.mentions])]
+      .filter((m) => m !== `@${ctx.user?.toLowerCase()}`)
+    if (allMentions.length > 0) response = withSuffix(response, ` ${allMentions.join(' ')}`)
+    return response
   }
 
   return null
@@ -540,8 +551,11 @@ async function handleMention(text: string, ctx: CommandContext): Promise<string 
   const aiResult = await aiRespond(query, { ...ctx, mention: true })
   if (aiResult?.text && aiResult.text.trim() !== '-') {
     try { db.logCommand(ctx, 'ai', query, 'mention') } catch {}
-    const response = dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
-    return ctx.user ? `${response} @${ctx.user}` : response
+    let response = dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
+    // append AI-generated mentions + asker tag (deduped)
+    const tagList = [...new Set([...aiResult.mentions, ...(ctx.user ? [`@${ctx.user.toLowerCase()}`] : [])])]
+    if (tagList.length > 0) response = withSuffix(response, ` ${tagList.join(' ')}`)
+    return response
   }
   return null
 }
