@@ -420,8 +420,8 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     }
   }
 
-  // suppress duplicate lookups within 30s per channel
-  if (ctx.channel && isDuplicate(ctx.channel, cleanArgs)) return null
+  // suppress duplicate lookups within 30s per channel (same user only)
+  if (ctx.channel && ctx.user && isDuplicate(ctx.channel, `${ctx.user}:${cleanArgs}`)) return null
 
   const suffix = mentions.length ? ` ${mentions.join(' ')}` : ''
 
@@ -473,7 +473,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     return response
   }
 
-  return null
+  return '🤖💤'
 }
 
 // --- !b AI fallback cooldown: 30s per-user (separate from !a) ---
@@ -508,7 +508,7 @@ async function aiChat(args: string, ctx: CommandContext): Promise<string | null>
 
   if (!cleanArgs) return '!a <question> — ask me anything (game context included for bazaar Qs)'
 
-  if (ctx.channel && isDuplicate(ctx.channel, `ai:${cleanArgs}`)) return null
+  if (ctx.channel && ctx.user && isDuplicate(ctx.channel, `ai:${ctx.user}:${cleanArgs}`)) return null
 
   const isOwner = ctx.user?.toLowerCase() === 'mellen'
   const cd = getAiChatCooldown(ctx.user)
@@ -535,7 +535,7 @@ async function aiChat(args: string, ctx: CommandContext): Promise<string | null>
     return response
   }
 
-  return null
+  return '🤖💤'
 }
 
 const commands: Record<string, CommandHandler> = {

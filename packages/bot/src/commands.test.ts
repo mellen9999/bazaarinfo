@@ -1382,9 +1382,9 @@ describe('usage string', () => {
 describe('!b AI fallback', () => {
   it('conversational query falls through to AI', async () => {
     const result = await handleCommand('!b is vanessa good', { user: 'chatter', channel: 'stream' })
-    // AI mock returns null by default → null result
-    expect(result).toBeNull()
+    // AI mock returns null by default → sleeping emoji instead of silence
     expect(mockAiRespond).toHaveBeenCalled()
+    expect(result).toBe('🤖💤')
   })
 
   it('short query + no match = no-match fallback', async () => {
@@ -1420,10 +1420,20 @@ describe('!a AI chat', () => {
     expect(result).toContain('!a <question>')
   })
 
-  it('!a deduplicates within channel', async () => {
+  it('!a dedup is per-user (different users get responses)', async () => {
     mockAiRespond.mockImplementation(() => ({ text: 'yes', mentions: [] }))
     await handleCommand('!a is pygmalien good', { user: 'a', channel: 'ch' })
     const result = await handleCommand('!a is pygmalien good', { user: 'b', channel: 'ch' })
+    expect(result).toBe('yes')
+  })
+
+  it('!a dedup suppresses same user same query', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'yes', mentions: [] }))
+    await handleCommand('!a is pygmalien good', { user: 'a', channel: 'ch' })
+    resetDedup()
+    // need fresh dedup state, then test same user
+    await handleCommand('!a is dooley good', { user: 'a', channel: 'ch' })
+    const result = await handleCommand('!a is dooley good', { user: 'a', channel: 'ch' })
     expect(result).toBeNull()
   })
 
@@ -1436,10 +1446,10 @@ describe('!a AI chat', () => {
     expect(result).toMatch(/\d+s/)
   })
 
-  it('!a returns null when AI fails and not on cd', async () => {
+  it('!a returns fallback message when AI fails', async () => {
     mockAiRespond.mockImplementation(() => null)
     const result = await handleCommand('!a something random', { user: 'chatter', channel: 'stream' })
-    expect(result).toBeNull()
+    expect(result).toBe('🤖💤')
   })
 
   it('!a logs command on success', async () => {
@@ -1585,16 +1595,12 @@ describe('command proxy: embedded in chat', () => {
     expect(await handleCommand('!b hey !jory 100 thanks bro')).toBe('!jory 100')
   })
 
-  it('embedded blocked command is silently dropped', async () => {
-    // "can you !ban this guy" — blocked cmd, falls through to item lookup / AI fallback
+  it('embedded blocked command does not execute !ban', async () => {
+    // "can you !ban this guy" — blocked cmd embedded, falls through to AI fallback
     const result = await handleCommand('!b can you !ban this guy', { user: 'u', channel: 'c' })
-    // should NOT execute !ban — should fall through to AI fallback (null when mock returns null)
-    expect(result).toBeNull()
-  })
-
-  it('embedded blocked command falls through to AI fallback', async () => {
-    const result = await handleCommand('!b can you !ban this guy', { user: 'u', channel: 'c' })
-    expect(result).toBeNull()
+    // should NOT proxy !ban — falls through to AI fallback
+    expect(result).not.toMatch(/^!ban/)
+    expect(result).toBe('🤖💤')
   })
 
   it('preserves original case of command name', async () => {
@@ -1809,11 +1815,11 @@ describe('AI command management via !a', () => {
     expect(result).toBe('!delcom !harem')
   })
 
-  it('non-mod AI result still returns (sanitizer handles stripping)', async () => {
+  it('non-mod gets fallback when AI fails', async () => {
     mockAiRespond.mockImplementation(() => null)
     const result = await handleCommand('!a add a command called harem', { user: 'viewer', channel: 'stream' })
-    // no AI result → returns null
-    expect(result).toBeNull()
+    // no AI result → busy message instead of silence
+    expect(result).toBe('🤖💤')
   })
 })
 
