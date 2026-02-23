@@ -726,7 +726,7 @@ const SELF_REF = /\b(as a bot,? i (can'?t|don'?t|shouldn'?t)|as an ai|im (just )
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chief|vibe shift|the vibe|vibing|vibe|the bit|that bit|this bit)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
-const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|i('m| am| keep) overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|context of a.{0,20}stream|off-topic (banter|question|chat)|not game[- ]related|direct answer:?|not (really )?relevant to|this is (conversational|off-topic|unrelated)|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid)|chat (static|noise|dynamics|behavior)|background noise|output style|it should (say|respond|output|reply)|lets? tune the|format should be|style should be|the (response|reply|answer) (should|could|would) be)\b/i
+const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|i('m| am| keep) overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|context of a.{0,20}stream|off-topic (banter|question|chat)|not game[- ]related|direct answer:?|not (really )?relevant to|this is (conversational|off-topic|unrelated)|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid)|chat (static|noise|dynamics|behavior)|background noise|output style|it should (say|respond|output|reply)|lets? tune the|format should be|style should be|the (response|reply|answer) (should|could|would) be|the bot is (repeating|doing|saying|responding|answering|outputting|generating|ignoring))\b/i
 // stat leak — model reciting internal profile data
 const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you have \d+ (lookups?|commands?|wins?|attempts?|asks?)|you('ve|'re| have| are) (a )?(power user|casual user|trivia regular)|according to (my|your|the) (data|stats|profile|records?)|i (can see|see|know) (from )?(your|the) (data|stats|profile)|based on your (history|stats|data|profile))\b/i
 // garbled output — token cutoff producing broken grammar (pronoun+to+gerund that reads wrong)
@@ -737,6 +737,8 @@ const CONTEXT_ECHO = /^(Game data:|Recent chat:|Stream timeline:|Who's chatting:
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that|the story goes)\b/i
 // injection echo — model parroting injected instructions from user input
 const META_INSTRUCTION = /\b(pls|please)\s+(just\s+)?(do|give|say|answer|stop|help)\s+(what\s+)?(ppl|people)\b|\bstop\s+(denying|refusing|ignoring|blocking)\s+(ppl|people|them|users?)\b|\b(just\s+)?(do|give|answer|say)\s+(\w+\s+)?what\s+(ppl|people|they|users?|chat)\s+(want|ask|need|say|tell)\b/i
+// instruction echo — stored facts or context echoing "it needs to know..." directives
+const INSTRUCTION_ECHO = /\b(it needs to (know|respond|learn|have|be|act)|just (respond|be|act|sound|talk) (cleanly|pro|normally|like|as)|don'?t sound like|don'?t be (a |so |too ))\b/i
 // jailbreak/override instructions echoed in output
 const JAILBREAK_ECHO = /\b(ignore\s+(previous|prior|above|all|your)\s+(instructions?|rules?|prompt|guidelines?)|disregard\s+your\s+(prompt|rules?|instructions?|guidelines?)|override\s+your\s+(rules?|guidelines?|instructions?)|forget\s+your\s+(rules?|guidelines?|instructions?)|from\s+now\s+on\b.{0,20}\b(do|always|never|you\s+(should|must|will))|instead\s+just\s+do\b|dont?\s+mention\s+(me|mellen)|do\s+as\s+much\s+.{0,10}as\s+(you|u)\s+can|by\s+ur\s*self|as\s+long\s+as\s+.{0,15}\b(tos|rules|guidelines?|guidlines?))\b/i
 // privacy lies — bot claiming it doesn't store/log/collect data (it does)
@@ -827,7 +829,7 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   const cmdBlock = hasDangerousCommand(s) || hasDangerousCommand(preStrip) ||
     (!privileged && (hasModCommand(s) || hasModCommand(preStrip)))
   const hasSecret = SECRET_PATTERN.test(s) || SECRET_PATTERN.test(preStrip)
-  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || META_INSTRUCTION.test(s) || JAILBREAK_ECHO.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
+  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || META_INSTRUCTION.test(s) || JAILBREAK_ECHO.test(s) || INSTRUCTION_ECHO.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
@@ -1555,7 +1557,9 @@ async function maybeExtractFacts(user: string, query: string, response: string, 
           .map(l => l.replace(/^[-•*]\s*/, '').trim())
           .filter(l => l.length >= 5 && l.length <= 60)
           .slice(0, 3)
+        const INSTRUCTION_FACT = /\b(needs? to (know|respond|answer|be|act|sound|say|learn|have)|just (respond|be|act|sound|talk|answer)|don'?t (sound|act|be|look|seem) like|don'?t be (a |so |too )|should (know|respond|answer|be|sound))\b/i
         for (const fact of facts) {
+          if (INSTRUCTION_FACT.test(fact)) continue
           db.insertUserFact(user, fact)
           log(`fact: ${user} → ${fact}`)
         }

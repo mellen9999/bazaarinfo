@@ -397,6 +397,24 @@ describe('sanitize', () => {
     expect(sanitize('hehe nice one').text).toBe('nice one')
   })
 
+  // --- COT_LEAK: third-person bot meta ---
+  it('rejects "the bot is repeating" third-person meta', () => {
+    expect(sanitize('the bot is repeating answers to incorrect prompts').text).toBe('')
+  })
+
+  // --- INSTRUCTION_ECHO patterns ---
+  it('rejects instruction echo "it needs to know"', () => {
+    expect(sanitize('great guy, also it needs to know all about diablo').text).toBe('')
+  })
+
+  it('rejects "just respond cleanly"', () => {
+    expect(sanitize('just respond cleanly and plainly').text).toBe('')
+  })
+
+  it('rejects "dont sound like"', () => {
+    expect(sanitize("dont sound like some teenage redditor").text).toBe('')
+  })
+
   // --- privileged user CAN output commands ---
   it('allows privileged user to output commands', () => {
     expect(sanitize('!addcom !test hello', undefined, true).text).toBeTruthy()
