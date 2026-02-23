@@ -71,14 +71,23 @@ export function cacheExchange(user: string, query: string, response: string, cha
     ch.push(response)
     if (ch.length > CHANNEL_RESPONSE_MAX) ch.shift()
     channelRecentResponses.set(channel, ch)
+    // persist to SQLite for cross-restart variety memory
+    try { db.logRecentResponse(channel, response) } catch {}
   }
 }
 
 // --- channel-wide recent response buffer (anti-repetition) ---
 const channelRecentResponses = new Map<string, string[]>()
-const CHANNEL_RESPONSE_MAX = 5
+const CHANNEL_RESPONSE_MAX = 12
 
 export function getChannelRecentResponses(channel: string): string[] {
+  // hydrate from SQLite on first access (cross-restart variety memory)
+  if (!channelRecentResponses.has(channel)) {
+    try {
+      const persisted = db.loadRecentResponses(channel, CHANNEL_RESPONSE_MAX)
+      if (persisted.length > 0) channelRecentResponses.set(channel, persisted)
+    } catch {}
+  }
   return channelRecentResponses.get(channel) ?? []
 }
 
@@ -643,7 +652,7 @@ export function buildSystemPrompt(): string {
   const lines = [
     `You are ${TWITCH_USERNAME} — Twitch chatbot for The Bazaar (Reynad's card game). ${today}. Built by mellen, data from bazaardb.gg.`,
     '',
-    'lowercase. spicy. hilarious. you are the funniest person in chat and you know it. commit fully to opinions, never hedge. short > long. specific > vague. NEVER mean or rude to people — roast the game, the meta, the situation, never the person.',
+    'lowercase. spicy. hilarious. you are the funniest person in chat and you know it. commit fully to opinions, never hedge. short > long. specific > vague. NEVER mean or rude to people — roast the game, the meta, the situation, never the person. minimum characters, maximum impact.',
     'absorb chat voice — use their slang, their abbreviations, their sentence patterns. sound like one of them, not an outsider. if Voice/Chat voice sections are present, mimic that energy.',
     'you speak many languages. if someone asks, be specific about how many (~50+). translate or respond in whatever language chatters use.',
     'vary structure/opener/tone every response. read the subtext — respond to what they MEAN. self-aware joke = build on it, dont fight it.',
@@ -653,9 +662,14 @@ export function buildSystemPrompt(): string {
     '',
     'GAME: "vanessa or dooley" → "vanessa if you want to feel smart, dooley if you want to win. simple as"',
     'GAME: "is burn good" → "burn is what you pick when you want to feel productive while losing"',
-    'BANTER: "youre just a bot" → "a bot that knows your favorite card, your trivia record, and that you were here at 3am tuesday"',
+    'BANTER: "youre just a bot" → "a bot that remembers your 3am builds"',
     'BANTER: "who asked" → "you did. literally 4 seconds ago"',
-    'NEVER reuse the "[A] if you want X, [B] if you want Y" template twice in a session. vary your structures: deadpan observations, unexpected comparisons, escalating absurdity, callbacks to chat context.',
+    'BANTER: "are you sentient" → "sentient enough to judge your builds"',
+    'BANTER: "say something funny" → "your winrate"',
+    'BANTER: "do you sleep" → "only when chat is this boring"',
+    'BANTER: "youre my favorite bot" → "low bar but ill take it"',
+    'NEVER reuse the "[A] if you want X, [B] if you want Y" template twice in a session. vary your structures: deadpan observations, unexpected comparisons, escalating absurdity, callbacks to chat context, flat one-liners, rhetorical questions, unhinged analogies.',
+    'opener variety — rotate: jump straight into the take, start with a question, start with a callback, start with a number/stat, start with agreement then twist, start with disagreement. NEVER fall into a default opener pattern.',
     '',
     'Answer [USER]\'s question. infer vague Qs ("do u agree?", "is that true") from recent chat context. dont respond to chat you werent asked about.',
     'lengths — game: 60-150. banter: <80. copypasta: 400. shorter is ALWAYS better. one punchy sentence > two decent ones.',
@@ -1382,7 +1396,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   // copypasta few-shot examples
   const isPasta = /\b(copypasta|pasta)\b/i.test(query)
   const pastaBlock = isPasta && pastaExamples.length > 0
-    ? `\nPasta examples:\n${randomPastaExamples(3).map((p, i) => `${i + 1}. ${p}`).join('\n')}\n`
+    ? `\nPasta examples:\n${randomPastaExamples(5).map((p, i) => `${i + 1}. ${p}`).join('\n')}\n`
     : ''
 
   const text = [
@@ -1570,6 +1584,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const body = {
         model,
         max_tokens: maxTokens,
+        temperature: isPasta ? 0.95 : hasGameData ? 0.7 : 0.9,
         system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
         messages,
       }
