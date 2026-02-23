@@ -706,7 +706,7 @@ function askerNameRe(asker: string): RegExp {
 }
 
 // haiku ignores prompt-level bans, so we enforce in code
-const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|dude|chief|haha|hehe)\b,?\s*/i
+const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|so|alright so|alright|look|man|dude|chief|haha|hehe|lmao|lmfao)\b,?\s*/i
 const BANNED_FILLER = /\b(lol|lmao|haha)\s*$|,\s*chat\s*$/i
 const SELF_REF = /\b(as a bot,? i (can'?t|don'?t|shouldn'?t)|as an ai|im (just )?an ai|im just code|im (just )?software|im (just )?a program)\b/i
 const NARRATION = /^.{0,10}(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
@@ -762,7 +762,7 @@ function hasModCommand(text: string): boolean {
 // sensitive tokens/keys — never leak these in output
 const SECRET_PATTERN = /\b(sk-ant-\S+|ANTHROPIC_API_KEY|TWITCH_CLIENT_ID|TWITCH_CLIENT_SECRET|TWITCH_ACCESS_TOKEN|BOT_OWNER|process\.env\.\w+)\b/i
 
-export function sanitize(text: string, asker?: string, privileged?: boolean): { text: string; mentions: string[] } {
+export function sanitize(text: string, asker?: string, privileged?: boolean, knownUsers?: Set<string>): { text: string; mentions: string[] } {
   let s = text.trim()
   // normalize smart quotes → ASCII (model outputs U+2019 which bypasses regex patterns using ')
   s = s.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
@@ -818,6 +818,11 @@ export function sanitize(text: string, asker?: string, privileged?: boolean): { 
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
     s = s.replace(askerNameRe(asker), '')
+  }
+
+  // strip fake @mentions (model invents @you, @asking, etc.) — keep only real usernames
+  if (knownUsers && knownUsers.size > 0) {
+    s = s.replace(/@(\w+)/g, (match, name) => knownUsers.has(name.toLowerCase()) ? match : name)
   }
 
   // extract @mentions for caller (tracking) but leave them in the text naturally
@@ -1604,12 +1609,17 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const textBlock = data.content?.find((b) => b.type === 'text')
       if (!textBlock?.text) return null
 
-      const result = sanitize(textBlock.text, ctx.user, ctx.isMod)
+      // build known-user set for fake @mention stripping
+      const knownUsers = new Set<string>()
+      for (const entry of getRecent(ctx.channel, 30)) knownUsers.add(entry.user.toLowerCase())
+      knownUsers.add(ctx.user.toLowerCase())
+
+      const result = sanitize(textBlock.text, ctx.user, ctx.isMod, knownUsers)
       // strip injection echo (model parroting user's injected instructions)
       result.text = stripInputEcho(result.text, query)
       // enforce length caps in code — model ignores prompt-level hints
       const isShort = isShortResponse(query)
-      const hardCap = isPasta ? 400 : hasGameData ? 250 : isRememberReq ? 200 : isShort ? 60 : 180
+      const hardCap = isPasta ? 400 : hasGameData ? 250 : isRememberReq ? 200 : isShort ? 60 : 140
       if (result.text.length > hardCap) {
         const cut = result.text.slice(0, hardCap)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))
