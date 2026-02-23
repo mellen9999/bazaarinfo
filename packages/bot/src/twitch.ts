@@ -299,7 +299,7 @@ export class TwitchClient {
     log(`subscribed to channel.chat.message for ${broadcasterUserId}`)
   }
 
-  private async subscribeEvent(type: string, version: string, condition: Record<string, string>): Promise<void> {
+  private async subscribeEvent(type: string, version: string, condition: Record<string, string>, retries = 1): Promise<void> {
     const res = await fetchWithTimeout(`${HELIX_URL}/eventsub/subscriptions`, {
       method: 'POST',
       headers: {
@@ -313,6 +313,12 @@ export class TwitchClient {
       }),
     })
     if (res.status === 409) return // already subscribed
+    if (res.status === 401 && this.onAuthFailure && retries > 0) {
+      log(`subscribeEvent ${type} 401 — refreshing token and retrying`)
+      const newToken = await this.onAuthFailure()
+      this.config.token = newToken
+      return this.subscribeEvent(type, version, condition, retries - 1)
+    }
     if (!res.ok) {
       const err = await res.text()
       log(`subscribeEvent ${type} failed: ${res.status} ${err}`)
@@ -601,7 +607,7 @@ export async function getUserId(
   if (res.status === 401 && onAuthFailure) {
     log(`getUserId 401 for ${login}, refreshing token and retrying`)
     const newToken = await onAuthFailure()
-    return getUserId(newToken, clientId, login)
+    return getUserId(newToken, clientId, login, onAuthFailure)
   }
   if (!res.ok) throw new Error(`getUserId failed: ${res.status}`)
   const data = (await res.json()) as HelixUsersResponse

@@ -113,7 +113,7 @@ describe('system prompt', () => {
 
   it('contains length constraints', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt).toContain('80-250')
+    expect(prompt).toContain('60-150')
     // "no markdown" enforced by sanitizer, not prompt
   })
 

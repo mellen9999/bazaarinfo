@@ -70,6 +70,7 @@ export function renameChannelEmote(channel: string, oldName: string, newName: st
   if (idx !== -1) {
     list[idx] = newName
     mergedCache.delete(channel)
+    emoteBlockCache.delete(channel)
     rebuildAllEmoteNames()
   }
 }

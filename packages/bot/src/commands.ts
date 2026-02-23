@@ -447,18 +447,18 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (lookupResult !== null) return lookupResult
 
   // AI fallback for conversational queries that missed game data
-  const cd = getAiChatCooldown(ctx.user)
+  const cd = getBFallbackCooldown(ctx.user)
   if (cd > 0) return `on cd (${cd}s)`
 
   let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
   try { aiResult = await aiRespond(cleanArgs, { ...ctx, direct: true }) } catch {}
   if (aiResult?.text) {
     if (ctx.user) {
-      aiChatCooldowns.set(ctx.user.toLowerCase(), Date.now())
-      if (aiChatCooldowns.size > 500) {
+      bFallbackCooldowns.set(ctx.user.toLowerCase(), Date.now())
+      if (bFallbackCooldowns.size > 500) {
         const now = Date.now()
-        for (const [k, t] of aiChatCooldowns) {
-          if (now - t > AI_CHAT_CD) aiChatCooldowns.delete(k)
+        for (const [k, t] of bFallbackCooldowns) {
+          if (now - t > B_FALLBACK_CD) bFallbackCooldowns.delete(k)
         }
       }
     }
@@ -467,6 +467,18 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   }
 
   return null
+}
+
+// --- !b AI fallback cooldown: 30s per-user (separate from !a) ---
+const B_FALLBACK_CD = 30_000
+const bFallbackCooldowns = new Map<string, number>()
+
+function getBFallbackCooldown(user?: string): number {
+  if (!user) return 0
+  const last = bFallbackCooldowns.get(user.toLowerCase())
+  if (!last) return 0
+  const elapsed = Date.now() - last
+  return elapsed >= B_FALLBACK_CD ? 0 : Math.ceil((B_FALLBACK_CD - elapsed) / 1000)
 }
 
 // --- !a cooldown: 30s per-user ---

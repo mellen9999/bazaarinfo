@@ -503,6 +503,10 @@ const migrations: (() => void)[] = [
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`)
   },
+  // migration 12: drop unused daily_stats table
+  () => {
+    db.run(`DROP TABLE IF EXISTS daily_stats`)
+  },
 ]
 
 function runMigrations() {

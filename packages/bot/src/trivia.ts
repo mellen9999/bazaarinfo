@@ -390,17 +390,18 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
 
   // try generators until one works
   let q: ReturnType<QuestionGen> = null
+  let lastTypeIdx = 0
   let attempts = 0
   while (!q && attempts < 20) {
-    const typeIdx = pickQuestionType(channel, category)
-    q = generators[typeIdx]()
+    lastTypeIdx = pickQuestionType(channel, category)
+    q = generators[lastTypeIdx]()
     attempts++
   }
   if (!q) return `couldn't generate a question, try again`
 
-  // track recent types per-channel
+  // track recent types per-channel (use generator index, not 1-indexed q.type)
   const recent = recentTypes.get(channel) ?? []
-  recent.push(q.type)
+  recent.push(lastTypeIdx)
   if (recent.length > RECENT_BUFFER_SIZE) recent.shift()
   recentTypes.set(channel, recent)
 
