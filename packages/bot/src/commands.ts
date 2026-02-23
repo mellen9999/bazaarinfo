@@ -448,7 +448,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   // AI fallback for conversational queries that missed game data
   const cd = getAiChatCooldown(ctx.user)
-  if (cd > 0) return `on cd (${cd}s) — try !a`
+  if (cd > 0) return `on cd (${cd}s)`
 
   let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
   try { aiResult = await aiRespond(cleanArgs, { ...ctx, direct: true }) } catch {}
