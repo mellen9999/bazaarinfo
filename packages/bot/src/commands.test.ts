@@ -1453,10 +1453,10 @@ describe('!a AI chat', () => {
     )
   })
 
-  it('!a strips @mentions from query', async () => {
+  it('!a preserves usernames but strips @ from query', async () => {
     mockAiRespond.mockImplementation(() => ({ text: 'yo', mentions: [] }))
     await handleCommand('!a @someone tell me stuff', { user: 'u', channel: 'c' })
-    expect(mockAiRespond).toHaveBeenCalledWith('tell me stuff', expect.any(Object))
+    expect(mockAiRespond).toHaveBeenCalledWith('someone tell me stuff', expect.any(Object))
   })
 
   it('!a passes direct flag to aiRespond', async () => {

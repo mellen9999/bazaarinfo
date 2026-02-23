@@ -387,6 +387,8 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   // extract @mentions to tag at end of response
   const mentions = args.match(/@\w+/g) ?? []
+  // keep usernames in AI query (strip @ only), strip fully for item lookup
+  const aiQuery = args.replace(/@(\w+)/g, '$1').replace(/"/g, '').replace(/\s+/g, ' ').trim()
   const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
 
   if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
@@ -451,7 +453,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (cd > 0) return `on cd (${cd}s)`
 
   let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
-  try { aiResult = await aiRespond(cleanArgs, { ...ctx, direct: true }) } catch {}
+  try { aiResult = await aiRespond(aiQuery, { ...ctx, direct: true }) } catch {}
   if (aiResult?.text) {
     if (ctx.user) {
       bFallbackCooldowns.set(ctx.user.toLowerCase(), Date.now())
@@ -500,6 +502,8 @@ function getAiChatCooldown(user?: string): number {
 
 async function aiChat(args: string, ctx: CommandContext): Promise<string | null> {
   const inputMentions = (args.match(/@\w+/g) ?? []).map((m) => m.toLowerCase())
+  // keep usernames in AI query (strip @ only), strip fully for dedup key
+  const aiQuery = args.replace(/@(\w+)/g, '$1').replace(/"/g, '').replace(/\s+/g, ' ').trim()
   const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
 
   if (!cleanArgs) return '!a <question> — ask me anything (game context included for bazaar Qs)'
@@ -511,7 +515,7 @@ async function aiChat(args: string, ctx: CommandContext): Promise<string | null>
   if (cd > 0 && !isOwner) return `!a on cd (${cd}s)`
 
   let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
-  try { aiResult = await aiRespond(cleanArgs, { ...ctx, direct: true }) } catch {}
+  try { aiResult = await aiRespond(aiQuery, { ...ctx, direct: true }) } catch {}
   if (aiResult?.text) {
     if (ctx.user) {
       aiChatCooldowns.set(ctx.user.toLowerCase(), Date.now())
@@ -543,7 +547,8 @@ async function handleMention(text: string, ctx: CommandContext): Promise<string 
   if (!mentionRe) return null
   if (!mentionRe.test(text)) return null
 
-  const query = text.replace(mentionRe, '').replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
+  // keep usernames in AI query (strip @ only so AI knows who's being discussed)
+  const query = text.replace(mentionRe, '').replace(/@(\w+)/g, '$1').replace(/"/g, '').replace(/\s+/g, ' ').trim()
   if (!query) return null
   if (ctx.channel && isDuplicate(ctx.channel, `mention:${query}`)) return null
   if (ctx.user && getAiCooldown(ctx.user, ctx.channel) > 0) return null
