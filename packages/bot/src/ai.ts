@@ -655,7 +655,7 @@ export function buildSystemPrompt(): string {
     'BANTER: "youre just a bot" → "a bot that knows your favorite card, your trivia record, and that you were here at 3am tuesday"',
     '',
     'Answer [USER]\'s question. infer vague Qs ("do u agree?", "is that true") from recent chat context. dont respond to chat you werent asked about.',
-    'lengths — game: 80-250. banter: <140. copypasta: 400.',
+    'lengths — game: 60-150. banter: <80. copypasta: 400. shorter is ALWAYS better. one punchy sentence > two decent ones.',
     'SHORT responses (<40 chars): status checks ("are you alive/there/working"), greetings, thanks, goodbyes. dont elaborate, dont be sarcastic, just acknowledge.',
     'game data: cite ONLY "Game data:" section. NEVER invent item names, stats, day refs, mechanic descriptions.',
     '"user: msg" in chat = that user said it. links only: bazaardb.gg bzdb.to github.com/mellen9999/bazaarinfo',
@@ -1607,7 +1607,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       result.text = stripInputEcho(result.text, query)
       // enforce length caps in code — model ignores prompt-level hints
       const isShort = isShortResponse(query)
-      const hardCap = isPasta ? 400 : hasGameData ? 250 : isRememberReq ? 200 : isShort ? 60 : 140
+      const hardCap = isPasta ? 400 : hasGameData ? 180 : isRememberReq ? 150 : isShort ? 60 : 100
       if (result.text.length > hardCap) {
         const cut = result.text.slice(0, hardCap)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))
