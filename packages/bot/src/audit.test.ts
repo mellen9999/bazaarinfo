@@ -102,7 +102,7 @@ describe('system prompt', () => {
   it('contains privacy honesty rule', () => {
     const prompt = buildSystemPrompt()
     expect(prompt.toLowerCase()).toContain('privacy')
-    expect(prompt).toContain('mellen built me')
+    expect(prompt).toContain('only mention mellen when directly asked')
   })
 
   it('contains copypasta instructions', () => {
