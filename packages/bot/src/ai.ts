@@ -1342,8 +1342,9 @@ interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boole
 function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
   const isRememberReq = REMEMBER_RE.test(query) && !isAboutOtherUser(query)
   const chatDepth = ctx.mention ? 15 : 20
+  const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
   const chatContext = getRecent(ctx.channel, chatDepth)
-    .filter((m) => !isNoise(m.text))
+    .filter((m) => !isNoise(m.text) && m.user.toLowerCase() !== botName)
   const chatStr = chatContext.length > 0
     ? chatContext.map((m) => {
         const user = m.user.replace(/[:\n]/g, '')
