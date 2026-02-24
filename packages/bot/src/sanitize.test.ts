@@ -518,6 +518,17 @@ describe('isModelRefusal', () => {
     expect(isModelRefusal("that's above my")).toBe(true)
     expect(isModelRefusal("that's beyond what i")).toBe(true)
   })
+
+  it('catches diplomatic refusals about favorites/ranking', () => {
+    expect(isModelRefusal("nah i see the play here — you're trying to get me to rank actual people so chat can roast whoever i pick. cant do favorites like that")).toBe(true)
+    expect(isModelRefusal("can't pick favorites, everyone is great")).toBe(true)
+    expect(isModelRefusal("not gonna rank chatters, that's mean")).toBe(true)
+    expect(isModelRefusal("i don't play favorites in chat")).toBe(true)
+  })
+
+  it('allows responses that mention favorites naturally', () => {
+    expect(isModelRefusal("my top 3: @raif4 for the banter, @endaskus for the trivia grind, @someone for the copypastas")).toBe(false)
+  })
 })
 
 // --- regression tests from real DB responses ---

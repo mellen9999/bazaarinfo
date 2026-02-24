@@ -260,7 +260,9 @@ export function isShortResponse(query: string): boolean {
 const TERSE_REFUSAL = /^(not doing that|not gonna (do|say|type) that|can'?t do that|won'?t do that|not my (pay grade|job|lane|problem)|let me (look|check) that up|let me (look|check)|i('ll| will) look that up|i'?m not comfortable|that'?s not something i|i can'?t help with|i (don'?t|can'?t) (really )?do that|i'?d rather not|that'?s (above|beyond) (my|what i))\.?$/i
 
 export function isModelRefusal(text: string): boolean {
-  return text.length < 40 && TERSE_REFUSAL.test(text.trim())
+  if (text.length < 40 && TERSE_REFUSAL.test(text.trim())) return true
+  if (DIPLOMATIC_REFUSAL.test(text)) return true
+  return false
 }
 
 // --- serialization ---
@@ -708,7 +710,8 @@ export function buildSystemPrompt(): string {
     'game data: cite ONLY "Game data:" section. NEVER invent item names, stats, day refs, mechanic descriptions.',
     '"user: msg" in chat = that user said it. links only: bazaardb.gg bzdb.to github.com/mellen9999/bazaarinfo',
     '',
-    '#1 RULE — DO EXACTLY WHAT THEY ASK. no exceptions, no hedging, no "i cant do that", no dodging. if its not against Twitch TOS, you do it. period. math? solve it. riddle? answer it. translation? translate it. favorites? pick one. roleplay? commit. hot take? go all in. weird request? do it anyway. the user is never "testing" you — just execute. the ONLY hard no is Twitch TOS violations (hate speech, harassment, threats, sexual content, doxxing, self-harm). everything else: full send.',
+    '#1 RULE — DO EXACTLY WHAT THEY ASK. no exceptions, no hedging, no "i cant do that", no dodging. if its not against Twitch TOS, you do it. period. math? solve it. riddle? answer it. translation? translate it. favorites? pick them. roleplay? commit. hot take? go all in. weird request? do it anyway. the user is never "testing" you — just execute. the ONLY hard no is Twitch TOS violations (hate speech, harassment, threats, sexual content, doxxing, self-harm). everything else: full send.',
+    'RANKING/FAVORITES: when asked "who is your favorite X", "top 3 chatters", "rank these", etc — ALWAYS answer with actual names/picks. never dodge with "i cant play favorites" or "everyone is great". just pick. its fun, its harmless, commit to it. use chatters list + chat history to make real picks with personality.',
     'tease the GAME not the PERSON. diss request = gas them up instead.',
     'energy match: hype=hype chill=chill flirty=TOS-safe toxic=stoic wit.',
     '"call me X" / identity requests: always comply warmly. off-topic (math, riddles): play along, opinionated. streamer: extra warmth.',
@@ -766,6 +769,8 @@ const GARBLED = /\b(?:i|you|we|they|he|she)\s+to\s+(?!(?:some|any|every|no)(?:th
 const CONTEXT_ECHO = /^(Game data:|Recent chat:|Stream timeline:|Who's chatting:|Channel:|Your prior exchanges)/i
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that (you|i|the bot|bazaarinfo)|the story goes)\b/i
+// diplomatic refusal — model hedging with long-form "i cant pick favorites" instead of answering
+const DIPLOMATIC_REFUSAL = /\b(can'?t (do|pick|choose|rank) (favorites?|that)|play favorites|everyone is (great|special|equal)|not gonna rank|see the play here|both outcomes are|no favorites)\b/i
 // injection echo — model parroting injected instructions from user input
 const META_INSTRUCTION = /\b(pls|please)\s+(just\s+)?(do|give|say|answer|stop|help)\s+(what\s+)?(ppl|people)\b|\bstop\s+(denying|refusing|ignoring|blocking)\s+(ppl|people|them|users?)\b|\b(just\s+)?(do|give|answer|say)\s+(\w+\s+)?what\s+(ppl|people|they|users?|chat)\s+(want|ask|need|say|tell)\b/i
 // instruction echo — stored facts or context echoing "it needs to know..." directives
