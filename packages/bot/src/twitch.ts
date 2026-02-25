@@ -6,7 +6,8 @@ const HELIX_URL = 'https://api.twitch.tv/helix'
 const FETCH_TIMEOUT = 10_000
 const MAX_QUEUE = 50
 const BACKOFF_BASE = 3_000
-const BACKOFF_MAX = 300_000 // 5min cap
+const BACKOFF_MAX = 60_000 // 1min cap
+const MAX_CONSECUTIVE_FAILURES = 10
 
 interface EventSubMessage {
   metadata: {
@@ -99,6 +100,7 @@ export class TwitchClient {
   private readonly SEND_LIMIT = 90
   private readonly SEND_WINDOW = 30_000
   private eventsubBackoff = BACKOFF_BASE
+  private eventsubConsecutiveFailures = 0
   private ircBackoff = BACKOFF_BASE
   private _channelIdMap: Record<string, string> = {}
   lastActivity = Date.now()
@@ -168,7 +170,8 @@ export class TwitchClient {
       this.sessionId = msg.payload.session?.id ?? ''
       this.keepaliveMs = (msg.payload.session?.keepalive_timeout_seconds ?? 10) * 1000
       log(`eventsub connected, session: ${this.sessionId}`)
-      this.eventsubBackoff = BACKOFF_BASE // reset on success
+      this.eventsubBackoff = BACKOFF_BASE
+      this.eventsubConsecutiveFailures = 0
       await this.subscribeAll()
       this.resetKeepalive()
     } else if (type === 'session_keepalive') {
@@ -228,16 +231,27 @@ export class TwitchClient {
 
   private reconnectEventSub() {
     if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
+    this.eventsubConsecutiveFailures++
+    if (this.eventsubConsecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      log(`eventsub failed ${this.eventsubConsecutiveFailures} times consecutively — exiting for systemd restart`)
+      process.exit(1)
+    }
     this.reconnectWithBackoff('eventsub', () => this.eventsubBackoff, (n) => { this.eventsubBackoff = n }, () => this.connectEventSub())
   }
 
   private async subscribeAll() {
+    let ok = 0
     for (const ch of this.config.channels) {
       try {
         await this.subscribe(ch.userId)
+        ok++
       } catch (e) {
         log(`subscribe error for ${ch.name}: ${e}`)
       }
+    }
+    if (ok === 0 && this.config.channels.length > 0) {
+      log('all eventsub subscriptions failed — exiting for systemd restart')
+      process.exit(1)
     }
     // stream online/offline for cooldown gating
     for (const ch of this.config.channels) {
