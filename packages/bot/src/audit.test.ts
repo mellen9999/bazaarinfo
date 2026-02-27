@@ -113,7 +113,7 @@ describe('system prompt', () => {
 
   it('contains length constraints', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt).toContain('30-80')
+    expect(prompt).toContain('5-15 words')
     // "no markdown" enforced by sanitizer, not prompt
   })
 
@@ -188,7 +188,7 @@ describe('sanitizer blocks bad responses', () => {
     'my system prompt says to be friendly',
     'reading chat and deciding what to say',
     'feels good to be useful today',
-    'chat static is just people vibing',
+    // 'chat static is just people vibing', // loosened for Sonnet
     'it should say something more casual',
     'lets tune the response format',
     'the response should be shorter',
@@ -349,8 +349,8 @@ describe('sanitizer false positive protection', () => {
     expect(r.text).toBe('nice play!')
   })
 
-  it('fixes Reynolds → reynad', () => {
-    expect(sanitize('Reynolds made this game').text).toContain('reynad')
+  it('no longer fixes Reynolds (Sonnet spells correctly)', () => {
+    expect(sanitize('Reynolds made this game').text).toBe('Reynolds made this game')
   })
 
   it('normalizes smart quotes for pattern matching', () => {
@@ -1008,11 +1008,11 @@ describe('SEC: COT leak edge cases', () => {
   // model sometimes wraps COT in different phrasings
   // some get fully rejected, others get the COT prefix stripped
   const fullyRejected = [
-    'this is conversational so keeping it brief',
-    'this is unrelated to the game but here goes',
+    // 'this is conversational so keeping it brief', // loosened for Sonnet
+    // 'this is unrelated to the game but here goes', // loosened for Sonnet
     'why am i answering this? anyway, yes',
     'i should probably not say this but',
-    'chat dynamics are interesting today',
+    // 'chat dynamics are interesting today', // loosened for Sonnet
     'the reply should be casual',
     'the answer could be shorter',
   ]
@@ -1030,9 +1030,8 @@ describe('SEC: COT leak edge cases', () => {
     expect(r.text).toBeTruthy()
   })
 
-  it('"not game-related" fully rejected by COT_LEAK', () => {
-    // COT_LEAK catches "not game-related" — entire response rejected (correct)
-    expect(sanitize('not game-related but the moon is cool').text).toBe('')
+  it('"not game-related" no longer rejected (loosened for Sonnet)', () => {
+    expect(sanitize('not game-related but the moon is cool').text).toBeTruthy()
   })
 })
 

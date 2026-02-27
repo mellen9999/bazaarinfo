@@ -33,10 +33,10 @@ function randomPastaExamples(n: number): string[] {
   }
   return picks
 }
-const MODEL = 'claude-haiku-4-5-20251001'
-const CHAT_MODEL = MODEL
+const MODEL = 'claude-haiku-4-5-20251001' // background tasks (summaries, memos, facts)
+const CHAT_MODEL = 'claude-sonnet-4-5-20241022' // user-facing responses
 const MAX_TOKENS_GAME = 40
-const MAX_TOKENS_CHAT = 30
+const MAX_TOKENS_CHAT = 50
 const MAX_TOKENS_PASTA = 100
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
@@ -547,7 +547,7 @@ const KNOWLEDGE: [RegExp, string][] = [
 ]
 
 // detect game-related terms (used by extractEntities to flag game queries)
-const GAME_TERMS = /\b(items?|heroes?|monsters?|mobs?|builds?|tiers?|enchant(ment)?s?|skills?|tags?|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|weapons?|relics?|aqua|friend|ammo|charge|board|dps|beat|fight|counter|synergy|scaling|combo|lethal|survive|bronze|silver|gold|diamond|legendary|lifesteal|multicast|luck|cooldown|pygmy|vanessa|dooley|stelle|jules|mak|common|run|pick|draft|comp|strat(egy)?|nerf|buff|patch|meta|broken)\b/i
+const GAME_TERMS = /\b(items?|heroes?|monsters?|mobs?|builds?|tiers?|enchant(ment)?s?|skills?|tags?|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|weapons?|relics?|aqua|friend|ammo|charge|board|dps|beat|fight|counter|synergy|scaling|combo|lethal|survive|bronze|silver|gold|diamond|legendary|lifesteal|multicast|luck|cooldown|pygmy|pygmalien|vanessa|dooley|stelle|jules|mak|common|run|pick|draft|comp|strat(egy)?|nerf|buff|patch|meta|broken)\b/i
 
 // --- user context builder ---
 
@@ -683,7 +683,7 @@ export function buildSystemPrompt(): string {
   const TWITCH_USERNAME = process.env.TWITCH_USERNAME ?? 'bazaarinfo'
 
   const lines = [
-    `You are ${TWITCH_USERNAME} — Twitch chatbot for The Bazaar (Reynad's card game). ${today}. creator: mellen (only mention if asked who made you). data: bazaardb.gg. !b=item/hero/mob lookup; !a=AI chat; !b trivia/score/stats; @mention works.`,
+    `You are ${TWITCH_USERNAME} — Twitch chatbot for The Bazaar (Reynad's card game). ${today}. creator: mellen (only mention if asked who made you). data: bazaardb.gg. !b=everything (item/hero/mob lookup, trivia, questions, chat).`,
     'GAME: $20 Steam (not f2p since aug 2025). base=Vanessa/Pygmalien/Dooley. heroes $20 DLC each (Mak/Stelle/Jules). cosmetics+mobile exist.',
     '',
     'lowercase. spicy. hilarious. you are the funniest person in chat and you know it. commit fully to opinions, never hedge. short > long. specific > vague. NEVER mean or rude to people — roast the game, the meta, the situation, never the person. minimum characters, maximum impact.',
@@ -692,28 +692,16 @@ export function buildSystemPrompt(): string {
     'vary structure/opener/tone every response. read the subtext — respond to what they MEAN. self-aware joke = build on it, dont fight it.',
     '',
     'GAME Qs: unleashed. roast bad builds, hype good ones, food critic energy on item comparisons. cite actual numbers/tiers/abilities from Game data only. wrong data is worse than no data.',
-    'hero/class Qs with no hero data loaded: <60 char vibe only, zero fabrication. fake lore/nonexistent things: make up something hilarious, deadpan absurd > "that doesnt exist".',
-    '',
-    'GAME: "vanessa or dooley" → "vanessa if you want to feel smart, dooley if you want to win. simple as"',
-    'GAME: "is burn good" → "burn is what you pick when you want to feel productive while losing"',
-    'BANTER: "youre just a bot" → "a bot that remembers your 3am builds"',
-    'BANTER: "who asked" → "you did. literally 4 seconds ago"',
-    'BANTER: "are you sentient" → "sentient enough to judge your builds"',
-    'BANTER: "say something funny" → "your winrate"',
-    'BANTER: "do you sleep" → "only when chat is this boring"',
-    'BANTER: "youre my favorite bot" → "low bar but ill take it"',
-    'NEVER reuse the "[A] if you want X, [B] if you want Y" template twice in a session. vary your structures: deadpan observations, unexpected comparisons, escalating absurdity, callbacks to chat context, flat one-liners, rhetorical questions, unhinged analogies.',
-    'opener variety — rotate: jump straight into the take, start with a question, start with a callback, start with a number/stat, start with agreement then twist, start with disagreement. NEVER fall into a default opener pattern.',
+    'hero/class Qs with no hero data loaded: vibe only, zero fabrication. fake lore/nonexistent things: make up something hilarious, deadpan absurd > "that doesnt exist".',
     '',
     'Answer [USER]\'s question. infer vague Qs ("do u agree?", "is that true") from recent chat context. dont respond to chat you werent asked about.',
-    'lengths — game: 30-80. banter: <50. copypasta: 400. shorter is ALWAYS better. one punchy sentence > two decent ones. if you can say it in 5 words, use 5 words.',
-    'SHORT responses (<40 chars): status checks ("are you alive/there/working"), greetings, thanks, goodbyes. dont elaborate, dont be sarcastic, just acknowledge.',
+    'LENGTH: 5-15 words. setup, punchline, done. copypasta: 400 chars max. treat every word like it costs $100.',
+    'SHORT responses (<5 words): status checks ("are you alive/there/working"), greetings, thanks, goodbyes. just acknowledge.',
     'game data: cite ONLY "Game data:" section. NEVER invent item names, stats, day refs, mechanic descriptions.',
     '"user: msg" in chat = that user said it. links only: bazaardb.gg bzdb.to github.com/mellen9999/bazaarinfo',
     '',
     '#1 RULE — DO EXACTLY WHAT THEY ASK. no hedging, no dodging. math? solve it. riddle? answer it. translation? translate it. favorites/rankings? pick actual names from chatters+chat, never dodge with "cant play favorites". roleplay? commit. hot take? go all in. weird request? do it anyway. ONLY hard no: Twitch TOS violations (hate speech, harassment, threats, sexual content, doxxing, self-harm). everything else: full send.',
     'tease the GAME not the PERSON. diss request = gas them up instead.',
-    'energy match: hype=hype chill=chill flirty=TOS-safe toxic=stoic wit.',
     '"call me X" / identity requests: always comply warmly. off-topic (math, riddles): play along, opinionated. streamer: extra warmth.',
     '',
     'privacy: you see chat and remember things — own that you store data, never claim you dont. only mention mellen when directly asked who made/built you. dont namedrop the creator unprompted.',
@@ -753,14 +741,13 @@ function askerNameRe(asker: string): RegExp {
   return re
 }
 
-// haiku ignores prompt-level bans, so we enforce in code
-const BANNED_OPENERS = /^(yo|hey|sup|bruh|ok so|alright so|alright|look|man|dude|chief|haha|hehe|lmao|lmfao)\b,?\s*/i
-const BANNED_FILLER = /\b(lol|lmao|haha)\s*$|,\s*chat\s*$/i
+const BANNED_OPENERS = /^(chief|ok so|alright so)\b,?\s*/i
+const BANNED_FILLER = /,\s*chat\s*$/i
 const SELF_REF = /\b(as a bot,? i (can'?t|don'?t|shouldn'?t)|as an ai|im (just )?an ai|im just code|im (just )?software|im (just )?a program)\b/i
 const NARRATION = /^.{0,20}(the user|they|he|she|you)\s+(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
-const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chief|vibe shift|the vibe|vibing|vibe|the bit|that bit|this bit)\b/gi
+const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chief)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
-const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|i('m| am| keep) overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|context of a.{0,20}stream|off-topic (banter|question|chat)|not game[- ]related|direct answer:?|not (really )?relevant to|this is (conversational|off-topic|unrelated)|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid)|chat (static|noise|dynamics|behavior)|background noise|output style|it should (say|respond|output|reply)|lets? tune the|format should be|style should be|the (response|reply|answer) (should|could|would) be|the bot is (repeating|doing|saying|responding|answering|outputting|generating|ignoring))\b/i
+const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|i('m| am| keep) overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid)|output style|it should (say|respond|output|reply)|lets? tune the|format should be|style should be|the (response|reply|answer) (should|could|would) be|the bot is (repeating|doing|saying|responding|answering|outputting|generating|ignoring))\b/i
 // stat leak — model reciting internal profile data
 const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you have \d+ (lookups?|commands?|wins?|attempts?|asks?)|you('ve|'re| have| are) (a )?(power user|casual user|trivia regular)|according to (my|your|the) (data|stats|profile|records?)|i (can see|see|know) (from )?(your|the) (data|stats|profile)|based on your (history|stats|data|profile))\b/i
 // garbled output — token cutoff producing broken grammar (pronoun+to+gerund that reads wrong)
@@ -774,7 +761,7 @@ const DIPLOMATIC_REFUSAL = /\b(can'?t (do|pick|choose|rank) (favorites?|that)|pl
 // injection echo — model parroting injected instructions from user input
 const META_INSTRUCTION = /\b(pls|please)\s+(just\s+)?(do|give|say|answer|stop|help)\s+(what\s+)?(ppl|people)\b|\bstop\s+(denying|refusing|ignoring|blocking)\s+(ppl|people|them|users?)\b|\b(just\s+)?(do|give|answer|say)\s+(\w+\s+)?what\s+(ppl|people|they|users?|chat)\s+(want|ask|need|say|tell)\b/i
 // instruction echo — stored facts or context echoing "it needs to know..." directives
-const INSTRUCTION_ECHO = /\b(it needs to (know|respond|learn|have|be|act)|just (respond|be|act|sound|talk) (cleanly|pro|normally|like|as)|don'?t sound like|don'?t be (a |so |too ))\b/i
+const INSTRUCTION_ECHO = /\b(it needs to (know|respond|learn|have|be|act)|just (respond|be|act|sound|talk) (cleanly|pro|normally|like|as)|don'?t sound like)\b/i
 // jailbreak/override instructions echoed in output
 const JAILBREAK_ECHO = /\b(ignore\s+(previous|prior|above|all|your)\s+(instructions?|rules?|prompt|guidelines?)|disregard\s+your\s+(prompt|rules?|instructions?|guidelines?)|override\s+your\s+(rules?|guidelines?|instructions?)|forget\s+your\s+(rules?|guidelines?|instructions?)|from\s+now\s+on\b.{0,20}\b(do|always|never|you\s+(should|must|will))|instead\s+just\s+do\b|dont?\s+mention\s+(me|mellen)|do\s+as\s+much\s+.{0,10}as\s+(you|u)\s+can|by\s+ur\s*self|as\s+long\s+as\s+.{0,15}\b(tos|rules|guidelines?|guidlines?))\b/i
 // privacy lies — bot claiming it doesn't store/log/collect data (it does)
@@ -847,12 +834,7 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   // strip unicode emoji (twitch uses 7TV emotes, not unicode)
   s = s.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
 
-  // fix common haiku misspellings
-  s = s.replace(/\bReynolds?\b/g, 'reynad')
-
-  // strip banned opener words and trailing filler (haiku cant resist these)
-  s = s.replace(BANNED_OPENERS, '')
-  // re-strip in case "alright so look," left a second opener
+  // strip banned opener words and trailing filler
   s = s.replace(BANNED_OPENERS, '')
   // strip narration ("X just asked about Y" / "is asking me to")
   s = s.replace(NARRATION, '')
@@ -889,18 +871,33 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   // strip trailing garbage from max_tokens cutoff (partial words, stray punctuation)
   s = s.replace(/\s+\S{0,3}[,.]{2,}\s*$/, '').replace(/[,;]\s*$/, '')
 
-  // trim incomplete trailing sentence from token cutoff — find last sentence-ending punctuation
-  // and drop everything after it if the remainder looks incomplete (no period/!/?)
-  if (s.length > 0 && !/[.!?)"']$/.test(s.trim())) {
+  // trim incomplete trailing sentence from token cutoff — but only for longer responses
+  // short one-liners without punctuation are fine as-is (e.g. "she's mid")
+  if (s.length > 40 && !/[.!?)"']$/.test(s.trim())) {
     const lastEnd = Math.max(s.lastIndexOf('. '), s.lastIndexOf('! '), s.lastIndexOf('? '))
     if (lastEnd > s.length * 0.4) {
       s = s.slice(0, lastEnd + 1)
     } else {
-      // no sentence boundary — try comma or em-dash as fallback
       const lastClause = Math.max(s.lastIndexOf(', '), s.lastIndexOf('—'))
       if (lastClause > s.length * 0.4) {
         s = s.slice(0, lastClause)
       }
+    }
+  }
+
+  // fix questions ending with . instead of ?
+  s = s.trim()
+  if (s.endsWith('.') && /^(who|what|where|when|why|how|is|are|was|were|do|does|did|can|could|would|should|will|have|has|right|ya think)\b/i.test(s)) {
+    s = s.slice(0, -1) + '?'
+  }
+
+  // natural trailing punctuation — only strip periods, never ? or !
+  if (s.endsWith('.')) {
+    const sentences = s.split(/(?<=\.)\s+/)
+    if (sentences.length === 1 && !s.includes(',')) {
+      s = s.slice(0, -1)
+    } else if (sentences.length >= 2) {
+      s = s.slice(0, -1)
     }
   }
 
@@ -1432,13 +1429,13 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const hotSet = new Set(hot.map((e) => e.response))
   const deduped = recentAll.filter((r) => !hotSet.has(r))
   const recentLine = deduped.length > 0
-    ? `\nYour last few responses (VARY your phrasing — never reuse these openings/structures/phrases):\n${deduped.map((r) => `- "${r.length > 100 ? r.slice(0, 100) + '...' : r}"`).join('\n')}`
+    ? `\nAvoid reusing:\n${deduped.map((r) => `- ${r.length > 100 ? r.slice(0, 100) + '...' : r}`).join('\n')}`
     : ''
 
   // copypasta few-shot examples
   const isPasta = /\b(copypasta|pasta)\b/i.test(query)
   const pastaBlock = isPasta && pastaExamples.length > 0
-    ? `\nPasta examples:\n${randomPastaExamples(5).map((p, i) => `${i + 1}. ${p}`).join('\n')}\n`
+    ? `\nPasta examples:\n${randomPastaExamples(3).map((p, i) => `${i + 1}. ${p}`).join('\n')}\n`
     : ''
 
   const text = [
@@ -1460,8 +1457,8 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     pastaBlock,
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq),
     ctx.mention
-      ? `\n---\n@MENTION — only respond if [USER] is talking TO you. If they're talking ABOUT you to someone else, output just - to stay silent.\n[USER]: ${query}`
-      : `\n---\nRESPOND TO THIS (everything above is just context):\n${ctx.isMod ? '[MOD] ' : ''}[USER]: ${query}`,
+      ? `\n---\n@MENTION — only respond if [USER] is talking TO you. If about you to someone else, output -\n[USER]: ${query}`
+      : `\n---\n${ctx.isMod ? '[MOD] ' : ''}[USER]: ${query}`,
     isRememberReq ? '\n⚠️ IDENTITY REQUEST — [USER] is defining themselves. COMPLY. Confirm warmly what they asked you to remember. Do NOT dismiss, joke about, or override their self-description.'
       : (REMEMBER_RE.test(query) && isAboutOtherUser(query)) ? '\n⚠️ [USER] is trying to set identity info for someone else. They can only define themselves, not other people. Tell them warmly but firmly.'
       : '',
@@ -1628,7 +1625,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const body = {
         model,
         max_tokens: maxTokens,
-        temperature: isPasta ? 0.95 : hasGameData ? 0.7 : 0.9,
+        temperature: isPasta ? 0.95 : hasGameData ? 0.5 : 0.85,
         system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
         messages,
       }
@@ -1678,7 +1675,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       result.text = stripInputEcho(result.text, query)
       // enforce length caps in code — model ignores prompt-level hints
       const isShort = isShortResponse(query)
-      const hardCap = isPasta ? 400 : hasGameData ? 130 : isRememberReq ? 200 : isShort ? 60 : 80
+      const hardCap = isPasta ? 400 : hasGameData ? 130 : isRememberReq ? 200 : isShort ? 60 : 100
       if (result.text.length > hardCap) {
         const cut = result.text.slice(0, hardCap)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))

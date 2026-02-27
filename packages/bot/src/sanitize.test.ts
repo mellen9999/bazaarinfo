@@ -22,33 +22,23 @@ describe('sanitize', () => {
     expect(sanitize('alright so here we go').text).toBe('here we go')
   })
 
-  it('strips banned openers: alright', () => {
-    expect(sanitize('alright here we go').text).toBe('here we go')
+  it('no longer strips casual openers (Sonnet handles this)', () => {
+    expect(sanitize('alright here we go').text).toBe('alright here we go')
+    expect(sanitize('look this is real').text).toBe('look this is real')
+    expect(sanitize('man that was wild').text).toBe('man that was wild')
+    expect(sanitize('dude check this out').text).toBe('dude check this out')
+    expect(sanitize('yo what up').text).toBe('yo what up')
   })
 
-  it('strips banned openers: look', () => {
-    expect(sanitize('look this is real').text).toBe('this is real')
+  it('still strips chief and ok so openers', () => {
+    expect(sanitize('chief here we go').text).toBe('here we go')
+    expect(sanitize('ok so here we go').text).toBe('here we go')
+    expect(sanitize('alright so here we go').text).toBe('here we go')
   })
 
-  it('strips banned openers: man', () => {
-    expect(sanitize('man that was wild').text).toBe('that was wild')
-  })
-
-  it('strips banned openers: dude', () => {
-    expect(sanitize('dude check this out').text).toBe('check this out')
-  })
-
-  it('strips banned openers: yo', () => {
-    expect(sanitize('yo what up').text).toBe('what up')
-  })
-
-  it('strips stacked openers: alright so look,', () => {
-    expect(sanitize('alright so look, here we go').text).toBe('here we go')
-  })
-
-  it('strips trailing filler', () => {
-    expect(sanitize('nice play lol').text).toBe('nice play')
-    expect(sanitize('great stuff lmao').text).toBe('great stuff')
+  it('no longer strips trailing lol/lmao (valid Twitch humor)', () => {
+    expect(sanitize('nice play lol').text).toBe('nice play lol')
+    expect(sanitize('great stuff lmao').text).toBe('great stuff lmao')
   })
 
   it('strips trailing ", chat" filler', () => {
@@ -100,7 +90,7 @@ describe('sanitize', () => {
 
   it('strips trailing question', () => {
     const r = sanitize('cabbage is great. What do you think?')
-    expect(r.text).toBe('cabbage is great.')
+    expect(r.text).toBe('cabbage is great')
   })
 
   it('converts large ms to seconds', () => {
@@ -261,8 +251,8 @@ describe('sanitize', () => {
     expect(r.text).toBe('good stuff though')
   })
 
-  it('rejects "not game-related" classification leak', () => {
-    expect(sanitize('not game-related but still fun').text).toBe('')
+  it('allows "not game-related" (Sonnet uses naturally)', () => {
+    expect(sanitize('not game-related but still fun').text).toBe('not game-related but still fun')
   })
 
   // --- STAT_LEAK patterns ---
@@ -296,8 +286,8 @@ describe('sanitize', () => {
     const long = 'a'.repeat(300) + '. ' + 'b'.repeat(200)
     const r = sanitize(long)
     expect(r.text.length).toBeLessThanOrEqual(440)
-    // incomplete sentence trimmer keeps up to the period
-    expect(r.text).toBe('a'.repeat(300) + '.')
+    // incomplete sentence trimmer trims to period, then period-stripper removes it
+    expect(r.text).toBe('a'.repeat(300))
   })
 
   it('preserves text over 200 chars when truncating', () => {
@@ -366,13 +356,13 @@ describe('sanitize', () => {
     expect(sanitize("you to running builds like that").text).toBe('')
   })
 
-  // --- meta-chat-analysis COT_LEAK ---
-  it('rejects "chat static" meta-analysis', () => {
-    expect(sanitize("bird spam is classic chat static").text).toBe('')
+  // --- meta-chat-analysis (loosened for Sonnet — no longer blocked) ---
+  it('passes "chat static" (no longer blocked)', () => {
+    expect(sanitize("bird spam is classic chat static").text).toBeTruthy()
   })
 
-  it('rejects "background noise" meta-analysis', () => {
-    expect(sanitize("it was already background noise by then").text).toBe('')
+  it('passes "background noise" (no longer blocked)', () => {
+    expect(sanitize("it was already background noise by then").text).toBeTruthy()
   })
 
   // --- self-instruction COT_LEAK ---
@@ -396,13 +386,13 @@ describe('sanitize', () => {
     expect(sanitize('the response should be shorter and punchier').text).toBe('')
   })
 
-  // --- banned opener haha/hehe ---
-  it('strips "haha" opener', () => {
-    expect(sanitize('haha that was wild').text).toBe('that was wild')
+  // --- haha/hehe (loosened for Sonnet — no longer stripped) ---
+  it('passes "haha" opener (no longer stripped)', () => {
+    expect(sanitize('haha that was wild').text).toBe('haha that was wild')
   })
 
-  it('strips "hehe" opener', () => {
-    expect(sanitize('hehe nice one').text).toBe('nice one')
+  it('passes "hehe" opener (no longer stripped)', () => {
+    expect(sanitize('hehe nice one').text).toBe('hehe nice one')
   })
 
   // --- COT_LEAK: third-person bot meta ---
@@ -558,8 +548,8 @@ describe('real response regressions', () => {
     expect(sanitize('chatgpt also thinks pumpkin is in 47 different archetypes').text).toBeTruthy()
   })
 
-  it('correctly fixes Reynolds→reynad misspelling', () => {
-    expect(sanitize('Reynolds created this game').text).toBe('reynad created this game')
+  it('no longer fixes Reynolds→reynad (Sonnet spells correctly)', () => {
+    expect(sanitize('Reynolds created this game').text).toBe('Reynolds created this game')
   })
 
   it('does not strip "not" when part of real answers', () => {

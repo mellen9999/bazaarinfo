@@ -105,7 +105,7 @@ mock.module('./emotes', () => ({
   removeChannelEmotes: mock(() => {}),
 }))
 
-const { handleCommand, parseArgs, resetDedup, resetProxyCooldowns, resetAiChatCooldowns, PROXY_COOLDOWN } = await import('./commands')
+const { handleCommand, parseArgs, resetDedup, resetProxyCooldowns, PROXY_COOLDOWN } = await import('./commands')
 
 // --- test fixtures ---
 function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
@@ -153,7 +153,6 @@ const shield = makeCard({
 beforeEach(() => {
   resetDedup()
   resetProxyCooldowns()
-  resetAiChatCooldowns()
   mockLogCommand.mockReset()
   mockExact.mockReset()
   mockSearch.mockReset()
@@ -612,7 +611,7 @@ describe('!b enchantment (any order)', () => {
 
   it('returns not found when enchantment item doesnt exist', async () => {
     const result = await handleCommand('!b fiery nonexistent')
-    expect(result).toContain('no item found for "nonexistent"')
+    expect(result).toContain('no item found for nonexistent')
   })
 
   it('multi-word item after enchantment', async () => {
@@ -766,7 +765,7 @@ describe('!b hero', () => {
 
   it('returns not found for unknown hero', async () => {
     const result = await handleCommand('!b hero nobody')
-    expect(result).toContain('no items found for hero "nobody"')
+    expect(result).toContain('no items found for hero nobody')
   })
 
   it('hero keyword is case-insensitive', async () => {
@@ -1322,7 +1321,7 @@ describe('!b skill', () => {
 
   it('returns not found for unknown skill', async () => {
     const result = await handleCommand('!b skill xyzskill')
-    expect(result).toContain('no skill found for "xyzskill"')
+    expect(result).toContain('no skill found for xyzskill')
   })
 
   it('is case-insensitive keyword', async () => {
@@ -1382,9 +1381,9 @@ describe('usage string', () => {
 describe('!b AI fallback', () => {
   it('conversational query falls through to AI', async () => {
     const result = await handleCommand('!b is vanessa good', { user: 'chatter', channel: 'stream' })
-    // AI mock returns null by default → sleeping emoji instead of silence
+    // AI mock returns null by default → no-match fallback instead of silence
     expect(mockAiRespond).toHaveBeenCalled()
-    expect(result).toBe('🤖💤')
+    expect(result).toContain('no match for')
   })
 
   it('short query + no match = no-match fallback', async () => {
@@ -1400,89 +1399,6 @@ describe('!b AI fallback', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// !a — AI chat command
-// ---------------------------------------------------------------------------
-describe('!a AI chat', () => {
-  it('routes !a to AI handler', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: 'vanessa is solid', mentions: [] }))
-    const result = await handleCommand('!a is vanessa good', { user: 'chatter', channel: 'stream' })
-    expect(result).toContain('vanessa is solid')
-  })
-
-  it('empty !a shows usage', async () => {
-    const result = await handleCommand('!a')
-    expect(result).toContain('!a <question>')
-  })
-
-  it('!a with only spaces shows usage', async () => {
-    const result = await handleCommand('!a   ')
-    expect(result).toContain('!a <question>')
-  })
-
-  it('!a dedup is per-user (different users get responses)', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: 'yes', mentions: [] }))
-    await handleCommand('!a is pygmalien good', { user: 'a', channel: 'ch' })
-    const result = await handleCommand('!a is pygmalien good', { user: 'b', channel: 'ch' })
-    expect(result).toBe('yes')
-  })
-
-  it('!a dedup suppresses same user same query', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: 'yes', mentions: [] }))
-    await handleCommand('!a is pygmalien good', { user: 'a', channel: 'ch' })
-    resetDedup()
-    // need fresh dedup state, then test same user
-    await handleCommand('!a is dooley good', { user: 'a', channel: 'ch' })
-    const result = await handleCommand('!a is dooley good', { user: 'a', channel: 'ch' })
-    expect(result).toBeNull()
-  })
-
-  it('!a shows cooldown message on second use within 30s', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: 'response', mentions: [] }))
-    await handleCommand('!a tell me about vanessa', { user: 'cduser', channel: 'stream' })
-    resetDedup()
-    const result = await handleCommand('!a another question', { user: 'cduser', channel: 'stream' })
-    expect(result).toContain('!a on cd')
-    expect(result).toMatch(/\d+s/)
-  })
-
-  it('!a returns fallback message when AI fails', async () => {
-    mockAiRespond.mockImplementation(() => null)
-    const result = await handleCommand('!a something random', { user: 'chatter', channel: 'stream' })
-    expect(result).toBe('🤖💤')
-  })
-
-  it('!a logs command on success', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: 'hi', mentions: [] }))
-    await handleCommand('!a hello', { user: 'chatter', channel: 'stream' })
-    expect(mockLogCommand).toHaveBeenCalledWith(
-      { user: 'chatter', channel: 'stream' },
-      'ai',
-      'hello',
-      'direct',
-    )
-  })
-
-  it('!a preserves usernames but strips @ from query', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: 'yo', mentions: [] }))
-    await handleCommand('!a @someone tell me stuff', { user: 'u', channel: 'c' })
-    expect(mockAiRespond).toHaveBeenCalledWith('someone tell me stuff', expect.any(Object))
-  })
-
-  it('!a passes direct flag to aiRespond', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: 'hi', mentions: [] }))
-    await handleCommand('!a hello world', { user: 'u', channel: 'c' })
-    expect(mockAiRespond).toHaveBeenCalledWith('hello world', expect.objectContaining({ direct: true }))
-  })
-
-  it('different users can use !a back-to-back (no global cd)', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: 'reply', mentions: [] }))
-    await handleCommand('!a q1', { user: 'user1', channel: 'ch' })
-    resetDedup()
-    const result = await handleCommand('!a q2', { user: 'user2', channel: 'ch' })
-    expect(result).toBe('reply')
-  })
-})
 
 // ---------------------------------------------------------------------------
 // Command proxy — direct ! commands
@@ -1598,9 +1514,9 @@ describe('command proxy: embedded in chat', () => {
   it('embedded blocked command does not execute !ban', async () => {
     // "can you !ban this guy" — blocked cmd embedded, falls through to AI fallback
     const result = await handleCommand('!b can you !ban this guy', { user: 'u', channel: 'c' })
-    // should NOT proxy !ban — falls through to AI fallback
+    // should NOT proxy !ban — falls through to AI fallback, then no-match
     expect(result).not.toMatch(/^!ban/)
-    expect(result).toBe('🤖💤')
+    expect(result).toBeTruthy()
   })
 
   it('preserves original case of command name', async () => {
@@ -1768,84 +1684,4 @@ describe('command proxy: mod bypass', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// Deterministic string tricks
-// ---------------------------------------------------------------------------
-describe('string tricks', () => {
-  it('reverses quoted string', async () => {
-    expect(await handleCommand('!b reverse this string "egdirB"', { user: 'u', channel: 'c' })).toBe('Bridge')
-  })
-
-  it('reverses smart-quoted string', async () => {
-    expect(await handleCommand('!b reverse \u201cegdirB\u201d', { user: 'u', channel: 'c' })).toBe('Bridge')
-  })
-
-  it('reverses unquoted trailing word', async () => {
-    expect(await handleCommand('!b reverse olleH', { user: 'u', channel: 'c' })).toBe('Hello')
-  })
-
-  it('uppercase quoted string', async () => {
-    expect(await handleCommand('!b uppercase "hello world"', { user: 'u', channel: 'c' })).toBe('HELLO WORLD')
-  })
-
-  it('lowercase quoted string', async () => {
-    expect(await handleCommand('!b lowercase "HELLO"', { user: 'u', channel: 'c' })).toBe('hello')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// AI command management (mod asks AI to add/edit/delete streamlabs commands)
-// ---------------------------------------------------------------------------
-describe('AI command management via !a', () => {
-  it('mod AI response with !addcom gets sent to chat', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: '!addcom !harem 42 cuties in the harem Kreygasm', mentions: [] }))
-    const result = await handleCommand('!a hey add a command called harem', { user: 'mod', channel: 'stream', privileged: true, isMod: true })
-    expect(result).toBe('!addcom !harem 42 cuties in the harem Kreygasm')
-  })
-
-  it('mod AI response with !editcom gets sent to chat', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: '!editcom !harem 99 cuties in the harem', mentions: [] }))
-    const result = await handleCommand('!a edit the harem command to say 99', { user: 'mod', channel: 'stream', privileged: true, isMod: true })
-    expect(result).toBe('!editcom !harem 99 cuties in the harem')
-  })
-
-  it('mod AI response with !delcom gets sent to chat', async () => {
-    mockAiRespond.mockImplementation(() => ({ text: '!delcom !harem', mentions: [] }))
-    const result = await handleCommand('!a delete the harem command', { user: 'mod', channel: 'stream', privileged: true, isMod: true })
-    expect(result).toBe('!delcom !harem')
-  })
-
-  it('non-mod gets fallback when AI fails', async () => {
-    mockAiRespond.mockImplementation(() => null)
-    const result = await handleCommand('!a add a command called harem', { user: 'viewer', channel: 'stream' })
-    // no AI result → busy message instead of silence
-    expect(result).toBe('🤖💤')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Copypasta via AI
-// ---------------------------------------------------------------------------
-describe('copypasta via !a', () => {
-  it('returns copypasta from AI', async () => {
-    const pasta = 'listen here chat, i have been PERSONALLY victimized by boomerang players who think they are hot stuff just because they deal 60 damage'
-    mockAiRespond.mockImplementation(() => ({ text: pasta, mentions: [] }))
-    const result = await handleCommand('!a give me a copypasta about boomerang', { user: 'chatter', channel: 'stream' })
-    expect(result).toContain('boomerang')
-  })
-
-  it('copypasta works for non-mods', async () => {
-    const pasta = 'we are ALL vanessa mains on this blessed day'
-    mockAiRespond.mockImplementation(() => ({ text: pasta, mentions: [] }))
-    const result = await handleCommand('!a write a copypasta about vanessa', { user: 'viewer', channel: 'stream' })
-    expect(result).toBe(pasta)
-  })
-
-  it('copypasta can use full message length', async () => {
-    const longPasta = 'a'.repeat(400)
-    mockAiRespond.mockImplementation(() => ({ text: longPasta, mentions: [] }))
-    const result = await handleCommand('!a copypasta about gaming', { user: 'chatter', channel: 'stream' })
-    expect(result).toBeTruthy()
-  })
-})
 

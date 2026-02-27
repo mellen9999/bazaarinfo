@@ -4,7 +4,7 @@ import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
-import { aiRespond, dedupeEmote, fixEmoteCase, getAiCooldown } from './ai'
+import { aiRespond, dedupeEmote, fixEmoteCase } from './ai'
 
 const MAX_LEN = 480
 
@@ -132,8 +132,6 @@ let lobbyChannel = ''
 export function setLobbyChannel(name: string) { lobbyChannel = name }
 
 const OWNER = (process.env.BOT_OWNER ?? '').toLowerCase()
-const BOT_NAME = (process.env.TWITCH_USERNAME ?? '').toLowerCase()
-const mentionRe = BOT_NAME ? new RegExp(`@${BOT_NAME}\\b`, 'i') : null
 let onRefresh: (() => Promise<string>) | null = null
 export function setRefreshHandler(handler: () => Promise<string>) { onRefresh = handler }
 
@@ -230,7 +228,7 @@ const subcommands: [RegExp, SubHandler][] = [
     if (!monster) {
       logMiss(query, ctx)
       const suggestions = store.suggest(query, 3)
-      if (suggestions.length) return `no monster found for "${query}" — try: ${suggestions.join(', ')}`
+      if (suggestions.length) return `no monster found for ${query} — try: ${suggestions.join(', ')}`
       return `no monster found for ${query}`
     }
     logHit('mob', query, monster.Title, ctx)
@@ -239,7 +237,7 @@ const subcommands: [RegExp, SubHandler][] = [
   [/^hero\s+(.+)$/i, (query, ctx, suffix) => {
     const resolved = store.findHeroName(query)
     const items = store.byHero(query)
-    if (items.length === 0) return `no items found for hero "${query}"`
+    if (items.length === 0) return `no items found for hero ${query}`
     const displayName = resolved ?? query
     logHit('hero', query, `${items.length} items`, ctx)
     return withSuffix(truncate(`[${displayName}] ${items.map((i) => i.Title).join(', ')}`), suffix)
@@ -255,7 +253,7 @@ const subcommands: [RegExp, SubHandler][] = [
     if (cards.length === 0) {
       logMiss(query, ctx)
       const suggestions = store.suggest(query, 3)
-      if (suggestions.length) return `no items found with tag "${query}" — try: ${suggestions.join(', ')}`
+      if (suggestions.length) return `no items found with tag ${query} — try: ${suggestions.join(', ')}`
       return `no items found with tag ${query}`
     }
     const displayTag = resolved ?? query
@@ -272,7 +270,7 @@ const subcommands: [RegExp, SubHandler][] = [
   }],
   [/^skill\s+(.+)$/i, (query, ctx, suffix) => {
     const skill = store.findSkill(query)
-    if (!skill) { logMiss(query, ctx); return `no skill found for "${query}"` }
+    if (!skill) { logMiss(query, ctx); return `no skill found for ${query}` }
     logHit('skill', query, skill.Title, ctx)
     return withSuffix(formatItem(skill), suffix)
   }],
@@ -307,37 +305,15 @@ function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: Tie
   return { tier: undefined, note: null }
 }
 
-// --- deterministic string tricks (reverse, uppercase, etc.) ---
-// uses raw args (before quote stripping) so quoted strings are preserved
-
-const Q = '[""\u201C\u201D]' // ASCII + smart quotes
-const STRING_TRICK_RE = new RegExp(`\\breverse\\b.*?${Q}(.+?)${Q}|\\breverse\\b.*\\b(\\S+)$`, 'i')
-const UPPERCASE_TRICK_RE = new RegExp(`\\b(?:uppercase|upcase|caps)\\b.*?${Q}(.+?)${Q}|\\b(?:uppercase|upcase|caps)\\b.*\\b(\\S+)$`, 'i')
-const LOWERCASE_TRICK_RE = new RegExp(`\\b(?:lowercase|downcase)\\b.*?${Q}(.+?)${Q}|\\b(?:lowercase|downcase)\\b.*\\b(\\S+)$`, 'i')
-
-function handleStringTrick(raw: string): string | null {
-  let m = raw.match(STRING_TRICK_RE)
-  if (m) {
-    const target = m[1] ?? m[2]
-    return [...target].reverse().join('')
-  }
-  m = raw.match(UPPERCASE_TRICK_RE)
-  if (m) return (m[1] ?? m[2]).toUpperCase()
-  m = raw.match(LOWERCASE_TRICK_RE)
-  if (m) return (m[1] ?? m[2]).toLowerCase()
-  return null
-}
-
 async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string | null> {
   const words = cleanArgs.split(/\s+/)
   const { item: query, tier, enchant } = parseArgs(words)
 
   if (!query) return BASE_USAGE + JOIN_USAGE()
 
-
   if (enchant) {
     const card = store.exact(query) ?? store.search(query, 1)[0]
-    if (!card) { logMiss(query, ctx); return `no item found for "${query}"` }
+    if (!card) { logMiss(query, ctx); return `no item found for ${query}` }
     logHit('enchant', query, `${card.Title}+${enchant}`, ctx, tier)
     return withSuffix(formatEnchantment(card, enchant, tier), suffix)
   }
@@ -372,19 +348,15 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   if (queryWords.length <= 2) {
     const suggestions = store.suggest(query, 3)
     if (suggestions.length > 0) {
-      return withSuffix(`no "${query}" — did you mean: ${suggestions.join(', ')}?`, suffix)
+      return withSuffix(`no ${query} — did you mean: ${suggestions.join(', ')}?`, suffix)
     }
   }
   // conversational queries (>2 words) return null to trigger AI fallback in bazaarinfo
   if (queryWords.length > 2) return null
-  return withSuffix(`no match for "${query.slice(0, 40)}"`, suffix)
+  return withSuffix(`no match for ${query.slice(0, 40)}`, suffix)
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {
-  // deterministic string tricks — check raw args before quote stripping
-  const trick = handleStringTrick(args)
-  if (trick) return trick
-
   // extract @mentions to tag at end of response
   const mentions = args.match(/@\w+/g) ?? []
   // keep usernames in AI query (strip @ only), strip fully for item lookup
@@ -394,7 +366,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
 
   if (/^(how (do you|does this( bot)?) work|what are you|what is this)\b/i.test(cleanArgs)) {
-    return 'twitch chatbot for The Bazaar by mellen. looks up items/heroes/monsters from bazaardb.gg, runs trivia, and answers questions with AI. try: !b <item> | !b hero <name> | !a <question>'
+    return 'twitch chatbot for The Bazaar by mellen. looks up items/heroes/monsters from bazaardb.gg, runs trivia, and answers questions. try: !b <item> | !b hero <name> | !b <question>'
   }
 
   // proxy ! and / commands — before dedup so cooldown messages always show
@@ -434,7 +406,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     const targetQuery = aliasAdd[2].trim()
     if (RESERVED_SUBS.has(aliasKey)) return `"${aliasKey}" is a reserved command name`
     const match = store.exact(targetQuery) ?? store.search(targetQuery, 1)[0]
-    if (!match) return `no item found for "${targetQuery}"`
+    if (!match) return `no item found for ${targetQuery}`
     store.addDynamicAlias(aliasKey, match.Title, ctx.user)
     invalidateAliasCache()
     return `alias set: ${aliasKey} → ${match.Title}`
@@ -450,7 +422,11 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   // AI fallback for conversational queries that missed game data
   const cd = getBFallbackCooldown(ctx.user)
-  if (cd > 0) return `on cd (${cd}s)`
+  if (cd > 0) {
+    const suggestions = store.suggest(cleanArgs, 3)
+    if (suggestions.length) return withSuffix(`try: ${suggestions.join(', ')}`, suffix)
+    return withSuffix(`no match for ${cleanArgs.slice(0, 40)}`, suffix)
+  }
 
   let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
   try { aiResult = await aiRespond(aiQuery, { ...ctx, direct: true }) } catch {}
@@ -466,18 +442,19 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     }
     try { db.logCommand(ctx, 'ai', cleanArgs, 'fallback') } catch {}
     let response = dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
-    // append input @mentions not already in the AI response
     const responseLower = response.toLowerCase()
     const missingMentions = mentions.map((m) => m.toLowerCase()).filter((m) => !responseLower.includes(m))
     if (missingMentions.length > 0) response = withSuffix(response, ` ${missingMentions.join(' ')}`)
     return response
   }
 
-  return '🤖💤'
+  const suggestions = store.suggest(cleanArgs, 3)
+  if (suggestions.length) return withSuffix(`try: ${suggestions.join(', ')}`, suffix)
+  return withSuffix(`no match for ${cleanArgs.slice(0, 40)}`, suffix)
 }
 
 // --- !b AI fallback cooldown: 30s per-user (separate from !a) ---
-const B_FALLBACK_CD = 30_000
+const B_FALLBACK_CD = 10_000
 const bFallbackCooldowns = new Map<string, number>()
 
 function getBFallbackCooldown(user?: string): number {
@@ -488,93 +465,19 @@ function getBFallbackCooldown(user?: string): number {
   return elapsed >= B_FALLBACK_CD ? 0 : Math.ceil((B_FALLBACK_CD - elapsed) / 1000)
 }
 
-// --- !a cooldown: 30s per-user ---
-const AI_CHAT_CD = 30_000
-const aiChatCooldowns = new Map<string, number>()
-
-function getAiChatCooldown(user?: string): number {
-  if (!user) return 0
-  const last = aiChatCooldowns.get(user.toLowerCase())
-  if (!last) return 0
-  const elapsed = Date.now() - last
-  return elapsed >= AI_CHAT_CD ? 0 : Math.ceil((AI_CHAT_CD - elapsed) / 1000)
-}
-
-async function aiChat(args: string, ctx: CommandContext): Promise<string | null> {
-  const inputMentions = (args.match(/@\w+/g) ?? []).map((m) => m.toLowerCase())
-  // keep usernames in AI query (strip @ only), strip fully for dedup key
-  const aiQuery = args.replace(/@(\w+)/g, '$1').replace(/"/g, '').replace(/\s+/g, ' ').trim()
-  const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
-
-  if (!cleanArgs) return '!a <question> — ask me anything (game context included for bazaar Qs)'
-
-  if (ctx.channel && ctx.user && isDuplicate(ctx.channel, `ai:${ctx.user}:${cleanArgs}`)) return null
-
-  const isOwner = ctx.user?.toLowerCase() === 'mellen'
-  const cd = getAiChatCooldown(ctx.user)
-  if (cd > 0 && !isOwner) return `!a on cd (${cd}s)`
-
-  let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
-  try { aiResult = await aiRespond(aiQuery, { ...ctx, direct: true }) } catch {}
-  if (aiResult?.text) {
-    if (ctx.user) {
-      aiChatCooldowns.set(ctx.user.toLowerCase(), Date.now())
-      if (aiChatCooldowns.size > 500) {
-        const now = Date.now()
-        for (const [k, t] of aiChatCooldowns) {
-          if (now - t > AI_CHAT_CD) aiChatCooldowns.delete(k)
-        }
-      }
-    }
-    try { db.logCommand(ctx, 'ai', cleanArgs, 'direct') } catch {}
-    let response = dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
-    // append input @mentions not already in the AI response
-    const responseLower = response.toLowerCase()
-    const missing = inputMentions.filter((m) => !responseLower.includes(m))
-    if (missing.length > 0) response = withSuffix(response, ` ${missing.join(' ')}`)
-    return response
-  }
-
-  return '🤖💤'
-}
-
 const commands: Record<string, CommandHandler> = {
   b: bazaarinfo,
-  a: aiChat,
-}
-
-async function handleMention(text: string, ctx: CommandContext): Promise<string | null> {
-  if (!mentionRe) return null
-  if (!mentionRe.test(text)) return null
-
-  // keep usernames in AI query (strip @ only so AI knows who's being discussed)
-  const query = text.replace(mentionRe, '').replace(/@(\w+)/g, '$1').replace(/"/g, '').replace(/\s+/g, ' ').trim()
-  if (!query) return null
-  if (ctx.channel && isDuplicate(ctx.channel, `mention:${query}`)) return null
-  if (ctx.user && getAiCooldown(ctx.user, ctx.channel) > 0) return null
-
-  const aiResult = await aiRespond(query, { ...ctx, mention: true })
-  if (aiResult?.text && aiResult.text.trim() !== '-') {
-    try { db.logCommand(ctx, 'ai', query, 'mention') } catch {}
-    let response = dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
-    // tag asker at end if not already mentioned in response
-    if (ctx.user && !response.toLowerCase().includes(`@${ctx.user.toLowerCase()}`)) {
-      response = withSuffix(response, ` @${ctx.user}`)
-    }
-    return response
-  }
-  return null
 }
 
 export async function handleCommand(text: string, ctx: CommandContext = {}): Promise<string | null> {
   // strip leading @mention so !b works in Twitch replies
   const cleaned = text.replace(/^@\w+\s+/, '')
   const match = cleaned.match(/^!(\w+)\s*(.*)$/)
-  if (!match) return handleMention(text, ctx)
+  if (!match) return null
 
   const [, cmd, args] = match
   const handler = commands[cmd.toLowerCase()]
-  if (!handler) return handleMention(text, ctx)
+  if (!handler) return null
 
   return handler(args.trim(), ctx)
 }
@@ -585,10 +488,6 @@ export function resetDedup() {
 
 export function resetProxyCooldowns() {
   proxyCooldowns.clear()
-}
-
-export function resetAiChatCooldowns() {
-  aiChatCooldowns.clear()
 }
 
 export { PROXY_COOLDOWN }
