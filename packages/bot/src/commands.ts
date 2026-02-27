@@ -351,9 +351,8 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
       return withSuffix(`no ${query} — did you mean: ${suggestions.join(', ')}?`, suffix)
     }
   }
-  // conversational queries (>2 words) return null to trigger AI fallback in bazaarinfo
-  if (queryWords.length > 2) return null
-  return withSuffix(`no match for ${query.slice(0, 40)}`, suffix)
+  // no item match — fall through to AI fallback in bazaarinfo()
+  return null
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {
