@@ -1429,7 +1429,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const hotSet = new Set(hot.map((e) => e.response))
   const deduped = recentAll.filter((r) => !hotSet.has(r))
   const recentLine = deduped.length > 0
-    ? `\nAvoid reusing:\n${deduped.map((r) => `- ${r.length > 100 ? r.slice(0, 100) + '...' : r}`).join('\n')}`
+    ? `\nYour recent responses (NEVER reuse these openings, structures, or phrases — totally different angle each time):\n${deduped.map((r) => `- "${r.length > 100 ? r.slice(0, 100) + '...' : r}"`).join('\n')}`
     : ''
 
   // copypasta few-shot examples
