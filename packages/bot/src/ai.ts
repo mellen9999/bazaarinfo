@@ -34,7 +34,7 @@ function randomPastaExamples(n: number): string[] {
   return picks
 }
 const MODEL = 'claude-haiku-4-5-20251001' // background tasks (summaries, memos, facts)
-const CHAT_MODEL = 'claude-sonnet-4-5-20241022' // user-facing responses
+const CHAT_MODEL = 'claude-sonnet-4-6' // user-facing responses
 const MAX_TOKENS_GAME = 40
 const MAX_TOKENS_CHAT = 50
 const MAX_TOKENS_PASTA = 100
