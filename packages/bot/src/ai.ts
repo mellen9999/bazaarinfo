@@ -3,7 +3,7 @@ import * as store from './store'
 import { getRedditDigest } from './reddit'
 import { getActivityFor } from './activity'
 import * as db from './db'
-import { getRecent, getSummary, getActiveThreads, setSummarizer, setSummaryPersister } from './chatbuf'
+import { getRecent, getSummary, getActiveThreads, setSummarizer, setSummaryPersister, setLessonExtractor } from './chatbuf'
 import type { ChatEntry } from './chatbuf'
 import { formatEmotesForAI, getEmotesForChannel } from './emotes'
 import { getChannelStyle, getChannelTopEmotes, getUserProfile, getChannelVoiceContext, refreshVoice } from './style'
@@ -40,6 +40,7 @@ const MAX_TOKENS_CHAT = 50
 const MAX_TOKENS_PASTA = 100
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
+const MAX_LESSONS = 500
 // --- cooldowns ---
 
 const lastAiByChannel = new Map<string, number>()
@@ -1031,6 +1032,77 @@ export function initSummarizer() {
   })
 }
 
+// --- chat lesson extraction ---
+
+const lessonInFlight = new Set<string>()
+const INSTRUCTION_LESSON = /\b(needs? to|should|must|always|never|don'?t|has to|ought to|make sure|ensure)\b/i
+
+async function extractChatLessons(channel: string, recent: import('./chatbuf').ChatEntry[]): Promise<void> {
+  if (!API_KEY) return
+  if (!AI_CHANNELS.has(channel.toLowerCase())) return
+  if (lessonInFlight.has(channel)) return
+
+  // cap check — prune if over limit
+  let count = db.getChatLessonCount()
+  if (count >= MAX_LESSONS) {
+    db.pruneZeroHitLessons()
+    count = db.getChatLessonCount()
+    if (count >= MAX_LESSONS) return
+  }
+
+  lessonInFlight.add(channel)
+  try {
+    const chatLines = recent.map((m) => `${m.user}: ${m.text}`).join('\n')
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': API_KEY,
+        'content-type': 'application/json',
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 150,
+        messages: [{ role: 'user', content: `Extract 0-4 cultural insights from this Twitch chat. Focus on: slang meanings, emote usage patterns, platform conventions, communication norms, inside jokes. Exclude: game facts, user-specific info, obvious/universal things.
+
+Each insight = one short line (10-80 chars). Output ONLY the insights, one per line. If nothing interesting, output nothing.
+
+Chat:
+${chatLines}` }],
+      }),
+      signal: AbortSignal.timeout(TIMEOUT),
+    })
+
+    if (!res.ok) return
+    const data = await res.json() as { content: { text: string }[] }
+    const text = data.content?.[0]?.text ?? ''
+    const lines = text.split('\n')
+      .map((l) => l.replace(/^[-•*\d.)\s]+/, '').trim())
+      .filter((l) => l.length >= 10 && l.length <= 80)
+      .filter((l) => !INSTRUCTION_LESSON.test(l))
+      .slice(0, 4)
+
+    for (const lesson of lines) {
+      // FTS dedup — skip if a very similar lesson exists
+      try {
+        const ftsQuery = lesson.split(/\s+/).slice(0, 4).map((w) => `"${w.replace(/"/g, '')}"`).join(' ')
+        const existing = db.searchChatLessonsFTS(ftsQuery, 1)
+        if (existing.length > 0) continue
+      } catch {}
+      db.insertChatLesson(lesson)
+      log(`lesson: ${lesson}`)
+    }
+  } catch (e) {
+    log(`lesson extraction error (${channel}): ${e}`)
+  } finally {
+    lessonInFlight.delete(channel)
+  }
+}
+
+export function initLearner() {
+  setLessonExtractor(extractChatLessons)
+}
+
 // --- main entry ---
 
 export interface AiContext {
@@ -1370,6 +1442,22 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   // channel voice — how chat actually talks (compact for game Qs, full for banter)
   const voiceLine = getChannelVoiceContext(ctx.channel, entities.isGame)
   const voiceBlock = voiceLine ? `\n${voiceLine}` : ''
+
+  // chat culture lessons — skip for game queries (saves tokens)
+  let lessonsLine = ''
+  if (!entities.isGame) {
+    try {
+      const lessons = db.getTopChatLessons(5)
+      if (lessons.length > 0) {
+        lessonsLine = `\nChat culture:\n${lessons.map((l) => `- ${l.lesson}`).join('\n')}`
+        // bump hits async
+        setImmediate(() => {
+          for (const l of lessons) db.bumpChatLesson(l.id)
+        })
+      }
+    } catch {}
+  }
+
   let gameBlock = ''
   let hasGameData = false
   if (entities.isGame) {
@@ -1446,6 +1534,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     threadLine,
     contextLine,
     voiceBlock,
+    lessonsLine,
     hotLine,
     recallLine,
     chatRecallLine ? `\n${chatRecallLine}` : '',

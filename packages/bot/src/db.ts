@@ -63,6 +63,11 @@ let stmts: {
   insertRecentResponse: Statement
   getRecentResponses: Statement
   pruneRecentResponses: Statement
+  insertLesson: Statement
+  getTopLessons: Statement
+  bumpLesson: Statement
+  countLessons: Statement
+  searchLessonFTS: Statement
 }
 
 function prepareStatements() {
@@ -230,6 +235,15 @@ function prepareStatements() {
       `DELETE FROM channel_recent_responses WHERE channel = ? AND id NOT IN (
         SELECT id FROM channel_recent_responses WHERE channel = ? ORDER BY created_at DESC LIMIT ?
       )`,
+    ),
+    insertLesson: db.prepare('INSERT OR IGNORE INTO chat_lessons (lesson) VALUES (?)'),
+    getTopLessons: db.prepare('SELECT id, lesson FROM chat_lessons ORDER BY hits DESC, last_hit DESC LIMIT ?'),
+    bumpLesson: db.prepare(`UPDATE chat_lessons SET hits = hits + 1, last_hit = datetime('now') WHERE id = ?`),
+    countLessons: db.prepare('SELECT COUNT(*) as cnt FROM chat_lessons'),
+    searchLessonFTS: db.prepare(
+      `SELECT cl.id, cl.lesson FROM chat_lessons_fts f
+       JOIN chat_lessons cl ON cl.id = f.rowid
+       WHERE f.lesson MATCH ? LIMIT ?`,
     ),
   }
 }
@@ -530,6 +544,25 @@ const migrations: (() => void)[] = [
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`)
     db.run(`CREATE INDEX idx_crr_channel ON channel_recent_responses(channel, created_at DESC)`)
+  },
+  // migration 14: chat_lessons — auto-learned Twitch culture patterns
+  () => {
+    db.run(`CREATE TABLE chat_lessons (
+      id INTEGER PRIMARY KEY,
+      lesson TEXT NOT NULL UNIQUE,
+      hits INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_hit TEXT
+    )`)
+    db.run(`CREATE INDEX idx_lessons_rank ON chat_lessons(hits DESC, last_hit DESC)`)
+
+    db.run(`CREATE VIRTUAL TABLE chat_lessons_fts USING fts5(lesson, content='chat_lessons', content_rowid='id')`)
+    db.run(`CREATE TRIGGER chat_lessons_fts_insert AFTER INSERT ON chat_lessons BEGIN
+      INSERT INTO chat_lessons_fts(rowid, lesson) VALUES (new.id, new.lesson);
+    END`)
+    db.run(`CREATE TRIGGER chat_lessons_fts_delete AFTER DELETE ON chat_lessons BEGIN
+      INSERT INTO chat_lessons_fts(chat_lessons_fts, rowid, lesson) VALUES ('delete', old.id, old.lesson);
+    END`)
   },
 ]
 
@@ -1007,5 +1040,44 @@ export function pruneOldSummaries(days = 30) {
     if (result.changes > 0) log(`pruned ${result.changes} chat summaries older than ${days}d`)
   } catch (e) {
     log(`summary prune error: ${e}`)
+  }
+}
+
+// --- chat lessons helpers ---
+
+export function insertChatLesson(lesson: string): void {
+  stmts.insertLesson.run(lesson)
+}
+
+export function getTopChatLessons(limit = 5): { id: number; lesson: string }[] {
+  return stmts.getTopLessons.all(limit) as { id: number; lesson: string }[]
+}
+
+export function bumpChatLesson(id: number): void {
+  stmts.bumpLesson.run(id)
+}
+
+export function getChatLessonCount(): number {
+  return (stmts.countLessons.get() as { cnt: number }).cnt
+}
+
+export function searchChatLessonsFTS(query: string, limit = 5): { id: number; lesson: string }[] {
+  try {
+    return stmts.searchLessonFTS.all(query, limit) as { id: number; lesson: string }[]
+  } catch {
+    return []
+  }
+}
+
+export function pruneZeroHitLessons(): void {
+  try {
+    const result = db.run(
+      `DELETE FROM chat_lessons WHERE hits = 0 AND id NOT IN (
+        SELECT id FROM chat_lessons WHERE hits = 0 ORDER BY created_at DESC LIMIT 100
+      )`,
+    )
+    if (result.changes > 0) log(`pruned ${result.changes} zero-hit lessons`)
+  } catch (e) {
+    log(`lesson prune error: ${e}`)
   }
 }

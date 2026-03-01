@@ -39,6 +39,32 @@ export function setSummaryPersister(fn: typeof summaryPersister) {
   summaryPersister = fn
 }
 
+// --- lesson extraction ---
+
+const msgsSinceLesson = new Map<string, number>()
+const LESSON_INTERVAL = 500
+let lessonExtractor: ((channel: string, recent: ChatEntry[]) => Promise<void>) | null = null
+
+export function setLessonExtractor(fn: typeof lessonExtractor) {
+  lessonExtractor = fn
+}
+
+async function maybeLearnLessons(channel: string) {
+  if (!lessonExtractor) return
+  const count = (msgsSinceLesson.get(channel) ?? 0) + 1
+  msgsSinceLesson.set(channel, count)
+  if (count < LESSON_INTERVAL) return
+
+  msgsSinceLesson.set(channel, 0)
+  const buf = buffers.get(channel)
+  if (!buf || buf.length < 30) return
+
+  // fire-and-forget
+  lessonExtractor(channel, buf.slice(-80)).catch((e) => {
+    log(`lesson error (${channel}): ${e}`)
+  })
+}
+
 export function setSummarizer(fn: typeof summarizer) {
   summarizer = fn
 }
@@ -160,6 +186,7 @@ export function record(channel: string, user: string, text: string) {
   buf.push({ user, text, ts: now })
   if (buf.length > MAX_SIZE) buf.shift()
   maybeSummarize(channel)
+  maybeLearnLessons(channel)
 }
 
 export function cleanupChannel(channel: string) {
@@ -168,6 +195,7 @@ export function cleanupChannel(channel: string) {
   sessionIds.delete(channel)
   summaries.delete(channel)
   msgsSinceSummary.delete(channel)
+  msgsSinceLesson.delete(channel)
 }
 
 export function getRecent(channel: string, count: number): ChatEntry[] {

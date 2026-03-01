@@ -9,7 +9,7 @@ import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel } from './trivia'
-import { invalidatePromptCache, initSummarizer, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo } from './ai'
+import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo } from './ai'
 import { refreshRedditDigest } from './reddit'
 import { refreshActivity } from './activity'
 import * as chatbuf from './chatbuf'
@@ -196,8 +196,9 @@ refreshRedditDigest().catch((e) => log(`reddit digest load failed: ${e}`))
 refreshActivity().catch((e) => log(`activity load failed: ${e}`))
 setInterval(() => refreshActivity().catch((e) => log(`activity refresh failed: ${e}`)), 30 * 60_000)
 
-// init rolling chat summarizer
+// init rolling chat summarizer + lesson learner
 initSummarizer()
+initLearner()
 
 // restore persisted summaries + session IDs from DB
 for (const ch of channelNames) {
@@ -351,6 +352,7 @@ scheduleDaily(4, async () => {
   try {
     db.pruneOldChats(180)
     db.pruneOldSummaries(365)
+    db.pruneZeroHitLessons()
   } catch (e) { log(`daily prune failed: ${e}`) }
   try {
     await refreshGlobalEmotes()
