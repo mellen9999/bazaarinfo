@@ -90,7 +90,7 @@ export async function captureBoard(
   try {
     // capture a single frame via streamlink+ffmpeg
     const proc = Bun.spawn(
-      ['bash', '-c', `streamlink --stdout twitch.tv/${ch} best 2>/dev/null | dd bs=2M count=1 iflag=fullblock 2>/dev/null | ffmpeg -y -i pipe: -vframes 1 -q:v 3 ${tmpPath} 2>/dev/null`],
+      ['bash', '-c', `streamlink --stdout twitch.tv/${ch} best 2>/dev/null | dd bs=2M count=1 iflag=fullblock 2>/dev/null | ffmpeg -y -i pipe: -frames:v 1 -update 1 -q:v 3 ${tmpPath} 2>/dev/null`],
       { stdout: 'ignore', stderr: 'ignore' },
     )
     const exited = await Promise.race([
