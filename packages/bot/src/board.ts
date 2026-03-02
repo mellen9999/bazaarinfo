@@ -65,17 +65,23 @@ export function getBoardCooldown(channel: string): number {
   return elapsed >= BOARD_CAPTURE_CD ? 0 : Math.ceil((BOARD_CAPTURE_CD - elapsed) / 1000)
 }
 
-const VISION_PROMPT = `This is a screenshot from "The Bazaar" (PvP auto-battler card game).
-Identify all item cards visible on both players' boards.
+const VISION_PROMPT = `This is a screenshot from "The Bazaar" (PvP auto-battler card game stream on Twitch).
+Identify all item cards visible on the PvP combat board (both players).
 
 Return ONLY valid JSON, no markdown fences:
-{"hero":null,"playerItems":[{"name":"exact item name","tier":null}],"opponentItems":[{"name":"exact item name","tier":null}]}
+{"scene":"board","hero":null,"playerItems":[{"name":"exact item name","tier":null}],"opponentItems":[{"name":"exact item name","tier":null}]}
+
+scene must be one of:
+- "board" — active PvP combat, items arranged on both sides
+- "shop" — buying/selling between rounds (item cards with price tags)
+- "other" — menu, lobby, loading, matchmaking, transition, victory/defeat screen, streamer's webcam only, non-Bazaar content
+
+ONLY return items when scene="board". For "shop" or "other", return empty arrays.
 
 Rules:
-- Player board is typically on the bottom/left, opponent on top/right
-- Read item names exactly as shown on cards
+- Player board is on the bottom, opponent on top
+- Read item names exactly as shown on the cards
 - tier = "Bronze","Silver","Gold","Diamond","Legendary" if border color visible, else null
-- If this is not a Bazaar game screen, return {"hero":null,"playerItems":[],"opponentItems":[]}
 - Only include items you can clearly read — do NOT guess`
 
 function crossRef(name: string): BoardItem {
@@ -87,6 +93,7 @@ function crossRef(name: string): BoardItem {
 }
 
 interface VisionResponse {
+  scene: 'board' | 'shop' | 'other'
   hero: string | null
   playerItems: { name: string; tier: string | null }[]
   opponentItems: { name: string; tier: string | null }[]
@@ -166,8 +173,16 @@ export async function captureBoard(
     const jsonStr = text.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
     const parsed: VisionResponse = JSON.parse(jsonStr)
 
-    if (parsed.playerItems.length === 0 && parsed.opponentItems.length === 0) {
-      return { state: null, error: 'no items found — streamer may not be in a match' }
+    const scene = parsed.scene ?? 'other'
+    if (scene !== 'board' || (parsed.playerItems.length === 0 && parsed.opponentItems.length === 0)) {
+      // non-board frame — keep existing cached state alive instead of nuking it
+      const existing = getBoardState(ch)
+      if (existing) {
+        log(`board scan ${ch}: ${scene} scene, keeping cached state (${existing.playerItems.length} items)`)
+        return { state: existing }
+      }
+      log(`board scan ${ch}: ${scene} scene, no cached state`)
+      return { state: null }
     }
 
     const state: BoardState = {
