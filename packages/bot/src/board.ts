@@ -22,6 +22,31 @@ const lastCapture = new Map<string, number>()
 
 export const BOARD_TTL = 10 * 60_000
 const BOARD_CAPTURE_CD = 120_000
+const AUTO_CAPTURE_INTERVAL = 3 * 60_000 // 3 min — balance freshness vs MeLE thermals
+
+let autoTimer: ReturnType<typeof setInterval> | null = null
+let liveCheck: () => string[] = () => []
+
+export function startAutoCapture(getLiveChannels: () => string[]) {
+  liveCheck = getLiveChannels
+  if (autoTimer) return
+  autoTimer = setInterval(async () => {
+    const channels = liveCheck()
+    for (const ch of channels) {
+      if (getBoardCooldown(ch) > 0) continue
+      try {
+        await captureBoard(ch, () => true)
+      } catch (e) {
+        log('auto board capture error:', e instanceof Error ? e.message : e)
+      }
+    }
+  }, AUTO_CAPTURE_INTERVAL)
+  log(`board auto-capture started (every ${AUTO_CAPTURE_INTERVAL / 1000}s)`)
+}
+
+export function stopAutoCapture() {
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null }
+}
 
 export function getBoardState(channel: string): BoardState | null {
   const state = boardStates.get(channel.toLowerCase())

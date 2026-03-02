@@ -118,6 +118,7 @@ const liveChannels = new Set<string>()
 export function setChannelLive(channel: string) { liveChannels.add(channel.toLowerCase()) }
 export function setChannelOffline(channel: string) { liveChannels.delete(channel.toLowerCase()) }
 export function isChannelLive(channel: string): boolean { return liveChannels.has(channel.toLowerCase()) }
+export function getLiveChannels(): string[] { return [...liveChannels] }
 
 // --- channel info for Twitch API lookups ---
 let channelInfos: ChannelInfo[] = []
@@ -1113,7 +1114,7 @@ export interface AiContext {
   privileged?: boolean
   isMod?: boolean
   mention?: boolean
-  direct?: boolean // !a command — skip internal cooldowns/queue
+  direct?: boolean // skip internal cooldowns/queue (used by !b fallback)
 }
 
 export interface AiResult { text: string; mentions: string[] }
@@ -1160,7 +1161,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   const isVip = AI_VIP.has(ctx.user.toLowerCase())
   const isGame = GAME_TERMS.test(query)
 
-  // !a (direct) manages its own 30s user cd — skip internal cooldowns/queue
+  // direct callers (e.g. !b fallback) manage their own cooldowns — skip internal ones
   if (!ctx.direct) {
     const cd = getAiCooldown(ctx.user, ctx.channel)
     if (cd > 0) return null

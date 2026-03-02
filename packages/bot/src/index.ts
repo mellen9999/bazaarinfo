@@ -9,13 +9,14 @@ import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel } from './trivia'
-import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo } from './ai'
+import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels } from './ai'
 import { refreshRedditDigest } from './reddit'
 import { refreshActivity } from './activity'
 import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes, getEmoteSetId, getAllEmoteSetIds, removeChannelEmotes } from './emotes'
 import * as emoteEvents from './emote-events'
 import { loadDescriptionCache } from './emote-describe'
+import { startAutoCapture } from './board'
 import { preloadStyles } from './style'
 import { writeAtomic } from './fs-util'
 import { log } from './log'
@@ -222,7 +223,7 @@ const client = new TwitchClient(
       chatbuf.record(channel, username, text)
 
       // pre-fetch Twitch user info + followage for every chatter (fire-and-forget)
-      // so data is ready BEFORE they use !a, not after
+      // so data is ready BEFORE they ask questions, not after
       maybeFetchTwitchInfo(username, channel)
 
       // check trivia answers before command routing
@@ -322,6 +323,9 @@ try {
     log(`live channels: ${data.data.map((s) => s.user_login).join(', ') || 'none'}`)
   }
 } catch (e) { log(`live check failed: ${e}`) }
+
+// auto-capture board state for live channels (every 3min)
+if (process.env.ANTHROPIC_API_KEY) startAutoCapture(getLiveChannels)
 
 // proactive token refresh every 30min
 setInterval(async () => {
