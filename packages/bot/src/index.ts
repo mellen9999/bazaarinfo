@@ -9,7 +9,7 @@ import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel } from './trivia'
-import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels } from './ai'
+import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
 import { refreshRedditDigest } from './reddit'
 import { refreshActivity } from './activity'
 import * as chatbuf from './chatbuf'
@@ -308,6 +308,10 @@ client.setStreamStateHandler((channel, live) => {
   if (live) setChannelLive(channel)
   else setChannelOffline(channel)
 })
+client.setChannelUpdateHandler((channel, game, title) => {
+  log(`channel update: #${channel} → ${game || '(no game)'}`)
+  setChannelGame(channel, game)
+})
 setSay((ch, msg) => client.say(ch, msg))
 
 // check which channels are currently live (eventsub only fires on transitions)
@@ -318,14 +322,14 @@ try {
     signal: AbortSignal.timeout(10_000),
   })
   if (res.ok) {
-    const data = await res.json() as { data: { user_login: string }[] }
-    for (const stream of data.data) setChannelLive(stream.user_login)
-    log(`live channels: ${data.data.map((s) => s.user_login).join(', ') || 'none'}`)
+    const data = await res.json() as { data: { user_login: string; game_name: string }[] }
+    for (const stream of data.data) setChannelLive(stream.user_login, stream.game_name)
+    log(`live channels: ${data.data.map((s) => `${s.user_login}[${s.game_name}]`).join(', ') || 'none'}`)
   }
 } catch (e) { log(`live check failed: ${e}`) }
 
 // auto-capture board state for live channels (every 3min)
-if (process.env.ANTHROPIC_API_KEY) startAutoCapture(getLiveChannels)
+if (process.env.ANTHROPIC_API_KEY) startAutoCapture(getLiveChannels, getChannelGame)
 
 // proactive token refresh every 30min
 setInterval(async () => {

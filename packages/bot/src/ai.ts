@@ -113,12 +113,23 @@ const AI_CHANNELS = new Set(
   (process.env.AI_CHANNELS ?? 'nl_kripp,mellen').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
 )
 
-// track live channels — no cooldown when offline
+// track live channels + current game — no cooldown when offline
 const liveChannels = new Set<string>()
-export function setChannelLive(channel: string) { liveChannels.add(channel.toLowerCase()) }
-export function setChannelOffline(channel: string) { liveChannels.delete(channel.toLowerCase()) }
+const channelGames = new Map<string, string>()
+export function setChannelLive(channel: string, game?: string) {
+  const ch = channel.toLowerCase()
+  liveChannels.add(ch)
+  if (game) channelGames.set(ch, game)
+}
+export function setChannelOffline(channel: string) {
+  const ch = channel.toLowerCase()
+  liveChannels.delete(ch)
+  channelGames.delete(ch)
+}
 export function isChannelLive(channel: string): boolean { return liveChannels.has(channel.toLowerCase()) }
 export function getLiveChannels(): string[] { return [...liveChannels] }
+export function getChannelGame(channel: string): string | undefined { return channelGames.get(channel.toLowerCase()) }
+export function setChannelGame(channel: string, game: string) { channelGames.set(channel.toLowerCase(), game) }
 
 // --- channel info for Twitch API lookups ---
 let channelInfos: ChannelInfo[] = []

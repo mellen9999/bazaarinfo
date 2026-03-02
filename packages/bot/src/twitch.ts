@@ -57,6 +57,7 @@ export type MessageHandler = (channel: string, userId: string, username: string,
 
 export type AuthRefreshFn = () => Promise<string>
 export type StreamStateHandler = (channel: string, live: boolean) => void
+export type ChannelUpdateHandler = (channel: string, game: string, title: string) => void
 
 function fetchWithTimeout(url: string, opts: RequestInit = {}): Promise<Response> {
   return fetch(url, { ...opts, signal: AbortSignal.timeout(FETCH_TIMEOUT) })
@@ -87,6 +88,7 @@ export class TwitchClient {
   private config: TwitchConfig
   private onMessage: MessageHandler
   private onStreamState: StreamStateHandler | null = null
+  private onChannelUpdate: ChannelUpdateHandler | null = null
   private onAuthFailure: AuthRefreshFn | null = null
   private keepaliveTimeout: Timer | null = null
   private keepaliveMs = 15_000
@@ -123,6 +125,10 @@ export class TwitchClient {
 
   setStreamStateHandler(fn: StreamStateHandler) {
     this.onStreamState = fn
+  }
+
+  setChannelUpdateHandler(fn: ChannelUpdateHandler) {
+    this.onChannelUpdate = fn
   }
 
   updateToken(token: string) {
@@ -194,6 +200,11 @@ export class TwitchClient {
         if (e?.broadcaster_user_login && this.onStreamState) {
           this.onStreamState(e.broadcaster_user_login, subType === 'stream.online')
         }
+      } else if (subType === 'channel.update') {
+        const e = msg.payload.event
+        if (e?.broadcaster_user_login && this.onChannelUpdate) {
+          this.onChannelUpdate(e.broadcaster_user_login, e.category_name ?? '', e.title ?? '')
+        }
       }
     } else if (type === 'session_reconnect') {
       const newUrl = msg.payload.session?.reconnect_url
@@ -253,7 +264,7 @@ export class TwitchClient {
       log('all eventsub subscriptions failed — exiting for systemd restart')
       process.exit(1)
     }
-    // stream online/offline for cooldown gating
+    // stream online/offline + channel.update for game tracking
     for (const ch of this.config.channels) {
       for (const type of ['stream.online', 'stream.offline'] as const) {
         try {
@@ -261,6 +272,11 @@ export class TwitchClient {
         } catch (e) {
           log(`${type} subscribe error for ${ch.name}: ${e}`)
         }
+      }
+      try {
+        await this.subscribeEvent('channel.update', '2', { broadcaster_user_id: ch.userId })
+      } catch (e) {
+        log(`channel.update subscribe error for ${ch.name}: ${e}`)
       }
     }
   }
@@ -484,6 +500,11 @@ export class TwitchClient {
         } catch (e) {
           log(`${type} subscribe error for ${channel.name}: ${e}`)
         }
+      }
+      try {
+        await this.subscribeEvent('channel.update', '2', { broadcaster_user_id: channel.userId })
+      } catch (e) {
+        log(`channel.update subscribe error for ${channel.name}: ${e}`)
       }
     }
     log(`joined channel: ${channel.name}`)

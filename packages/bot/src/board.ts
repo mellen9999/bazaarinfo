@@ -27,13 +27,20 @@ const AUTO_TICK = 30_000 // check every 30s
 
 let autoTimer: ReturnType<typeof setInterval> | null = null
 let liveCheck: () => string[] = () => []
+let gameCheck: (ch: string) => string | undefined = () => undefined
 
-export function startAutoCapture(getLiveChannels: () => string[]) {
+const BAZAAR_GAME = 'the bazaar'
+
+export function startAutoCapture(getLiveChannels: () => string[], getGame: (ch: string) => string | undefined) {
   liveCheck = getLiveChannels
+  gameCheck = getGame
   if (autoTimer) return
   autoTimer = setInterval(async () => {
     const channels = liveCheck()
     for (const ch of channels) {
+      // only capture when streamer is playing The Bazaar
+      const game = gameCheck(ch)
+      if (game && !game.toLowerCase().includes(BAZAAR_GAME)) continue
       const existing = getBoardState(ch)
       // if we have a fresh board state, wait the full 3min interval
       if (existing && Date.now() - existing.capturedAt < BOARD_SETTLED_CD) continue
@@ -45,7 +52,7 @@ export function startAutoCapture(getLiveChannels: () => string[]) {
       }
     }
   }, AUTO_TICK)
-  log('board auto-capture started (30s until board found, then every 3min)')
+  log('board auto-capture started (30s until board found, then every 3min, Bazaar only)')
 }
 
 export function stopAutoCapture() {
