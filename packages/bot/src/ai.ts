@@ -1497,6 +1497,18 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
       const oppItems = board.opponentItems.map((i) => i.name).join(', ')
       boardBlock += ` | Opponent: ${oppItems}`
     }
+    // resolve full card data for board items so AI can discuss synergies/builds
+    const boardCards = board.playerItems
+      .filter((i) => i.matched)
+      .map((i) => store.exact(i.name))
+      .filter(Boolean) as BazaarCard[]
+    if (boardCards.length > 0) {
+      hasGameData = true
+      const cardData = boardCards.map((c) => serializeCard(c)).join('\n')
+      gameBlock = gameBlock
+        ? `${gameBlock}\n${cardData}`
+        : `\nGame data:\n${cardData}`
+    }
   }
 
   // bot stats injection — when someone asks about usage/analytics, give the AI real numbers
@@ -1792,7 +1804,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       result.text = stripInputEcho(result.text, query)
       // enforce length caps in code — model ignores prompt-level hints
       const isShort = isShortResponse(query)
-      const hardCap = isPasta ? 400 : hasGameData ? 120 : isRememberReq ? 120 : isShort ? 50 : 120
+      const hardCap = isPasta ? 400 : hasGameData ? 150 : isRememberReq ? 120 : isShort ? 50 : 120
       if (result.text.length > hardCap) {
         const cut = result.text.slice(0, hardCap)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))
