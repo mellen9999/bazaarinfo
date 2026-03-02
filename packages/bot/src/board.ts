@@ -21,9 +21,69 @@ const boardStates = new Map<string, BoardState>()
 const lastCapture = new Map<string, number>()
 
 export const BOARD_TTL = 10 * 60_000
-const BOARD_CAPTURE_CD = 30_000 // 30s retry when hunting for a board
-const BOARD_SETTLED_CD = 3 * 60_000 // 3 min once we have a valid board
-const AUTO_TICK = 30_000 // check every 30s
+const BOARD_CAPTURE_CD = 30_000
+const BOARD_SETTLED_CD = 3 * 60_000
+const AUTO_TICK = 30_000
+
+// --- HLS URL cache (avoid spawning streamlink every capture) ---
+const hlsUrls = new Map<string, { url: string; fetchedAt: number }>()
+const HLS_URL_TTL = 30 * 60_000 // Twitch HLS tokens last ~6h, refresh every 30min to be safe
+
+async function getHlsUrl(channel: string): Promise<string | null> {
+  const cached = hlsUrls.get(channel)
+  if (cached && Date.now() - cached.fetchedAt < HLS_URL_TTL) return cached.url
+
+  // streamlink --stream-url just prints the m3u8 URL, no download
+  const proc = Bun.spawn(
+    ['streamlink', '--stream-url', `twitch.tv/${channel}`, 'best'],
+    { stdout: 'pipe', stderr: 'ignore' },
+  )
+  const exited = await Promise.race([
+    proc.exited,
+    new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 15_000)),
+  ])
+  if (exited === 'timeout') { proc.kill(); return null }
+  if (exited !== 0) return null
+
+  const url = (await new Response(proc.stdout).text()).trim()
+  if (!url || !url.startsWith('http')) return null
+  hlsUrls.set(channel, { url, fetchedAt: Date.now() })
+  log(`board: cached HLS URL for ${channel}`)
+  return url
+}
+
+async function captureFrame(channel: string, tmpPath: string): Promise<boolean> {
+  const hlsUrl = await getHlsUrl(channel)
+  if (!hlsUrl) {
+    // fallback: invalidate cache and fail — next tick will retry
+    hlsUrls.delete(channel)
+    return false
+  }
+
+  // fetch m3u8 playlist, grab first .ts segment URL, pipe through ffmpeg
+  try {
+    const playlistRes = await fetch(hlsUrl, { signal: AbortSignal.timeout(10_000) })
+    if (!playlistRes.ok) { hlsUrls.delete(channel); return false }
+    const playlist = await playlistRes.text()
+    const segUrl = playlist.split('\n').find((l) => l.startsWith('http') && l.includes('.ts'))
+    if (!segUrl) { hlsUrls.delete(channel); return false }
+
+    // download segment + extract single frame — ~0.6s vs ~10s with streamlink
+    const proc = Bun.spawn(
+      ['bash', '-c', `curl -s "${segUrl}" | ffmpeg -y -i pipe: -frames:v 1 -update 1 -q:v 3 ${tmpPath} 2>/dev/null`],
+      { stdout: 'ignore', stderr: 'ignore' },
+    )
+    const exited = await Promise.race([
+      proc.exited,
+      new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 10_000)),
+    ])
+    if (exited === 'timeout') { proc.kill(); return false }
+    return exited === 0
+  } catch {
+    hlsUrls.delete(channel)
+    return false
+  }
+}
 
 let autoTimer: ReturnType<typeof setInterval> | null = null
 let liveCheck: () => string[] = () => []
@@ -38,11 +98,9 @@ export function startAutoCapture(getLiveChannels: () => string[], getGame: (ch: 
   autoTimer = setInterval(async () => {
     const channels = liveCheck()
     for (const ch of channels) {
-      // only capture when streamer is playing The Bazaar
       const game = gameCheck(ch)
       if (game && !game.toLowerCase().includes(BAZAAR_GAME)) continue
       const existing = getBoardState(ch)
-      // if we have a fresh board state, wait the full 3min interval
       if (existing && Date.now() - existing.capturedAt < BOARD_SETTLED_CD) continue
       if (getBoardCooldown(ch) > 0) continue
       try {
@@ -116,7 +174,6 @@ export async function captureBoard(
 ): Promise<{ state: BoardState | null; error?: string }> {
   const ch = channel.toLowerCase()
 
-  // check cooldown — return cached if available
   const cd = getBoardCooldown(ch)
   if (cd > 0) {
     const cached = getBoardState(ch)
@@ -131,28 +188,14 @@ export async function captureBoard(
   const tmpPath = `/tmp/bazaarinfo-board-${ch}.jpg`
 
   try {
-    // capture a single frame via streamlink+ffmpeg
-    const proc = Bun.spawn(
-      ['bash', '-c', `streamlink --stdout twitch.tv/${ch} best 2>/dev/null | dd bs=2M count=1 iflag=fullblock 2>/dev/null | ffmpeg -y -i pipe: -frames:v 1 -update 1 -q:v 3 ${tmpPath} 2>/dev/null`],
-      { stdout: 'ignore', stderr: 'ignore' },
-    )
-    const exited = await Promise.race([
-      proc.exited,
-      new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 30_000)),
-    ])
-    if (exited === 'timeout') {
-      proc.kill()
-      return { state: null, error: "couldn't capture stream frame" }
-    }
-    if (exited !== 0) return { state: null, error: "couldn't capture stream frame" }
+    const ok = await captureFrame(ch, tmpPath)
+    if (!ok) return { state: null, error: "couldn't capture stream frame" }
 
-    // read + base64 encode
     const file = Bun.file(tmpPath)
     if (!await file.exists()) return { state: null, error: "couldn't capture stream frame" }
     const buf = Buffer.from(await file.arrayBuffer())
     const base64 = buf.toString('base64')
 
-    // vision API call
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -186,7 +229,6 @@ export async function captureBoard(
 
     const scene = parsed.scene ?? 'other'
     if (scene !== 'board' || (parsed.playerItems.length === 0 && parsed.opponentItems.length === 0)) {
-      // non-board frame — keep existing cached state alive instead of nuking it
       const existing = getBoardState(ch)
       if (existing) {
         log(`board scan ${ch}: ${scene} scene, keeping cached state (${existing.playerItems.length} items)`)
@@ -238,4 +280,5 @@ export function formatBoard(state: BoardState): string {
 export function _reset() {
   boardStates.clear()
   lastCapture.clear()
+  hlsUrls.clear()
 }
