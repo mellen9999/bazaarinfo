@@ -16,7 +16,6 @@ import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes, getEmoteSetId, getAllEmoteSetIds, removeChannelEmotes } from './emotes'
 import * as emoteEvents from './emote-events'
 import { loadDescriptionCache } from './emote-describe'
-import { startAutoCapture } from './board'
 import { preloadStyles } from './style'
 import { writeAtomic } from './fs-util'
 import { log } from './log'
@@ -327,9 +326,6 @@ try {
     log(`live channels: ${data.data.map((s) => `${s.user_login}[${s.game_name}]`).join(', ') || 'none'}`)
   }
 } catch (e) { log(`live check failed: ${e}`) }
-
-// auto-capture board state for live channels (every 3min)
-if (process.env.ANTHROPIC_API_KEY) startAutoCapture(getLiveChannels, getChannelGame)
 
 // proactive token refresh every 30min
 setInterval(async () => {
