@@ -253,7 +253,8 @@ export async function captureBoard(
     }
 
     boardStates.set(ch, state)
-    log(`board scan ${ch}: ${state.playerItems.length} player + ${state.opponentItems.length} opp items`)
+    const names = state.playerItems.map((i) => i.name).join(', ')
+    log(`board scan ${ch}: [${names}] vs ${state.opponentItems.length} opp`)
     return { state }
   } catch (e) {
     log('board capture error:', e instanceof Error ? e.message : e)

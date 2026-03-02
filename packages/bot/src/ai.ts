@@ -36,8 +36,8 @@ function randomPastaExamples(n: number): string[] {
 }
 const MODEL = 'claude-haiku-4-5-20251001' // background tasks (summaries, memos, facts)
 const CHAT_MODEL = 'claude-sonnet-4-6' // user-facing responses
-const MAX_TOKENS_GAME = 40
-const MAX_TOKENS_CHAT = 50
+const MAX_TOKENS_GAME = 35
+const MAX_TOKENS_CHAT = 35
 const MAX_TOKENS_PASTA = 100
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
@@ -710,7 +710,7 @@ export function buildSystemPrompt(): string {
     'hero/class Qs with no hero data loaded: vibe only, zero fabrication. fake lore/nonexistent things: make up something hilarious, deadpan absurd > "that doesnt exist".',
     '',
     'Answer [USER]\'s question. infer vague Qs ("do u agree?", "is that true") from recent chat context. dont respond to chat you werent asked about.',
-    'LENGTH: 5-15 words. setup, punchline, done. copypasta: 400 chars max. treat every word like it costs $100.',
+    'LENGTH: 5-12 words MAX. one sentence, never two. copypasta: 400 chars max. every extra word = worse.',
     'SHORT responses (<5 words): status checks ("are you alive/there/working"), greetings, thanks, goodbyes. just acknowledge.',
     'game data: cite ONLY "Game data:" section. NEVER invent item names, stats, day refs, mechanic descriptions.',
     '"user: msg" in chat = that user said it. links only: bazaardb.gg bzdb.to github.com/mellen9999/bazaarinfo',
@@ -1792,7 +1792,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       result.text = stripInputEcho(result.text, query)
       // enforce length caps in code — model ignores prompt-level hints
       const isShort = isShortResponse(query)
-      const hardCap = isPasta ? 400 : hasGameData ? 130 : isRememberReq ? 200 : isShort ? 60 : 100
+      const hardCap = isPasta ? 400 : hasGameData ? 100 : isRememberReq ? 100 : isShort ? 50 : 80
       if (result.text.length > hardCap) {
         const cut = result.text.slice(0, hardCap)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))
