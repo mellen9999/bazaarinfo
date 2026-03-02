@@ -4,7 +4,8 @@ import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
-import { aiRespond, dedupeEmote, fixEmoteCase } from './ai'
+import { aiRespond, dedupeEmote, fixEmoteCase, isChannelLive } from './ai'
+import { getBoardState, getBoardCooldown, captureBoard, formatBoard } from './board'
 
 const MAX_LEN = 480
 
@@ -187,7 +188,7 @@ type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string
 
 const RESERVED_SUBS = new Set([
   'mob', 'monster', 'hero', 'tag', 'skill', 'day', 'enchants', 'enchantments',
-  'trivia', 'score', 'stats', 'top', 'alias', 'help', 'info',
+  'trivia', 'score', 'stats', 'top', 'alias', 'help', 'info', 'board',
 ])
 
 const subcommands: [RegExp, SubHandler][] = [
@@ -273,6 +274,19 @@ const subcommands: [RegExp, SubHandler][] = [
     if (!skill) { logMiss(query, ctx); return `no skill found for ${query}` }
     logHit('skill', query, skill.Title, ctx)
     return withSuffix(formatItem(skill), suffix)
+  }],
+  [/^board$/i, async (_query, ctx, suffix) => {
+    if (!ctx.channel) return null
+    const cd = getBoardCooldown(ctx.channel)
+    if (cd > 0) {
+      const state = getBoardState(ctx.channel)
+      if (state) return withSuffix(formatBoard(state), suffix)
+      return `board scan on cooldown (${cd}s)`
+    }
+    const { state, error } = await captureBoard(ctx.channel, () => isChannelLive(ctx.channel!))
+    if (error || !state) return error ?? 'board capture failed'
+    logHit('board', 'scan', `${state.playerItems.length} items`, ctx)
+    return withSuffix(formatBoard(state), suffix)
   }],
   [/^trivia(?:\s+(items|heroes|monsters))?$/i, (query, ctx, suffix) => {
     if (!ctx.channel) return null

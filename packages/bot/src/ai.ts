@@ -8,6 +8,7 @@ import type { ChatEntry } from './chatbuf'
 import { formatEmotesForAI, getEmotesForChannel } from './emotes'
 import { getChannelStyle, getChannelTopEmotes, getUserProfile, getChannelVoiceContext, refreshVoice } from './style'
 import { log } from './log'
+import { getBoardState, BOARD_TTL } from './board'
 
 import { getUserInfo, getFollowage } from './twitch'
 import type { ChannelInfo } from './twitch'
@@ -116,6 +117,7 @@ const AI_CHANNELS = new Set(
 const liveChannels = new Set<string>()
 export function setChannelLive(channel: string) { liveChannels.add(channel.toLowerCase()) }
 export function setChannelOffline(channel: string) { liveChannels.delete(channel.toLowerCase()) }
+export function isChannelLive(channel: string): boolean { return liveChannels.has(channel.toLowerCase()) }
 
 // --- channel info for Twitch API lookups ---
 let channelInfos: ChannelInfo[] = []
@@ -1472,6 +1474,19 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     ].filter(Boolean).join('')
   }
 
+  // board state context — inject live board items when cached
+  let boardBlock = ''
+  const board = getBoardState(ctx.channel)
+  if (board && Date.now() - board.capturedAt < BOARD_TTL) {
+    const items = board.playerItems.map((i) => i.name + (i.tier ? `(${i.tier[0]})` : '')).join(', ')
+    const heroLabel = board.hero ? `${board.hero}'s` : 'Player'
+    boardBlock = `\nLive board: ${heroLabel} items: ${items}`
+    if (board.opponentItems.length > 0) {
+      const oppItems = board.opponentItems.map((i) => i.name).join(', ')
+      boardBlock += ` | Opponent: ${oppItems}`
+    }
+  }
+
   // bot stats injection — when someone asks about usage/analytics, give the AI real numbers
   const BOT_STATS_RE = /\b(how many|how much|queries|requests|usage|analytics|traffic|stats|popular|users?|commands?)\b.*\b(you|bot|bazaarinfo|per (min|hour|day)|get|have|serve|handle)\b/i
   let statsLine = ''
@@ -1541,7 +1556,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     recentLine,
     redditLine,
     emoteLine,
-    gameBlock,
+    gameBlock ? `${gameBlock}${boardBlock}` : boardBlock,
     activityBlock,
     statsLine,
     pastaBlock,

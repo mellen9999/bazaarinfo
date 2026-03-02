@@ -71,6 +71,15 @@ mock.module('./ai', () => ({
   sanitize: mock((t: string) => ({ text: t, mentions: [] })),
   dedupeEmote: mock((t: string) => t),
   fixEmoteCase: mock((t: string) => t),
+  isChannelLive: mock(() => false),
+}))
+
+// --- mock board ---
+mock.module('./board', () => ({
+  getBoardState: mock(() => null),
+  getBoardCooldown: mock(() => 0),
+  captureBoard: mock(async () => ({ state: null, error: 'stream is offline' })),
+  formatBoard: mock(() => '🎮 test items'),
 }))
 
 // --- mock trivia ---
