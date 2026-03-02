@@ -134,24 +134,16 @@ export function getBoardCooldown(channel: string): number {
   return elapsed >= BOARD_CAPTURE_CD ? 0 : Math.ceil((BOARD_CAPTURE_CD - elapsed) / 1000)
 }
 
-const VISION_PROMPT = `This is a screenshot from "The Bazaar" (PvP auto-battler card game stream on Twitch).
-Identify all item cards visible on the PvP combat board (both players).
+// tier 1: cheap Haiku call just to classify the scene (~$0.001)
+const SCENE_PROMPT = `What scene from "The Bazaar" game is this? Return ONLY one word: board, shop, or other.
+board = PvP combat with items on both sides. shop = buying items between rounds. other = menu/lobby/loading/transition/non-Bazaar.`
 
-Return ONLY valid JSON, no markdown fences:
-{"scene":"board","hero":null,"playerItems":[{"name":"exact item name","tier":null}],"opponentItems":[{"name":"exact item name","tier":null}]}
-
-scene must be one of:
-- "board" — active PvP combat, items arranged on both sides
-- "shop" — buying/selling between rounds (item cards with price tags)
-- "other" — menu, lobby, loading, matchmaking, transition, victory/defeat screen, streamer's webcam only, non-Bazaar content
-
-ONLY return items when scene="board". For "shop" or "other", return empty arrays.
-
-Rules:
-- Player board is on the bottom, opponent on top
-- Read item names exactly as shown on the cards
-- tier = "Bronze","Silver","Gold","Diamond","Legendary" if border color visible, else null
-- Only include items you can clearly read — do NOT guess`
+// tier 2: Sonnet reads card names (only called on board frames, ~$0.01)
+const BOARD_PROMPT = `Return ONLY valid JSON, no markdown:
+{"hero":null,"playerItems":[{"name":"exact item name","tier":null}],"opponentItems":[{"name":"exact item name","tier":null}]}
+This is a Bazaar PvP board. Player items on bottom, opponent on top.
+Read card names exactly. tier=Bronze/Silver/Gold/Diamond/Legendary if border visible, else null.
+Only include items you can clearly read.`
 
 function crossRef(name: string): BoardItem {
   const card = store.exact(name)
@@ -161,11 +153,39 @@ function crossRef(name: string): BoardItem {
   return { name, matched: false }
 }
 
-interface VisionResponse {
-  scene: 'board' | 'shop' | 'other'
+interface BoardResponse {
   hero: string | null
   playerItems: { name: string; tier: string | null }[]
   opponentItems: { name: string; tier: string | null }[]
+}
+
+async function visionCall(model: string, base64: string, prompt: string, maxTokens: number): Promise<string> {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': API_KEY!,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+          { type: 'text', text: prompt },
+        ],
+      }],
+    }),
+    signal: AbortSignal.timeout(30_000),
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`vision API ${res.status}: ${body.slice(0, 200)}`)
+  }
+  const data = await res.json() as { content: { text: string }[] }
+  return data.content?.[0]?.text ?? ''
 }
 
 export async function captureBoard(
@@ -196,45 +216,31 @@ export async function captureBoard(
     const buf = Buffer.from(await file.arrayBuffer())
     const base64 = buf.toString('base64')
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': API_KEY,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
-            { type: 'text', text: VISION_PROMPT },
-          ],
-        }],
-      }),
-      signal: AbortSignal.timeout(30_000),
-    })
+    // tier 1: Haiku classifies the scene (~$0.001)
+    const sceneText = (await visionCall('claude-haiku-4-5-20251001', base64, SCENE_PROMPT, 10)).trim().toLowerCase()
+    const scene = sceneText.includes('board') ? 'board' : sceneText.includes('shop') ? 'shop' : 'other'
 
-    if (!res.ok) {
-      log(`board vision API ${res.status}:`, await res.text())
-      return { state: null, error: 'board scan failed, try again' }
-    }
-
-    const data = await res.json() as { content: { text: string }[] }
-    const text = data.content?.[0]?.text ?? ''
-    const jsonStr = text.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
-    const parsed: VisionResponse = JSON.parse(jsonStr)
-
-    const scene = parsed.scene ?? 'other'
-    if (scene !== 'board' || (parsed.playerItems.length === 0 && parsed.opponentItems.length === 0)) {
+    if (scene !== 'board') {
       const existing = getBoardState(ch)
       if (existing) {
         log(`board scan ${ch}: ${scene} scene, keeping cached state (${existing.playerItems.length} items)`)
         return { state: existing }
       }
       log(`board scan ${ch}: ${scene} scene, no cached state`)
+      return { state: null }
+    }
+
+    // tier 2: Sonnet reads card names (~$0.01, only on board frames)
+    const boardText = await visionCall('claude-sonnet-4-6', base64, BOARD_PROMPT, 400)
+    const jsonStr = boardText.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
+    const parsed: BoardResponse = JSON.parse(jsonStr)
+
+    if (parsed.playerItems.length === 0 && parsed.opponentItems.length === 0) {
+      const existing = getBoardState(ch)
+      if (existing) {
+        log(`board scan ${ch}: board scene but no items read, keeping cached (${existing.playerItems.length} items)`)
+        return { state: existing }
+      }
       return { state: null }
     }
 
