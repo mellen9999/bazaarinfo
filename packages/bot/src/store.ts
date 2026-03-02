@@ -49,6 +49,18 @@ export const ALIASES: Record<string, string> = {
   'gravity well': 'Unstable Grav Well',
 }
 
+// hero name aliases (misspellings, alternate names)
+const HERO_ALIASES: Record<string, string> = {
+  mark: 'Mak',
+  mac: 'Mak',
+  pig: 'Pygmalien',
+  pigmalien: 'Pygmalien',
+  nessa: 'Vanessa',
+  van: 'Vanessa',
+  stella: 'Stelle',
+  jewels: 'Jules',
+}
+
 const dynamicAliases = new Map<string, string>()
 
 function loadDynamicAliases() {
@@ -260,6 +272,7 @@ function findInList(list: string[], query: string): string | undefined {
 
 export function findHeroName(query: string): string | undefined {
   return findInList(heroNames, query)
+    ?? findInList(heroNames, HERO_ALIASES[query.toLowerCase()] ?? '')
 }
 
 export function findTagName(query: string): string | undefined {
