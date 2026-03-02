@@ -21,8 +21,9 @@ const boardStates = new Map<string, BoardState>()
 const lastCapture = new Map<string, number>()
 
 export const BOARD_TTL = 10 * 60_000
-const BOARD_CAPTURE_CD = 120_000
-const AUTO_CAPTURE_INTERVAL = 3 * 60_000 // 3 min — balance freshness vs MeLE thermals
+const BOARD_CAPTURE_CD = 30_000 // 30s retry when hunting for a board
+const BOARD_SETTLED_CD = 3 * 60_000 // 3 min once we have a valid board
+const AUTO_TICK = 30_000 // check every 30s
 
 let autoTimer: ReturnType<typeof setInterval> | null = null
 let liveCheck: () => string[] = () => []
@@ -33,6 +34,9 @@ export function startAutoCapture(getLiveChannels: () => string[]) {
   autoTimer = setInterval(async () => {
     const channels = liveCheck()
     for (const ch of channels) {
+      const existing = getBoardState(ch)
+      // if we have a fresh board state, wait the full 3min interval
+      if (existing && Date.now() - existing.capturedAt < BOARD_SETTLED_CD) continue
       if (getBoardCooldown(ch) > 0) continue
       try {
         await captureBoard(ch, () => true)
@@ -40,8 +44,8 @@ export function startAutoCapture(getLiveChannels: () => string[]) {
         log('auto board capture error:', e instanceof Error ? e.message : e)
       }
     }
-  }, AUTO_CAPTURE_INTERVAL)
-  log(`board auto-capture started (every ${AUTO_CAPTURE_INTERVAL / 1000}s)`)
+  }, AUTO_TICK)
+  log('board auto-capture started (30s until board found, then every 3min)')
 }
 
 export function stopAutoCapture() {
