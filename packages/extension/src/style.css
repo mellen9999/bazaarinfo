@@ -1,0 +1,151 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: transparent;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+#root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.overlay {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.hover-zone {
+  position: absolute;
+  pointer-events: all;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  transition: border-color 120ms ease;
+}
+
+.hover-zone:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.card-tooltip {
+  position: absolute;
+  width: 280px;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e8e8e8;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 150ms ease, transform 150ms ease;
+  z-index: 100;
+}
+
+.card-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tooltip-tier-bar {
+  height: 3px;
+  width: 100%;
+}
+
+.tooltip-body {
+  padding: 10px 12px;
+}
+
+.tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tooltip-art {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.tooltip-title-block {
+  flex: 1;
+  min-width: 0;
+}
+
+.tooltip-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tooltip-size {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #aaa;
+  margin-top: 2px;
+  letter-spacing: 0.05em;
+}
+
+.tooltip-tooltips {
+  margin-bottom: 8px;
+}
+
+.tooltip-tip {
+  padding: 3px 0;
+  color: #d0d0d0;
+  font-size: 11px;
+}
+
+.tooltip-tip + .tooltip-tip {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tooltip-tip-type {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #777;
+  margin-bottom: 1px;
+}
+
+.tooltip-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tooltip-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #888;
+}
