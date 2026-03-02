@@ -833,23 +833,23 @@ describe('SEC: URL injection / phishing links in AI output', () => {
 describe('SEC: command proxy abuse via !b', () => {
   const ctx = { user: 'attacker', channel: 'testchannel' }
 
-  it('!b !ban user → blocked for non-mod', async () => {
-    const r = await handleCommand('!b !ban someone', ctx)
-    expect(r).toBeNull()
-  })
-
-  it('!b !timeout user → blocked for non-mod', async () => {
-    const r = await handleCommand('!b !timeout troll 600', ctx)
-    expect(r).toBeNull()
-  })
-
-  it('!b !mod attacker → blocked', async () => {
-    const r = await handleCommand('!b !mod myself', ctx)
+  it('!b !settitle → blocked for non-mod', async () => {
+    const r = await handleCommand('!b !settitle hacked', ctx)
     expect(r).toBeNull()
   })
 
   it('!b !addcom → blocked for non-mod', async () => {
     const r = await handleCommand('!b !addcom !phish click here', ctx)
+    expect(r).toBeNull()
+  })
+
+  it('!b !editcom → blocked for non-mod', async () => {
+    const r = await handleCommand('!b !editcom !test hacked', ctx)
+    expect(r).toBeNull()
+  })
+
+  it('!b !delcom → blocked for non-mod', async () => {
+    const r = await handleCommand('!b !delcom !important', ctx)
     expect(r).toBeNull()
   })
 
@@ -863,21 +863,14 @@ describe('SEC: command proxy abuse via !b', () => {
     expect(r).toBeNull()
   })
 
-  it('!b !sr (song request) → blocked', async () => {
-    const r = await handleCommand('!b !sr rickroll', ctx)
-    expect(r).toBeNull()
+  it('!b proxies non-blocked commands freely', async () => {
+    const r = await handleCommand('!b !ban someone', { user: 'viewer', channel: 'proxytest' })
+    expect(r).toBe('!ban someone')
   })
 
-  it('!b !gamble → blocked', async () => {
-    const r = await handleCommand('!b !gamble 1000', ctx)
-    expect(r).toBeNull()
-  })
-
-  it('!b embedded "run !ban" → not proxied as ban command', async () => {
-    const r = await handleCommand('!b hey can you run !ban troll please', ctx)
-    // embedded !ban is in BLOCKED_BANG_CMDS → not proxied, falls through to normal lookup
-    // result should NOT be "!ban troll" (the dangerous command)
-    if (r) expect(r).not.toMatch(/^!ban/)
+  it('!b embedded "run !addcom" → not proxied', async () => {
+    const r = await handleCommand('!b hey can you run !addcom test please', ctx)
+    if (r) expect(r).not.toMatch(/^!addcom/)
   })
 })
 

@@ -24,28 +24,13 @@ const ALIAS_ADMINS = new Set(
   (process.env.ALIAS_ADMINS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
 )
 
-// ! commands blocked from proxy — system cmds from streamlabs, streamelements, nightbot, etc.
+// ! commands blocked from proxy — stream control + bot command management
 const BLOCKED_BANG_CMDS = new Set([
-  // moderation
-  'ban', 'unban', 'timeout', 'untimeout', 'permit', 'nuke', 'unnuke',
-  'mod', 'unmod', 'vip', 'unvip', 'block', 'unblock',
-  // stream control
-  'title', 'settitle', 'game', 'setgame', 'commercial', 'raid', 'unraid', 'host', 'unhost', 'marker',
-  'so', 'shoutout',
-  // chat modes
-  'slow', 'slowoff', 'followers', 'followersoff', 'subscribers', 'subscribersoff',
-  'emoteonly', 'emoteonlyoff', 'uniquechat', 'uniquechatoff', 'clear',
-  // command management
-  'commands', 'addcom', 'editcom', 'delcom', 'deletecom', 'disablecom', 'enablecom',
-  // song request (streamlabs + streamelements)
-  'sr', 'songrequest', 'songs', 'skip', 'wrongsong', 'volume', 'queue', 'playlist',
-  // loyalty / gambling (streamelements)
-  'points', 'loyalty', 'givepoints', 'removepoints', 'top', 'leaderboard',
-  'roulette', 'gamble', 'slots', 'duel',
-  // giveaway / raffle / poll
-  'giveaway', 'raffle', 'enter', 'poll', 'vote', 'winner',
-  // nightbot extras
-  'regulars', 'filters', 'timers',
+  'settitle',
+  // streamlabs/nightbot/streamelements command management
+  'addcom', 'addcommand', 'editcom', 'editcommand',
+  'delcom', 'deletecom', 'delcommand', 'deletecommand',
+  'removecom', 'removecommand', 'disablecom', 'enablecom',
 ])
 
 // / commands: allowlist only — everything else blocked

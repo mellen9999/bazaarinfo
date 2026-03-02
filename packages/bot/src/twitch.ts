@@ -560,8 +560,8 @@ export class TwitchClient {
   }
 
   async say(channel: string, text: string, replyTo?: string) {
-    // strip command prefixes — / . for twitch, ! for other bots (nightbot, streamelements)
-    text = text.replace(/^[!/.]+/, '')
+    // strip twitch command prefixes (/ .) to prevent accidental mod actions
+    text = text.replace(/^[/.]+/, '')
     // proactively trim stale sendTimes entries
     const now = Date.now()
     const cutoff = now - this.SEND_WINDOW
