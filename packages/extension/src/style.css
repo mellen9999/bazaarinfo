@@ -27,12 +27,25 @@ body {
   pointer-events: all;
   cursor: pointer;
   border-radius: 4px;
-  border: 1px solid transparent;
+  border: 2px solid rgba(0, 255, 0, 0.5);
   transition: border-color 120ms ease;
 }
 
 .hover-zone:hover {
-  border-color: rgba(255, 255, 255, 0.25);
+  border-color: rgba(0, 255, 0, 0.9);
+}
+
+.hover-zone--skill {
+  border-color: rgba(0, 200, 255, 0.5);
+  border-radius: 50%;
+}
+
+.hover-zone--skill:hover {
+  border-color: rgba(0, 200, 255, 0.9);
+}
+
+.hover-zone--opponent {
+  border-style: dashed;
 }
 
 .card-tooltip {
@@ -113,6 +126,19 @@ body {
   letter-spacing: 0.05em;
 }
 
+.tooltip-enchantment {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(147, 51, 234, 0.3);
+  color: #c084fc;
+  margin-top: 2px;
+  margin-left: 4px;
+  letter-spacing: 0.05em;
+}
+
 .tooltip-tooltips {
   margin-bottom: 8px;
 }
@@ -148,4 +174,55 @@ body {
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.07);
   color: #888;
+}
+
+.card-bar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  pointer-events: all;
+  max-width: 90%;
+  overflow-x: auto;
+}
+
+.card-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: #ddd;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 100ms ease;
+}
+
+.card-bar-item:hover,
+.card-bar-item.active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.card-bar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.card-bar-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

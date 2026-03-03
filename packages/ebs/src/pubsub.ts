@@ -12,18 +12,52 @@ interface DetectedCard {
   y: number
   w: number
   h: number
+  owner?: string
+  type?: string
+  enchantment?: string
 }
 
-export async function broadcastCards(channelId: string, cards: DetectedCard[]): Promise<boolean> {
+interface ShopCard {
+  title: string
+  type: string
+  tier: string
+  size: string
+}
+
+interface BroadcastPayload {
+  cards: DetectedCard[]
+  shop?: ShopCard[]
+}
+
+export async function broadcastState(channelId: string, payload: BroadcastPayload): Promise<boolean> {
   if (!CLIENT_ID) {
     console.error('[pubsub] TWITCH_EXTENSION_CLIENT_ID not set')
     return false
   }
 
   const jwt = await createServerJwt(channelId)
-  const message = JSON.stringify({ cards })
+  const message = JSON.stringify(payload)
 
-  const res = await fetch(`https://api.twitch.tv/extensions/message/${channelId}`, {
+  if (message.length > 5000) {
+    console.warn(`[pubsub] message ${message.length} bytes, stripping attrs`)
+    // Strip attrs to fit under 5KB Twitch limit
+    const slim = {
+      ...payload,
+      cards: payload.cards.map(({ title, tier, x, y, w, h, owner, type, enchantment }) =>
+        ({ title, tier, x, y, w, h, owner, type, enchantment }))
+    }
+    const slimMsg = JSON.stringify(slim)
+    if (slimMsg.length > 5000) {
+      console.error(`[pubsub] still ${slimMsg.length} bytes after stripping`)
+    }
+    return await sendPubSub(channelId, jwt, slimMsg)
+  }
+
+  return await sendPubSub(channelId, jwt, message)
+}
+
+async function sendPubSub(channelId: string, jwt: string, message: string): Promise<boolean> {
+  const res = await fetch('https://api.twitch.tv/helix/extensions/pubsub', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${jwt}`,
@@ -31,9 +65,9 @@ export async function broadcastCards(channelId: string, cards: DetectedCard[]): 
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      content_type: 'application/json',
+      broadcaster_id: channelId,
       message,
-      targets: ['broadcast'],
+      target: ['broadcast'],
     }),
   })
 
@@ -44,3 +78,7 @@ export async function broadcastCards(channelId: string, cards: DetectedCard[]): 
 
   return true
 }
+
+// Keep old export name working
+export const broadcastCards = (channelId: string, cards: DetectedCard[]) =>
+  broadcastState(channelId, { cards })

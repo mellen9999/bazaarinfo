@@ -1,10 +1,11 @@
 // POST /detect — receives card detections from companion app, broadcasts via PubSub
 
 import { verifyCompanionSecret } from '../auth'
-import { broadcastCards } from '../pubsub'
+import { broadcastState } from '../pubsub'
 
 interface DetectPayload {
   channelId: string
+  secret: string
   cards: Array<{
     title: string
     tier: string
@@ -12,8 +13,17 @@ interface DetectPayload {
     y: number
     w: number
     h: number
+    owner?: string
+    type?: string
+    enchantment?: string
+    attrs?: Record<string, number>
   }>
-  secret: string
+  shop?: Array<{
+    title: string
+    type: string
+    tier: string
+    size: string
+  }>
 }
 
 function isValidPayload(body: unknown): body is DetectPayload {
@@ -49,7 +59,10 @@ export async function handleDetect(req: Request): Promise<Response> {
     return new Response('unauthorized', { status: 401 })
   }
 
-  const ok = await broadcastCards(body.channelId, body.cards)
+  const ok = await broadcastState(body.channelId, {
+    cards: body.cards,
+    shop: body.shop,
+  })
   if (!ok) {
     return new Response('broadcast failed', { status: 502 })
   }

@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>BazaarInfoPlugin</AssemblyName>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx">
+      <HintPath>$(GameDir)/BepInEx/core/BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(GameDir)/BepInEx/core/0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(GameDir)/TheBazaar_Data/Managed/UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameDir)/TheBazaar_Data/Managed/UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BazaarGameClient">
+      <HintPath>$(GameDir)/TheBazaar_Data/Managed/BazaarGameClient.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BazaarGameShared">
+      <HintPath>$(GameDir)/TheBazaar_Data/Managed/BazaarGameShared.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MessagePack">
+      <HintPath>$(GameDir)/TheBazaar_Data/Managed/MessagePack.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MessagePack.Annotations">
+      <HintPath>$(GameDir)/TheBazaar_Data/Managed/MessagePack.Annotations.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="TheBazaarRuntime">
+      <HintPath>$(GameDir)/TheBazaar_Data/Managed/TheBazaarRuntime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(GameDir)/TheBazaar_Data/Managed/UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BazaarBattleService">
+      <HintPath>$(GameDir)/TheBazaar_Data/Managed/BazaarBattleService.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

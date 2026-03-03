@@ -39,38 +39,32 @@ N_KEYPOINTS = 500
 
 
 def parse_tier_from_path(image_path: Path) -> str:
-    """
-    Infer tier from filename prefix or parent directory name.
-    Returns 'unknown' if no tier is found.
-    """
-    name_lower = image_path.stem.lower()
-    parent_lower = image_path.parent.name.lower()
-
-    for tier in SUPPORTED_TIERS:
-        if name_lower.startswith(tier + "_") or name_lower.startswith(tier + "-"):
-            return tier.capitalize()
-        if parent_lower == tier:
-            return tier.capitalize()
-
+    """All tiers share the same art — tier is irrelevant for visual matching."""
     return "Unknown"
 
 
 def parse_title_from_path(image_path: Path) -> str:
     """
-    Extract card title from filename, stripping tier prefix if present.
-    e.g. Gold_Hydra_Pup.png -> "Hydra Pup"
-         hydra_pup.png      -> "Hydra Pup"
+    Extract card title from Unity texture filename.
+    Format: CF_{Size}_{Hero}_{CardName}_D.png
+    e.g. CF_M_ADV_Scythe_D.png -> "Scythe"
+         CF_L_DOO_3DPrinter_D.png -> "3D Printer"
     """
     stem = image_path.stem
 
-    # Strip leading tier prefix if present
-    for tier in SUPPORTED_TIERS:
-        if stem.lower().startswith(tier + "_") or stem.lower().startswith(tier + "-"):
-            stem = stem[len(tier) + 1 :]
-            break
+    # Strip trailing _D (diffuse suffix)
+    if stem.endswith("_D"):
+        stem = stem[:-2]
 
-    # Replace underscores/hyphens with spaces, title-case the result
-    title = re.sub(r"[_-]", " ", stem).strip().title()
+    # Strip CF_{Size}_{Hero}_ prefix
+    parts = stem.split("_")
+    if len(parts) >= 4 and parts[0] == "CF":
+        name_part = "".join(parts[3:])
+    else:
+        name_part = stem
+
+    # CamelCase to spaced: "EyeOfTheColossus" -> "Eye Of The Colossus"
+    title = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name_part)
     return title
 
 

@@ -22,11 +22,12 @@ const TIER_ART: Record<TierName, string> = {
 interface Props {
   card: BazaarCard
   tier: TierName
+  enchantment?: string
   visible: boolean
   style?: Record<string, string>
 }
 
-export function CardTooltip({ card, tier, visible, style }: Props) {
+export function CardTooltip({ card, tier, enchantment, visible, style }: Props) {
   const color = TIER_COLORS[tier] ?? TIER_COLORS.Bronze
   const tooltips = card.Tooltips ?? []
   const tags = card.DisplayTags ?? card.Tags ?? []
@@ -43,6 +44,7 @@ export function CardTooltip({ card, tier, visible, style }: Props) {
           <div class="tooltip-title-block">
             <div class="tooltip-name" style={{ color }}>{card.Title}</div>
             <span class="tooltip-size">{SIZE_LABEL[card.Size] ?? card.Size}</span>
+            {enchantment && <span class="tooltip-enchantment">{enchantment}</span>}
           </div>
         </div>
         {tooltips.length > 0 && (

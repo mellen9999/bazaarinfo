@@ -1,117 +1,46 @@
 """
-capture.py — game window capture using mss (cross-platform)
+capture.py — game window capture via grim (Wayland) or mss (X11/Windows)
 
 Returns a numpy BGR array suitable for OpenCV processing.
-Falls back to full-screen capture if the game window can't be found.
 """
 
+import subprocess
 import sys
+import tempfile
+from pathlib import Path
+
+import cv2
 import numpy as np
 
-try:
-    import mss
-    import mss.tools
-except ImportError:
-    raise ImportError("Install mss: pip install mss")
 
-
-def _find_window_linux(title: str) -> dict | None:
-    """Use xdotool to get window geometry on Linux."""
-    import subprocess
-
+def _capture_grim() -> np.ndarray:
+    """Capture full screen using grim (Wayland)."""
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        tmp = f.name
     try:
-        result = subprocess.run(
-            ["xdotool", "search", "--name", title, "getwindowgeometry", "--shell"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        if result.returncode != 0:
-            return None
-
-        # Parse xdotool --shell output: X=, Y=, WIDTH=, HEIGHT=
-        geom = {}
-        for line in result.stdout.splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                geom[k.strip()] = int(v.strip())
-
-        if all(k in geom for k in ("X", "Y", "WIDTH", "HEIGHT")):
-            return {
-                "left": geom["X"],
-                "top": geom["Y"],
-                "width": geom["WIDTH"],
-                "height": geom["HEIGHT"],
-            }
-    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
-        pass
-
-    return None
-
-
-def _find_window_windows(title: str) -> dict | None:
-    """Use win32gui to get window geometry on Windows."""
-    try:
-        import win32gui
-
-        hwnd = win32gui.FindWindow(None, title)
-        if not hwnd:
-            # Try partial match
-            found = []
-
-            def enum_cb(h, _):
-                t = win32gui.GetWindowText(h)
-                if title.lower() in t.lower():
-                    found.append(h)
-
-            win32gui.EnumWindows(enum_cb, None)
-            hwnd = found[0] if found else None
-
-        if hwnd:
-            rect = win32gui.GetWindowRect(hwnd)
-            left, top, right, bottom = rect
-            return {
-                "left": left,
-                "top": top,
-                "width": right - left,
-                "height": bottom - top,
-            }
-    except ImportError:
-        pass
-
-    return None
-
-
-def get_game_window(title: str) -> dict | None:
-    """
-    Attempt to find the game window geometry by title.
-    Returns an mss-compatible monitor dict, or None if not found.
-    """
-    if sys.platform == "linux":
-        return _find_window_linux(title)
-    elif sys.platform == "win32":
-        return _find_window_windows(title)
-    # macOS: fall through to full screen
-    return None
+        subprocess.run(["grim", tmp], check=True, capture_output=True, timeout=5)
+        img = cv2.imread(tmp)
+        if img is None:
+            raise RuntimeError("grim captured empty image")
+        return img
+    finally:
+        Path(tmp).unlink(missing_ok=True)
 
 
 def capture_frame(window_title: str = "The Bazaar") -> np.ndarray:
     """
-    Capture a frame of the game window (or full screen as fallback).
+    Capture the screen. Uses grim on Wayland, falls back to mss on X11.
 
     Returns:
         numpy array in BGR format (OpenCV convention), shape (H, W, 3)
     """
+    session_type = __import__("os").environ.get("XDG_SESSION_TYPE", "")
+
+    if session_type == "wayland":
+        return _capture_grim()
+
+    # X11 / Windows fallback via mss
+    import mss
     with mss.mss() as sct:
-        monitor = get_game_window(window_title)
-
-        if monitor is None:
-            # Fall back to primary monitor (monitor index 1 in mss)
-            monitor = sct.monitors[1]
-
-        # Grab the screen region
-        raw = sct.grab(monitor)
-
-        # mss returns BGRA — drop the alpha channel to get BGR
-        frame = np.array(raw)[:, :, :3]
-        return frame
+        raw = sct.grab(sct.monitors[1])
+        return np.array(raw)[:, :, :3]

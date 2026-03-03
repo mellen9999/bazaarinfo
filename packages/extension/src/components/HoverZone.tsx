@@ -7,6 +7,9 @@ interface DetectedSlot {
   y: number
   w: number
   h: number
+  owner?: string
+  type?: string
+  enchantment?: string
 }
 
 interface Props extends DetectedSlot {
@@ -14,17 +17,21 @@ interface Props extends DetectedSlot {
   onLeave: () => void
 }
 
-export function HoverZone({ title, tier, x, y, w, h, onHover, onLeave }: Props) {
+export function HoverZone({ title, tier, x, y, w, h, owner, type, enchantment, onHover, onLeave }: Props) {
+  const isSkill = type === 'Skill'
+  const isOpponent = owner === 'opponent'
+  const cls = `hover-zone${isSkill ? ' hover-zone--skill' : ''}${isOpponent ? ' hover-zone--opponent' : ''}`
+
   return (
     <div
-      class="hover-zone"
+      class={cls}
       style={{
         left: `${x * 100}%`,
         top: `${y * 100}%`,
         width: `${w * 100}%`,
         height: `${h * 100}%`,
       }}
-      onMouseEnter={() => onHover({ title, tier, x, y, w, h })}
+      onMouseEnter={() => onHover({ title, tier, x, y, w, h, owner, type, enchantment })}
       onMouseLeave={onLeave}
     />
   )
