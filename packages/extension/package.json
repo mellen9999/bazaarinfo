@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "bun run build:overlay && bun run build:panel",
-    "build:overlay": "esbuild src/overlay.tsx --bundle --outfile=dist/video_overlay.js --format=iife --platform=browser --loader:.css=css --jsx=automatic --jsx-import-source=preact",
-    "build:panel": "esbuild src/panel.tsx --bundle --outfile=dist/panel.js --format=iife --platform=browser --loader:.css=css --jsx=automatic --jsx-import-source=preact"
+    "build:overlay": "esbuild src/overlay.tsx --bundle --outfile=dist/video_overlay.js --format=iife --platform=browser --loader:.css=css --jsx=automatic --jsx-import-source=preact --minify --drop:console --drop:debugger",
+    "build:panel": "esbuild src/panel.tsx --bundle --outfile=dist/panel.js --format=iife --platform=browser --loader:.css=css --jsx=automatic --jsx-import-source=preact --minify --drop:console --drop:debugger"
   },
   "dependencies": {
     "@bazaarinfo/shared": "workspace:*",

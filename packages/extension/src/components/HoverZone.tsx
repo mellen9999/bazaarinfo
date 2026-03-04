@@ -33,7 +33,8 @@ export function HoverZone({ title, tier, x, y, w, h, owner, type, enchantment, o
       }}
       onMouseEnter={() => onHover({ title, tier, x, y, w, h, owner, type, enchantment })}
       onMouseLeave={onLeave}
-    />
+    >
+    </div>
   )
 }
 

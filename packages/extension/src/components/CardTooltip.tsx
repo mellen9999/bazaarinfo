@@ -43,8 +43,10 @@ export function CardTooltip({ card, tier, enchantment, visible, style }: Props) 
           <div class="tooltip-art">{TIER_ART[tier]}</div>
           <div class="tooltip-title-block">
             <div class="tooltip-name" style={{ color }}>{card.Title}</div>
-            <span class="tooltip-size">{SIZE_LABEL[card.Size] ?? card.Size}</span>
-            {enchantment && <span class="tooltip-enchantment">{enchantment}</span>}
+            <div class="tooltip-badges">
+              <span class="tooltip-size">{SIZE_LABEL[card.Size] ?? card.Size}</span>
+              {enchantment && <span class="tooltip-enchantment">{enchantment}</span>}
+            </div>
           </div>
         </div>
         {tooltips.length > 0 && (
