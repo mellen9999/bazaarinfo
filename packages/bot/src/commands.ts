@@ -24,13 +24,42 @@ const ALIAS_ADMINS = new Set(
   (process.env.ALIAS_ADMINS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
 )
 
-// ! commands blocked from proxy — stream control + bot command management
+// ! commands blocked from proxy — scorched earth, block anything dangerous
 const BLOCKED_BANG_CMDS = new Set([
-  'settitle',
-  // streamlabs/nightbot/streamelements command management
+  // stream settings
+  'settitle', 'setgame', 'setcategory', 'title', 'game',
+  // command management (streamelements/nightbot/streamlabs)
   'addcom', 'addcommand', 'editcom', 'editcommand',
   'delcom', 'deletecom', 'delcommand', 'deletecommand',
   'removecom', 'removecommand', 'disablecom', 'enablecom',
+  'command', 'commands', 'cmd',
+  // moderation
+  'nuke', 'nukeusername', 'permit', 'vanish', 'votekick',
+  'ban', 'unban', 'timeout', 'untimeout', 'mute', 'unmute',
+  'purge', 'clear', 'warn',
+  // chat mode control
+  'caps', 'emoteonly', 'emoteonlyoff', 'slow', 'slowoff',
+  'followers', 'followersoff', 'subscribers', 'subscribersoff',
+  'uniquechat', 'r9kbeta', 'r9kbetaoff',
+  // bot control
+  'bot', 'module', 'disable', 'enable', 'emotes',
+  // stream control
+  'host', 'unhost', 'raid', 'marker', 'commercial',
+  // points/store abuse
+  'addpoints', 'setpoints', 'givepoints', 'removepoints',
+  'openstore', 'closestore',
+  // alerts/sfx
+  'alerts', 'enablesfx', 'disablesfx', 'filesay',
+  // song/media control
+  'skip', 'pause', 'volume', 'removesong', 'srclear', 'play',
+  // timers
+  'timer',
+  // counters
+  'editcounter', 'resetwins', 'resetcount', 'resetkills', 'resetgulag',
+  // giveaways/contests
+  'cancelraffle', 'sraffle',
+  // level/permissions
+  'level',
 ])
 
 // / commands: allowlist only — everything else blocked
@@ -357,7 +386,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   const bangMatch = cleanArgs.match(/^!(\w+)(.*)$/)
   if (bangMatch) {
     const cmd = bangMatch[1].toLowerCase()
-    if (BLOCKED_BANG_CMDS.has(cmd) && !ctx.isMod) return null
+    if (BLOCKED_BANG_CMDS.has(cmd)) return null
     return proxyWithCooldown(ctx.channel, cleanArgs, cmd)
   }
   const slashMatch = cleanArgs.match(/^\/(\w+)(.*)$/)
@@ -367,12 +396,17 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     return cleanArgs
   }
   // embedded command: "so can u run !jory pls" → "!jory"
-  const embeddedMatch = cleanArgs.match(/!(\w+)(?:\s+(\d+))?/)
-  if (embeddedMatch) {
-    const cmd = embeddedMatch[1].toLowerCase()
-    if (!BLOCKED_BANG_CMDS.has(cmd)) {
-      const cmdStr = embeddedMatch[2] ? `!${embeddedMatch[1]} ${embeddedMatch[2]}` : `!${embeddedMatch[1]}`
-      return proxyWithCooldown(ctx.channel, cmdStr, cmd)
+  // skip if asking about a command ("who has the most !a"), not requesting one
+  // questions about commands mention them as nouns; requests use action verbs near them
+  const isAskingAbout = /^(who|what|when|where|why|how|does|has|have|is)\b/i.test(cleanArgs)
+  if (!isAskingAbout) {
+    const embeddedMatch = cleanArgs.match(/!(\w+)(?:\s+(\d+))?/)
+    if (embeddedMatch) {
+      const cmd = embeddedMatch[1].toLowerCase()
+      if (!BLOCKED_BANG_CMDS.has(cmd)) {
+        const cmdStr = embeddedMatch[2] ? `!${embeddedMatch[1]} ${embeddedMatch[2]}` : `!${embeddedMatch[1]}`
+        return proxyWithCooldown(ctx.channel, cmdStr, cmd)
+      }
     }
   }
 
@@ -405,8 +439,11 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (lookupResult !== null) return lookupResult
 
   // AI fallback for conversational queries that missed game data
+  const isConversational = cleanArgs.split(/\s+/).length > 3
   const cd = getBFallbackCooldown(ctx.user)
   if (cd > 0) {
+    // long queries are clearly not item lookups — stay silent on cooldown
+    if (isConversational) return null
     const suggestions = store.suggest(cleanArgs, 3)
     if (suggestions.length) return withSuffix(`try: ${suggestions.join(', ')}`, suffix)
     return withSuffix(`no match for ${cleanArgs.slice(0, 40)}`, suffix)
@@ -432,6 +469,8 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     return response
   }
 
+  // AI failed — don't show "no match" for conversational queries
+  if (isConversational) return null
   const suggestions = store.suggest(cleanArgs, 3)
   if (suggestions.length) return withSuffix(`try: ${suggestions.join(', ')}`, suffix)
   return withSuffix(`no match for ${cleanArgs.slice(0, 40)}`, suffix)
@@ -449,8 +488,23 @@ function getBFallbackCooldown(user?: string): number {
   return elapsed >= B_FALLBACK_CD ? 0 : Math.ceil((B_FALLBACK_CD - elapsed) / 1000)
 }
 
+const triviaCommand: CommandHandler = (args, ctx) => {
+  if (!ctx.channel) return null
+  const validCategories = new Set(['items', 'heroes', 'monsters'])
+  const trimmed = args.trim().toLowerCase()
+  if (trimmed === 'score') return getTriviaScore(ctx.channel)
+  if (trimmed.startsWith('stats')) {
+    const target = trimmed.replace(/^stats\s*@?/, '').trim() || ctx.user
+    if (!target) return null
+    return formatStats(target, ctx.channel)
+  }
+  const category = validCategories.has(trimmed) ? trimmed as 'items' | 'heroes' | 'monsters' : undefined
+  return startTrivia(ctx.channel, category)
+}
+
 const commands: Record<string, CommandHandler> = {
   b: bazaarinfo,
+  trivia: triviaCommand,
 }
 
 export async function handleCommand(text: string, ctx: CommandContext = {}): Promise<string | null> {

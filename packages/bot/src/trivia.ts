@@ -91,6 +91,7 @@ function addNicknames(accepted: string[]): string[] {
 }
 
 const ROUND_DURATION = 30_000
+const HINT_DELAY = 15_000
 const COOLDOWN = 60_000
 const RECENT_BUFFER_SIZE = 10
 const MIN_ANSWER_LENGTH = 1
@@ -106,6 +107,8 @@ interface TriviaState {
   startedAt: number
   participants: Set<string>
   timeout: Timer
+  hintTimeout: Timer | null
+  hintText: string
   say: SayFn
 }
 
@@ -301,6 +304,50 @@ function genMonsterSkillQuestion(): ReturnType<QuestionGen> {
   }
 }
 
+// type 11: how much health does [Monster] have?
+function genMonsterHealthQuestion(): ReturnType<QuestionGen> {
+  const valid = store.getMonsters().filter((m) => m.MonsterMetadata.health > 0)
+  if (valid.length === 0) return null
+  const monster = pickRandom(valid)
+  const hp = String(monster.MonsterMetadata.health)
+  return {
+    question: `How much health does ${monster.Title} have?`,
+    answer: `${hp} HP`,
+    accepted: [hp],
+    type: 11,
+  }
+}
+
+// type 12: what size is [Item]?
+function genItemSizeQuestion(): ReturnType<QuestionGen> {
+  const items = store.getItems().filter((c) =>
+    c.Heroes.length > 0 && !FAKE_HEROES.has(c.Heroes[0]),
+  )
+  if (items.length === 0) return null
+  const item = pickRandom(items)
+  return {
+    question: `What size is ${item.Title}?`,
+    answer: item.Size,
+    accepted: [item.Size.toLowerCase()],
+    type: 12,
+  }
+}
+
+// type 13: what tier does [Item] start at?
+function genBaseTierQuestion(): ReturnType<QuestionGen> {
+  const items = store.getItems().filter((c) =>
+    c.Heroes.length > 0 && !FAKE_HEROES.has(c.Heroes[0]) && c.BaseTier,
+  )
+  if (items.length === 0) return null
+  const item = pickRandom(items)
+  return {
+    question: `What tier does ${item.Title} start at?`,
+    answer: item.BaseTier,
+    accepted: [item.BaseTier.toLowerCase()],
+    type: 13,
+  }
+}
+
 const generators: QuestionGen[] = [
   genHeroQuestion,          // 0
   genTagQuestion,           // 1
@@ -312,14 +359,37 @@ const generators: QuestionGen[] = [
   genMechanicQuestion,      // 7
   genHeroSkillQuestion,     // 8
   genMonsterSkillQuestion,  // 9
+  genMonsterHealthQuestion, // 10
+  genItemSizeQuestion,      // 11
+  genBaseTierQuestion,      // 12
 ]
 
 type TriviaCategory = 'items' | 'heroes' | 'monsters'
 
 const CATEGORY_GENERATORS: Record<TriviaCategory, number[]> = {
-  items: [1, 2, 4, 5, 7],       // tag, tooltip, hero+size, hero+tag, mechanic
-  heroes: [0, 8],                // hero-from-item, hero-from-skill
-  monsters: [3, 6, 9],          // board item, day, monster skill
+  items: [1, 2, 4, 5, 7, 11, 12],  // tag, tooltip, hero+size, hero+tag, mechanic, size, tier
+  heroes: [0, 8],                    // hero-from-item, hero-from-skill
+  monsters: [3, 6, 9, 10],          // board item, day, monster skill, health
+}
+
+function generateHint(answer: string): string {
+  // for numeric answers, give a range
+  if (/^\d+$/.test(answer)) {
+    const n = parseInt(answer)
+    const magnitude = Math.pow(10, Math.floor(Math.log10(n)))
+    const low = Math.floor(n / magnitude) * magnitude
+    const high = low + magnitude
+    return `Hint: between ${low} and ${high}`
+  }
+  // for short answers (size, tier, hero), give first letter + length
+  if (answer.length <= 10) {
+    const blanks = '_'.repeat(answer.length - 1)
+    return `Hint: ${answer[0].toUpperCase()}${blanks} (${answer.length} letters)`
+  }
+  // for long answers, reveal first letter of each word
+  const words = answer.split(/\s+/)
+  const initials = words.map((w) => w[0].toUpperCase() + '_'.repeat(w.length - 1))
+  return `Hint: ${initials.join(' ')}`
 }
 
 function pickQuestionType(channel: string, category?: TriviaCategory): number {
@@ -333,6 +403,33 @@ function pickQuestionType(channel: string, category?: TriviaCategory): number {
 
   if (available.length === 0) return pickRandom(allowedIndices)
   return pickRandom(available)
+}
+
+function editDistance(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 3) return 999
+  const m = a.length, n = b.length
+  const dp = Array.from({ length: m + 1 }, (_, i) => {
+    const row = new Array(n + 1)
+    row[0] = i
+    return row
+  })
+  for (let j = 0; j <= n; j++) dp[0][j] = j
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+    }
+  }
+  return dp[m][n]
+}
+
+function isCloseMiss(cleaned: string, accepted: string[]): boolean {
+  const threshold = cleaned.length <= 5 ? 1 : 2
+  return accepted.some((a) => {
+    const d = editDistance(cleaned, a)
+    return d > 0 && d <= threshold
+  })
 }
 
 // answer matching: exact, then startsWith, then includes for long names
@@ -412,6 +509,17 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
     if (msg) globalSay(channel, msg)
   }, ROUND_DURATION)
 
+  // hint uses the canonical answer (first accepted or raw answer)
+  const hintAnswer = q.answer.replace(/^any.*?:\s*/, '').split(',')[0].trim()
+  const hintText = generateHint(hintAnswer)
+
+  const hintTimeout = setTimeout(() => {
+    const game = activeGames.get(channel)
+    if (game && game.gameId === gameId) {
+      globalSay(channel, hintText)
+    }
+  }, HINT_DELAY)
+
   activeGames.set(channel, {
     gameId,
     question: q.question,
@@ -421,6 +529,8 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
     startedAt: Date.now(),
     participants: new Set(),
     timeout,
+    hintTimeout,
+    hintText,
     say: globalSay,
   })
 
@@ -434,6 +544,7 @@ function endTrivia(channel: string, expectedGameId?: number): string | null {
   if (expectedGameId !== undefined && game.gameId !== expectedGameId) return null
 
   clearTimeout(game.timeout)
+  if (game.hintTimeout) clearTimeout(game.hintTimeout)
   activeGames.delete(channel)
   lastGameEnd.set(channel, Date.now())
 
@@ -474,20 +585,35 @@ export function checkAnswer(
     if (!activeGames.has(channel)) return
     db.recordTriviaWin(game.gameId, userId, answerTimeMs, game.participants.size)
     clearTimeout(game.timeout)
+    if (game.hintTimeout) clearTimeout(game.hintTimeout)
     activeGames.delete(channel)
     lastGameEnd.set(channel, Date.now())
 
-    const timeStr = (answerTimeMs / 1000).toFixed(1)
-    const emote = pickEmoteByMood(channel, 'celebration', 'hype')
-    say(channel, `${username} got it in ${timeStr}s! Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`)
+    const secs = answerTimeMs / 1000
+    const timeStr = secs.toFixed(1)
+    const speedTag = secs < 3 ? ' LEGENDARY' : secs < 5 ? ' FAST' : secs < 10 ? ' nice' : ''
+    const emote = secs < 3
+      ? pickEmoteByMood(channel, 'hype', 'celebration')
+      : secs < 5
+        ? pickEmoteByMood(channel, 'celebration', 'hype')
+        : pickEmoteByMood(channel, 'happy', 'celebration')
+    say(channel, `${username} got it in ${timeStr}s!${speedTag} Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`)
   } else {
     db.resetTriviaStreak(userId)
+    // close-miss taunt — if answer is edit-distance ≤2 from any accepted answer
+    if (cleaned.length >= 4 && isCloseMiss(cleaned, game.acceptedAnswers)) {
+      const emote = pickEmoteByMood(channel, 'sarcasm', 'thinking')
+      say(channel, `${username} so close!${emote ? ` ${emote}` : ''}`)
+    }
   }
 }
 
 export function cleanupChannel(channel: string) {
   const game = activeGames.get(channel)
-  if (game) clearTimeout(game.timeout)
+  if (game) {
+    clearTimeout(game.timeout)
+    if (game.hintTimeout) clearTimeout(game.hintTimeout)
+  }
   activeGames.delete(channel)
   lastGameEnd.delete(channel)
   recentTypes.delete(channel)

@@ -864,8 +864,13 @@ describe('SEC: command proxy abuse via !b', () => {
   })
 
   it('!b proxies non-blocked commands freely', async () => {
-    const r = await handleCommand('!b !ban someone', { user: 'viewer', channel: 'proxytest' })
-    expect(r).toBe('!ban someone')
+    const r = await handleCommand('!b !jory', { user: 'viewer', channel: 'proxytest' })
+    expect(r).toBe('!jory')
+  })
+
+  it('!b blocks dangerous commands for everyone', async () => {
+    expect(await handleCommand('!b !ban someone', { user: 'viewer', channel: 'proxyban' })).toBeNull()
+    expect(await handleCommand('!b !ban someone', { user: 'mod', channel: 'proxyban2', isMod: true })).toBeNull()
   })
 
   it('!b embedded "run !addcom" → not proxied', async () => {

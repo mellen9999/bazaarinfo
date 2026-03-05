@@ -1430,9 +1430,15 @@ describe('command proxy: direct !cmd', () => {
     }
   })
 
-  it('proxies formerly blocked commands freely', async () => {
-    for (const cmd of ['so', 'ban', 'timeout', 'raid', 'gamble', 'lurk']) {
+  it('proxies safe commands freely', async () => {
+    for (const cmd of ['so', 'gamble', 'lurk', 'jory']) {
       expect(await handleCommand(`!b !${cmd}`, { user: 'viewer', channel: `ch${cmd}` })).toBe(`!${cmd}`)
+    }
+  })
+
+  it('blocks dangerous mod commands', async () => {
+    for (const cmd of ['ban', 'timeout', 'disable', 'enable', 'nuke', 'setpoints']) {
+      expect(await handleCommand(`!b !${cmd}`, { user: 'viewer', channel: `blk${cmd}` })).toBeNull()
     }
   })
 
@@ -1478,9 +1484,8 @@ describe('command proxy: embedded in chat', () => {
   it('embedded blocked command does not execute !addcom', async () => {
     // "can you !addcom test" — blocked cmd embedded, falls through to AI fallback
     const result = await handleCommand('!b can you !addcom test', { user: 'u', channel: 'c' })
-    // should NOT proxy !addcom — falls through to AI fallback, then no-match
-    expect(result).not.toMatch(/^!addcom/)
-    expect(result).toBeTruthy()
+    // should NOT proxy !addcom — conversational query stays silent when AI unavailable
+    if (result) expect(result).not.toMatch(/^!addcom/)
   })
 
   it('preserves original case of command name', async () => {
@@ -1602,32 +1607,21 @@ describe('command proxy: slash commands', () => {
 // ---------------------------------------------------------------------------
 // Mod bypass for blocked commands
 // ---------------------------------------------------------------------------
-describe('command proxy: mod bypass', () => {
-  it('mod can proxy blocked commands', async () => {
-    expect(await handleCommand('!b !settitle new', { user: 'mod', channel: 'ch', privileged: true, isMod: true })).toBe('!settitle new')
-    expect(await handleCommand('!b !addcom test', { user: 'mod', channel: 'ch2', privileged: true, isMod: true })).toBe('!addcom test')
+describe('command proxy: blocked commands', () => {
+  it('blocked commands are blocked for everyone including mods', async () => {
+    expect(await handleCommand('!b !settitle new', { user: 'mod', channel: 'ch', privileged: true, isMod: true })).toBeNull()
+    expect(await handleCommand('!b !addcom test', { user: 'mod', channel: 'ch2', privileged: true, isMod: true })).toBeNull()
+    expect(await handleCommand('!b !disable brb', { user: 'mod', channel: 'ch3', privileged: true, isMod: true })).toBeNull()
+    expect(await handleCommand('!b !permit someone', { user: 'mod', channel: 'ch4', privileged: true, isMod: true })).toBeNull()
   })
 
   it('non-mod cannot proxy blocked commands', async () => {
-    expect(await handleCommand('!b !settitle new', { user: 'viewer', channel: 'ch' })).toBeNull()
-    expect(await handleCommand('!b !addcom test', { user: 'viewer', channel: 'ch2' })).toBeNull()
-  })
-
-  it('subscriber cannot proxy blocked commands', async () => {
-    expect(await handleCommand('!b !settitle new', { user: 'sub', channel: 'chsub', privileged: true })).toBeNull()
-    expect(await handleCommand('!b !editcom !test hi', { user: 'sub', channel: 'chsub2', privileged: true })).toBeNull()
-  })
-
-  it('mod still gets cooldown on blocked commands', async () => {
-    const ctx = { user: 'mod', channel: 'cdmod', privileged: true, isMod: true }
-    expect(await handleCommand('!b !settitle test', ctx)).toBe('!settitle test')
-    resetDedup()
-    const result = await handleCommand('!b !settitle test', ctx)
-    expect(result).toContain('on cooldown')
+    expect(await handleCommand('!b !settitle new', { user: 'viewer', channel: 'chv' })).toBeNull()
+    expect(await handleCommand('!b !addcom test', { user: 'viewer', channel: 'chv2' })).toBeNull()
   })
 
   it('custom commands still work for non-privileged', async () => {
-    expect(await handleCommand('!b !jory', { user: 'viewer', channel: 'ch' })).toBe('!jory')
+    expect(await handleCommand('!b !jory', { user: 'viewer', channel: 'chj' })).toBe('!jory')
   })
 })
 

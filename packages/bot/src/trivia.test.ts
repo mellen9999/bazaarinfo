@@ -340,7 +340,7 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([2, 3, 5, 6, 8]).toContain(t)
+      expect([2, 3, 5, 6, 8, 12, 13]).toContain(t)
     }
   })
 
@@ -368,7 +368,7 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([4, 7, 10]).toContain(t)
+      expect([4, 7, 10, 11]).toContain(t)
     }
   })
 
