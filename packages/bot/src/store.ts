@@ -47,6 +47,12 @@ export const ALIASES: Record<string, string> = {
   blueprint: 'Schematics',
   blueprints: 'Schematics',
   'gravity well': 'Unstable Grav Well',
+  // CamelCase titles that users type with spaces
+  'lava roller': 'LavaRoller',
+  'mag shield': 'MagShield',
+  'illuso ray': 'IllusoRay',
+  'lau lau': 'LauLau',
+  'pen ft': 'PenFT',
 }
 
 // hero name aliases (misspellings, alternate names)

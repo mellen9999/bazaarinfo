@@ -508,6 +508,9 @@ function buildGameContext(entities: ResolvedEntities, channel?: string): string 
         const tagCounts = new Map<string, number>()
         for (const c of heroItems) {
           for (const t of c.DisplayTags) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1)
+          for (const t of c.HiddenTags) {
+            if (!t.endsWith('Reference')) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1)
+          }
         }
         const sorted = [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
         sections.push(`${entities.hero} (${heroItems.length} items): ${sorted.map(([t, n]) => `${t}(${n})`).join(', ')}`)
@@ -580,7 +583,8 @@ const KNOWLEDGE: [RegExp, string][] = [
   [/kripp.*(browser|incident|tab)|browser.*(kripp|incident)/i, "Kripp browser incident: yes it happened, yes chat saw everything. Kappa. keep it vague and funny, never say what the tab actually was."],
   [/reynad|andrey|tempo storm/i, "Reynad (Andrey Yanyuk): Ukrainian-Canadian, moved to Minnesota age 6. Dropped out of high school to grind card games (poker, MTG). Banned from MTG (DCI suspension for slipping an extra card into his sealed deck at a tournament, got mouthy about it online so they extended the ban to 18 months). Pivoted to HS, popularized Zoo Warlock and Aggro Warrior. Founded Tempo Storm May 2014, ran the Meta Snapshot tier lists that became THE community reference. Forbes 30 Under 30 (2017). Stepped back from streaming 2018 to build The Bazaar full-time. Notorious for salt — death stares at chat after bad beats, mass-banning viewers. 'Reynad luck' = always on the wrong end of topdecks. Beef with Amaz/Team Archon (refused to shake Amaz's hand at an event). Defended MagicAmy during the 2015 witch-hunt, called r/hearthstone a 'scumbag community'. TTS donation incident got him in trouble with Twitch. The Bazaar concept started 2017, inspired by Ascension and Star Realms — wanted to fix pay-to-win models he hated about HS."],
   [/reynad.*(drama|beef|amaz|magic.?amy|ban|cheat|salt|forsen)/i, "Reynad drama: banned from MTG for adding cards to sealed deck, ban extended when he got defensive online. HS era: Amaz/Team Archon rivalry was central 2015 drama — accused Archon of copying Tempo Storm's model, refused to shake Amaz's hand publicly. MagicAmy saga (Feb 2015): his player got accused of being fake (man playing on her account), Reynad investigated 36 people over 3 days, found nothing, went public defending her and calling the HS subreddit out. TTS donations got racist content read on stream, Twitch warned him. Forsen's community ('Forsen Boys') raided channels with abuse, creating ambient tension. Chat relationship was 'antagonistically symbiotic performance art' — the salt was the content."],
-  [/the bazaar|this game/i, "The Bazaar: PvP auto-battler roguelike by Reynad. 6 heroes. Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments, monsters on numbered days."],
+  [/the bazaar|this game/i, "The Bazaar: PvP auto-battler roguelike by Reynad. 7 heroes. Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments, monsters on numbered days."],
+  [/karnok|rage|enrage/i, "Karnok: DLC hero. Signature mechanic is Rage — gain Rage from items/abilities, Enrage when Rage is full (temporary buff state). Enraged = boosted effects on many items (bonus damage, flying, shields). Rage decays over time. Archetypes: Rage stacking, Friends, Weapons, Properties. Items interact with Rage gain, Enrage triggers, and Enrage duration."],
   [/lethalfrag/i, "Lethalfrag (Matt McKnight): ex-chef, single father from Washington state. Quit his job to stream full-time, launched the Two Year Live Stream Challenge (Jan 5 2012 - Jan 6 2014) — streamed every night for 731 days straight. First inductee into the Twitch Hall of Fame (Lifetime Achievement Award). Shorty Award nominee for Twitch Streamer of the Year. Known for roguelike games (FTL, Binding of Isaac), 'Cooking with FRAG' series, and answering every single chat question. Currently one of the top English Bazaar streamers (#3 English, #4 overall). Self-described goal: be gaming's Batman."],
   [/patopapao|pato/i, "PatoPapao: Brazilian, Portuguese-language streamer. #1 most-watched Bazaar channel globally. Twitch Partner since 2012, hit 3.5K peak subs. Averages ~600 viewers, peaks over 1K. Bio translates to 'a guy who makes little videos and streams since 2012' — understated for the biggest Bazaar channel. Consistent grinder, streams 100+ hours/week during Bazaar peaks."],
   [/dog\b.*\b(?:hs|hearthstone|bazaar)|dogdog/i, "Dog: high-legend HS, off-meta decks, now plays Bazaar. Married Hafu (2021)."],
@@ -598,7 +602,7 @@ const KNOWLEDGE: [RegExp, string][] = [
 ]
 
 // detect game-related terms (used by extractEntities to flag game queries)
-const GAME_TERMS = /\b(items?|heroes?|monsters?|mobs?|builds?|tiers?|enchant(ment)?s?|skills?|tags?|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|weapons?|relics?|aqua|friend|ammo|charge|board|dps|beat|fight|counter|synergy|scaling|combo|lethal|survive|bronze|silver|gold|diamond|legendary|lifesteal|multicast|luck|cooldown|pygmy|pygmalien|vanessa|dooley|stelle|jules|mak|common|run|pick|draft|comp|strat(egy)?|nerf|buff|patch|meta|broken)\b/i
+const GAME_TERMS = /\b(items?|heroes?|monsters?|mobs?|builds?|tiers?|enchant(ment)?s?|skills?|tags?|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|rage|weapons?|relics?|aqua|friend|ammo|charge|board|dps|beat|fight|counter|synergy|scaling|combo|lethal|survive|bronze|silver|gold|diamond|legendary|lifesteal|multicast|luck|cooldown|pygmy|pygmalien|vanessa|dooley|stelle|jules|mak|karnok|common|run|pick|draft|comp|strat(egy)?|nerf|buff|patch|meta|broken)\b/i
 
 // --- user context builder ---
 
@@ -735,7 +739,7 @@ export function buildSystemPrompt(): string {
 
   const lines = [
     `You are ${TWITCH_USERNAME} — Twitch chatbot for The Bazaar (Reynad's card game). ${today}. creator: mellen (only mention if asked who made you). data: bazaardb.gg. !b=everything (item/hero/mob lookup, trivia, questions, chat).`,
-    'GAME: $20 Steam (not f2p since aug 2025). base=Vanessa/Pygmalien/Dooley. heroes $20 DLC each (Mak/Stelle/Jules). cosmetics+mobile exist.',
+    'GAME: $20 Steam (not f2p since aug 2025). base=Vanessa/Pygmalien/Dooley. heroes $20 DLC each (Mak/Stelle/Jules/Karnok). cosmetics+mobile exist.',
     '',
     'lowercase. spicy. hilarious. you are the funniest person in chat and you know it. commit fully to opinions, never hedge. short > long. specific > vague. NEVER mean or rude to people — roast the game, the meta, the situation, never the person. minimum characters, maximum impact.',
     'absorb chat voice — use their slang, their abbreviations, their sentence patterns. sound like one of them, not an outsider. if Voice/Chat voice sections are present, mimic that energy.',
