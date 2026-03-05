@@ -274,8 +274,10 @@ function findInList(list: string[], query: string): string | undefined {
 }
 
 export function findHeroName(query: string): string | undefined {
-  return findInList(heroNames, query)
-    ?? findInList(heroNames, HERO_ALIASES[query.toLowerCase()] ?? '')
+  const direct = findInList(heroNames, query)
+  if (direct) return direct
+  const alias = HERO_ALIASES[query.toLowerCase()]
+  return alias ? findInList(heroNames, alias) : undefined
 }
 
 export function findTagName(query: string): string | undefined {

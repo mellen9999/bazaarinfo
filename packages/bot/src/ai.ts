@@ -348,6 +348,18 @@ function serializeMonster(monster: Monster): string {
 
 // --- entity extraction (pre-resolve game data locally) ---
 
+// common words that fuse.js matches to card titles but aren't real item lookups
+// (e.g. "skill" → "Still Focus", "monster" → "Monster Tracker", "fight" → "Tool Fight")
+const ENTITY_SKIP = new Set([
+  'skill', 'from', 'fight', 'monster', 'dead', 'good', 'best', 'worst',
+  'make', 'like', 'with', 'does', 'work', 'need', 'want', 'help',
+  'much', 'many', 'more', 'most', 'less', 'last', 'next', 'first',
+  'that', 'this', 'what', 'when', 'where', 'which', 'they', 'them',
+  'have', 'been', 'were', 'will', 'than', 'then', 'just', 'also',
+  'only', 'still', 'even', 'well', 'very', 'some', 'each', 'over',
+  'ever', 'after', 'before', 'about', 'think', 'know', 'take',
+  'come', 'keep', 'give', 'tell', 'find', 'here', 'there',
+])
 
 interface ResolvedEntities {
   cards: BazaarCard[]
@@ -393,7 +405,8 @@ function extractEntities(query: string): ResolvedEntities {
           for (let j = 0; j < size; j++) matched.add(i + j)
           continue
         }
-        if (size >= 1) {
+        // fuzzy: skip single common words that aren't plausible item names
+        if (size >= 2 || (size === 1 && phrase.length >= 4 && !STOP_WORDS.has(phrase) && !ENTITY_SKIP.has(phrase))) {
           const [fuzzy] = store.searchWithScore(phrase, 1)
           if (fuzzy && fuzzy.score < 0.3) {
             result.cards.push(fuzzy.item)
@@ -403,8 +416,8 @@ function extractEntities(query: string): ResolvedEntities {
         }
       }
 
-      // monsters (max 2)
-      if (result.monsters.length < 2) {
+      // monsters (max 2) — skip single common words for fuzzy matching
+      if (result.monsters.length < 2 && (size >= 2 || (size === 1 && phrase.length >= 4 && !STOP_WORDS.has(phrase) && !ENTITY_SKIP.has(phrase)))) {
         const monster = store.findMonster(phrase)
         if (monster) {
           result.monsters.push(monster)
