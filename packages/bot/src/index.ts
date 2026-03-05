@@ -292,7 +292,9 @@ const client = new TwitchClient(
         }
         lastResponseTime.set(channel, Date.now())
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
-        client.say(channel, response, messageId)
+        // skip replyTo when response is a !command proxy — Streamlabs can't see commands in reply threads
+        const replyId = /^!/.test(response) ? undefined : messageId
+        client.say(channel, response, replyId)
         chatbuf.record(channel, BOT_USERNAME, response)
       }
     } catch (e) {

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'preact/hooks'
-import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
+import { useState, useEffect, useCallback } from 'preact/hooks'
+import type { BazaarCard } from '@bazaarinfo/shared/src/types'
 import { HoverZone } from './HoverZone'
 import type { DetectedSlot } from './HoverZone'
 import { CardTooltip } from './CardTooltip'
@@ -18,10 +18,10 @@ declare global {
 const EBS_BASE = 'https://ebs.bazaarinfo.com'
 
 export function App() {
-  const cardsRef = useRef<Map<string, BazaarCard>>(new Map())
+  const [cards, setCards] = useState<Map<string, BazaarCard>>(new Map())
   const [detected, setDetected] = useState<DetectedSlot[]>([])
   const [hovered, setHovered] = useState<DetectedSlot | null>(null)
-  const [tooltipPos, setTooltipPos] = useState({ left: '0', top: '0' })
+  const [tooltipPos, setTooltipPos] = useState<{ left: string; top: string }>({ left: '0', top: '0' })
 
   useEffect(() => {
     const twitch = window.Twitch?.ext
@@ -35,16 +35,20 @@ export function App() {
         if (!res.ok) return
         const data = await res.json() as { items: BazaarCard[]; skills: BazaarCard[] }
         const map = new Map<string, BazaarCard>()
-        for (const c of data.items ?? []) map.set(c.Title.toLowerCase(), c)
-        for (const c of data.skills ?? []) map.set(c.Title.toLowerCase(), c)
-        cardsRef.current = map
-      } catch {}
+        for (const c of [...(data.items ?? []), ...(data.skills ?? [])]) {
+          map.set(c.Title.toLowerCase(), c)
+        }
+        setCards(map)
+      } catch {
+        // EBS unavailable
+      }
     })
 
     twitch.listen('broadcast', (_target, _contentType, message) => {
       try {
         const data = JSON.parse(message)
-        if (Array.isArray(data?.cards)) setDetected(data.cards)
+        const slots = data?.cards as DetectedSlot[] | undefined
+        if (Array.isArray(slots)) setDetected(slots)
       } catch {}
     })
   }, [])
@@ -54,21 +58,19 @@ export function App() {
     const vh = window.innerHeight
     const cx = slot.x * vw + (slot.w * vw) / 2
     const cy = slot.y * vh
-
-    setTooltipPos({
-      left: cx + 280 > vw ? `${cx - 290}px` : `${cx}px`,
-      top: cy - 250 < 0 ? `${cy + slot.h * vh + 8}px` : `${cy - 250}px`,
-    })
+    const left = cx + 140 > vw ? `${cx - 280}px` : `${cx}px`
+    const top = cy + 240 > vh ? `${cy - 240}px` : `${cy}px`
+    setTooltipPos({ left, top })
     setHovered(slot)
   }, [])
 
   const handleLeave = useCallback(() => setHovered(null), [])
 
-  const hoveredCard = hovered ? cardsRef.current.get(hovered.title.toLowerCase()) ?? null : null
+  const hoveredCard = hovered ? cards.get(hovered.title.toLowerCase()) ?? null : null
 
   return (
-    <div class="overlay">
-      {detected.filter((slot) => slot.type !== 'Skill' && slot.owner !== 'opponent').map((slot) => (
+    <div class=overlay>
+      {detected.map((slot) => (
         <HoverZone
           key={`${slot.title}-${slot.x}-${slot.y}`}
           {...slot}
@@ -76,11 +78,10 @@ export function App() {
           onLeave={handleLeave}
         />
       ))}
-      {hovered && hoveredCard && (
+      {hoveredCard && hovered && (
         <CardTooltip
           card={hoveredCard}
           tier={hovered.tier}
-          enchantment={hovered.enchantment}
           visible={true}
           style={{ position: 'absolute', left: tooltipPos.left, top: tooltipPos.top }}
         />

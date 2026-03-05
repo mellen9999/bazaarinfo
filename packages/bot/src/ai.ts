@@ -1778,7 +1778,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       result.text = stripInputEcho(result.text, query)
       // enforce length caps in code — model ignores prompt-level hints
       const isShort = isShortResponse(query)
-      const hardCap = isPasta ? 400 : hasGameData ? 150 : isRememberReq ? 120 : isShort ? 50 : 120
+      const hardCap = isPasta ? 400 : hasGameData ? 150 : isRememberReq ? 120 : isShort ? 50 : 150
       if (result.text.length > hardCap) {
         const cut = result.text.slice(0, hardCap)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))

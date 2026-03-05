@@ -59,6 +59,9 @@ const HERO_ALIASES: Record<string, string> = {
   van: 'Vanessa',
   stella: 'Stelle',
   jewels: 'Jules',
+  karnak: 'Karnok',
+  karnok: 'Karnok',
+  karn: 'Karnok',
 }
 
 const dynamicAliases = new Map<string, string>()
