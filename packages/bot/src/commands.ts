@@ -333,19 +333,24 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   // items first (exact then fuzzy) — !b mob exists for explicit monster lookups
-  const card = store.exact(query) ?? store.search(query, 1)[0]
+  const exactCard = store.exact(query)
+  const card = exactCard ?? store.search(query, 1)[0]
 
-  // for conversational queries (>3 words), only accept fuzzy match if the item title
-  // shares a meaningful word with the query — prevents "right" matching "Right Eye"
+  // reject fuzzy matches where the query doesn't meaningfully overlap with the title
   const queryWords = query.toLowerCase().split(/\s+/)
-  const isRelevantMatch = (title: string) => {
-    if (queryWords.length <= 3) return true
+  const isRelevantMatch = (title: string, isExact: boolean) => {
+    if (isExact) return true
     // split CamelCase/PascalCase into words (LavaRoller → lava, roller)
     const titleWords = title.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s\-]+/)
+    // single-word query: must appear as substring in title (enrage ≠ Leverage Momentum)
+    if (queryWords.length === 1) return titleWords.some((tw) => tw.includes(queryWords[0]) || queryWords[0].includes(tw))
+    // short queries (2-3 words): at least one word overlap
+    if (queryWords.length <= 3) return titleWords.some((tw) => tw.length >= 3 && queryWords.includes(tw))
+    // conversational (>3 words): same word overlap check
     return titleWords.some((tw) => tw.length >= 3 && queryWords.includes(tw))
   }
 
-  if (card && isRelevantMatch(card.Title)) {
+  if (card && isRelevantMatch(card.Title, !!exactCard)) {
     const v = validateTier(card, tier)
     logHit('item', query, card.Title, ctx, v.tier)
     const result = formatItem(card, v.tier)
@@ -353,7 +358,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   const monster = store.findMonster(query)
-  if (monster && isRelevantMatch(monster.Title)) {
+  if (monster && isRelevantMatch(monster.Title, false)) {
     logHit('mob', query, monster.Title, ctx)
     return withSuffix(formatMonster(monster, resolveSkills(monster)), suffix)
   }
