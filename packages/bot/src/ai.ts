@@ -352,6 +352,7 @@ function serializeMonster(monster: Monster): string {
 // (e.g. "skill" → "Still Focus", "monster" → "Monster Tracker", "fight" → "Tool Fight")
 const ENTITY_SKIP = new Set([
   'skill', 'from', 'fight', 'monster', 'dead', 'good', 'best', 'worst',
+  'build', 'suggest', 'show', 'list', 'pick', 'rate', 'rank',
   'make', 'like', 'with', 'does', 'work', 'need', 'want', 'help',
   'much', 'many', 'more', 'most', 'less', 'last', 'next', 'first',
   'that', 'this', 'what', 'when', 'where', 'which', 'they', 'them',
