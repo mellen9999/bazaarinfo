@@ -398,7 +398,7 @@ function extractEntities(query: string): ResolvedEntities {
       if ([...Array(size)].some((_, j) => matched.has(i + j))) continue
       const phrase = words.slice(i, i + size).join(' ')
 
-      // cards (max 3) — exact first, fuzzy fallback
+      // exact card match first (user typed an actual card name)
       if (result.cards.length < 3) {
         const card = store.exact(phrase)
         if (card) {
@@ -406,7 +406,30 @@ function extractEntities(query: string): ResolvedEntities {
           for (let j = 0; j < size; j++) matched.add(i + j)
           continue
         }
-        // fuzzy: skip single common words that aren't plausible item names
+      }
+
+      // hero before fuzzy cards — "karnok" should match the hero, not "Karnok's Rage"
+      if (!result.hero) {
+        const hero = store.findHeroName(phrase)
+        if (hero) {
+          result.hero = hero
+          for (let j = 0; j < size; j++) matched.add(i + j)
+          continue
+        }
+      }
+
+      // tag (first match)
+      if (!result.tag) {
+        const tag = store.findTagName(phrase)
+        if (tag) {
+          result.tag = tag
+          for (let j = 0; j < size; j++) matched.add(i + j)
+          continue
+        }
+      }
+
+      // fuzzy card match — after hero/tag so known names aren't consumed
+      if (result.cards.length < 3) {
         if (size >= 2 || (size === 1 && phrase.length >= 4 && !STOP_WORDS.has(phrase) && !ENTITY_SKIP.has(phrase))) {
           const [fuzzy] = store.searchWithScore(phrase, 1)
           if (fuzzy && fuzzy.score < 0.3) {
@@ -422,26 +445,6 @@ function extractEntities(query: string): ResolvedEntities {
         const monster = store.findMonster(phrase)
         if (monster) {
           result.monsters.push(monster)
-          for (let j = 0; j < size; j++) matched.add(i + j)
-          continue
-        }
-      }
-
-      // hero (first match)
-      if (!result.hero) {
-        const hero = store.findHeroName(phrase)
-        if (hero) {
-          result.hero = hero
-          for (let j = 0; j < size; j++) matched.add(i + j)
-          continue
-        }
-      }
-
-      // tag (first match)
-      if (!result.tag) {
-        const tag = store.findTagName(phrase)
-        if (tag) {
-          result.tag = tag
           for (let j = 0; j < size; j++) matched.add(i + j)
           continue
         }
