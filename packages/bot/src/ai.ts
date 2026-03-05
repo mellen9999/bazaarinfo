@@ -511,6 +511,10 @@ function buildGameContext(entities: ResolvedEntities, channel?: string): string 
         }
         const sorted = [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
         sections.push(`${entities.hero} (${heroItems.length} items): ${sorted.map(([t, n]) => `${t}(${n})`).join(', ')}`)
+        // inject a sample of hero-exclusive items with full tooltips so AI has real data
+        const exclusive = heroItems.filter((c) => !c.Heroes.includes('Common'))
+        const sample = exclusive.slice(0, 5)
+        for (const card of sample) sections.push(serializeCard(card))
       } else {
         sections.push(`${entities.hero} items: ${heroItems.map((c) => c.Title).join(', ')}`)
       }
