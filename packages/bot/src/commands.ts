@@ -340,7 +340,8 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   const queryWords = query.toLowerCase().split(/\s+/)
   const isRelevantMatch = (title: string) => {
     if (queryWords.length <= 3) return true
-    const titleWords = title.toLowerCase().split(/\s+/)
+    // split CamelCase/PascalCase into words (LavaRoller → lava, roller)
+    const titleWords = title.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s\-]+/)
     return titleWords.some((tw) => tw.length >= 3 && queryWords.includes(tw))
   }
 
