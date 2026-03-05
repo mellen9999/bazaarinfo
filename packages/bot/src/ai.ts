@@ -462,8 +462,14 @@ function extractEntities(query: string): ResolvedEntities {
 function buildGameContext(entities: ResolvedEntities, channel?: string): string {
   const sections: string[] = []
 
-  // broad hero/class question with no specific hero → inject hero overview
-  if (!entities.hero && entities.cards.length === 0 && entities.monsters.length === 0) {
+  // broad hero/class question → inject hero overview (all heroes with item counts)
+  // also inject for tierlist/ranking/meta queries even if a specific hero was mentioned
+  // ("hero tierlist for the karnok patch" = compare all heroes, not just karnok)
+  const isBroadHeroQ = !entities.hero && entities.cards.length === 0 && entities.monsters.length === 0
+  const isComparisonQ = /\b(tier\s*list|ranking|rank|compare|best|worst|strongest|weakest|meta|patch)\b/i.test(
+    entities.effects.join(' '),
+  )
+  if (isBroadHeroQ || (entities.hero && isComparisonQ)) {
     const heroNames = store.getHeroNames()
     const heroCounts = heroNames.map((h) => {
       const items = store.byHero(h)
@@ -483,7 +489,17 @@ function buildGameContext(entities: ResolvedEntities, channel?: string): string 
   if (entities.hero) {
     const heroItems = store.byHero(entities.hero)
     if (heroItems.length > 0) {
-      sections.push(`${entities.hero} items: ${heroItems.map((c) => c.Title).join(', ')}`)
+      // for broad/comparison queries, tag summary is more useful than 200+ item names
+      if (isComparisonQ || heroItems.length > 30) {
+        const tagCounts = new Map<string, number>()
+        for (const c of heroItems) {
+          for (const t of c.DisplayTags) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1)
+        }
+        const sorted = [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
+        sections.push(`${entities.hero} (${heroItems.length} items): ${sorted.map(([t, n]) => `${t}(${n})`).join(', ')}`)
+      } else {
+        sections.push(`${entities.hero} items: ${heroItems.map((c) => c.Title).join(', ')}`)
+      }
     }
   }
 
