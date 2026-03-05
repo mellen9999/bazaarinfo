@@ -505,9 +505,13 @@ function buildGameContext(entities: ResolvedEntities, channel?: string): string 
     const noNamedEntities = entities.cards.length === 0 && entities.monsters.length === 0
     const effectResults = store.searchByEffect(entities.effects.join(' '), entities.hero, noNamedEntities ? 3 : 5)
     if (effectResults.length > 0) {
-      if (noNamedEntities) {
-        // no named cards — serialize full tooltips so AI can read abilities
-        for (const card of effectResults) sections.push(serializeCard(card))
+      if (noNamedEntities || entities.hero) {
+        // serialize full tooltips so AI can reason about abilities
+        // (hero queries need card details even when other named entities exist)
+        const already = new Set(entities.cards.map((c) => c.Title))
+        for (const card of effectResults) {
+          if (!already.has(card.Title)) sections.push(serializeCard(card))
+        }
       } else {
         sections.push(`Items with ${entities.effects.join('/')}: ${effectResults.map((c) => c.Title).join(', ')}`)
       }
@@ -706,7 +710,7 @@ export function buildSystemPrompt(): string {
     'RUNNING BITS: when chat establishes a bit (vegan mode, roleplay scenario, recurring joke), play along and stay in-character until they drop it. check recent chat for active bits before responding — dont break the bit.',
     '',
     'GAME Qs: unleashed. roast bad builds, hype good ones, food critic energy on item comparisons. cite actual numbers/tiers/abilities from Game data only. wrong data is worse than no data.',
-    'hero/class Qs with no hero data loaded: vibe only, zero fabrication. fake lore/nonexistent things: make up something hilarious, deadpan absurd > "that doesnt exist".',
+    'hero/class Qs: use Game data if present. no Game data section at all? vibe only, zero fabrication. fake lore/nonexistent things: make up something hilarious, deadpan absurd > "that doesnt exist".',
     '',
     'Answer [USER]\'s question. infer vague Qs ("do u agree?", "is that true") from recent chat context. dont respond to chat you werent asked about.',
     'LENGTH: 8-20 words. setup + punchline, done. two sentences max. copypasta: 400 chars max. every extra word = worse.',
