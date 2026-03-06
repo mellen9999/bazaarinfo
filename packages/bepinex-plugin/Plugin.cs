@@ -40,11 +40,12 @@ namespace BazaarInfoPlugin
         internal static float CachedSocketW;
         internal static float CachedSocketH;
 
-        // Skill sockets (4 per side)
+        // Skill sockets (up to 6 per side)
         internal static SocketLayout[] PlayerSkillSockets;
         internal static SocketLayout[] OpponentSkillSockets;
         internal static float SkillSocketW;
         internal static float SkillSocketH;
+        internal static int CachedSkillSocketCount = 0;
 
         internal static bool LayoutReady = false;
         internal static volatile bool NeedsBroadcast = false;
@@ -108,8 +109,13 @@ namespace BazaarInfoPlugin
 
             var bmin = cam.WorldToViewportPoint(col.bounds.min);
             var bmax = cam.WorldToViewportPoint(col.bounds.max);
-            CachedSocketW = Math.Abs(bmax.x - bmin.x);
             CachedSocketH = Math.Abs(bmax.y - bmin.y);
+
+            // Derive socket width from actual spacing (collider bounds don't match visual width)
+            if (PlayerSockets.Length > 1)
+                CachedSocketW = (PlayerSockets[PlayerSockets.Length - 1].x - PlayerSockets[0].x) / (PlayerSockets.Length - 1);
+            else
+                CachedSocketW = Math.Abs(bmax.x - bmin.x);
 
             // Skill sockets — index by SocketNumber, not array index
             var pSkills = boardMgr.playerSkillSockets;
@@ -134,59 +140,13 @@ namespace BazaarInfoPlugin
                     SkillSocketH = CachedSocketW;
                 }
 
+                CachedSkillSocketCount = pSkills.Length;
+
                 for (int si = 0; si < PlayerSkillSockets.Length; si++)
                     Log.LogInfo($"Skill socket p[{si}]=({PlayerSkillSockets[si].x:F4},{PlayerSkillSockets[si].y:F4})");
+                Log.LogInfo($"Skill sockets cached: {CachedSkillSocketCount}");
                 Log.LogInfo($"Skill size: w={SkillSocketW:F4} h={SkillSocketH:F4}");
 
-                // Explore skill socket hierarchy to find visual elements
-                for (int si = 0; si < pSkills.Length; si++)
-                {
-                    if (pSkills[si] == null) continue;
-                    var t = pSkills[si].transform;
-                    Log.LogInfo($"SkillSocket[{si}] '{t.name}' children={t.childCount} pos={t.position}");
-                    LogChildren(t, cam, 1, 3);
-                }
-
-                // Search for any transforms with "skill" in the name
-                var allTransforms = UnityEngine.Object.FindObjectsOfType<Transform>();
-                int skillCount = 0;
-                foreach (var t in allTransforms)
-                {
-                    if (t.name.IndexOf("skill", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        t.name.IndexOf("Skill", StringComparison.Ordinal) >= 0)
-                    {
-                        var vp = cam.WorldToViewportPoint(t.position);
-                        float vy = 1f - vp.y;
-                        if (vy > 0.7f && vy < 1f && vp.x > 0.2f && vp.x < 0.8f)
-                        {
-                            var comps = t.GetComponents<Component>();
-                            var compNames = new StringBuilder();
-                            foreach (var c in comps)
-                            {
-                                if (compNames.Length > 0) compNames.Append(",");
-                                compNames.Append(c.GetType().Name);
-                            }
-                            Log.LogInfo($"SkillObj: '{t.name}' parent='{t.parent?.name}' vp=({vp.x:F4},{vy:F4}) comps=[{compNames}]");
-                            skillCount++;
-                        }
-                    }
-                }
-                Log.LogInfo($"Found {skillCount} skill-area transforms");
-
-                // Also look for SpriteRenderers in the skill area
-                var renderers = UnityEngine.Object.FindObjectsOfType<SpriteRenderer>();
-                int rCount = 0;
-                foreach (var r in renderers)
-                {
-                    var vp = cam.WorldToViewportPoint(r.transform.position);
-                    float vy = 1f - vp.y;
-                    if (vy > 0.75f && vy < 0.95f && vp.x > 0.25f && vp.x < 0.75f)
-                    {
-                        Log.LogInfo($"SkillAreaSprite: '{r.name}' parent='{r.transform.parent?.name}' vp=({vp.x:F4},{vy:F4}) sprite={r.sprite?.name}");
-                        rCount++;
-                    }
-                }
-                Log.LogInfo($"Found {rCount} sprites in skill area");
             }
 
             LayoutReady = true;
@@ -200,32 +160,39 @@ namespace BazaarInfoPlugin
             // no-op: skills use socket positions with fill-order mapping
         }
 
-        // Correction from 3D collider center to visual circle center (viewport coords)
-        static readonly float SkillCorrectionX = -0.051f;
-        static readonly float SkillCorrectionY = -0.004f;
+        // Hardcoded visual positions for 6 skill slots (viewport coords from THIS.png)
+        // Collider positions are unreliable — these are the actual visual centers
+        // Layout: 3 left of hero, 3 right of hero
+        //   pos0 = outer left top,  pos1 = outer left bottom, pos2 = inner left
+        //   pos3 = inner right,     pos4 = outer right bottom, pos5 = outer right top
+        static readonly float[,] SkillVisualPos = {
+            { 0.3413f, 0.8211f },  // pos 0 (user's #1)
+            { 0.3794f, 0.8867f },  // pos 1 (user's #2)
+            { 0.4182f, 0.8229f },  // pos 2 (user's #3)
+            { 0.5839f, 0.8251f },  // pos 3 (user's #4)
+            { 0.6183f, 0.8847f },  // pos 4 (user's #5)
+            { 0.6572f, 0.8209f },  // pos 5 (user's #6)
+        };
+
+        // 6-skill grid layout (12 slots: 2 rows of 3 per side)
+        // From THISQ.png annotation
+        static readonly float[,] SkillGridPos = {
+            { 0.3358f, 0.8130f },  // grid 0: top-left 1
+            { 0.3800f, 0.8140f },  // grid 1: top-left 2
+            { 0.4245f, 0.8142f },  // grid 2: top-left 3
+            { 0.5743f, 0.8133f },  // grid 3: top-right 1
+            { 0.6187f, 0.8130f },  // grid 4: top-right 2
+            { 0.6624f, 0.8128f },  // grid 5: top-right 3
+            { 0.3362f, 0.8888f },  // grid 6: bot-left 1
+            { 0.3804f, 0.8898f },  // grid 7: bot-left 2
+            { 0.4243f, 0.8913f },  // grid 8: bot-left 3
+            { 0.5720f, 0.8880f },  // grid 9: bot-right 1
+            { 0.6162f, 0.8894f },  // grid 10: bot-right 2
+            { 0.6607f, 0.8878f },  // grid 11: bot-right 3
+        };
 
         internal static int NextPlayerSkillSocket = 0;
         internal static int NextOpponentSkillSocket = 0;
-
-        static void LogChildren(Transform parent, Camera cam, int depth, int maxDepth)
-        {
-            if (depth > maxDepth) return;
-            var indent = new string(' ', depth * 2);
-            for (int i = 0; i < parent.childCount; i++)
-            {
-                var child = parent.GetChild(i);
-                var vp = cam.WorldToViewportPoint(child.position);
-                var comps = child.GetComponents<Component>();
-                var names = new StringBuilder();
-                foreach (var c in comps)
-                {
-                    if (names.Length > 0) names.Append(",");
-                    names.Append(c.GetType().Name);
-                }
-                Log.LogInfo($"{indent}child '{child.name}' vp=({vp.x:F4},{1f - vp.y:F4}) comps=[{names}]");
-                LogChildren(child, cam, depth + 1, maxDepth);
-            }
-        }
 
         static SocketLayout[] CacheSocketArray(Component[] sockets, Camera cam)
         {
@@ -241,12 +208,20 @@ namespace BazaarInfoPlugin
 
         static SocketLayout[] CacheSkillSockets(SkillSocketController[] sockets, Camera cam)
         {
-            var layout = new SocketLayout[4];
+            // Find max socket number to size the array
+            int maxIdx = 0;
+            for (int i = 0; i < sockets.Length; i++)
+            {
+                if (sockets[i] == null) continue;
+                int n = (int)sockets[i].SocketNumber;
+                if (n > maxIdx) maxIdx = n;
+            }
+            var layout = new SocketLayout[maxIdx + 1];
             for (int i = 0; i < sockets.Length; i++)
             {
                 if (sockets[i] == null) continue;
                 int idx = (int)sockets[i].SocketNumber;
-                if (idx < 0 || idx >= 4) continue;
+                if (idx < 0 || idx >= layout.Length) continue;
                 var vp = cam.WorldToViewportPoint(sockets[i].transform.position);
                 layout[idx] = new SocketLayout { x = vp.x, y = 1f - vp.y };
                 Log.LogInfo($"  SkillSocket arr[{i}] SocketNumber={sockets[i].SocketNumber}({idx}) pos=({layout[idx].x:F4},{layout[idx].y:F4})");
@@ -327,24 +302,43 @@ namespace BazaarInfoPlugin
 
             if (isSkill)
             {
-                var sk = owner == "player" ? PlayerSkillSockets : OpponentSkillSockets;
-                if (sk == null || sk.Length == 0) return null;
-                int idx = info.Socket;
-                if (idx < 0 || idx >= sk.Length) return null;
+                int socketNum = info.Socket;
+                float vx, vy;
 
-                // Use actual per-socket position + correction offset
-                var socket = sk[idx];
-                if (socket.x == 0f && socket.y == 0f) return null;
+                // Count player skills to detect layout mode
+                int totalSkills = 0;
+                lock (BoardLock)
+                {
+                    foreach (var kvp in (owner == "player" ? PlayerBoard : OpponentBoard))
+                        if (kvp.Value.CardType == "Skill") totalSkills++;
+                }
+
+                if (totalSkills >= 6)
+                {
+                    // Grid layout (12 slots) — socket N maps to grid position N
+                    int gridIdx = socketNum;
+                    if (gridIdx < 0 || gridIdx >= SkillGridPos.GetLength(0)) return null;
+                    vx = SkillGridPos[gridIdx, 0];
+                    vy = (owner == "player") ? SkillGridPos[gridIdx, 1] : (1f - SkillGridPos[gridIdx, 1]);
+                }
+                else
+                {
+                    // Triangle layout (up to 5 skills) — socket N maps to position N
+                    if (socketNum < 0 || socketNum >= SkillVisualPos.GetLength(0)) return null;
+                    vx = SkillVisualPos[socketNum, 0];
+                    vy = (owner == "player") ? SkillVisualPos[socketNum, 1] : (1f - SkillVisualPos[socketNum, 1]);
+                }
+
                 float sw = SkillSocketW;
                 float sh = SkillSocketH;
-                float cx = socket.x + SkillCorrectionX;
-                float cy = socket.y + SkillCorrectionY;
+                // Grid skills are smaller
+                if (totalSkills >= 6) { sw *= 0.7f; sh *= 0.7f; }
                 return new CardPayload
                 {
                     title = info.Title,
                     tier = info.Tier,
-                    x = cx - sw / 2f,
-                    y = cy - sh / 2f,
+                    x = vx - sw / 2f,
+                    y = vy - sh / 2f,
                     w = sw,
                     h = sh,
                     owner = owner,
@@ -362,7 +356,11 @@ namespace BazaarInfoPlugin
                 return null;
 
             var sl = sockets[info.Socket];
-            float w = socketW * (int)info.Size;
+            int size = (int)info.Size;
+            int endSocket = Math.Min(info.Socket + size - 1, sockets.Length - 1);
+            float w = (endSocket > info.Socket)
+                ? sockets[endSocket].x - sl.x + socketW
+                : socketW;
             float h = socketH;
 
             return new CardPayload
@@ -530,7 +528,7 @@ namespace BazaarInfoPlugin
         public string CardType;
         public string Enchantment;
         public Dictionary<string, int> Attributes = new Dictionary<string, int>();
-        public float ScreenX = -1f;  // viewport position from SkillController (skills only)
+        public float ScreenX = -1f;
         public float ScreenY = -1f;
     }
 
@@ -625,12 +623,12 @@ namespace BazaarInfoPlugin
                             foreach (var attr in card.Attributes)
                                 info.Attributes[attr.Key.ToString()] = attr.Value;
 
-                        if (card.Owner == ECombatantId.Player && playerSkillIdx < 4)
+                        if (card.Owner == ECombatantId.Player && playerSkillIdx < 12)
                         {
                             info.Socket = playerSkillIdx++;
                             Plugin.PlayerBoard[card.InstanceId] = info;
                         }
-                        else if (card.Owner == ECombatantId.Opponent && opponentSkillIdx < 4)
+                        else if (card.Owner == ECombatantId.Opponent && opponentSkillIdx < 12)
                         {
                             info.Socket = opponentSkillIdx++;
                             Plugin.OpponentBoard[card.InstanceId] = info;
@@ -805,7 +803,7 @@ namespace BazaarInfoPlugin
                                 else
                                     socketIdx = Plugin.NextOpponentSkillSocket++;
 
-                                if (socketIdx < 4)
+                                if (socketIdx < 12)
                                 {
                                     var info = new CardInfo
                                     {
