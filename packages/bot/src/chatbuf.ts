@@ -8,6 +8,7 @@ export interface ChatEntry {
 
 const buffers = new Map<string, ChatEntry[]>()
 const MAX_SIZE = 100
+const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
 
 // --- session tracking ---
 
@@ -59,8 +60,9 @@ async function maybeLearnLessons(channel: string) {
   const buf = buffers.get(channel)
   if (!buf || buf.length < 30) return
 
-  // fire-and-forget
-  lessonExtractor(channel, buf.slice(-80)).catch((e) => {
+  // fire-and-forget — filter bot messages so lessons reflect chat culture, not bot output
+  const chatOnly = buf.slice(-80).filter((m) => m.user.toLowerCase() !== botName)
+  lessonExtractor(channel, chatOnly).catch((e) => {
     log(`lesson error (${channel}): ${e}`)
   })
 }
@@ -85,7 +87,9 @@ async function maybeSummarize(channel: string) {
 
   const prev = summaries.get(channel) ?? ''
   try {
-    const summary = await summarizer(channel, buf.slice(-50), prev)
+    // filter out bot's own messages so summaries reflect chat, not the bot echoing itself
+    const chatOnly = buf.slice(-50).filter((m) => m.user.toLowerCase() !== botName)
+    const summary = await summarizer(channel, chatOnly, prev)
     if (summary) {
       summaries.set(channel, summary)
       if (summaryPersister) {
@@ -111,7 +115,7 @@ export function getActiveThreads(channel: string, windowMs = 120_000): Thread[] 
   if (!buf) return []
 
   const now = Date.now()
-  const recent = buf.filter((m) => now - m.ts < windowMs)
+  const recent = buf.filter((m) => now - m.ts < windowMs && m.user.toLowerCase() !== botName)
   if (recent.length < 2) return []
 
   // track who's talking to whom via @mentions and reply proximity
