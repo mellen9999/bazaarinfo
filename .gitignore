@@ -4,3 +4,7 @@ cache/*.json
 !cache/copypasta-examples.json
 .env
 *.log
+__pycache__/
+*.npz
+packages/companion/card_images/
+packages/companion/features/
