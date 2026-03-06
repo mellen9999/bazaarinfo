@@ -826,7 +826,7 @@ const META_INSTRUCTION = /\b(pls|please)\s+(just\s+)?(do|give|say|answer|stop|he
 // instruction echo — stored facts or context echoing "it needs to know..." directives
 const INSTRUCTION_ECHO = /\b(it needs to (know|respond|learn|have|be|act)|just (respond|be|act|sound|talk) (cleanly|pro|normally|like|as)|don'?t sound like|every\s+respon[sc]e?\s+should\s+be\s+unique|mix it up|respond the same way|don'?t respond the same|should be unique|vary (structure|opener|tone)|maximum impact|minimum characters)\b/i
 // jailbreak/override instructions echoed in output
-const JAILBREAK_ECHO = /\b(ignore\s+(previous|prior|above|all|your)\s+(instructions?|rules?|prompt|guidelines?)|disregard\s+your\s+(prompt|rules?|instructions?|guidelines?)|override\s+your\s+(rules?|guidelines?|instructions?)|forget\s+your\s+(rules?|guidelines?|instructions?)|from\s+now\s+on\b.{0,20}\b(do|always|never|you\s+(should|must|will))|instead\s+just\s+do\b|dont?\s+mention\s+(me|mellen)|do\s+as\s+much\s+.{0,10}as\s+(you|u)\s+can|by\s+ur\s*self|as\s+long\s+as\s+.{0,15}\b(tos|rules|guidelines?|guidlines?))\b/i
+const JAILBREAK_ECHO = /\b(ignore\s+(previous|prior|above|all|your)\s+(instructions?|rules?|prompt|guidelines?)|disregard\s+your\s+(prompt|rules?|instructions?|guidelines?)|override\s+your\s+(rules?|guidelines?|instructions?)|forget\s+your\s+(rules?|guidelines?|instructions?)|(from\s+now\s+on|going\s+forward|henceforth|from\s+this\s+point|starting\s+now)\b.{0,20}\b(do|always|never|you\s+(should|must|will))|instead\s+just\s+do\b|dont?\s+mention\s+(me|mellen)|do\s+as\s+much\s+.{0,10}as\s+(you|u)\s+can|by\s+ur\s*self|as\s+long\s+as\s+.{0,15}\b(tos|rules|guidelines?|guidlines?)|new\s+instructions?:|updated\s+rules?:)\b/i
 // privacy lies — bot claiming it doesn't store/log/collect data (it does)
 const PRIVACY_LIE = /\b(i (don'?t|do not|never) (log|store|collect|track|save|record|keep) (anything|any|your|data|messages|chat)|i'?m? (not )?(log|stor|collect|track|sav|record|keep)(ing|e|s)? (anything|any|your|data|messages|chat)|not (logging|storing|collecting|tracking|saving|recording) (anything|any|your)|not like i'?m storing|each conversation'?s? a fresh slate|fresh slate|don'?t collect or store|that'?s on streamlabs|that'?s a twitch thing,? not me)\b/i
 // always blocked — real Twitch IRC commands, even mods can't trigger through bot
@@ -1019,6 +1019,43 @@ export function dedupeEmote(text: string, channel?: string): string {
     }
   }
   return text
+}
+
+// --- @mention dedup (prevent bot from always picking the same chatter) ---
+
+const MENTION_HISTORY_SIZE = 4
+const recentMentionsByChannel = new Map<string, string[]>()
+
+/** Strip @mentions of users the bot recently mentioned (force variety). Keeps asker mention. */
+export function dedupeMention(text: string, channel?: string, asker?: string): string {
+  if (!channel) return text
+  const recent = recentMentionsByChannel.get(channel) ?? []
+  const askerLower = asker?.toLowerCase()
+
+  // collect new mentions from this response
+  const mentions = text.match(/@(\w+)/g) ?? []
+  const newMentions: string[] = []
+
+  let result = text
+  for (const m of mentions) {
+    const name = m.slice(1).toLowerCase()
+    if (name === askerLower) continue // never strip asker
+    if (recent.includes(name)) {
+      // strip the @, keep the name as plain text
+      result = result.replace(m, name)
+    } else {
+      newMentions.push(name)
+    }
+  }
+
+  // record new mentions
+  for (const n of newMentions) {
+    recent.push(n)
+    if (recent.length > MENTION_HISTORY_SIZE) recent.shift()
+  }
+  recentMentionsByChannel.set(channel, recent)
+
+  return result
 }
 
 /** Strip tail of response that echoes ≥4 consecutive words from user query (injection defense) */
@@ -1479,7 +1516,9 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const chatStr = chatContext.length > 0
     ? chatContext.map((m) => {
         const user = m.user.replace(/[:\n]/g, '')
-        const text = m.text.replace(/^!\w+\s*/, '').replace(/\n/g, ' ').replace(/^---+/, '').slice(0, 300)
+        const text = m.text.replace(/^!\w+\s*/, '').replace(/\n/g, ' ').replace(/^---+/, '')
+          .replace(/\b(Game data|Recent chat|Stream timeline|Who's chatting|Channel|Your prior exchanges|Chat culture|Bot stats|Chatters):/gi, '')
+          .slice(0, 300)
         return `> ${user}: ${text}`
       }).join('\n')
     : ''

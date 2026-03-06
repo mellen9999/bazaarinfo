@@ -4,7 +4,7 @@ import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
-import { aiRespond, dedupeEmote, fixEmoteCase } from './ai'
+import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase } from './ai'
 
 const MAX_LEN = 480
 
@@ -37,6 +37,10 @@ const BLOCKED_BANG_CMDS = new Set([
   'nuke', 'nukeusername', 'permit', 'vanish', 'votekick',
   'ban', 'unban', 'timeout', 'untimeout', 'mute', 'unmute',
   'purge', 'clear', 'warn',
+  // DMs/blocking/connection
+  'whisper', 'w', 'block', 'unblock', 'disconnect',
+  // announcements (mod-only)
+  'announce',
   // chat mode control
   'caps', 'emoteonly', 'emoteonlyoff', 'slow', 'slowoff',
   'followers', 'followersoff', 'subscribers', 'subscribersoff',
@@ -399,6 +403,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (slashMatch) {
     const cmd = slashMatch[1].toLowerCase()
     if (!ALLOWED_SLASH_CMDS.has(cmd)) return null
+    if (cmd === 'announce' && !ctx.isMod) return null
     return cleanArgs
   }
   // embedded command: "so can u run !jory pls" → "!jory"
@@ -468,7 +473,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
       }
     }
     try { db.logCommand(ctx, 'ai', cleanArgs, 'fallback') } catch {}
-    let response = dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel)
+    let response = dedupeMention(dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel), ctx.channel, ctx.user)
     const responseLower = response.toLowerCase()
     const missingMentions = mentions.map((m) => m.toLowerCase()).filter((m) => !responseLower.includes(m))
     if (missingMentions.length > 0) response = withSuffix(response, ` ${missingMentions.join(' ')}`)
