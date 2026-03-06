@@ -1005,6 +1005,13 @@ export function dedupeEmote(text: string, channel?: string): string {
   const lastWord = words[words.length - 1]
 
   if (lastWord && emoteSet.has(lastWord)) {
+    // skip dedup if chat has an active bit requesting this emote
+    const chatRecent = getRecent(channel, 10)
+    const emoteLower = lastWord.toLowerCase()
+    const bitActive = chatRecent.some((m) =>
+      /\b(end|start|always|every|with)\b/i.test(m.text) && m.text.toLowerCase().includes(emoteLower))
+    if (bitActive) return text
+
     const recent = recentEmotesByChannel.get(channel) ?? []
     const wasRecent = recent.includes(lastWord)
     // record immediately — prevents concurrent calls from both using same emote
@@ -1618,7 +1625,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const hotSet = new Set(hot.map((e) => e.response))
   const deduped = recentAll.filter((r) => !hotSet.has(r))
   const recentLine = deduped.length > 0
-    ? `\nYour recent responses (NEVER reuse these openings, structures, or phrases — totally different angle each time):\n${deduped.map((r) => `- "${r.length > 100 ? r.slice(0, 100) + '...' : r}"`).join('\n')}`
+    ? `\nYour recent responses (vary openings, structures, and phrasing — BUT if chat started a bit/running joke, keep playing along with it):\n${deduped.map((r) => `- "${r.length > 100 ? r.slice(0, 100) + '...' : r}"`).join('\n')}`
     : ''
 
   // copypasta few-shot examples
