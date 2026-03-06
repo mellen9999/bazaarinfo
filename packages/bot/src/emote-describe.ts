@@ -30,6 +30,20 @@ function normalizeMood(mood: string): string {
   return MOOD_ALIASES[lower] ?? 'neutral'
 }
 
+// strip useless filler words that waste tokens — everything is an emote, no need to say so
+const FILLER_RE = /\b(emote|meme|icon|image|picture|emoticon)\b/gi
+function cleanDesc(desc: string, name: string): string {
+  let cleaned = desc.replace(FILLER_RE, '').replace(/\s{2,}/g, ' ').trim()
+  // strip emote name from its own description
+  const nameRe = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
+  cleaned = cleaned.replace(nameRe, '').replace(/\s{2,}/g, ' ').trim()
+  // clean up orphaned punctuation left behind
+  cleaned = cleaned.replace(/\s*,\s*,\s*/g, ', ') // double commas
+  cleaned = cleaned.replace(/\s+,/g, ',') // space before comma
+  cleaned = cleaned.replace(/^[,\-–\s]+|[,\-–\s]+$/g, '').trim()
+  return cleaned || desc // fallback to original if cleaning emptied it
+}
+
 export interface EmoteDescription {
   desc: string
   mood: string
@@ -81,7 +95,7 @@ const KNOWN: Record<string, EmoteDescription> = {
   'Chad': { desc: 'confident chad face', mood: 'chad' },
   'BBoomer': { desc: 'old boomer with headphones', mood: 'cringe' },
   'forsenCD': { desc: 'transparent cd face, cheating joke', mood: 'sarcasm' },
-  'xqcL': { desc: 'xqc heart emote, love', mood: 'love' },
+  'xqcL': { desc: 'heart with happy tears, affection', mood: 'love' },
   'POGGERS': { desc: 'pepe version of pogchamp, hyped', mood: 'hype' },
   'PagMan': { desc: 'amazed excited man face', mood: 'hype' },
   'PagChomp': { desc: 'excited fish mouth chomp', mood: 'hype' },
@@ -106,16 +120,29 @@ export async function loadDescriptionCache() {
   } catch {
     cache = {}
   }
-  // seed known emotes that aren't cached yet
-  let seeded = 0
-  for (const [name, desc] of Object.entries(KNOWN)) {
-    if (!cache[name]) {
-      cache[name] = desc
-      seeded++
+  // KNOWN always wins — these are hand-curated and override 7TV auto-descriptions
+  let updated = 0
+  for (const [name, known] of Object.entries(KNOWN)) {
+    const existing = cache[name]
+    if (!existing || existing.desc !== known.desc || existing.mood !== known.mood || existing.overlay !== known.overlay) {
+      cache[name] = known
+      updated++
     }
   }
-  if (seeded > 0) {
-    log(`seeded ${seeded} known emote descriptions`)
+
+  // scrub filler words from all cached descriptions (one-time migration)
+  let scrubbed = 0
+  for (const [name, entry] of Object.entries(cache)) {
+    if (name in KNOWN) continue // already correct
+    const cleaned = cleanDesc(entry.desc, name)
+    if (cleaned !== entry.desc) {
+      entry.desc = cleaned
+      scrubbed++
+    }
+  }
+
+  if (updated > 0 || scrubbed > 0) {
+    log(`emote cache: ${updated} known overrides, ${scrubbed} descriptions scrubbed`)
     await saveCache()
   }
 }
@@ -169,6 +196,9 @@ async function describeBatch(
       `These are ${valid.length} Twitch/7TV chat emotes in order: ${nameList.join(', ')}`,
       'Some may be animated — describe the action/motion if visible.',
       'For each emote, give a short description (max 8 words) and one mood tag.',
+      'NEVER use generic words like "emote", "meme", "icon", "image", or "picture" — describe what it LOOKS like.',
+      'NEVER include the emote name in its description.',
+      'Each description must be visually unique — avoid generic phrases like "green frog with expression".',
       `Valid moods: ${MOODS.join(', ')}`,
       'Respond with ONLY a JSON array, no markdown fences:',
       '[{"name":"emoteName","desc":"short description","mood":"mood_tag"}]',
@@ -205,7 +235,11 @@ async function describeBatch(
     if (!Array.isArray(parsed)) return []
     return parsed
       .filter((item: any) => item.name && item.desc && item.mood)
-      .map((item: any) => ({ ...item, mood: normalizeMood(item.mood) }))
+      .map((item: any) => ({
+        ...item,
+        desc: cleanDesc(item.desc, item.name),
+        mood: normalizeMood(item.mood),
+      }))
   } catch (e) {
     log('emote describe batch failed:', e instanceof Error ? e.message : e)
     return []
