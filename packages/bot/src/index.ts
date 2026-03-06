@@ -295,8 +295,14 @@ const client = new TwitchClient(
         // reply-thread for conversational messages, skip for !commands (both incoming and outgoing)
         // incoming !commands: other bots (Streamlabs) can't see replies in threads
         // outgoing !commands: proxy commands need to be top-level for Streamlabs to parse
-        const replyId = /^!/.test(text) || /^!/.test(response) ? undefined : messageId
-        client.say(channel, response, replyId)
+        const isCommand = /^!/.test(text)
+        const responseIsCommand = /^!/.test(response)
+        const replyId = isCommand || responseIsCommand ? undefined : messageId
+        // if AI got tricked into a !-prefixed response, strip the ! and @mention the user
+        const finalResponse = (!isCommand && responseIsCommand)
+          ? `${response.replace(/^!/, '')} @${username}`
+          : response
+        client.say(channel, finalResponse, replyId)
         chatbuf.record(channel, BOT_USERNAME, response)
       }
     } catch (e) {
