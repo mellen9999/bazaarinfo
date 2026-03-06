@@ -5,8 +5,8 @@ import { getActivityFor } from './activity'
 import * as db from './db'
 import { getRecent, getSummary, getActiveThreads, setSummarizer, setSummaryPersister, setLessonExtractor } from './chatbuf'
 import type { ChatEntry } from './chatbuf'
-import { formatEmotesForAI, getEmotesForChannel } from './emotes'
-import { getChannelStyle, getChannelTopEmotes, getUserProfile, getChannelVoiceContext, refreshVoice } from './style'
+import { formatEmotesForAI, getEmotesForChannel, invalidateEmoteBlockCache } from './emotes'
+import { getChannelStyle, getUserProfile, getChannelVoiceContext, refreshVoice } from './style'
 import { log } from './log'
 import { getUserInfo, getFollowage } from './twitch'
 import type { ChannelInfo } from './twitch'
@@ -811,6 +811,9 @@ const NARRATION = /^.{0,20}(the user|they|he|she|you)\s+(just asked|is asking|as
 const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chief)\b/gi
 // chain-of-thought leak patterns — model outputting reasoning instead of responding
 const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|i('m| am| keep) overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid)|output style|it should (say|respond|output|reply)|lets? tune the|format should be|style should be|the (response|reply|answer) (should|could|would) be|the bot is (repeating|doing|saying|responding|answering|outputting|generating|ignoring))\b/i
+// self-directed note/reminder tails — model appends instructions to itself after real answer
+// only matches self-referential meta (about lists, data, context, prompts, responses — not game advice)
+const COT_TAIL = /[,.]?\s*(?:also\s+)?(?:(?:make sure|note to self|reminder to self|i need to (?:remember|make sure|check|verify|update))\s+(?:ur|your|my|the|i)\s+.*?(?:list|data|context|prompt|emote|response|output|format|style|knowledge|memory))\b.*$/i
 // stat leak — model reciting internal profile data
 const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you have \d+ (lookups?|commands?|wins?|attempts?|asks?)|you('ve|'re| have| are) (a )?(power user|casual user|trivia regular)|according to (my|your|the) (data|stats|profile|records?)|i (can see|see|know) (from )?(your|the) (data|stats|profile)|based on your (history|stats|data|profile))\b/i
 // garbled output — token cutoff producing broken grammar (pronoun+to+gerund that reads wrong)
@@ -907,6 +910,8 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   s = s.replace(BANNED_FILLER, '')
   // strip verbal tics haiku loves
   s = s.replace(VERBAL_TICS, '').replace(/\s{2,}/g, ' ')
+  // strip self-directed COT tails ("also make sure ur emote list is...")
+  s = s.replace(COT_TAIL, '').trim()
 
   // reject responses that self-reference being a bot, leak reasoning/stats, fabricate stories, lie about privacy, contain commands, or leak secrets
   // dangerous commands always blocked; mod commands (addcom/editcom/delcom) only allowed for privileged users
@@ -977,12 +982,31 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
 
 // --- emote dedup (strip recently used emotes to force variety) ---
 
-const EMOTE_HISTORY_SIZE = 5
-const recentEmotesByChannel = new Map<string, string[]>()
+const EMOTE_COOLDOWN_MS = 10 * 60_000 // 10min cooldown per emote
+const recentEmotesByChannel = new Map<string, Map<string, number>>() // emote → timestamp
 
 /** get recent emotes for a channel — used by formatEmotesForAI to hide them */
 export function getRecentEmotes(channel: string): Set<string> {
-  return new Set(recentEmotesByChannel.get(channel) ?? [])
+  const map = recentEmotesByChannel.get(channel)
+  if (!map) return new Set()
+  const now = Date.now()
+  const result = new Set<string>()
+  for (const [emote, ts] of map) {
+    if (now - ts < EMOTE_COOLDOWN_MS) result.add(emote)
+    else map.delete(emote)
+  }
+  return result
+}
+
+/** record an emote as used — adds to cooldown + invalidates prompt cache */
+function recordEmoteUsed(channel: string, emote: string) {
+  let map = recentEmotesByChannel.get(channel)
+  if (!map) {
+    map = new Map()
+    recentEmotesByChannel.set(channel, map)
+  }
+  map.set(emote, Date.now())
+  invalidateEmoteBlockCache(channel)
 }
 
 /** fix emote casing — model outputs "catjam" but 7TV needs "catJAM" */
@@ -1002,30 +1026,35 @@ export function dedupeEmote(text: string, channel?: string): string {
   if (!channel) return text
   const emoteSet = new Set(getEmotesForChannel(channel))
   const words = text.split(/\s+/)
-  const lastWord = words[words.length - 1]
 
-  if (lastWord && emoteSet.has(lastWord)) {
-    // skip dedup if chat has an active bit requesting this emote
-    const chatRecent = getRecent(channel, 10)
-    const emoteLower = lastWord.toLowerCase()
-    const bitActive = chatRecent.some((m) =>
-      /\b(end|start|always|every|with)\b/i.test(m.text) && m.text.toLowerCase().includes(emoteLower))
-    if (bitActive) return text
-
-    const recent = recentEmotesByChannel.get(channel) ?? []
-    const wasRecent = recent.includes(lastWord)
-    // record immediately — prevents concurrent calls from both using same emote
-    if (!wasRecent) {
-      recent.push(lastWord)
-      if (recent.length > EMOTE_HISTORY_SIZE) recent.shift()
-      recentEmotesByChannel.set(channel, recent)
-    }
-    if (wasRecent) {
-      words.pop()
-      return words.join(' ').trim()
+  // check for active bit requesting a specific emote
+  const chatRecent = getRecent(channel, 10)
+  const bitEmotes = new Set<string>()
+  for (const m of chatRecent) {
+    if (/\b(end|start|always|every|with)\b/i.test(m.text)) {
+      for (const w of m.text.split(/\s+/)) {
+        if (emoteSet.has(w)) bitEmotes.add(w)
+      }
     }
   }
-  return text
+
+  const recent = getRecentEmotes(channel)
+  let stripped = false
+
+  // scan ALL words for emotes, not just last — strip recent dupes anywhere
+  const filtered = words.filter((word) => {
+    if (!emoteSet.has(word)) return true
+    if (bitEmotes.has(word)) return true
+    if (recent.has(word)) {
+      stripped = true
+      return false
+    }
+    // record every emote we keep
+    recordEmoteUsed(channel, word)
+    return true
+  })
+
+  return stripped ? filtered.join(' ').trim() : text
 }
 
 // --- @mention dedup (prevent bot from always picking the same chatter) ---
@@ -1597,7 +1626,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const digest = getRedditDigest()
   const skipReddit = hasGameData || query.length < 20
   const redditLine = (!skipReddit && digest) ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
-  const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getChannelTopEmotes(ctx.channel), getRecentEmotes(ctx.channel))
+  const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getRecentEmotes(ctx.channel))
 
   // hot exchange cache — instant follow-up context from this session
   const hot = getHotExchanges(ctx.user)

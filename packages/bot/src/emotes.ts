@@ -180,7 +180,7 @@ function usedSetKey(used?: Set<string>): string {
 }
 
 /** format emotes for AI context — shuffled per time window, filters recently used */
-export function formatEmotesForAI(channel: string, topEmotes?: string[], recentlyUsed?: Set<string>): string {
+export function formatEmotesForAI(channel: string, recentlyUsed?: Set<string>): string {
   const all = getEmotesForChannel(channel)
   if (all.length === 0) return ''
 
@@ -190,7 +190,6 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
   if (cached && now - cached.ts < EMOTE_SHUFFLE_WINDOW && cached.usedKey === uKey) return cached.text
 
   const descriptions = getDescriptions()
-  const topSet = new Set(topEmotes ?? [])
   const usedSet = recentlyUsed ?? new Set<string>()
 
   const byMood = new Map<string, string[]>()
@@ -209,16 +208,9 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
     byMood.get(mood)!.push(`${name}(${desc.desc})`)
   }
 
-  // shuffle non-favorite emotes within each mood bucket
-  for (const [mood, entries] of byMood) {
-    const pinned: string[] = []
-    const rest: string[] = []
-    for (const e of entries) {
-      if (topSet.has(e.split('(')[0])) pinned.push(e)
-      else rest.push(e)
-    }
-    shuffle(rest)
-    byMood.set(mood, [...pinned, ...rest])
+  // shuffle ALL emotes within each mood bucket — no pinning favorites
+  for (const [, entries] of byMood) {
+    shuffle(entries)
   }
 
   const MOOD_BUDGET: Record<string, number> = {
@@ -239,7 +231,7 @@ export function formatEmotesForAI(channel: string, topEmotes?: string[], recentl
     if (take <= 0) continue
     // first entry per mood keeps description for context, rest are names only (saves ~300 tokens)
     const parts = entries.slice(0, take).map((e, i) => {
-      return (i === 0 || topSet.has(e.split('(')[0])) ? e : e.split('(')[0]
+      return i === 0 ? e : e.split('(')[0]
     })
     lines.push(`  ${mood}: ${parts.join(' ')}`)
     spotlightTotal += take
