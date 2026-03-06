@@ -292,14 +292,11 @@ const client = new TwitchClient(
         }
         lastResponseTime.set(channel, Date.now())
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
-        // reply-thread for conversational messages, skip for !commands (both incoming and outgoing)
-        // incoming !commands: other bots (Streamlabs) can't see replies in threads
-        // outgoing !commands: need to be top-level for Streamlabs to parse
-        const isCommand = /^!/.test(text)
+        // always reply-thread UNLESS the response is a !command (proxy for Streamlabs)
         const responseIsCommand = /^!/.test(response)
-        const replyId = isCommand || responseIsCommand ? undefined : messageId
-        // no thread = no context, so @mention the user (unless they sent a !command)
-        const finalResponse = (!isCommand && !replyId)
+        const replyId = responseIsCommand ? undefined : messageId
+        // proxy !commands without thread need @mention for context
+        const finalResponse = (responseIsCommand && messageId)
           ? `${response} @${username}`
           : response
         client.say(channel, finalResponse, replyId)
