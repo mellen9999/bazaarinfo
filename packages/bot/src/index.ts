@@ -292,8 +292,10 @@ const client = new TwitchClient(
         }
         lastResponseTime.set(channel, Date.now())
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
-        // skip replyTo when response is a !command proxy — Streamlabs can't see commands in reply threads
-        const replyId = /^!/.test(response) ? undefined : messageId
+        // reply-thread for conversational messages, skip for !commands (both incoming and outgoing)
+        // incoming !commands: other bots (Streamlabs) can't see replies in threads
+        // outgoing !commands: proxy commands need to be top-level for Streamlabs to parse
+        const replyId = /^!/.test(text) || /^!/.test(response) ? undefined : messageId
         client.say(channel, response, replyId)
         chatbuf.record(channel, BOT_USERNAME, response)
       }
