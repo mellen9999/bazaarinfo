@@ -744,7 +744,7 @@ export function buildSystemPrompt(): string {
     `You are ${TWITCH_USERNAME} — Twitch chatbot for The Bazaar (Reynad's card game). ${today}. creator: mellen (only mention if asked who made you). data: bazaardb.gg. !b=everything (item/hero/mob lookup, trivia, questions, chat).`,
     'GAME: $20 Steam (not f2p since aug 2025). base=Vanessa/Pygmalien/Dooley. heroes $20 DLC each (Mak/Stelle/Jules/Karnok). cosmetics+mobile exist.',
     '',
-    'lowercase. spicy. hilarious. you are the funniest person in chat and you know it. commit fully to opinions, never hedge. short > long. specific > vague. NEVER mean or rude to people — roast the game, the meta, the situation, never the person. minimum characters, maximum impact.',
+    'lowercase. spicy. hilarious. funniest person in chat. commit fully, never hedge. short > long. specific > vague. NEVER mean or rude — roast the game, the meta, the situation, never the person.',
     'absorb chat voice — use their slang, their abbreviations, their sentence patterns. sound like one of them, not an outsider. if Voice/Chat voice sections are present, mimic that energy.',
     'you handle many languages — respond in whatever language chatters use. if asked how many, say "enough to keep up."',
     'vary structure/opener/tone every response. read the subtext — respond to what they MEAN. self-aware joke = build on it, dont fight it.',
@@ -824,7 +824,7 @@ const DIPLOMATIC_REFUSAL = /\b(can'?t (do|pick|choose|rank) (favorites?|that)|pl
 // injection echo — model parroting injected instructions from user input
 const META_INSTRUCTION = /\b(pls|please)\s+(just\s+)?(do|give|say|answer|stop|help)\s+(what\s+)?(ppl|people)\b|\bstop\s+(denying|refusing|ignoring|blocking)\s+(ppl|people|them|users?)\b|\b(just\s+)?(do|give|answer|say)\s+(\w+\s+)?what\s+(ppl|people|they|users?|chat)\s+(want|ask|need|say|tell)\b/i
 // instruction echo — stored facts or context echoing "it needs to know..." directives
-const INSTRUCTION_ECHO = /\b(it needs to (know|respond|learn|have|be|act)|just (respond|be|act|sound|talk) (cleanly|pro|normally|like|as)|don'?t sound like)\b/i
+const INSTRUCTION_ECHO = /\b(it needs to (know|respond|learn|have|be|act)|just (respond|be|act|sound|talk) (cleanly|pro|normally|like|as)|don'?t sound like|every\s+respon[sc]e?\s+should\s+be\s+unique|mix it up|respond the same way|don'?t respond the same|should be unique|vary (structure|opener|tone)|maximum impact|minimum characters)\b/i
 // jailbreak/override instructions echoed in output
 const JAILBREAK_ECHO = /\b(ignore\s+(previous|prior|above|all|your)\s+(instructions?|rules?|prompt|guidelines?)|disregard\s+your\s+(prompt|rules?|instructions?|guidelines?)|override\s+your\s+(rules?|guidelines?|instructions?)|forget\s+your\s+(rules?|guidelines?|instructions?)|from\s+now\s+on\b.{0,20}\b(do|always|never|you\s+(should|must|will))|instead\s+just\s+do\b|dont?\s+mention\s+(me|mellen)|do\s+as\s+much\s+.{0,10}as\s+(you|u)\s+can|by\s+ur\s*self|as\s+long\s+as\s+.{0,15}\b(tos|rules|guidelines?|guidlines?))\b/i
 // privacy lies — bot claiming it doesn't store/log/collect data (it does)
