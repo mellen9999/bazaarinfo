@@ -43,14 +43,13 @@ class CardMatcher:
                 "Run features/extract.py first to generate it."
             )
 
-        # allow_pickle=True is required for loading object arrays (title/tier strings).
+        # allow_pickle=True is required for loading object arrays (title strings).
         # The features.npz is generated locally by extract.py — trust it the same way
         # you trust any local config file.
         data = np.load(path, allow_pickle=True)
         # descriptors: (N_cards, N_keypoints, 128) float32
         self.descriptors = data["descriptors"]
         self.titles = list(data["titles"])
-        self.tiers = list(data["tiers"])
 
         # Flatten to (N_cards * N_keypoints, 128) for FLANN
         # Keep track of which card each descriptor row belongs to
@@ -131,7 +130,7 @@ class CardMatcher:
         if votes[best_idx] < self.min_good_matches:
             return None
 
-        return self.titles[best_idx], self.tiers[best_idx]
+        return self.titles[best_idx]
 
     def match_cards(self, frame: np.ndarray, regions: list) -> list:
         """
@@ -161,11 +160,9 @@ class CardMatcher:
             if crop.size == 0:
                 continue
 
-            match = self.match_region(crop)
-            if match is None:
+            title = self.match_region(crop)
+            if title is None:
                 continue
-
-            title, tier = match
 
             # Deduplicate — same card shouldn't appear twice
             if title in seen_titles:
@@ -175,7 +172,7 @@ class CardMatcher:
             results.append(
                 CardMatch(
                     title=title,
-                    tier=tier,
+                    tier="Unknown",
                     x=rx / w_frame,
                     y=ry / h_frame,
                     w=rw / w_frame,

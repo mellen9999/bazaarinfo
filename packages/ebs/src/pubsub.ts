@@ -78,7 +78,3 @@ async function sendPubSub(channelId: string, jwt: string, message: string): Prom
 
   return true
 }
-
-// Keep old export name working
-export const broadcastCards = (channelId: string, cards: DetectedCard[]) =>
-  broadcastState(channelId, { cards })

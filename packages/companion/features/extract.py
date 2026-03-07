@@ -7,20 +7,13 @@ This file is loaded at startup by matcher.py for fast in-memory FLANN matching.
 Usage:
     python features/extract.py --images /path/to/card/images/
 
-Expected image structure (either flat or nested):
+Expected image structure:
     card_images/
-        Bronze_Cardname.png
-        Gold_Cardname.png
+        CF_M_ADV_Scythe_D.png
+        CF_L_DOO_3DPrinter_D.png
         ...
 
-Or separate tier subdirectories:
-    card_images/
-        bronze/
-            Cardname.png
-        gold/
-            Cardname.png
-
-Filename parsing: tier is detected from the filename prefix or parent directory name.
+Filename parsing: card title extracted from Unity texture naming convention.
 """
 
 import argparse
@@ -31,16 +24,10 @@ from pathlib import Path
 import numpy as np
 import cv2
 
-SUPPORTED_TIERS = {"bronze", "silver", "gold", "diamond", "legendary"}
 OUTPUT_PATH = Path(__file__).parent / "features.npz"
 RESIZE_TO = (200, 200)
 # SIFT is nondeterministic in keypoint count — pad/clip to a fixed size
 N_KEYPOINTS = 500
-
-
-def parse_tier_from_path(image_path: Path) -> str:
-    """All tiers share the same art — tier is irrelevant for visual matching."""
-    return "Unknown"
 
 
 def parse_title_from_path(image_path: Path) -> str:
@@ -136,7 +123,6 @@ def main():
 
     all_descriptors = []
     all_titles = []
-    all_tiers = []
     skipped = 0
 
     for i, path in enumerate(image_paths, 1):
@@ -149,7 +135,6 @@ def main():
 
         all_descriptors.append(descriptors)
         all_titles.append(parse_title_from_path(path))
-        all_tiers.append(parse_tier_from_path(path))
 
     print()  # newline after the \r progress
 
@@ -163,13 +148,11 @@ def main():
     # Stack into (N_cards, N_KEYPOINTS, 128)
     descriptors_array = np.stack(all_descriptors, axis=0)
 
-    # Save — titles/tiers as object arrays so numpy can store strings
     args.output.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
         args.output,
         descriptors=descriptors_array,
         titles=np.array(all_titles, dtype=object),
-        tiers=np.array(all_tiers, dtype=object),
     )
 
     print(f"Saved to {args.output}")
