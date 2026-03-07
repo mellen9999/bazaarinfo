@@ -457,7 +457,11 @@ export class TwitchClient {
       const { channel, text, replyTo } = this.ircQueue.shift()!
       this.sendTimes.push(Date.now())
       const sent = await this.helixSend(channel, text, false, replyTo)
-      if (!sent) log(`queued send failed for #${channel}`)
+      if (!sent) {
+        log(`queued helix failed for #${channel}, falling back to IRC${replyTo ? ' (threaded)' : ''}`)
+        const prefix = replyTo ? `@reply-parent-msg-id=${replyTo} ` : ''
+        this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
+      }
     }
     if (this.ircQueue.length > 0) {
       log(`${this.ircQueue.length} queued messages waiting for rate limit`)
@@ -579,8 +583,9 @@ export class TwitchClient {
     this.sendTimes.push(Date.now())
     const sent = await this.helixSend(channel, text, false, replyTo)
     if (!sent) {
-      log(`helix failed for #${channel}${replyTo ? ' (thread lost)' : ''}, falling back to IRC PRIVMSG`)
-      this.ircSend(`PRIVMSG #${channel} :${text}`)
+      log(`helix failed for #${channel}, falling back to IRC PRIVMSG${replyTo ? ' (threaded)' : ''}`)
+      const prefix = replyTo ? `@reply-parent-msg-id=${replyTo} ` : ''
+      this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
     }
   }
 }
