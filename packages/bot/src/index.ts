@@ -214,12 +214,12 @@ const lastResponseTime = new Map<string, number>()
 
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
-  async (channel, userId, username, text, badges, messageId) => {
+  async (channel, userId, username, text, badges, messageId, threadId) => {
     try {
       if (userId === botUserId) return
 
       try { db.logChat(channel, username, text) } catch {}
-      chatbuf.record(channel, username, text)
+      chatbuf.record(channel, username, text, messageId, threadId)
 
       // pre-fetch Twitch user info + followage for every chatter (fire-and-forget)
       // so data is ready BEFORE they ask questions, not after
@@ -279,7 +279,7 @@ const client = new TwitchClient(
 
       const privileged = badges.some((b) => b === 'subscriber' || b === 'moderator' || b === 'broadcaster' || b === 'vip')
       const isMod = badges.some((b) => b === 'moderator' || b === 'broadcaster')
-      const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId })
+      const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId, threadId })
       if (response) {
         // debounce: delay if another response was sent to this channel recently
         const now = Date.now()

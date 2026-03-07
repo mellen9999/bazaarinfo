@@ -4,6 +4,8 @@ export interface ChatEntry {
   user: string
   text: string
   ts: number
+  messageId?: string
+  threadId?: string
 }
 
 const buffers = new Map<string, ChatEntry[]>()
@@ -172,7 +174,7 @@ export function getActiveThreads(channel: string, windowMs = 120_000): Thread[] 
 
 // --- core ---
 
-export function record(channel: string, user: string, text: string) {
+export function record(channel: string, user: string, text: string, messageId?: string, threadId?: string) {
   const now = Date.now()
   const last = lastMessageTime.get(channel) ?? 0
   if (last > 0 && now - last > SESSION_GAP) {
@@ -187,10 +189,17 @@ export function record(channel: string, user: string, text: string) {
     buf = []
     buffers.set(channel, buf)
   }
-  buf.push({ user, text, ts: now })
+  buf.push({ user, text, ts: now, messageId, threadId })
   if (buf.length > MAX_SIZE) buf.shift()
   maybeSummarize(channel)
   maybeLearnLessons(channel)
+}
+
+/** Get all messages in a thread by thread root message ID */
+export function getThread(channel: string, threadId: string): ChatEntry[] {
+  const buf = buffers.get(channel)
+  if (!buf) return []
+  return buf.filter((m) => m.threadId === threadId || m.messageId === threadId)
 }
 
 export function cleanupChannel(channel: string) {

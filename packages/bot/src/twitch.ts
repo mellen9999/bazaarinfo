@@ -27,7 +27,7 @@ interface EventSubMessage {
       message_id: string
       message: { text: string }
       badges?: { set_id: string; id: string }[]
-      reply?: { parent_user_login: string }
+      reply?: { parent_user_login: string; parent_message_body?: string; thread_message_id?: string }
     }
   }
 }
@@ -53,7 +53,7 @@ export interface TwitchConfig {
   channels: ChannelInfo[]
 }
 
-export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[], messageId: string) => void
+export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string) => void
 
 export type AuthRefreshFn = () => Promise<string>
 export type StreamStateHandler = (channel: string, live: boolean) => void
@@ -194,7 +194,7 @@ export class TwitchClient {
           text = text.replace(new RegExp(`^@${e.reply.parent_user_login}\\s+`, 'i'), '')
         }
         const badges = (e.badges ?? []).map((b: { set_id: string }) => b.set_id)
-        this.onMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, text, badges, e.message_id ?? '')
+        this.onMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, text, badges, e.message_id ?? '', e.reply?.thread_message_id)
       } else if (subType === 'stream.online' || subType === 'stream.offline') {
         const e = msg.payload.event
         if (e?.broadcaster_user_login && this.onStreamState) {

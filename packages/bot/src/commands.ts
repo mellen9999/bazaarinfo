@@ -5,6 +5,7 @@ import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase } from './ai'
+import { getThread } from './chatbuf'
 
 const MAX_LEN = 480
 
@@ -71,17 +72,21 @@ const ALLOWED_SLASH_CMDS = new Set([
   'me', 'announce', 'color',
 ])
 
-// --- proxy cooldown: per-channel per-command, 30s window ---
+// --- proxy cooldown: per-channel per-command ---
 const PROXY_COOLDOWN = 30_000
+const PROXY_COOLDOWN_SHORT = 5_000
+// harmless fun commands get shorter cooldown
+const SHORT_CD_CMDS = new Set(['love', 'hate', 'hug', 'kiss', 'slap', 'highfive', 'duel', 'cookie', 'pet'])
 const proxyCooldowns = new Map<string, number>()
 
 function proxyWithCooldown(channel: string | undefined, cmdStr: string, cmd: string): string {
   if (!channel) return cmdStr
   const key = `${channel}:${cmd.toLowerCase()}`
+  const cd = SHORT_CD_CMDS.has(cmd.toLowerCase()) ? PROXY_COOLDOWN_SHORT : PROXY_COOLDOWN
   const now = Date.now()
   const last = proxyCooldowns.get(key)
-  if (last && now - last < PROXY_COOLDOWN) {
-    const left = Math.ceil((PROXY_COOLDOWN - (now - last)) / 1000)
+  if (last && now - last < cd) {
+    const left = Math.ceil((cd - (now - last)) / 1000)
     return `!${cmd} is on cooldown (${left}s)`
   }
   proxyCooldowns.set(key, now)
@@ -99,6 +104,7 @@ export interface CommandContext {
   privileged?: boolean
   isMod?: boolean
   messageId?: string
+  threadId?: string
 }
 
 type CommandHandler = (args: string, ctx: CommandContext) => string | null | Promise<string | null>
@@ -385,6 +391,33 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // keep usernames in AI query (strip @ only), strip fully for item lookup
   const aiQuery = args.replace(/@(\w+)/g, '$1').replace(/"/g, '').replace(/\s+/g, ' ').trim()
   const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
+
+  // bare !b in a thread reply → read the full thread and try to help
+  if (!cleanArgs && ctx.threadId && ctx.channel) {
+    const thread = getThread(ctx.channel, ctx.threadId)
+    const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
+    const threadMsgs = thread
+      .filter((m) => m.user.toLowerCase() !== botName)
+      .map((m) => m.text.replace(/^!\w+\s*/, '').trim())
+      .filter(Boolean)
+    if (threadMsgs.length > 0) {
+      // try item lookup on the first non-command message (the original question)
+      const rootText = threadMsgs[0].replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
+      const suffix = mentions.length ? ` ${mentions.join(' ')}` : ''
+      if (rootText) {
+        const lookupResult = await itemLookup(rootText, ctx, suffix)
+        if (lookupResult !== null) return lookupResult
+      }
+      // no item match → AI with full thread as context
+      const threadContext = threadMsgs.map((m, i) => i === 0 ? m : `followup: ${m}`).join('\n')
+      let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
+      try { aiResult = await aiRespond(threadContext, { ...ctx, direct: true }) } catch {}
+      if (aiResult?.text) {
+        return dedupeMention(dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel), ctx.channel, ctx.user)
+      }
+      return null
+    }
+  }
 
   if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
 
