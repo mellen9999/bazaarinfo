@@ -1542,7 +1542,7 @@ function buildChattersContext(chatEntries: ChatEntry[], asker: string, channel: 
   return `Chatters: ${profiles.join(' | ')}`
 }
 
-interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean; isRememberReq: boolean }
+interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean; isCreative: boolean; isRememberReq: boolean }
 
 function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
   const isRememberReq = REMEMBER_RE.test(query) && !isAboutOtherUser(query)
@@ -1660,6 +1660,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
 
   // copypasta few-shot examples
   const isPasta = /\b(copypasta|pasta)\b/i.test(query)
+  const isCreative = isPasta || /\b(continue|extend|expand|write|make|create|do)\b.{0,20}\b(scene|story|bit|narrative|fanfic|monologue|rant|copypasta|pasta|lore|saga)\b/i.test(query) || /\b(continue|keep going|more of that|expand on)\b/i.test(query)
   // for pastas, show recent pastas at full length so model avoids repeating premises
   const recentPastas = isPasta
     ? deduped.filter((r) => r.length > 150).map((r) => `- ALREADY USED: "${r}"`)
@@ -1695,7 +1696,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
       : '',
     `\n[USER] = ${ctx.user}`,
   ].filter(Boolean).join('')
-  return { text, hasGameData, isPasta, isRememberReq }
+  return { text, hasGameData, isPasta, isCreative, isRememberReq }
 }
 
 // --- background memo generation ---
@@ -1841,10 +1842,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // fire-and-forget voice refresh (background, non-blocking)
   refreshVoice(ctx.channel).catch(() => {})
 
-  const { text: userMessage, hasGameData, isPasta, isRememberReq } = buildUserMessage(query, ctx)
+  const { text: userMessage, hasGameData, isPasta, isCreative, isRememberReq } = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()
-  // copypasta gets biggest budget; game Qs get full; banter/chat capped
-  const maxTokens = isPasta ? MAX_TOKENS_PASTA : hasGameData ? MAX_TOKENS_GAME : MAX_TOKENS_CHAT
+  // creative/copypasta gets biggest budget; game Qs get full; banter/chat capped
+  const maxTokens = isCreative ? MAX_TOKENS_PASTA : hasGameData ? MAX_TOKENS_GAME : MAX_TOKENS_CHAT
 
   const messages: unknown[] = [{ role: 'user', content: userMessage }]
   const start = Date.now()
@@ -1856,7 +1857,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const body = {
         model,
         max_tokens: maxTokens,
-        temperature: isPasta ? 0.95 : hasGameData ? 0.5 : 0.85,
+        temperature: isCreative ? 0.95 : hasGameData ? 0.5 : 0.85,
         system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
         messages,
       }
@@ -1906,7 +1907,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       result.text = stripInputEcho(result.text, query)
       // enforce length caps in code — model ignores prompt-level hints
       const isShort = isShortResponse(query)
-      const hardCap = isPasta ? 400 : hasGameData ? 150 : isRememberReq ? 120 : isShort ? 50 : 150
+      const hardCap = isCreative ? 400 : hasGameData ? 150 : isRememberReq ? 120 : isShort ? 50 : 150
       if (result.text.length > hardCap) {
         const cut = result.text.slice(0, hardCap)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))
