@@ -798,6 +798,49 @@ export function getChannelMessagesSince(channel: string, sinceExpr: string | nul
   return rows.map((r) => r.message)
 }
 
+// per-user chat messages within a time window
+export function getUserMessagesSince(username: string, channel: string, sinceExpr: string | null, limit = 5000): string[] {
+  if (sinceExpr === null) {
+    const rows = db.query(
+      `SELECT message FROM chat_messages WHERE LOWER(username) = ? AND channel = ? ORDER BY created_at ASC LIMIT ?`,
+    ).all(username.toLowerCase(), channel, limit) as { message: string }[]
+    return rows.map((r) => r.message)
+  }
+  const rows = db.query(
+    `SELECT message FROM chat_messages WHERE LOWER(username) = ? AND channel = ? AND created_at >= date('now', ?) ORDER BY created_at ASC LIMIT ?`,
+  ).all(username.toLowerCase(), channel, sinceExpr, limit) as { message: string }[]
+  return rows.map((r) => r.message)
+}
+
+// count how many of a user's messages contain a word/phrase within a time window
+export function countUserWordUsage(username: string, channel: string, word: string, sinceExpr: string | null): number {
+  const pattern = `%${word}%`
+  if (sinceExpr === null) {
+    const row = db.query(
+      `SELECT COUNT(*) as cnt FROM chat_messages WHERE LOWER(username) = ? AND channel = ? AND message LIKE ? COLLATE NOCASE`,
+    ).get(username.toLowerCase(), channel, pattern) as { cnt: number }
+    return row.cnt
+  }
+  const row = db.query(
+    `SELECT COUNT(*) as cnt FROM chat_messages WHERE LOWER(username) = ? AND channel = ? AND created_at >= date('now', ?) AND message LIKE ? COLLATE NOCASE`,
+  ).get(username.toLowerCase(), channel, sinceExpr, pattern) as { cnt: number }
+  return row.cnt
+}
+
+// count total messages for a user within a time window
+export function countUserMessages(username: string, channel: string, sinceExpr: string | null): number {
+  if (sinceExpr === null) {
+    const row = db.query(
+      `SELECT COUNT(*) as cnt FROM chat_messages WHERE LOWER(username) = ? AND channel = ?`,
+    ).get(username.toLowerCase(), channel) as { cnt: number }
+    return row.cnt
+  }
+  const row = db.query(
+    `SELECT COUNT(*) as cnt FROM chat_messages WHERE LOWER(username) = ? AND channel = ? AND created_at >= date('now', ?)`,
+  ).get(username.toLowerCase(), channel, sinceExpr) as { cnt: number }
+  return row.cnt
+}
+
 // per-user chat messages
 export function getUserMessages(username: string, channel: string, limit = 500): string[] {
   const rows = stmts.userMessages.all(username.toLowerCase(), channel, limit) as { message: string }[]

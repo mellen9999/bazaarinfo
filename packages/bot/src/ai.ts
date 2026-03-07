@@ -1401,7 +1401,7 @@ function buildRecallContext(query: string, channel: string): string {
 // --- chat history recall (search a referenced user's past messages) ---
 
 // only fire recall when query looks like it's asking about past events/other users
-const RECALL_INTENT = /\b(did|what did|when did|has|have|was|were|earlier|before|ago|said|told|say|suggest|recommend|mention|talk about|remember when|bring up|ask about|promise|claim|called? me)\b/i
+const RECALL_INTENT = /\b(did|what did|when did|has|have|was|were|earlier|before|ago|said|told|say|suggest|recommend|mention|talk about|remember when|bring up|ask about|promise|claim|called? me|how many|how often|count|times|frequently)\b/i
 
 // common english words that could be twitch usernames — skip these in implicit detection
 const COMMON_WORDS = new Set([
@@ -1463,6 +1463,35 @@ function buildChatRecall(query: string, channel: string): string {
 
   const user = findReferencedUser(query, channel)
   if (!user) return ''
+
+  // detect time window for user-specific queries
+  const timeWindow = parseChatTimeWindow(query)
+
+  // if query asks about counts/frequency ("how many times", "how often"), provide stats
+  const countIntent = /\b(how many|how often|count|times|frequently|frequency)\b/i.test(query)
+  if (countIntent && timeWindow) {
+    const totalMsgs = db.countUserMessages(user, channel, timeWindow.sinceExpr)
+    // extract the word/phrase being asked about (quoted or after "say/said/type/typed")
+    const wordMatch = query.match(/(?:say|said|type|typed|wrote|write|mention|spam)\s+["']?([^"'?,!.]+)["']?/i)
+      ?? query.match(/"([^"]+)"/)
+      ?? query.match(/'([^']+)'/)
+    let statsLine = `${user} stats (${timeWindow.label.replace(/'s?$/, '')}): ${totalMsgs} total messages`
+    if (wordMatch) {
+      const searchWord = wordMatch[1].trim()
+      const wordCount = db.countUserWordUsage(user, channel, searchWord, timeWindow.sinceExpr)
+      statsLine += `, "${searchWord}" appears in ${wordCount} messages`
+    }
+    // also grab a few sample messages for context
+    const samples = db.getUserMessagesSince(user, channel, timeWindow.sinceExpr, 2000)
+    if (wordMatch && samples.length > 0) {
+      const searchLower = wordMatch[1].trim().toLowerCase()
+      const matching = samples.filter((m) => m.toLowerCase().includes(searchLower)).slice(-5)
+      if (matching.length > 0) {
+        statsLine += `\nSample matches:\n${matching.map((m) => `> ${user}: ${m.replace(/\n/g, ' ').slice(0, 200)}`).join('\n')}`
+      }
+    }
+    return statsLine
+  }
 
   const now = Date.now()
   const lines: string[] = []
