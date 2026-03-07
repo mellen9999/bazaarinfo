@@ -227,7 +227,7 @@ const client = new TwitchClient(
 
       // check trivia answers before command routing
       if (isGameActive(channel)) {
-        checkAnswer(channel, username, text, (ch, msg) => client.say(ch, msg))
+        checkAnswer(channel, username, text, (ch, msg) => client.say(ch, msg, messageId))
       }
 
       // handle !join / !part only in bot's own channel to avoid collisions with other bots
@@ -236,7 +236,7 @@ const client = new TwitchClient(
         if (trimmed === '!join') {
           const target = username.toLowerCase()
           if (client.hasChannel(target)) {
-            client.say(channel, `@${username} i'm already in your channel`)
+            client.say(channel, `@${username} i'm already in your channel`, messageId)
             return
           }
           try {
@@ -249,21 +249,21 @@ const client = new TwitchClient(
               const setId = getEmoteSetId(target)
               if (setId) emoteEvents.subscribeChannel(target, setId)
             }).catch((e) => log(`emote refresh failed for ${target}: ${e}`))
-            client.say(channel, `@${username} joined #${target}! type !b help in your chat`)
+            client.say(channel, `@${username} joined #${target}! type !b help in your chat`, messageId)
           } catch (e) {
             log(`join error for ${target}: ${e}`)
-            client.say(channel, `@${username} couldn't join your channel, try again later`)
+            client.say(channel, `@${username} couldn't join your channel, try again later`, messageId)
           }
           return
         }
         if (trimmed === '!part') {
           const target = username.toLowerCase()
           if (envChannels.includes(target)) {
-            client.say(channel, `@${username} can't leave a hardcoded channel`)
+            client.say(channel, `@${username} can't leave a hardcoded channel`, messageId)
             return
           }
           if (!client.hasChannel(target)) {
-            client.say(channel, `@${username} i'm not in your channel`)
+            client.say(channel, `@${username} i'm not in your channel`, messageId)
             return
           }
           client.leaveChannel(target)
@@ -272,7 +272,7 @@ const client = new TwitchClient(
           removeChannelEmotes(target)
           chatbuf.cleanupChannel(target)
           await channelStore.remove(target)
-          client.say(channel, `@${username} left #${target}`)
+          client.say(channel, `@${username} left #${target}`, messageId)
           return
         }
       }
