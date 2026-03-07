@@ -3,20 +3,8 @@ import { useState, useEffect, useCallback } from 'preact/hooks'
 import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
 import { buildIndex, searchCards, type ScoredCard } from '@bazaarinfo/shared/src/search'
 import { CardTooltip } from './components/CardTooltip'
+import { fetchCards } from './twitch'
 import './style.css'
-
-declare global {
-  interface Window {
-    Twitch: {
-      ext: {
-        onAuthorized: (cb: (auth: { token: string; channelId: string; clientId: string }) => void) => void
-        listen: (target: string, cb: (target: string, contentType: string, message: string) => void) => void
-      }
-    }
-  }
-}
-
-const EBS_BASE = 'https://ebs.bazaarinfo.com'
 
 function Panel() {
   const [query, setQuery] = useState('')
@@ -30,14 +18,11 @@ function Panel() {
     if (!twitch) return
     twitch.onAuthorized(async (auth) => {
       try {
-        const res = await fetch(`${EBS_BASE}/api/cards`, {
-          headers: { Authorization: `Bearer ${auth.token}` },
-        })
-        if (!res.ok) return
-        const data = await res.json() as { items: BazaarCard[]; skills: BazaarCard[] }
-        const all = [...(data.items ?? []), ...(data.skills ?? [])]
-        setIndex(buildIndex(all))
-        setLoaded(true)
+        const all = await fetchCards(auth.token)
+        if (all.length > 0) {
+          setIndex(buildIndex(all))
+          setLoaded(true)
+        }
       } catch {}
     })
   }, [])

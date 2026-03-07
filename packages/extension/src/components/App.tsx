@@ -3,19 +3,7 @@ import type { BazaarCard } from '@bazaarinfo/shared/src/types'
 import { HoverZone } from './HoverZone'
 import type { DetectedSlot } from './HoverZone'
 import { CardTooltip } from './CardTooltip'
-
-declare global {
-  interface Window {
-    Twitch: {
-      ext: {
-        onAuthorized: (cb: (auth: { token: string; channelId: string; clientId: string }) => void) => void
-        listen: (target: string, cb: (target: string, contentType: string, message: string) => void) => void
-      }
-    }
-  }
-}
-
-const EBS_BASE = 'https://ebs.bazaarinfo.com'
+import { fetchCards } from '../twitch'
 
 export function App() {
   const [cards, setCards] = useState<Map<string, BazaarCard>>(new Map())
@@ -29,19 +17,11 @@ export function App() {
 
     twitch.onAuthorized(async (auth) => {
       try {
-        const res = await fetch(`${EBS_BASE}/api/cards`, {
-          headers: { Authorization: `Bearer ${auth.token}` },
-        })
-        if (!res.ok) return
-        const data = await res.json() as { items: BazaarCard[]; skills: BazaarCard[] }
+        const all = await fetchCards(auth.token)
         const map = new Map<string, BazaarCard>()
-        for (const c of [...(data.items ?? []), ...(data.skills ?? [])]) {
-          map.set(c.Title.toLowerCase(), c)
-        }
+        for (const c of all) map.set(c.Title.toLowerCase(), c)
         setCards(map)
-      } catch {
-        // EBS unavailable
-      }
+      } catch {}
     })
 
     twitch.listen('broadcast', (_target, _contentType, message) => {
