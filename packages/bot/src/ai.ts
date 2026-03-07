@@ -52,7 +52,7 @@ const USER_CD_MAX = 500
 
 interface HotExchange { query: string; response: string; ts: number }
 const hotExchanges = new Map<string, HotExchange[]>()
-const HOT_EXCHANGE_MAX = 3
+const HOT_EXCHANGE_MAX = 8
 const USER_HISTORY_MAX = 5_000
 const HOT_EXCHANGE_TTL = 3_600_000 // 1h — covers any stream session
 
@@ -1544,7 +1544,7 @@ function buildChattersContext(chatEntries: ChatEntry[], asker: string, channel: 
   return `Chatters: ${profiles.join(' | ')}`
 }
 
-interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean; isCreative: boolean; isRememberReq: boolean }
+interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean; isCreative: boolean; isContinuation: boolean; isRememberReq: boolean }
 
 function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
   const isRememberReq = REMEMBER_RE.test(query) && !isAboutOtherUser(query)
@@ -1644,6 +1644,8 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     })
     hotLine = `\nYour recent convo with ${ctx.user}:\n${lines.join('\n')}`
   }
+  // continuation detection (needs hot context)
+  const isContinuationLike = /\b(continue|extend|expand|keep going|more of that|expand on|next part|part \d)\b/i.test(query) && hot.length > 0
 
   // contextual recall — FTS search of prior exchanges (skip for short follow-ups where hot cache covers it)
   const recallLine = isShortFollowup ? '' : buildRecallContext(query, ctx.channel)
@@ -1662,7 +1664,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
 
   // copypasta few-shot examples
   const isPasta = /\b(copypasta|pasta)\b/i.test(query)
-  const isCreative = isPasta || /\b(continue|extend|expand|write|make|create|do)\b.{0,20}\b(scene|story|bit|narrative|fanfic|monologue|rant|copypasta|pasta|lore|saga)\b/i.test(query) || /\b(continue|keep going|more of that|expand on)\b/i.test(query)
+  const isCreative = isPasta || isContinuationLike || /\b(continue|extend|expand|write|make|create|do)\b.{0,20}\b(scene|story|bit|narrative|fanfic|monologue|rant|copypasta|pasta|lore|saga)\b/i.test(query)
   // for pastas, show recent pastas at full length so model avoids repeating premises
   const recentPastas = isPasta
     ? deduped.filter((r) => r.length > 150).map((r) => `- ALREADY USED: "${r}"`)
@@ -1689,6 +1691,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     activityBlock,
     statsLine,
     pastaBlock,
+    isContinuationLike ? '\n⚠️ SCENE CONTINUATION — [USER] wants the next part of an ongoing story. Read your previous responses above carefully. ADVANCE the plot: new events, new dialogue, escalation, twists. NEVER rehash/summarize what already happened. Each continuation must introduce something the audience hasn\'t seen yet. Use the same characters but put them in new situations. 400 chars.' : '',
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq),
     ctx.mention
       ? `\n---\n@MENTION — only respond if [USER] is talking TO you. If about you to someone else, output -\n[USER]: ${query}`
@@ -1698,7 +1701,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
       : '',
     `\n[USER] = ${ctx.user}`,
   ].filter(Boolean).join('')
-  return { text, hasGameData, isPasta, isCreative, isRememberReq }
+  return { text, hasGameData, isPasta, isCreative, isContinuation: isContinuationLike, isRememberReq }
 }
 
 // --- background memo generation ---
@@ -1844,7 +1847,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // fire-and-forget voice refresh (background, non-blocking)
   refreshVoice(ctx.channel).catch(() => {})
 
-  const { text: userMessage, hasGameData, isPasta, isCreative, isRememberReq } = buildUserMessage(query, ctx)
+  const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq } = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()
   // creative/copypasta gets biggest budget; game Qs get full; banter/chat capped
   const maxTokens = isCreative ? MAX_TOKENS_PASTA : hasGameData ? MAX_TOKENS_GAME : MAX_TOKENS_CHAT
