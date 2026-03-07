@@ -783,11 +783,18 @@ export function getChannelMessages(channel: string, limit = 5000): string[] {
   return rows.map((r) => r.message)
 }
 
-// today's chat messages for a channel (full day, not just in-memory buffer)
-export function getTodayChannelMessages(channel: string): string[] {
+// chat messages for a channel within a time window (full DB, not just in-memory buffer)
+// sinceExpr: SQLite date modifier like '-0 days' (today), '-7 days', '-30 days', or null for all time
+export function getChannelMessagesSince(channel: string, sinceExpr: string | null): string[] {
+  if (sinceExpr === null) {
+    const rows = db.query(
+      `SELECT message FROM chat_messages WHERE channel = ? ORDER BY created_at ASC`,
+    ).all(channel) as { message: string }[]
+    return rows.map((r) => r.message)
+  }
   const rows = db.query(
-    `SELECT message FROM chat_messages WHERE channel = ? AND created_at >= date('now') ORDER BY created_at ASC`,
-  ).all(channel) as { message: string }[]
+    `SELECT message FROM chat_messages WHERE channel = ? AND created_at >= date('now', ?) ORDER BY created_at ASC`,
+  ).all(channel, sinceExpr) as { message: string }[]
   return rows.map((r) => r.message)
 }
 

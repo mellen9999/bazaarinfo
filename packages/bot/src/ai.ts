@@ -1322,6 +1322,30 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   }
 }
 
+// parse time window from pasta queries like "today", "this week", "last 3 days", "all time"
+function parseChatTimeWindow(query: string): { sinceExpr: string | null; label: string } | null {
+  const q = query.toLowerCase()
+  if (/\ball\s*time\b/.test(q)) return { sinceExpr: null, label: "All-time" }
+  if (/\bto(day|night)\b|\bthis\s*stream\b|\bstream\b|\bchatter/.test(q)) return { sinceExpr: '-0 days', label: "Today's" }
+  if (/\byesterday\b/.test(q)) return { sinceExpr: '-1 days', label: "Yesterday's" }
+  if (/\bthis\s*week\b/.test(q)) return { sinceExpr: '-7 days', label: "This week's" }
+  if (/\bthis\s*month\b/.test(q)) return { sinceExpr: '-30 days', label: "This month's" }
+  // "last N days/weeks/months"
+  const lastMatch = q.match(/\blast\s+(\d+)\s*(day|week|month)s?\b/)
+  if (lastMatch) {
+    const n = parseInt(lastMatch[1])
+    const unit = lastMatch[2]
+    const days = unit === 'week' ? n * 7 : unit === 'month' ? n * 30 : n
+    return { sinceExpr: `-${days} days`, label: `Last ${n} ${unit}${n > 1 ? 's' : ''}'` }
+  }
+  // "past week/month"
+  if (/\bpast\s*week\b/.test(q)) return { sinceExpr: '-7 days', label: "Past week's" }
+  if (/\bpast\s*month\b/.test(q)) return { sinceExpr: '-30 days', label: "Past month's" }
+  // fallback: any mention of chat/log/history without time → today
+  if (/\bchat\s*(log|history)?\b/.test(q)) return { sinceExpr: '-0 days', label: "Today's" }
+  return null
+}
+
 // strip bot commands and emote-only messages from chat context
 function isNoise(text: string): boolean {
   const stripped = text.replace(/^!\w+\s*/, '').trim()
@@ -1667,24 +1691,27 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const recentPastas = isPasta
     ? deduped.filter((r) => r.length > 150).map((r) => `- ALREADY USED: "${r}"`)
     : []
-  // when pasta request mentions today/stream/chatters, pull today's full word pool from DB
+  // when pasta request references a time window, pull chat words from DB
   let todayWordsBlock = ''
-  if (isPasta && /\b(today|stream|chatter|chat\s*(log|history)?)\b/i.test(query)) {
-    try {
-      const todayMsgs = db.getTodayChannelMessages(ctx.channel)
-      if (todayMsgs.length > 0) {
-        const wordSet = new Set<string>()
-        for (const msg of todayMsgs) {
-          if (msg.startsWith('!') || msg.startsWith('/')) continue
-          for (const w of msg.split(/\s+/)) {
-            const clean = w.replace(/[^a-zA-Z']/g, '').toLowerCase()
-            if (clean.length >= 2) wordSet.add(clean)
+  if (isPasta) {
+    const timeWindow = parseChatTimeWindow(query)
+    if (timeWindow) {
+      try {
+        const msgs = db.getChannelMessagesSince(ctx.channel, timeWindow.sinceExpr)
+        if (msgs.length > 0) {
+          const wordSet = new Set<string>()
+          for (const msg of msgs) {
+            if (msg.startsWith('!') || msg.startsWith('/')) continue
+            for (const w of msg.split(/\s+/)) {
+              const clean = w.replace(/[^a-zA-Z']/g, '').toLowerCase()
+              if (clean.length >= 2) wordSet.add(clean)
+            }
           }
+          const words = [...wordSet].slice(0, 500)
+          todayWordsBlock = `\n${timeWindow.label} chat word pool (${msgs.length} messages, ${words.length} unique words — USE ONLY THESE WORDS):\n${words.join(', ')}\n`
         }
-        const words = [...wordSet].slice(0, 500)
-        todayWordsBlock = `\nToday's chat word pool (${todayMsgs.length} messages, ${words.length} unique words — USE ONLY THESE WORDS):\n${words.join(', ')}\n`
-      }
-    } catch {}
+      } catch {}
+    }
   }
 
   const pastaBlock = isPasta && pastaExamples.length > 0
