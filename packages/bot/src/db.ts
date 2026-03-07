@@ -783,6 +783,14 @@ export function getChannelMessages(channel: string, limit = 5000): string[] {
   return rows.map((r) => r.message)
 }
 
+// today's chat messages for a channel (full day, not just in-memory buffer)
+export function getTodayChannelMessages(channel: string): string[] {
+  const rows = db.query(
+    `SELECT message FROM chat_messages WHERE channel = ? AND created_at >= date('now') ORDER BY created_at ASC`,
+  ).all(channel) as { message: string }[]
+  return rows.map((r) => r.message)
+}
+
 // per-user chat messages
 export function getUserMessages(username: string, channel: string, limit = 500): string[] {
   const rows = stmts.userMessages.all(username.toLowerCase(), channel, limit) as { message: string }[]

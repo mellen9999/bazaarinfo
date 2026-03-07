@@ -1667,6 +1667,26 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const recentPastas = isPasta
     ? deduped.filter((r) => r.length > 150).map((r) => `- ALREADY USED: "${r}"`)
     : []
+  // when pasta request mentions today/stream/chatters, pull today's full word pool from DB
+  let todayWordsBlock = ''
+  if (isPasta && /\b(today|stream|chatter|chat\s*(log|history)?)\b/i.test(query)) {
+    try {
+      const todayMsgs = db.getTodayChannelMessages(ctx.channel)
+      if (todayMsgs.length > 0) {
+        const wordSet = new Set<string>()
+        for (const msg of todayMsgs) {
+          if (msg.startsWith('!') || msg.startsWith('/')) continue
+          for (const w of msg.split(/\s+/)) {
+            const clean = w.replace(/[^a-zA-Z']/g, '').toLowerCase()
+            if (clean.length >= 2) wordSet.add(clean)
+          }
+        }
+        const words = [...wordSet].slice(0, 500)
+        todayWordsBlock = `\nToday's chat word pool (${todayMsgs.length} messages, ${words.length} unique words — USE ONLY THESE WORDS):\n${words.join(', ')}\n`
+      }
+    } catch {}
+  }
+
   const pastaBlock = isPasta && pastaExamples.length > 0
     ? `\nPasta examples (match quality, NOT structure):\n${randomPastaExamples(3).map((p, i) => `${i + 1}. ${p}`).join('\n')}${recentPastas.length > 0 ? `\n\nDO NOT reuse these premises/setups:\n${recentPastas.join('\n')}` : ''}\n`
     : ''
@@ -1689,6 +1709,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     activityBlock,
     statsLine,
     pastaBlock,
+    todayWordsBlock,
     isContinuationLike ? '\n⚠️ SCENE CONTINUATION — [USER] wants the next part of an ongoing story. Read your previous responses above carefully. ADVANCE the plot: new events, new dialogue, escalation, twists. NEVER rehash/summarize what already happened. Each continuation must introduce something the audience hasn\'t seen yet. Use the same characters but put them in new situations. 400 chars.' : '',
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq),
     ctx.mention
