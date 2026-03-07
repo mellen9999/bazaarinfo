@@ -103,12 +103,12 @@ function formatAge(createdAt: string, now: number): string {
   return mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`
 }
 const AI_VIP = new Set(
-  ['tidolar', 'luna_bright', process.env.BOT_OWNER ?? ''].map((s) => s.trim().toLowerCase()).filter(Boolean),
+  (process.env.AI_VIP ?? '').split(',').concat(process.env.BOT_OWNER ?? '').map((s) => s.trim().toLowerCase()).filter(Boolean),
 )
 
-// only spend AI tokens in these channels
+// only spend AI tokens in these channels (defaults to TWITCH_CHANNELS if not set)
 const AI_CHANNELS = new Set(
-  (process.env.AI_CHANNELS ?? 'nl_kripp,mellen').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+  (process.env.AI_CHANNELS ?? process.env.TWITCH_CHANNELS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
 )
 
 // track live channels + current game — no cooldown when offline
