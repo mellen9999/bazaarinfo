@@ -913,6 +913,8 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   s = s.replace(VERBAL_TICS, '').replace(/\s{2,}/g, ' ')
   // strip self-directed COT tails ("also make sure ur emote list is...")
   s = s.replace(COT_TAIL, '').trim()
+  // strip meta-commentary tails — model embedding bug reports/feature requests in output
+  s = s.replace(/[,.]?\s*(?:pls|please|gotta|need to|should|have to|gonna|going to)\s+fix\b.*$/i, '').trim()
 
   // reject responses that self-reference being a bot, leak reasoning/stats, fabricate stories, lie about privacy, contain commands, or leak secrets
   // dangerous commands always blocked; mod commands (addcom/editcom/delcom) only allowed for privileged users
