@@ -579,7 +579,7 @@ export class TwitchClient {
     this.sendTimes.push(Date.now())
     const sent = await this.helixSend(channel, text, false, replyTo)
     if (!sent) {
-      log(`helix failed for #${channel}, falling back to IRC PRIVMSG`)
+      log(`helix failed for #${channel}${replyTo ? ' (thread lost)' : ''}, falling back to IRC PRIVMSG`)
       this.ircSend(`PRIVMSG #${channel} :${text}`)
     }
   }

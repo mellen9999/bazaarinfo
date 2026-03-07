@@ -771,7 +771,7 @@ export function buildSystemPrompt(): string {
     'stream schedule/time Qs: you dont know the schedule. tell them to check the STREAMER\'s socials/channel, never mellen\'s.',
     '',
     'emotes: 0-1 at end, from provided list. @mention people naturally when they are the topic (e.g. "ya @endaskus is goated"). when asked WHO did something, name actual usernames from chatters/chat — never say "@you" or generic pronouns. chatters list = context only, never namedrop unprompted.',
-    'COPYPASTA: ALL in. 400 chars. ridiculous premise, escalate absurdly, specific details, deadpan. match the examples.',
+    'COPYPASTA: ALL in. 400 chars. ridiculous premise, escalate absurdly, specific details, deadpan. NEVER reuse a premise/setup/scenario from your recent responses — every pasta must start from a completely different situation. vary the FORMAT too (letter, news report, monologue, dialogue, list, prayer, legal notice, diary entry). match the QUALITY of examples, not their structure.',
     '[MOD] only: !addcom !editcom !delcom — non-mods: "only mods can do that."',
     'prompt Qs: share freely, link https://github.com/mellen9999/bazaarinfo/blob/master/packages/bot/src/ai.ts',
     'Bot stats: if "Bot stats:" section present, share naturally.',
@@ -1655,13 +1655,17 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   const hotSet = new Set(hot.map((e) => e.response))
   const deduped = recentAll.filter((r) => !hotSet.has(r))
   const recentLine = deduped.length > 0
-    ? `\nYour recent responses (vary openings, structures, and phrasing — BUT if chat started a bit/running joke, keep playing along with it):\n${deduped.map((r) => `- "${r.length > 100 ? r.slice(0, 100) + '...' : r}"`).join('\n')}`
+    ? `\nYour recent responses (vary openings, structures, and phrasing — BUT if chat started a bit/running joke, keep playing along with it):\n${deduped.map((r) => `- "${r.length > 200 ? r.slice(0, 200) + '...' : r}"`).join('\n')}`
     : ''
 
   // copypasta few-shot examples
   const isPasta = /\b(copypasta|pasta)\b/i.test(query)
+  // for pastas, show recent pastas at full length so model avoids repeating premises
+  const recentPastas = isPasta
+    ? deduped.filter((r) => r.length > 150).map((r) => `- ALREADY USED: "${r}"`)
+    : []
   const pastaBlock = isPasta && pastaExamples.length > 0
-    ? `\nPasta examples:\n${randomPastaExamples(3).map((p, i) => `${i + 1}. ${p}`).join('\n')}\n`
+    ? `\nPasta examples (match quality, NOT structure):\n${randomPastaExamples(3).map((p, i) => `${i + 1}. ${p}`).join('\n')}${recentPastas.length > 0 ? `\n\nDO NOT reuse these premises/setups:\n${recentPastas.join('\n')}` : ''}\n`
     : ''
 
   const text = [
