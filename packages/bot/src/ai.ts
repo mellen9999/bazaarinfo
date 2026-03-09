@@ -853,6 +853,7 @@ const MOD_ONLY = new Set([
   'emoteonly', 'emoteonlyoff',
   'uniquechat', 'uniquechatoff',
   'commercial', 'marker',
+  'sacrifice', 'nuke', 'nukeusername', 'votekick', 'vanish',
 ])
 
 function hasDangerousCommand(text: string): boolean {

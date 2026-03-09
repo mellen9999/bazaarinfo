@@ -1068,6 +1068,11 @@ describe('SEC: command blocklist tiers', () => {
   it('/settitle blocked non-mod', () => expect(sanitize('/settitle New').text).toBe(''))
   it('/settitle allowed mod', () => expect(sanitize('/settitle New', undefined, true).text).toBeTruthy())
 
+  // sacrifice/nuke — blocked for non-mod
+  it('!sacrifice blocked non-mod', () => expect(sanitize('!sacrifice').text).toBe(''))
+  it('!sacrifice blocked in sentence', () => expect(sanitize('try !sacrifice on that card').text).toBe(''))
+  it('!nuke blocked non-mod', () => expect(sanitize('!nuke chat').text).toBe(''))
+
   // ! prefix custom commands — always allowed
   it('!ban allowed (custom cmd)', () => expect(sanitize('!ban tidolar').text).toBeTruthy())
   it('!BaN allowed (custom cmd)', () => expect(sanitize('!BaN user').text).toBeTruthy())
