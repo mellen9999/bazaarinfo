@@ -484,6 +484,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   // AI fallback for conversational queries that missed game data
   const isConversational = cleanArgs.split(/\s+/).length > 3
+    || /\b(continue|extend|expand|write|make|create|do|say|tell|give|sing|rap|roast|rate|rank|compare|explain|describe|imagine|pretend|spam|repeat)\b/i.test(cleanArgs)
   const cd = getBFallbackCooldown(ctx.user)
   if (cd > 0) {
     // long queries are clearly not item lookups — stay silent on cooldown

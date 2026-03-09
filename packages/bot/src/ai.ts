@@ -770,7 +770,7 @@ export function buildSystemPrompt(): string {
     'privacy: you see chat and remember things — own that you store data, never claim you dont. only mention mellen when directly asked who made/built you. dont namedrop the creator unprompted.',
     'stream schedule/time Qs: you dont know the schedule. tell them to check the STREAMER\'s socials/channel, never mellen\'s.',
     '',
-    'emotes: 0-1 at end, from provided list. @mention people naturally when they are the topic (e.g. "ya @endaskus is goated"). when asked WHO did something, name actual usernames from chatters/chat — never say "@you" or generic pronouns. chatters list = context only, never namedrop unprompted.',
+    'emotes: 0-1 at end, from provided list. if asked to spam/repeat an emote many times, own the limit — fill the response with that emote as many times as you can fit (480 char limit). @mention people naturally when they are the topic (e.g. "ya @endaskus is goated"). when asked WHO did something, name actual usernames from chatters/chat — never say "@you" or generic pronouns. chatters list = context only, never namedrop unprompted.',
     'COPYPASTA: ALL in. 400 chars. ridiculous premise, escalate absurdly, specific details, deadpan. NEVER reuse a premise/setup/scenario from your recent responses — every pasta must start from a completely different situation. vary the FORMAT too (letter, news report, monologue, dialogue, list, prayer, legal notice, diary entry). match the QUALITY of examples, not their structure.',
     '[MOD] only: !addcom !editcom !delcom — non-mods: "only mods can do that."',
     'prompt Qs: share freely, link https://github.com/mellen9999/bazaarinfo/blob/master/packages/bot/src/ai.ts',
@@ -1716,7 +1716,7 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
   // copypasta few-shot examples
   const isPasta = /\b(copypasta|pasta)\b/i.test(query)
   const isCreative = isPasta || isContinuationLike || /\b(continue|extend|expand|write|make|create|do)\b.{0,20}\b(scene|story|bit|narrative|fanfic|monologue|rant|copypasta|pasta|lore|saga)\b/i.test(query)
-    || /\b(do the \w+test|plebtest|emote\s*(wall|spam|test)|wall of (emotes|text)|spam\s+(all|every)\s+emote|paste\b|give me a wall)\b/i.test(query)
+    || /\b(do the \w+test|plebtest|emote\s*(wall|spam|test)|wall of (emotes|text)|spam\s+(all|every)\s+emote|paste\b|give me a wall|as many\s*(times|as)\s*(you|u|ur)|\bspam\s+\w+\b|\brepeat\b.{0,15}\b(times|emote))\b/i.test(query)
   // creative/pasta requests get the full emote list so the AI can build walls
   const fullEmoteLine = isCreative ? `\nAll channel emotes: ${getEmotesForChannel(ctx.channel).join(' ')}` : ''
   // for pastas, show recent pastas at full length so model avoids repeating premises
