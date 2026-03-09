@@ -479,16 +479,31 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     if (match) return handler(match[1]?.trim() ?? cleanArgs, ctx, suffix)
   }
 
+  // detect conversational/creative queries that should skip item lookup entirely
+  const isConversational = cleanArgs.split(/\s+/).length > 3
+    || /\b(continue|extend|expand|write|make|create|do|say|tell|give|sing|rap|roast|rate|rank|compare|explain|describe|imagine|pretend|spam|repeat)\b/i.test(cleanArgs)
+
+  // conversational queries go straight to AI — no item lookup, no fallback cooldown
+  if (isConversational) {
+    let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
+    try { aiResult = await aiRespond(aiQuery, { ...ctx, direct: true }) } catch {}
+    if (aiResult?.text) {
+      try { db.logCommand(ctx, 'ai', cleanArgs, 'fallback') } catch {}
+      let response = dedupeMention(dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel), ctx.channel, ctx.user)
+      const responseLower = response.toLowerCase()
+      const missingMentions = mentions.map((m) => m.toLowerCase()).filter((m) => !responseLower.includes(m))
+      if (missingMentions.length > 0) response = withSuffix(response, ` ${missingMentions.join(' ')}`)
+      return response
+    }
+    return null
+  }
+
   const lookupResult = await itemLookup(cleanArgs, ctx, suffix)
   if (lookupResult !== null) return lookupResult
 
-  // AI fallback for conversational queries that missed game data
-  const isConversational = cleanArgs.split(/\s+/).length > 3
-    || /\b(continue|extend|expand|write|make|create|do|say|tell|give|sing|rap|roast|rate|rank|compare|explain|describe|imagine|pretend|spam|repeat)\b/i.test(cleanArgs)
+  // short non-conversational queries that missed item lookup — AI fallback with cooldown
   const cd = getBFallbackCooldown(ctx.user)
   if (cd > 0) {
-    // long queries are clearly not item lookups — stay silent on cooldown
-    if (isConversational) return null
     const suggestions = store.suggest(cleanArgs, 3)
     if (suggestions.length) return withSuffix(`try: ${suggestions.join(', ')}`, suffix)
     return withSuffix(`no match for ${cleanArgs.slice(0, 40)}`, suffix)
@@ -514,8 +529,6 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     return response
   }
 
-  // AI failed — don't show "no match" for conversational queries
-  if (isConversational) return null
   const suggestions = store.suggest(cleanArgs, 3)
   if (suggestions.length) return withSuffix(`try: ${suggestions.join(', ')}`, suffix)
   return withSuffix(`no match for ${cleanArgs.slice(0, 40)}`, suffix)
