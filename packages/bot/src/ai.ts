@@ -44,7 +44,7 @@ const MAX_LESSONS = 500
 
 const lastAiByChannel = new Map<string, number>()
 const AI_GLOBAL_CD = 30_000 // 30s per-channel (non-game only)
-const USER_AI_CD = 30_000 // 30s per-user
+const USER_AI_CD = 0 // disabled
 const lastAiByUser = new Map<string, number>()
 const USER_CD_MAX = 500
 
