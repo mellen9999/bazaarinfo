@@ -309,6 +309,7 @@ const client = new TwitchClient(
 )
 
 client.setAuthRefresh(doRefresh)
+client.setIrcOnly(['nl_kripp'])
 client.setStreamStateHandler((channel, live) => {
   log(`stream ${live ? 'online' : 'offline'}: #${channel}`)
   if (live) setChannelLive(channel)

@@ -105,6 +105,7 @@ export class TwitchClient {
   private eventsubConsecutiveFailures = 0
   private ircBackoff = BACKOFF_BASE
   private _channelIdMap: Record<string, string> = {}
+  private ircOnlyChannels = new Set<string>()
   lastActivity = Date.now()
 
   constructor(config: TwitchConfig, onMessage: MessageHandler) {
@@ -121,6 +122,10 @@ export class TwitchClient {
 
   setAuthRefresh(fn: AuthRefreshFn) {
     this.onAuthFailure = fn
+  }
+
+  setIrcOnly(channels: string[]) {
+    this.ircOnlyChannels = new Set(channels)
   }
 
   setStreamStateHandler(fn: StreamStateHandler) {
@@ -456,10 +461,14 @@ export class TwitchClient {
     while (this.ircQueue.length > 0 && this.canSend()) {
       const { channel, text, replyTo } = this.ircQueue.shift()!
       this.sendTimes.push(Date.now())
+      const prefix = replyTo ? `@reply-parent-msg-id=${replyTo} ` : ''
+      if (this.ircOnlyChannels.has(channel)) {
+        this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
+        continue
+      }
       const sent = await this.helixSend(channel, text, false, replyTo)
       if (!sent) {
         log(`queued helix failed for #${channel}, falling back to IRC${replyTo ? ' (threaded)' : ''}`)
-        const prefix = replyTo ? `@reply-parent-msg-id=${replyTo} ` : ''
         this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
       }
     }
@@ -581,6 +590,11 @@ export class TwitchClient {
       return
     }
     this.sendTimes.push(Date.now())
+    if (this.ircOnlyChannels.has(channel)) {
+      const prefix = replyTo ? `@reply-parent-msg-id=${replyTo} ` : ''
+      this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
+      return
+    }
     const sent = await this.helixSend(channel, text, false, replyTo)
     if (!sent) {
       log(`helix failed for #${channel}, falling back to IRC PRIVMSG${replyTo ? ' (threaded)' : ''}`)
