@@ -37,7 +37,7 @@ const BLOCKED_BANG_CMDS = new Set([
   // moderation
   'nuke', 'nukeusername', 'permit', 'vanish', 'votekick',
   'ban', 'unban', 'timeout', 'untimeout', 'mute', 'unmute',
-  'purge', 'clear', 'warn',
+  'purge', 'clear', 'warn', 'sacrifice',
   // DMs/blocking/connection
   'whisper', 'w', 'block', 'unblock', 'disconnect',
   // announcements (mod-only)
@@ -480,7 +480,9 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   }
 
   // detect conversational/creative queries that should skip item lookup entirely
-  const isConversational = cleanArgs.split(/\s+/).length > 3
+  const isGreeting = /^(h(ello|i|ey|owdy)|yo|sup|hey+|what'?s? ?up|greetings|hola|whats good|good (morning|evening|night)|gm|gn|gg|ty|thanks|thank you|lol|lmao|wow|nice|cool|pog|based|true|real|facts|nah|bruh|bro|dude|man|omg|rip|oof|haha|o7|bye|cya|later|peace|gl|hf|glhf|ggs)\b/i.test(cleanArgs)
+  const isConversational = isGreeting
+    || cleanArgs.split(/\s+/).length > 3
     || /\b(continue|extend|expand|write|make|create|do|say|tell|give|sing|rap|roast|rate|rank|compare|explain|describe|imagine|pretend|spam|repeat)\b/i.test(cleanArgs)
 
   // conversational queries go straight to AI — no item lookup, no fallback cooldown
