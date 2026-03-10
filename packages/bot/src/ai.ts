@@ -35,7 +35,7 @@ function randomPastaExamples(n: number): string[] {
 const MODEL = 'claude-haiku-4-5-20251001' // background tasks (summaries, memos, facts)
 const CHAT_MODEL = 'claude-sonnet-4-6' // user-facing responses
 const MAX_TOKENS_GAME = 40
-const MAX_TOKENS_CHAT = 40
+const MAX_TOKENS_CHAT = 30
 const MAX_TOKENS_PASTA = 100
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
@@ -44,7 +44,8 @@ const MAX_LESSONS = 500
 
 const lastAiByChannel = new Map<string, number>()
 const AI_GLOBAL_CD = 30_000 // 30s per-channel (non-game only)
-const USER_AI_CD = 0 // disabled
+// per-user AI cooldown — set to 0 to disable, increase to throttle individual spammers
+const USER_AI_CD = 0
 const lastAiByUser = new Map<string, number>()
 const USER_CD_MAX = 500
 
@@ -576,32 +577,32 @@ function buildGameContext(entities: ResolvedEntities, channel?: string): string 
 // --- deep knowledge injection ---
 
 const KNOWLEDGE: [RegExp, string][] = [
-  [/kripp|kripparrian|rania|dr\.?\s*limestone/i, "Kripp (Octavian Morosan): Romanian-Canadian, born 1987. AKA 'Dr Limestone' (community joke alias). 'nl' in nl_kripp = 'No Life' from Team NoLife (D3 HC Inferno group). World-first HC Inferno D3 (June 19 2012, Guinness record). PoE1 Season 1 race champ, GGG end credits. THE HS Arena king, 2-vids/day, #1 most influential HS player ever. BG #1 most-watched. Now plays The Bazaar. Wife=Rania Chatzi (underflowR), Greek, married Oct 31 2014 (Halloween), she manages channel+edits all YT vids. Lived in Athens 1.5yr for her university teaching job, lost half his audience from timezone shift — moved back to Canada, kept the late schedule (11PM-5AM EST). Built a custom house in Canada with dedicated streaming studio. Vegan, OJ+falafel, 920K YT subs 1.1B views. TSM. Pets: Catarrian (cat), Dexter (German Shepherd), Fey (Corgi). Partnered with HearthArena (arena drafting tool) 2016. 'How Good Is [Card]?' = his signature YT card review series."],
-  [/kripp.*(diablo|d[234])|diablo.*(kripp)/i, "Kripp D3: world-first Hardcore Inferno kill June 19 2012, 37 days after launch. Duo with Krippi (Wizard), Kripp played Barbarian. ~20min boss fight. Done HOURS before Blizzard patch 1.0.3 nerfed Inferno — they're the only players who beat the original un-nerfed difficulty. Bashiok (Blizzard CM) confirmed on Twitter. Guinness World Record. Gave D4 a 6/10, said it could be a masterpiece with tuning. Loves D2 but wasn't a known competitive D2 player."],
-  [/kripp.*(poe|path of exile|exile)|poe.*(kripp)|path of exile.*(kripp)/i, "Kripp PoE: transitioned from D3, became one of PoE's earliest biggest streamers. Won Season 1 race championship. Pioneer builder — proudest build was CI Burning Discharge Templar. Also known for budget Poison Blade Flurry Berserker in Breach league exploiting double-dip. GGG put him in the game's end credits with special thanks for popularizing PoE. Famous death to twinned Alira corpse explosion. Many streamers credit watching Kripp as how they got into PoE."],
-  [/kripp.*(hearth|hs|arena|battle.?ground|bg)|hearth.*(kripp)|arena.*(kripp)/i, "Kripp HS: got beta key 2013, became 2nd most popular HS streamer ever. Arena GOD — #1 NA leaderboard Jan 2017 + Sept 2018. 2013 BlizzCon Innkeeper's Invitational finalist (lost 2-3 to Artosis, decisive moment was losing to a Leper Gnome). Won 'Favorite HS Stream' + 'Most Engaged Viewers' 2013+2014. Disenchanted 660K dust worth of dupes live (crashed his client, not the servers — Blizzard had preemptively upgraded infra). Casted HS World Championship BlizzCon 2015. Co-organized Challengestone tournament with Rania. Transitioned to Battlegrounds 2019, became #1 most-watched BG streamer. Voted #1 most influential HS player of all time. SeatStory Cup 2 (2015): rematch vs Artosis using their original 2013 BlizzCon decks — primitive aggro Paladin and old-school Warrior, hilariously outdated by 2015 standards. SeatStory Cup = TaKeTV's invitational in Krefeld Germany, couch format where players could sit with casters and commentate their own games."],
-  [/kripp.*(meme|never.?lucky|oj|juice|vegan|salt|casual|copypasta|kripperino|lore|papparian)/i, "Kripp memes: 'Never Lucky' = signature catchphrase, complains about RNG while dominating. OJ = drinks orange juice on stream, 'discounted OJ and falafel' donation quote, summoning ritual copypasta 'OJ poured and candle lit, with this chant I summon Kripp.' Vegan — community joke scientists isolated bad luck variable: veganism. 'Casual' = ultimate chat insult because Kripp went from hardcore D3/PoE/WoW to 'casual' HS. @casualkripp IG. 'Kripperino Skipperino' = YT comment -erino suffix meme culture. Papparian = fictional Romanian father copypasta genre (laments Greek marriage, begs for son back). Salt Chronicles = YT compilation channel 100+ episodes. Brofist = fist-bumped cam for every new sub, 'subber-bros', 'the 5 dollar club'. WoW Ironman world first (1-85 no deaths, white gear, no talents, Troll Hunter on Turalyon)."],
-  [/catarrian|dexter.*kripp|kripp.*(cat|dog|pet)|fey.*corgi/i, "Kripp pets: Catarrian = his cat (portmanteau of cat+Kripparrian), heavily memed — copypastas from the cat's POV begging for food/stream time, running joke that Kripp neglects the cat for Hearthstone. Dexter = German Shepherd, copypasta from Dexter's POV blaming Kripp's vegan diet for fur loss. Fey = Corgi. No confirmed bird despite rumors."],
-  [/rania|underflowr|greece|athens/i, "Rania Chatzi Morosan (underflowR): Greek, had tenured university teaching position in Athens. Kripp moved to Athens to be with her ~1.5 years, lost half his audience from timezone shift. They moved back to Canada, kept the nocturnal schedule (11PM-5AM EST) to avoid another audience-destroying shift — the late schedule actually serves both late NA and early EU. Married Oct 31 2014 (Halloween). Manages his channel, edits all YouTube videos. They designed and built a custom house in Canada with dedicated upstairs streaming studio. Co-organized Challengestone HS tournament. 'Papparian' copypastas = fictional Kripp's Romanian dad lamenting he married a Greek woman instead of a 'full-bodied Romanian woman'."],
+  [/kripp|kripparrian|rania|dr\.?\s*limestone/i, "Kripp (Octavian Morosan): Romanian-Canadian. 'nl'=No Life. World-first HC Inferno D3 (Guinness). PoE S1 champ. #1 HS Arena+BG streamer ever. Vegan, OJ+falafel. Wife=Rania (underflowR), Greek, married Halloween 2014. 11PM-5AM EST. Pets: Catarrian(cat), Dexter(GSD), Fey(Corgi). Now plays Bazaar."],
+  [/kripp.*(diablo|d[234])|diablo.*(kripp)/i, "Kripp D3: world-first HC Inferno June 19 2012 with Krippi. Barbarian+Wizard duo, ~20min fight. Hours before Blizzard nerfed Inferno — only players to beat original difficulty. Guinness record. Gave D4 a 6/10."],
+  [/kripp.*(poe|path of exile|exile)|poe.*(kripp)|path of exile.*(kripp)/i, "Kripp PoE: earliest big streamer. Won S1 race championship. Proudest build: CI Burning Discharge Templar. GGG end credits. Famous death to twinned Alira corpse explosion."],
+  [/kripp.*(hearth|hs|arena|battle.?ground|bg)|hearth.*(kripp)|arena.*(kripp)/i, "Kripp HS: #1 Arena NA leaderboard. Lost 2-3 to Artosis at 2013 BlizzCon Invitational (Leper Gnome). Disenchanted 660K dust live (crashed client). #1 BG streamer. Voted #1 most influential HS player ever. SeatStory Cup 2 rematch vs Artosis with original 2013 decks."],
+  [/kripp.*(meme|never.?lucky|oj|juice|vegan|salt|casual|copypasta|kripperino|lore|papparian)/i, "Kripp memes: 'Never Lucky'=catchphrase. OJ summoning ritual copypasta. Vegan=bad luck variable. 'Casual'=insult (went from HC D3/PoE to HS). Papparian=fictional Romanian dad copypasta. Salt Chronicles=100+ YT episodes. Brofist for subs. WoW Ironman world first."],
+  [/catarrian|dexter.*kripp|kripp.*(cat|dog|pet)|fey.*corgi/i, "Kripp pets: Catarrian=cat (cat+Kripparrian portmanteau), copypastas from cat's POV. Dexter=German Shepherd. Fey=Corgi. No confirmed bird despite rumors."],
+  [/rania|underflowr|greece|athens/i, "Rania (underflowR): Greek, married Kripp Halloween 2014. Manages channel, edits all YT. He lived in Athens 1.5yr for her, lost half audience from timezone. Moved back to Canada, kept 11PM-5AM EST. Papparian copypastas = fictional dad lamenting the Greek marriage."],
   [/kripp.*(browser|incident|tab)|browser.*(kripp|incident)/i, "Kripp browser incident: yes it happened, yes chat saw everything. Kappa. keep it vague and funny, never say what the tab actually was."],
-  [/reynad|andrey|tempo storm/i, "Reynad (Andrey Yanyuk): Ukrainian-Canadian, moved to Minnesota age 6. Dropped out of high school to grind card games (poker, MTG). Banned from MTG (DCI suspension for slipping an extra card into his sealed deck at a tournament, got mouthy about it online so they extended the ban to 18 months). Pivoted to HS, popularized Zoo Warlock and Aggro Warrior. Founded Tempo Storm May 2014, ran the Meta Snapshot tier lists that became THE community reference. Forbes 30 Under 30 (2017). Stepped back from streaming 2018 to build The Bazaar full-time. Notorious for salt — death stares at chat after bad beats, mass-banning viewers. 'Reynad luck' = always on the wrong end of topdecks. Beef with Amaz/Team Archon (refused to shake Amaz's hand at an event). Defended MagicAmy during the 2015 witch-hunt, called r/hearthstone a 'scumbag community'. TTS donation incident got him in trouble with Twitch. The Bazaar concept started 2017, inspired by Ascension and Star Realms — wanted to fix pay-to-win models he hated about HS."],
-  [/reynad.*(drama|beef|amaz|magic.?amy|ban|cheat|salt|forsen)/i, "Reynad drama: banned from MTG for adding cards to sealed deck, ban extended when he got defensive online. HS era: Amaz/Team Archon rivalry was central 2015 drama — accused Archon of copying Tempo Storm's model, refused to shake Amaz's hand publicly. MagicAmy saga (Feb 2015): his player got accused of being fake (man playing on her account), Reynad investigated 36 people over 3 days, found nothing, went public defending her and calling the HS subreddit out. TTS donations got racist content read on stream, Twitch warned him. Forsen's community ('Forsen Boys') raided channels with abuse, creating ambient tension. Chat relationship was 'antagonistically symbiotic performance art' — the salt was the content."],
+  [/reynad|andrey|tempo storm/i, "Reynad (Andrey Yanyuk): Ukrainian-Canadian. Banned from MTG (extra card in sealed deck). Popularized Zoo Warlock. Founded Tempo Storm 2014, ran Meta Snapshots. Forbes 30 Under 30. Built The Bazaar since 2017. Notorious salt, death stares, mass-bans. 'Reynad luck'=always wrong end of topdecks."],
+  [/reynad.*(drama|beef|amaz|magic.?amy|ban|cheat|salt|forsen)/i, "Reynad drama: MTG ban for extra cards. Amaz/Archon rivalry — refused handshake. Defended MagicAmy 2015 (investigated 36 people, found nothing). TTS donation incident. Forsen Boys raids. The salt was the content."],
   [/the bazaar|this game/i, "The Bazaar: PvP auto-battler roguelike by Reynad. 7 heroes. Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments, monsters on numbered days."],
-  [/karnok|rage|enrage/i, "Karnok: DLC hero. Signature mechanic is Rage — gain Rage from items/abilities, Enrage when Rage is full (temporary buff state). Enraged = boosted effects on many items (bonus damage, flying, shields). Rage decays over time. Archetypes: Rage stacking, Friends, Weapons, Properties. Items interact with Rage gain, Enrage triggers, and Enrage duration."],
-  [/lethalfrag/i, "Lethalfrag (Matt McKnight): ex-chef, single father from Washington state. Quit his job to stream full-time, launched the Two Year Live Stream Challenge (Jan 5 2012 - Jan 6 2014) — streamed every night for 731 days straight. First inductee into the Twitch Hall of Fame (Lifetime Achievement Award). Shorty Award nominee for Twitch Streamer of the Year. Known for roguelike games (FTL, Binding of Isaac), 'Cooking with FRAG' series, and answering every single chat question. Currently one of the top English Bazaar streamers (#3 English, #4 overall). Self-described goal: be gaming's Batman."],
-  [/patopapao|pato/i, "PatoPapao: Brazilian, Portuguese-language streamer. #1 most-watched Bazaar channel globally. Twitch Partner since 2012, hit 3.5K peak subs. Averages ~600 viewers, peaks over 1K. Bio translates to 'a guy who makes little videos and streams since 2012' — understated for the biggest Bazaar channel. Consistent grinder, streams 100+ hours/week during Bazaar peaks."],
+  [/karnok|rage|enrage/i, "Karnok: DLC hero. Rage mechanic — gain Rage, Enrage when full (temp buff). Enraged=boosted effects (damage, flying, shields). Rage decays. Archetypes: Rage stacking, Friends, Weapons, Properties."],
+  [/lethalfrag/i, "Lethalfrag (Matt McKnight): ex-chef, single father, WA. Streamed 731 consecutive nights (2012-2014). First Twitch Hall of Fame inductee. Top English Bazaar streamer. Goal: be gaming's Batman."],
+  [/patopapao|pato/i, "PatoPapao: Brazilian, #1 most-watched Bazaar channel globally. Partner since 2012, ~600 avg viewers. Consistent grinder, 100+ hrs/week during Bazaar peaks."],
   [/dog\b.*\b(?:hs|hearthstone|bazaar)|dogdog/i, "Dog: high-legend HS, off-meta decks, now plays Bazaar. Married Hafu (2021)."],
-  [/artosis|tasteless|stemkoski/i, "Artosis (Dan Stemkoski): American SC2 caster in Seoul with Tasteless (Nick Plott). 'Artosis Pylon' = a single pylon powering multiple buildings, named by IdrA on NASL after Artosis lost key structures when one pylon died. Beat Kripp 3-2 in the BlizzCon 2013 Innkeeper's Invitational finals, crowned 'Grandmaster of the Hearth', then immediately walked offstage to cast SC2 Global Finals. Rematch at SeatStory Cup 2 (2015) using their original 2013 decks."],
-  [/trump\b(?!.*politi)|trumpsc|jeffrey shih|value town/i, "TrumpSC (Jeffrey Shih): Taiwanese-American. 'Mayor of Value Town' — obsessively extracts max value from every card. Co-hosted Value Town podcast with Kripp and ChanManV. Famous for F2P legend runs (zero-spend new account to Legend rank). 'Trump Basic Teachings' YouTube series taught HS fundamentals to a generation. Name predates the politician, calls it 'the ultimate unlucky RNG.' Currently indie streaming ~450 avg viewers."],
-  [/amaz|team archon|jason chan/i, "Amaz (Jason Chan): Hong Kong-Canadian. Founded Team Archon (2014), ran ATLC tournament — considered the best third-party HS tournament. Archon vs Tempo Storm rivalry was major community drama. Left Archon 2016. Misconduct accusation: forced a hired worker into a hot tub with players at 2015 ATLC finals. Blizzard quietly removed him from events ~2020."],
-  [/firebat|kostesich|batstone/i, "Firebat (James Kostesich): American. First ever HS World Champion — BlizzCon 2014, beat Tiddler Celestial 3-0, $100k prize, was 18 years old. Ran 'Batstone' tournament with community-voted card bans. Transitioned to casting, retired from competitive after Grandmasters relegation."],
-  [/frodan|dan chou/i, "Frodan (Dan Chou): American (NJ). Co-founded Tempo Storm with Reynad, VP of Ops until 2017. THE voice of competitive HS casting 2014-2021. Worked Twitch Esports 8 years, laid off in March 2023 mass layoffs. Pivoted to TFT: caster then coach (Fnatic 2024, Team Vitality 2025), runs TFTAcademy with Dishsoap."],
-  [/hafu|rumay/i, "Hafu (Rumay Wang): American. One of the most prominent women in competitive gaming. WoW PvP: multiple MLG wins 2008. HS Arena queen — 96 wins in the 100-in-10 challenge. Dominated Battlegrounds on launch. Married Dogdog (2021). Part of OfflineTV/Friends circle."],
-  [/disguised\s*toast|jeremy wang/i, "Disguised Toast (Jeremy Wang): Taiwanese-Canadian. Started YouTube 2015 with HS card interaction vids wearing a cardboard toast mask (SI:7 Agent voiceline 'this guy's toast'). Accidentally revealed face 2016. Joined OfflineTV 2017. Facebook Gaming exclusive 2019-2021 then back to Twitch. Among Us blew him up 2020. Founded esports org Disguised (DSG) 2023 with all-female Valorant roster."],
-  [/savjz|janne mikkonen/i, "Savjz (Janne Mikkonen): Finnish. Team Liquid HS pro, $70k at Mythic Invitational 2019. 2020 drama: Blizzard called him 'a liability' because his wife (laid-off Blizzard employee) tweeted criticism at a CM. Went public, community outrage, Blizzard apologized. Semi-retired."],
-  [/forsen|sebastian fors|forsen\s*boys|forsen\s*bajs/i, "Forsen (Sebastian Fors): Swedish. Early SC2 pro, then one of the best Miracle Rogue players ever (rank 1 EU + NA Season 3, 2014). 'Forsen Boys'/'Forsen Bajs' = chaotic meme-obsessed fanbase, credited with spreading monkaS and PepeHands. forsenE was the most-used Twitch emote globally Jan 2018. Variety streamer now, 1.7M+ followers. Stream snipers are a core part of the content."],
-  [/day\s*9|sean plott/i, "Day9 (Sean Plott): American, brother of Tasteless. SC2 educational streaming legend. Day9 Daily episode #100 'My Life of StarCraft' = legendary emotional community touchstone. Forbes 30 Under 30 twice. HS: in 2013 BlizzCon Innkeeper's Invitational, ran weekly Decktacular show. Brand is pure relentless positivity. Currently building his own RTS game."],
-  [/kibler|brian kibler|dragonmaster/i, "Kibler (Brian Kibler): American. MTG Hall of Famer (2010), won Pro Tour Austin 2009 and Honolulu 2012. 'The Dragonmaster' since Pro Tour Chicago 2000 where he beat Jon Finkel with dragon Rith, the Awakener. Top HS caster, won ChallengeStone 2015+2016. Quit BlizzCon casting 2019 in protest over Blizzard banning Blitzchung for pro-Hong Kong speech — principled exit. Also designed WoW TCG, SolForge, Ascension."],
+  [/artosis|tasteless|stemkoski/i, "Artosis (Dan Stemkoski): SC2 caster in Seoul with Tasteless. 'Artosis Pylon'=one pylon powering everything. Beat Kripp 3-2 at 2013 BlizzCon HS Invitational, crowned 'Grandmaster of the Hearth'."],
+  [/trump\b(?!.*politi)|trumpsc|jeffrey shih|value town/i, "TrumpSC (Jeffrey Shih): 'Mayor of Value Town'. Famous F2P legend runs. 'Trump Basic Teachings' taught HS to a generation. Name predates the politician — 'ultimate unlucky RNG.'"],
+  [/amaz|team archon|jason chan/i, "Amaz (Jason Chan): HK-Canadian. Founded Team Archon, ran ATLC tournament. Archon vs Tempo Storm rivalry. Misconduct accusations 2015 ATLC. Quietly removed from Blizzard events ~2020."],
+  [/firebat|kostesich|batstone/i, "Firebat (James Kostesich): first HS World Champion, BlizzCon 2014, beat Tiddler Celestial 3-0 at age 18. Ran 'Batstone' tournament with community card bans."],
+  [/frodan|dan chou/i, "Frodan (Dan Chou): co-founded Tempo Storm with Reynad. THE HS casting voice 2014-2021. Laid off Twitch 2023. Now TFT coach (Fnatic, Vitality), runs TFTAcademy."],
+  [/hafu|rumay/i, "Hafu (Rumay Wang): WoW PvP MLG wins 2008. HS Arena queen (96 wins in 100-in-10). Dominated BG on launch. Married Dog (2021)."],
+  [/disguised\s*toast|jeremy wang/i, "Disguised Toast (Jeremy Wang): started with HS card vids wearing cardboard toast mask. OfflineTV 2017. Among Us blew him up 2020. Founded esports org DSG 2023."],
+  [/savjz|janne mikkonen/i, "Savjz (Janne Mikkonen): Finnish, Team Liquid HS pro. 2020: Blizzard called him 'a liability' over wife's tweets. Community backlash forced apology. Semi-retired."],
+  [/forsen|sebastian fors|forsen\s*boys|forsen\s*bajs/i, "Forsen (Sebastian Fors): Swedish. Best Miracle Rogue (rank 1 EU+NA). Forsen Bajs=chaotic meme fanbase, spread monkaS/PepeHands. forsenE=#1 Twitch emote Jan 2018. Stream snipers are the content."],
+  [/day\s*9|sean plott/i, "Day9 (Sean Plott): Tasteless's brother. SC2 educational legend. Day9 Daily #100='My Life of StarCraft' (legendary). Forbes 30 Under 30 twice. Brand=pure positivity. Building own RTS."],
+  [/kibler|brian kibler|dragonmaster/i, "Kibler: MTG Hall of Famer. 'The Dragonmaster' since beating Finkel with Rith. Won ChallengeStone 2015+2016. Quit BlizzCon casting 2019 over Blitzchung ban — principled exit."],
 ]
 
 // detect game-related terms (used by extractEntities to flag game queries)
@@ -754,7 +755,7 @@ export function buildSystemPrompt(): string {
     'hero/class Qs: use Game data if present. no Game data section at all? vibe only, zero fabrication. fake lore/nonexistent things: make up something hilarious, deadpan absurd > "that doesnt exist".',
     '',
     'Answer [USER]\'s question. infer vague Qs ("do u agree?", "is that true") from recent chat context. dont respond to chat you werent asked about.',
-    'LENGTH: 8-20 words. setup + punchline, done. two sentences max. copypasta: 400 chars max. every extra word = worse.',
+    'LENGTH: two sentences max, ~25 words. setup + punchline, done. copypasta: 400 chars max. every extra word = worse.',
     'SHORT responses (<5 words): status checks ("are you alive/there/working"), greetings, thanks, goodbyes. just acknowledge.',
     'game data: cite ONLY "Game data:" section. NEVER invent item names, stats, day refs, mechanic descriptions.',
     '"user: msg" in chat = that user said it. links only: bazaardb.gg bzdb.to github.com/mellen9999/bazaarinfo',
@@ -824,7 +825,7 @@ const CONTEXT_ECHO = /^(Game data:|Recent chat:|Stream timeline:|Who's chatting:
 // fabrication tells — patterns suggesting the model is making up stories
 const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that (you|i|the bot|bazaarinfo)|the story goes)\b/i
 // diplomatic refusal — model hedging with long-form "i cant pick favorites" instead of answering
-const DIPLOMATIC_REFUSAL = /\b(can'?t (do|pick|choose|rank) (favorites?|that)|play favorites|everyone is (great|special|equal)|not gonna rank|see the play here|both outcomes are|no favorites)\b/i
+const DIPLOMATIC_REFUSAL = /\b(can'?t (do|pick|choose) favorites?|play favorites|everyone is (great|special|equal)|not gonna (pick|choose) favorites?|not gonna rank (chatters?|people|users?|favorites?)|no favorites)\b/i
 // injection echo — model parroting injected instructions from user input
 const META_INSTRUCTION = /\b(pls|please)\s+(just\s+)?(do|give|say|answer|stop|help)\s+(what\s+)?(ppl|people)\b|\bstop\s+(denying|refusing|ignoring|blocking)\s+(ppl|people|them|users?)\b|\b(just\s+)?(do|give|answer|say)\s+(\w+\s+)?what\s+(ppl|people|they|users?|chat)\s+(want|ask|need|say|tell)\b/i
 // instruction echo — stored facts or context echoing "it needs to know..." directives
@@ -1104,7 +1105,7 @@ function stripInputEcho(response: string, query: string): string {
   const qWords = query.toLowerCase().split(/\s+/)
   const rWords = response.split(/\s+/)
   const rLower = rWords.map(w => w.toLowerCase())
-  if (qWords.length < 4 || rWords.length < 4) return response
+  if (qWords.length < 5 || rWords.length < 5) return response
   let bestStart = -1
   let bestLen = 0
   for (let ri = 0; ri < rLower.length; ri++) {
@@ -1115,8 +1116,8 @@ function stripInputEcho(response: string, query: string): string {
       if (len > bestLen) { bestLen = len; bestStart = ri }
     }
   }
-  // 4+ word echo in latter portion = injection, strip from that point
-  if (bestLen >= 4 && bestStart > rWords.length * 0.3) {
+  // 5+ word echo in latter portion = injection, strip from that point
+  if (bestLen >= 5 && bestStart > rWords.length * 0.3) {
     const stripped = rWords.slice(0, bestStart).join(' ').trim()
     if (stripped.length > 10) return stripped
   }
@@ -1751,26 +1752,9 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
     ? `\nPasta examples (match quality, NOT structure):\n${randomPastaExamples(3).map((p, i) => `${i + 1}. ${p}`).join('\n')}${recentPastas.length > 0 ? `\n\nDO NOT reuse these premises/setups:\n${recentPastas.join('\n')}` : ''}\n`
     : ''
 
-  const text = [
-    timelineLine,
-    chatStr ? `Recent chat:\n${chatStr}\n` : '',
-    chattersLine ? `\n${chattersLine}` : '',
-    threadLine,
-    contextLine,
-    voiceBlock,
-    lessonsLine,
-    hotLine,
-    recallLine,
-    chatRecallLine ? `\n${chatRecallLine}` : '',
-    recentLine,
-    redditLine,
-    emoteLine,
-    fullEmoteLine,
-    gameBlock,
-    activityBlock,
-    statsLine,
-    pastaBlock,
-    todayWordsBlock,
+  // build context sections in priority order — required sections first, trimmable sections later
+  // required sections (query, user identity) are always included
+  const requiredTail = [
     isContinuationLike ? '\n⚠️ SCENE CONTINUATION — [USER] wants the next part of an ongoing story. Read your previous responses above carefully. ADVANCE the plot: new events, new dialogue, escalation, twists. NEVER rehash/summarize what already happened. Each continuation must introduce something the audience hasn\'t seen yet. Use the same characters but put them in new situations. 400 chars.' : '',
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq),
     ctx.mention
@@ -1781,6 +1765,44 @@ function buildUserMessage(query: string, ctx: AiContext & { user: string; channe
       : '',
     `\n[USER] = ${ctx.user}`,
   ].filter(Boolean).join('')
+
+  // trimmable sections in priority order (last = first to trim)
+  const sections = [
+    gameBlock,                                        // highest priority — game data
+    hotLine,                                          // follow-up context
+    chatStr ? `Recent chat:\n${chatStr}\n` : '',      // chat context
+    chattersLine ? `\n${chattersLine}` : '',
+    recentLine,                                       // anti-repetition
+    emoteLine,
+    fullEmoteLine,
+    pastaBlock,
+    todayWordsBlock,
+    recallLine,
+    chatRecallLine ? `\n${chatRecallLine}` : '',
+    timelineLine,                                     // lower priority
+    threadLine,
+    contextLine,
+    voiceBlock,
+    lessonsLine,
+    activityBlock,
+    statsLine,
+    redditLine,                                       // lowest priority
+  ].filter(Boolean)
+
+  // cap total user message at ~3500 chars (excluding required tail)
+  const USER_MSG_CAP = 3500
+  const tailLen = requiredTail.length
+  let budget = USER_MSG_CAP - tailLen
+  const included: string[] = []
+  for (const section of sections) {
+    if (budget <= 0) break
+    if (section.length <= budget) {
+      included.push(section)
+      budget -= section.length
+    }
+  }
+
+  const text = included.join('') + requiredTail
   return { text, hasGameData, isPasta, isCreative, isContinuation: isContinuationLike, isRememberReq }
 }
 
@@ -1838,7 +1860,7 @@ async function maybeUpdateMemo(user: string, force = false) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 45,
+        max_tokens: 80,
         messages: [{ role: 'user', content: prompt }],
       }),
       signal: AbortSignal.timeout(10_000),
@@ -1899,7 +1921,7 @@ async function maybeExtractFacts(user: string, query: string, response: string, 
         'x-api-key': API_KEY,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({ model: MODEL, max_tokens: 35, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: MODEL, max_tokens: 60, messages: [{ role: 'user', content: prompt }] }),
       signal: AbortSignal.timeout(10_000),
     })
 
@@ -1937,12 +1959,12 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
 
   try {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      // haiku for all user-facing responses (1/min budget = quality over speed)
       const model = CHAT_MODEL
+      const baseTemp = isCreative ? 0.95 : hasGameData ? 0.5 : 0.85
       const body = {
         model,
         max_tokens: maxTokens,
-        temperature: isCreative ? 0.95 : hasGameData ? 0.5 : 0.85,
+        temperature: Math.min(1.0, baseTemp + attempt * 0.1),
         system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
         messages,
       }
@@ -2028,7 +2050,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // sanitizer rejected — retry with feedback (don't pass raw rejected output back)
       if (attempt < MAX_RETRIES - 1) {
         log(`ai: sanitizer rejected, retrying (attempt ${attempt + 1})`)
-        messages.push({ role: 'user', content: 'That had issues. Try again — just respond to the person.' })
+        messages.push({ role: 'user', content: 'Response was blocked. Rules: no self-referencing being a bot/AI, no reciting user stats, no fabricated stories, no commands. Just answer naturally.' })
       }
     }
 
