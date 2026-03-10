@@ -70,6 +70,7 @@ mock.module('./ai', () => ({
   invalidatePromptCache: mock(() => {}),
   sanitize: mock((t: string) => ({ text: t, mentions: [] })),
   dedupeEmote: mock((t: string) => t),
+  dedupeMention: mock((t: string) => t),
   fixEmoteCase: mock((t: string) => t),
 }))
 
@@ -447,9 +448,9 @@ describe('!b item lookup', () => {
 
   it('falls back to fuzzy search when exact match fails', async () => {
     mockSearch.mockImplementation(() => [boomerang])
-    const result = await handleCommand('!b boomrang')
+    const result = await handleCommand('!b boomeran')
     expect(result).toContain('Boomerang [M]')
-    expect(mockSearch).toHaveBeenCalledWith('boomrang', 1)
+    expect(mockSearch).toHaveBeenCalledWith('boomeran', 1)
   })
 
   it('returns no-match message when no match and AI unavailable', async () => {
@@ -1572,8 +1573,12 @@ describe('command proxy: slash commands', () => {
     expect(await handleCommand('!b /me dances')).toBe('/me dances')
   })
 
-  it('allows /announce', async () => {
-    expect(await handleCommand('!b /announce hello everyone')).toBe('/announce hello everyone')
+  it('allows /announce for mods', async () => {
+    expect(await handleCommand('!b /announce hello everyone', { isMod: true })).toBe('/announce hello everyone')
+  })
+
+  it('blocks /announce for non-mods', async () => {
+    expect(await handleCommand('!b /announce hello everyone')).toBeNull()
   })
 
   it('allows /color', async () => {
@@ -1600,7 +1605,7 @@ describe('command proxy: slash commands', () => {
 
   it('slash allowlist is case insensitive', async () => {
     expect(await handleCommand('!b /ME dances')).toBe('/ME dances')
-    expect(await handleCommand('!b /ANNOUNCE hi')).toBe('/ANNOUNCE hi')
+    expect(await handleCommand('!b /ANNOUNCE hi', { isMod: true })).toBe('/ANNOUNCE hi')
   })
 })
 

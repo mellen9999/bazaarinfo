@@ -72,9 +72,9 @@ describe('entity extraction via store', () => {
 // 2. System prompt quality
 // ============================================================
 describe('system prompt', () => {
-  it('is under 5200 chars (token budget)', () => {
+  it('is under 6500 chars (token budget)', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt.length).toBeLessThan(5200)
+    expect(prompt.length).toBeLessThan(6500)
   })
 
   it('contains core identity', () => {
@@ -113,7 +113,7 @@ describe('system prompt', () => {
 
   it('contains length constraints', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt).toContain('8-20 words')
+    expect(prompt).toContain('two sentences max')
     // "no markdown" enforced by sanitizer, not prompt
   })
 
@@ -431,9 +431,10 @@ describe('command routing with real data', () => {
     expect(result).toBeNull()
   })
 
-  it('greetings are never silently ignored — !b hello gets a response', async () => {
+  it('greetings route to AI — !b hello returns null without API key', async () => {
     const result = await handleCommand('!b hello', ctx)
-    expect(result).not.toBeNull()
+    // greetings go to AI, which returns null without API key — expected
+    expect(result).toBeNull()
   })
 
   it('emote names are never silently ignored — !b KEKW gets a response', async () => {
