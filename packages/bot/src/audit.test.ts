@@ -84,19 +84,11 @@ describe('system prompt', () => {
     expect(prompt).toContain('bazaardb.gg')
   })
 
-  it('contains hero names', () => {
+  it('references heroes in game data', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt).toContain('Heroes:')
-  })
-
-  it('contains tag names', () => {
-    const prompt = buildSystemPrompt()
-    expect(prompt).toContain('Tags:')
-  })
-
-  it('does not contain *Reference internal tags', () => {
-    const prompt = buildSystemPrompt()
-    expect(prompt).not.toMatch(/\w+Reference/)
+    // heroes referenced in GAME line, not as separate list (token savings)
+    expect(prompt).toContain('Vanessa')
+    expect(prompt).toContain('Dooley')
   })
 
   it('contains privacy honesty rule', () => {
@@ -113,8 +105,8 @@ describe('system prompt', () => {
 
   it('contains length constraints', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt).toContain('two sentences max')
-    // "no markdown" enforced by sanitizer, not prompt
+    expect(prompt).toContain('one sentence')
+    expect(prompt).toContain('two sentences ONLY')
   })
 
   it('bans URL/link generation', () => {

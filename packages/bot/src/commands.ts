@@ -62,9 +62,19 @@ const BLOCKED_BANG_CMDS = new Set([
   // counters
   'editcounter', 'resetwins', 'resetcount', 'resetkills', 'resetgulag',
   // giveaways/contests
-  'cancelraffle', 'sraffle',
+  'cancelraffle', 'sraffle', 'giveaway', 'bet',
   // level/permissions
   'level',
+  // code execution (custom bots)
+  'eval', 'script', 'bash', 'sh', 'exec',
+  // bot lifecycle
+  'exit', 'restart', 'reload', 'shutdown',
+  // info disclosure
+  'logs', 'bans',
+  // spam risk
+  'so', 'shoutout',
+  // message deletion
+  'delete',
 ])
 
 // / commands: allowlist only — everything else blocked
@@ -212,6 +222,7 @@ type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string
 const RESERVED_SUBS = new Set([
   'mob', 'monster', 'hero', 'tag', 'skill', 'day', 'enchants', 'enchantments',
   'trivia', 'score', 'stats', 'top', 'alias', 'help', 'info',
+  'refresh', 'emotes',
 ])
 
 const subcommands: [RegExp, SubHandler][] = [
@@ -442,7 +453,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // embedded command: "so can u run !jory pls" → "!jory"
   // skip if asking about a command ("who has the most !a"), not requesting one
   // questions about commands mention them as nouns; requests use action verbs near them
-  const isAskingAbout = /^(who|what|when|where|why|how|does|has|have|is)\b/i.test(cleanArgs)
+  const isAskingAbout = /^(who|what|when|where|why|how|does|has|have|is|should|can|will|could|would|may|might|don'?t|never|please)\b/i.test(cleanArgs)
   if (!isAskingAbout) {
     const embeddedMatch = cleanArgs.match(/!(\w+)(?:\s+(\d+))?/)
     if (embeddedMatch) {

@@ -1432,8 +1432,14 @@ describe('command proxy: direct !cmd', () => {
   })
 
   it('proxies safe commands freely', async () => {
-    for (const cmd of ['so', 'gamble', 'lurk', 'jory']) {
+    for (const cmd of ['gamble', 'lurk', 'jory']) {
       expect(await handleCommand(`!b !${cmd}`, { user: 'viewer', channel: `ch${cmd}` })).toBe(`!${cmd}`)
+    }
+  })
+
+  it('blocks newly added dangerous commands', async () => {
+    for (const cmd of ['so', 'shoutout', 'eval', 'script', 'bash', 'exit', 'restart', 'delete', 'giveaway', 'bet']) {
+      expect(await handleCommand(`!b !${cmd}`, { user: 'viewer', channel: `blk${cmd}` })).toBeNull()
     }
   })
 
@@ -1470,8 +1476,10 @@ describe('command proxy: embedded in chat', () => {
     expect(await handleCommand('!b yo do !lurk for me')).toBe('!lurk')
   })
 
-  it('"can you type !hug" → !hug', async () => {
-    expect(await handleCommand('!b can you type !hug')).toBe('!hug')
+  it('"can you type !hug" → blocked (isAskingAbout)', async () => {
+    // "can" is now in isAskingAbout — question words skip embedded command proxy
+    const result = await handleCommand('!b can you type !hug', { user: 'u', channel: 'c' })
+    if (result) expect(result).not.toMatch(/^!hug/)
   })
 
   it('"pls !jory" → !jory', async () => {

@@ -225,7 +225,7 @@ export async function refreshVoice(channel: string) {
           },
           body: JSON.stringify({
             model: VOICE_MODEL,
-            max_tokens: 40,
+            max_tokens: 60,
             messages: [{ role: 'user', content: [
               `Analyze these Twitch chat messages from #${channel}:\n`,
               sampleText,

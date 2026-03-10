@@ -595,12 +595,12 @@ describe('getAiCooldown', () => {
 })
 
 describe('buildFTSQuery', () => {
-  it('extracts meaningful words and joins with OR', () => {
-    expect(buildFTSQuery('reynad lizard conspiracy')).toBe('"reynad" OR "lizard" OR "conspiracy"')
+  it('extracts meaningful words and joins with AND', () => {
+    expect(buildFTSQuery('reynad lizard conspiracy')).toBe('"reynad" AND "lizard" AND "conspiracy"')
   })
 
   it('filters stop words', () => {
-    expect(buildFTSQuery('what is the best build')).toBe('"best" OR "build"')
+    expect(buildFTSQuery('what is the best build')).toBe('"best" AND "build"')
   })
 
   it('filters short words', () => {
@@ -612,11 +612,11 @@ describe('buildFTSQuery', () => {
   })
 
   it('strips non-alphanumeric', () => {
-    expect(buildFTSQuery("reynad's lizard?")).toBe('"reynads" OR "lizard"')
+    expect(buildFTSQuery("reynad's lizard?")).toBe('"reynads" AND "lizard"')
   })
 
   it('limits to 5 terms', () => {
     const result = buildFTSQuery('one two three four five six seven eight')
-    expect(result!.split(' OR ').length).toBe(5)
+    expect(result!.split(' AND ').length).toBe(5)
   })
 })
