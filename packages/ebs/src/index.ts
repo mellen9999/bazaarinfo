@@ -41,6 +41,7 @@ async function handleRequest(req: Request): Promise<Response> {
   if (path.startsWith('/api/')) {
     const auth = await verifyTwitchJwt(req.headers.get('Authorization'))
     if (!auth) {
+      console.log(`[ebs] auth failed: ${path} from ${req.headers.get('Origin') ?? 'unknown'}`)
       return cors(new Response('unauthorized', { status: 401 }))
     }
   }
