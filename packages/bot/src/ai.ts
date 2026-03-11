@@ -156,14 +156,36 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const hardCap = isCreative ? 400 : hasGameData ? 250 : isRememberReq ? 120 : isShort ? 60 : 150
       if (result.text.length > hardCap) {
         const cut = result.text.slice(0, hardCap)
-        const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))
-        result.text = (lastBreak > hardCap * 0.5 ? cut.slice(0, lastBreak + 1) : cut.replace(/\s+\S*$/, '')).trim()
+        // prefer sentence-ending breaks; only fall back to comma/clause if none exist
+        const sentenceBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '))
+        if (sentenceBreak > hardCap * 0.4) {
+          result.text = cut.slice(0, sentenceBreak + 1).trim()
+        } else {
+          const clauseBreak = Math.max(cut.lastIndexOf(' — '), cut.lastIndexOf(', '))
+          if (clauseBreak > hardCap * 0.5) {
+            result.text = cut.slice(0, clauseBreak).trim()
+          } else {
+            result.text = cut.replace(/\s+\S*$/, '').trim()
+          }
+        }
       }
       // fix orphan quotes created by truncation
       if ((result.text.match(/"/g) || []).length % 2 !== 0) {
         const last = result.text.lastIndexOf('"')
         const before = result.text.slice(0, last).trim()
         if (before.length > 10) result.text = before
+      }
+      // fix unclosed parens created by truncation
+      const openParens = (result.text.match(/\(/g) || []).length
+      const closeParens = (result.text.match(/\)/g) || []).length
+      if (openParens > closeParens) {
+        const lastOpen = result.text.lastIndexOf('(')
+        const before = result.text.slice(0, lastOpen).trim()
+        if (before.length > 10) {
+          result.text = before
+        } else {
+          result.text = result.text.replace(/[,\s]*$/, '') + ')'
+        }
       }
       if (result.text) {
         // terse refusal detection

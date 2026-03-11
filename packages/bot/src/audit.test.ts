@@ -581,6 +581,19 @@ describe('sanitizer length constraints', () => {
     const r = sanitize(wall)
     expect(r.text.length).toBeLessThanOrEqual(440)
   })
+
+  it('fixes unclosed parens by trimming', () => {
+    const text = 'leather jacket (karnok only, destroys on enrage'
+    const r = sanitize(text)
+    expect(r.text).not.toMatch(/\($/)
+    expect((r.text.match(/\(/g) || []).length).toBe((r.text.match(/\)/g) || []).length)
+  })
+
+  it('closes short unclosed parens', () => {
+    const text = 'sporange (only real rhyme'
+    const r = sanitize(text)
+    expect(r.text).toEndWith(')')
+  })
 })
 
 // ============================================================

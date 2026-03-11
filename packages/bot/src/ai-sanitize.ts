@@ -188,6 +188,18 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
     }
   }
 
+  // fix unclosed parens — trim before orphan paren or close it
+  if ((s.match(/\(/g) || []).length > (s.match(/\)/g) || []).length) {
+    const lastOpen = s.lastIndexOf('(')
+    const before = s.slice(0, lastOpen).trim()
+    if (before.length > 10) {
+      s = before
+    } else {
+      // short prefix — just close the paren
+      s = s.replace(/[,\s]*$/, '') + ')'
+    }
+  }
+
   // natural trailing punctuation — only strip periods, never ? or !
   if (s.endsWith('.')) {
     const sentences = s.split(/(?<=\.)\s+/)
