@@ -564,6 +564,11 @@ const migrations: (() => void)[] = [
       INSERT INTO chat_lessons_fts(chat_lessons_fts, rowid, lesson) VALUES ('delete', old.id, old.lesson);
     END`)
   },
+
+  // migration 15: ask_queries channel+time index for FTS search performance
+  () => {
+    db.run(`CREATE INDEX IF NOT EXISTS idx_ask_channel_time ON ask_queries(channel, created_at DESC)`)
+  },
 ]
 
 function runMigrations() {
