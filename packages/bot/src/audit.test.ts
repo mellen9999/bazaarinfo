@@ -105,7 +105,7 @@ describe('system prompt', () => {
 
   it('contains length constraints', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt).toContain('one sentence')
+    expect(prompt).toContain('one tight sentence')
     expect(prompt).toContain('two sentences ONLY')
   })
 

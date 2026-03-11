@@ -88,7 +88,8 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   s = s.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
   // normalize fullwidth/lookalike punctuation (homoglyph injection: ！ban, ／ban, ＼ban)
   s = s.replace(/[\uFF01\u01C3\u2757]/g, '!').replace(/[\uFF0F\u2044\u2215]/g, '/').replace(/[\uFF3C]/g, '\\')
-  s = s.replace(/^["'`]+/, '') // strip leading quotes (model wraps commands in quotes to bypass)
+  // strip leading quotes only when wrapping a command (not legitimate quoted words)
+  if (/^["'`]+[!\\/.]/.test(s)) s = s.replace(/^["'`]+/, '')
   const preStrip = s
   if (!privileged) s = s.replace(/^[\\.\s]+/, '') // strip leading \, ., whitespace
   s = s.replace(/\*\*([^*]+)\*\*/g, '$1')

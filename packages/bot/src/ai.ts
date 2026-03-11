@@ -21,9 +21,9 @@ import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const CHAT_MODEL = 'claude-sonnet-4-6'
-const MAX_TOKENS_GAME = 40
-const MAX_TOKENS_CHAT = 35
-const MAX_TOKENS_PASTA = 100
+const MAX_TOKENS_GAME = 100
+const MAX_TOKENS_CHAT = 80
+const MAX_TOKENS_PASTA = 200
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
 
@@ -153,11 +153,17 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       result.text = dedupeUserEmote(result.text, ctx.user, ctx.channel)
       // enforce length caps in code
       const isShort = isShortResponse(query)
-      const hardCap = isCreative ? 400 : hasGameData ? 150 : isRememberReq ? 120 : isShort ? 60 : 150
+      const hardCap = isCreative ? 400 : hasGameData ? 250 : isRememberReq ? 120 : isShort ? 60 : 150
       if (result.text.length > hardCap) {
         const cut = result.text.slice(0, hardCap)
         const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '))
         result.text = (lastBreak > hardCap * 0.5 ? cut.slice(0, lastBreak + 1) : cut.replace(/\s+\S*$/, '')).trim()
+      }
+      // fix orphan quotes created by truncation
+      if ((result.text.match(/"/g) || []).length % 2 !== 0) {
+        const last = result.text.lastIndexOf('"')
+        const before = result.text.slice(0, last).trim()
+        if (before.length > 10) result.text = before
       }
       if (result.text) {
         // terse refusal detection
