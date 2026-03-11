@@ -391,6 +391,7 @@ setInterval(async () => {
 // graceful shutdown
 function shutdown() {
   log('shutting down...')
+  setTimeout(() => process.exit(1), 5_000) // hard kill if cleanup hangs
   emoteEvents.close()
   db.closeDb()
   client.close()
