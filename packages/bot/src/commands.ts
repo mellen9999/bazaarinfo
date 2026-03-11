@@ -6,8 +6,23 @@ import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase } from './ai'
 import { getThread } from './chatbuf'
+import { log } from './log'
 
 const MAX_LEN = 480
+
+/** shared AI call + post-processing (dedup emotes/mentions, append missing @mentions) */
+async function tryAiRespond(query: string, ctx: CommandContext, mentions: string[] = []): Promise<string | null> {
+  let result: Awaited<ReturnType<typeof aiRespond>> = null
+  try { result = await aiRespond(query, { ...ctx, direct: true }) } catch (e) { log(`ai: call failed: ${e}`) }
+  if (!result?.text) return null
+  let response = dedupeMention(dedupeEmote(fixEmoteCase(result.text, ctx.channel), ctx.channel), ctx.channel, ctx.user)
+  if (mentions.length > 0) {
+    const lower = response.toLowerCase()
+    const missing = mentions.map((m) => m.toLowerCase()).filter((m) => !lower.includes(m))
+    if (missing.length > 0) response = withSuffix(response, ` ${missing.join(' ')}`)
+  }
+  return response
+}
 
 function withSuffix(text: string, suffix: string): string {
   const combined = text + suffix
@@ -421,12 +436,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
       }
       // no item match → AI with full thread as context
       const threadContext = threadMsgs.map((m, i) => i === 0 ? m : `followup: ${m}`).join('\n')
-      let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
-      try { aiResult = await aiRespond(threadContext, { ...ctx, direct: true }) } catch {}
-      if (aiResult?.text) {
-        return dedupeMention(dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel), ctx.channel, ctx.user)
-      }
-      return null
+      return tryAiRespond(threadContext, ctx)
     }
   }
 
@@ -498,17 +508,11 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   // conversational queries go straight to AI — no item lookup, no fallback cooldown
   if (isConversational) {
-    let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
-    try { aiResult = await aiRespond(aiQuery, { ...ctx, direct: true }) } catch {}
-    if (aiResult?.text) {
+    const response = await tryAiRespond(aiQuery, ctx, mentions)
+    if (response) {
       try { db.logCommand(ctx, 'ai', cleanArgs, 'fallback') } catch {}
-      let response = dedupeMention(dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel), ctx.channel, ctx.user)
-      const responseLower = response.toLowerCase()
-      const missingMentions = mentions.map((m) => m.toLowerCase()).filter((m) => !responseLower.includes(m))
-      if (missingMentions.length > 0) response = withSuffix(response, ` ${missingMentions.join(' ')}`)
-      return response
     }
-    return null
+    return response
   }
 
   const lookupResult = await itemLookup(cleanArgs, ctx, suffix)
@@ -522,9 +526,8 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     return withSuffix(`no match for ${cleanArgs.slice(0, 40)}`, suffix)
   }
 
-  let aiResult: Awaited<ReturnType<typeof aiRespond>> = null
-  try { aiResult = await aiRespond(aiQuery, { ...ctx, direct: true }) } catch {}
-  if (aiResult?.text) {
+  const aiResponse = await tryAiRespond(aiQuery, ctx, mentions)
+  if (aiResponse) {
     if (ctx.user) {
       bFallbackCooldowns.set(ctx.user.toLowerCase(), Date.now())
       if (bFallbackCooldowns.size > 500) {
@@ -535,11 +538,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
       }
     }
     try { db.logCommand(ctx, 'ai', cleanArgs, 'fallback') } catch {}
-    let response = dedupeMention(dedupeEmote(fixEmoteCase(aiResult.text, ctx.channel), ctx.channel), ctx.channel, ctx.user)
-    const responseLower = response.toLowerCase()
-    const missingMentions = mentions.map((m) => m.toLowerCase()).filter((m) => !responseLower.includes(m))
-    if (missingMentions.length > 0) response = withSuffix(response, ` ${missingMentions.join(' ')}`)
-    return response
+    return aiResponse
   }
 
   const suggestions = store.suggest(cleanArgs, 3)
