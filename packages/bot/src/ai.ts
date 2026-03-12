@@ -27,6 +27,14 @@ const MAX_TOKENS_PASTA = 200
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
 
+// --- hallucination detection ---
+
+const STAT_PATTERN = /\b(\d{2,})\s*(damage|poison|burn|shield|heal|hp|health|crit|gold|regen|haste|freeze|slow)\b|\b(deals?|gains?|grants?|gives?|adds?|stacks?|does)\s+\+?\d{2,}\b|\+\d+%?\s*(damage|crit|shield|hp|heal|poison|burn)\b/i
+
+function hasHallucinatedStats(text: string): boolean {
+  return STAT_PATTERN.test(text)
+}
+
 // --- interfaces ---
 
 export interface AiContext {
@@ -151,6 +159,15 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       result.text = stripInputEcho(result.text, query)
       // strip per-user signature emote repetition
       result.text = dedupeUserEmote(result.text, ctx.user, ctx.channel)
+      // reject hallucinated game stats when no game data was provided (creative gets a pass)
+      if (!hasGameData && !isCreative && hasHallucinatedStats(result.text)) {
+        log(`ai: hallucinated stats without game data, retrying (attempt ${attempt + 1})`)
+        if (attempt < MAX_RETRIES - 1) {
+          messages.push({ role: 'assistant', content: data.content })
+          messages.push({ role: 'user', content: 'You invented specific game numbers without data. Answer without citing specific damage/HP/percentage values.' })
+          continue
+        }
+      }
       // enforce length caps in code
       const isShort = isShortResponse(query)
       const hardCap = isCreative ? 400 : hasGameData ? 250 : isRememberReq ? 120 : isShort ? 60 : 150
