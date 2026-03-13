@@ -456,6 +456,40 @@ describe('sanitize', () => {
     expect(sanitize('she clears the board fast').text).toBe('she clears the board fast')
   })
 
+  // --- banned phrase replacement ---
+  it('replaces "no clue" with alternative', () => {
+    const r = sanitize('no clue what that item does')
+    expect(r.text).not.toContain('no clue')
+    expect(r.text).toBeTruthy()
+  })
+
+  it('replaces "no idea" with alternative', () => {
+    const r = sanitize('no idea honestly')
+    expect(r.text).not.toContain('no idea')
+    expect(r.text).toBeTruthy()
+  })
+
+  it('replaces "no clue" case-insensitively', () => {
+    const r = sanitize('No Clue about that one')
+    expect(r.text).not.toMatch(/no clue/i)
+  })
+
+  // --- numbered list truncation ---
+  it('trims bare trailing number from token cutoff', () => {
+    const r = sanitize('1. eggs\n2. flour\n3. sugar\n4')
+    expect(r.text).toBe('1. eggs\n2. flour\n3. sugar')
+  })
+
+  it('trims trailing "5." from token cutoff', () => {
+    const r = sanitize('1. one\n2. two\n3. three\n4. four\n5.')
+    expect(r.text).toBe('1. one\n2. two\n3. three\n4. four')
+  })
+
+  it('does not trim complete numbered items', () => {
+    const r = sanitize('1. eggs\n2. flour\n3. sugar')
+    expect(r.text).toBe('1. eggs\n2. flour\n3. sugar')
+  })
+
   // --- privileged user CAN output commands ---
   it('allows privileged user to output commands', () => {
     expect(sanitize('!addcom !test hello', undefined, true).text).toBeTruthy()

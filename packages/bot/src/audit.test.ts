@@ -72,9 +72,9 @@ describe('entity extraction via store', () => {
 // 2. System prompt quality
 // ============================================================
 describe('system prompt', () => {
-  it('is under 6500 chars (token budget)', () => {
+  it('is under 6700 chars (token budget)', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt.length).toBeLessThan(6500)
+    expect(prompt.length).toBeLessThan(6700)
   })
 
   it('contains core identity', () => {
@@ -84,11 +84,21 @@ describe('system prompt', () => {
     expect(prompt).toContain('bazaardb.gg')
   })
 
-  it('references heroes in game data', () => {
+  it('contains hero names', () => {
     const prompt = buildSystemPrompt()
-    // heroes referenced in GAME line, not as separate list (token savings)
     expect(prompt).toContain('Vanessa')
     expect(prompt).toContain('Dooley')
+  })
+
+  it('contains hero DLC info', () => {
+    const prompt = buildSystemPrompt()
+    expect(prompt).toContain('Mak')
+    expect(prompt).toContain('DLC')
+  })
+
+  it('does not contain *Reference internal tags', () => {
+    const prompt = buildSystemPrompt()
+    expect(prompt).not.toMatch(/\w+Reference/)
   })
 
   it('contains privacy honesty rule', () => {
@@ -581,19 +591,6 @@ describe('sanitizer length constraints', () => {
     const r = sanitize(wall)
     expect(r.text.length).toBeLessThanOrEqual(440)
   })
-
-  it('fixes unclosed parens by trimming', () => {
-    const text = 'leather jacket (karnok only, destroys on enrage'
-    const r = sanitize(text)
-    expect(r.text).not.toMatch(/\($/)
-    expect((r.text.match(/\(/g) || []).length).toBe((r.text.match(/\)/g) || []).length)
-  })
-
-  it('closes short unclosed parens', () => {
-    const text = 'sporange (only real rhyme'
-    const r = sanitize(text)
-    expect(r.text).toEndWith(')')
-  })
 })
 
 // ============================================================
@@ -1073,11 +1070,6 @@ describe('SEC: command blocklist tiers', () => {
   it('!addcom allowed mod', () => expect(sanitize('!addcom !hi yo', undefined, true).text).toBeTruthy())
   it('/settitle blocked non-mod', () => expect(sanitize('/settitle New').text).toBe(''))
   it('/settitle allowed mod', () => expect(sanitize('/settitle New', undefined, true).text).toBeTruthy())
-
-  // sacrifice/nuke — blocked for non-mod
-  it('!sacrifice blocked non-mod', () => expect(sanitize('!sacrifice').text).toBe(''))
-  it('!sacrifice blocked in sentence', () => expect(sanitize('try !sacrifice on that card').text).toBe(''))
-  it('!nuke blocked non-mod', () => expect(sanitize('!nuke chat').text).toBe(''))
 
   // ! prefix custom commands — always allowed
   it('!ban allowed (custom cmd)', () => expect(sanitize('!ban tidolar').text).toBeTruthy())

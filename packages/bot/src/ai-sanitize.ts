@@ -10,6 +10,10 @@ export const BANNED_FILLER = /,\s*chat\s*$/i
 export const SELF_REF = /\b(as a bot,? i (can'?t|don'?t|shouldn'?t)|as an ai|im (just )?an ai|im just code|im (just )?software|im (just )?a program)\b/i
 export const NARRATION = /^.{0,20}(the user|they|he|she|you)\s+(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
 export const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chief)\b/gi
+export const BANNED_PHRASES: [RegExp, string[]][] = [
+  [/\bno clue\b/gi, ['not sure', 'beats me', "couldn't tell ya"]],
+  [/\bno idea\b/gi, ['not sure', 'beats me', "couldn't tell ya"]],
+]
 export const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|i('m| am| keep) overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|my (system )?prompt|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid)|output style|it should (say|respond|output|reply)|lets? tune the|format should be|style should be|the (response|reply|answer) (should|could|would) be|the bot is (repeating|doing|saying|responding|answering|outputting|generating|ignoring))\b/i
 export const COT_TAIL = /[,.]?\s*(?:also\s+)?(?:(?:make sure|note to self|reminder to self|i need to (?:remember|make sure|check|verify|update))\s+(?:ur|your|my|the|i)\s+.*?(?:list|data|context|prompt|emote|response|output|format|style|knowledge|memory))\b.*$/i
 export const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you have \d+ (lookups?|commands?|wins?|attempts?|asks?)|you('ve|'re| have| are) (a )?(power user|casual user|trivia regular)|according to (my|your|the) (data|stats|profile|records?)|i (can see|see|know) (from )?(your|the) (data|stats|profile)|based on your (history|stats|data|profile))\b/i
@@ -125,6 +129,9 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   s = s.replace(BANNED_FILLER, '')
   // strip verbal tics haiku loves
   s = s.replace(VERBAL_TICS, '').replace(/\s{2,}/g, ' ')
+  for (const [re, alts] of BANNED_PHRASES) {
+    s = s.replace(re, () => alts[s.length % alts.length])
+  }
   // strip self-directed COT tails ("also make sure ur emote list is...")
   s = s.replace(COT_TAIL, '').trim()
   // strip meta-commentary tails — model embedding bug reports/feature requests in output
@@ -155,6 +162,9 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
 
   // strip trailing garbage from max_tokens cutoff (partial words, stray punctuation)
   s = s.replace(/\s+\S{0,3}[,.]{2,}\s*$/, '').replace(/[,;]\s*$/, '')
+
+  // trim incomplete numbered list items from token cutoff
+  s = s.replace(/\n\d+\.?\s*$/, '')
 
   // trim incomplete trailing sentence from token cutoff — but only for longer responses
   // short one-liners without punctuation are fine as-is (e.g. "she's mid")

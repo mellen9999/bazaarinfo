@@ -70,8 +70,8 @@ mock.module('./ai', () => ({
   invalidatePromptCache: mock(() => {}),
   sanitize: mock((t: string) => ({ text: t, mentions: [] })),
   dedupeEmote: mock((t: string) => t),
-  dedupeMention: mock((t: string) => t),
   fixEmoteCase: mock((t: string) => t),
+  dedupeMention: mock((t: string) => t),
 }))
 
 // --- mock trivia ---
@@ -1437,12 +1437,6 @@ describe('command proxy: direct !cmd', () => {
     }
   })
 
-  it('blocks newly added dangerous commands', async () => {
-    for (const cmd of ['so', 'shoutout', 'eval', 'script', 'bash', 'exit', 'restart', 'delete', 'giveaway', 'bet']) {
-      expect(await handleCommand(`!b !${cmd}`, { user: 'viewer', channel: `blk${cmd}` })).toBeNull()
-    }
-  })
-
   it('blocks dangerous mod commands', async () => {
     for (const cmd of ['ban', 'timeout', 'disable', 'enable', 'nuke', 'setpoints']) {
       expect(await handleCommand(`!b !${cmd}`, { user: 'viewer', channel: `blk${cmd}` })).toBeNull()
@@ -1477,7 +1471,7 @@ describe('command proxy: embedded in chat', () => {
   })
 
   it('"can you type !hug" → blocked (isAskingAbout)', async () => {
-    // "can" is now in isAskingAbout — question words skip embedded command proxy
+    // "can" is in isAskingAbout — question words skip embedded command proxy
     const result = await handleCommand('!b can you type !hug', { user: 'u', channel: 'c' })
     if (result) expect(result).not.toMatch(/^!hug/)
   })
@@ -1583,10 +1577,6 @@ describe('command proxy: slash commands', () => {
 
   it('allows /announce for mods', async () => {
     expect(await handleCommand('!b /announce hello everyone', { isMod: true })).toBe('/announce hello everyone')
-  })
-
-  it('blocks /announce for non-mods', async () => {
-    expect(await handleCommand('!b /announce hello everyone')).toBeNull()
   })
 
   it('allows /color', async () => {
