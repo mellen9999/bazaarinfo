@@ -4,6 +4,10 @@
 const EXTENSION_SECRET = process.env.TWITCH_EXTENSION_SECRET ?? ''
 const COMPANION_SECRET = process.env.COMPANION_SECRET ?? ''
 
+// Cache imported crypto keys to avoid per-request importKey overhead
+let verifyKeyCache: CryptoKey | null = null
+let signKeyCache: CryptoKey | null = null
+
 interface TwitchJwtPayload {
   exp: number
   opaque_user_id: string
@@ -20,18 +24,20 @@ function base64UrlDecode(str: string): ArrayBuffer {
   return bytes.buffer as ArrayBuffer
 }
 
+async function getVerifyKey(secret: string): Promise<CryptoKey> {
+  if (verifyKeyCache) return verifyKeyCache
+  const secretBytes = base64UrlDecode(secret)
+  verifyKeyCache = await crypto.subtle.importKey(
+    'raw', secretBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify'],
+  )
+  return verifyKeyCache
+}
+
 async function hmacVerify(token: string, secret: string): Promise<TwitchJwtPayload | null> {
   const parts = token.split('.')
   if (parts.length !== 3) return null
 
-  const secretBytes = base64UrlDecode(secret)
-  const key = await crypto.subtle.importKey(
-    'raw',
-    secretBytes,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['verify'],
-  )
+  const key = await getVerifyKey(secret)
 
   const data = new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
   const signature = base64UrlDecode(parts[2])
@@ -74,15 +80,17 @@ export function createServerJwt(channelId: string): Promise<string> {
   return signJwt(`${header}.${payload}`)
 }
 
-async function signJwt(headerPayload: string): Promise<string> {
+async function getSignKey(): Promise<CryptoKey> {
+  if (signKeyCache) return signKeyCache
   const secretBytes = base64UrlDecode(EXTENSION_SECRET)
-  const key = await crypto.subtle.importKey(
-    'raw',
-    secretBytes,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
+  signKeyCache = await crypto.subtle.importKey(
+    'raw', secretBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
   )
+  return signKeyCache
+}
+
+async function signJwt(headerPayload: string): Promise<string> {
+  const key = await getSignKey()
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(headerPayload))
   const sigStr = btoa(String.fromCharCode(...new Uint8Array(sig)))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')

@@ -17,17 +17,19 @@ function allowedOrigin(req: Request): string | null {
   if (!origin) return null
   try {
     const host = new URL(origin).hostname
-    if (TWITCH_ORIGIN_RE.test(host) || host === 'localhost') return origin
+    if (TWITCH_ORIGIN_RE.test(host)) return origin
   } catch {}
   return null
 }
 
 // Simple per-IP rate limiter: 60 req/min, resets every minute
+const MAX_RATE_ENTRIES = 10_000
 const hits = new Map<string, number>()
 setInterval(() => hits.clear(), 60_000)
 
 function rateOk(ip: string, max = 60): boolean {
   const n = (hits.get(ip) ?? 0) + 1
+  if (hits.size >= MAX_RATE_ENTRIES && !hits.has(ip)) return false
   hits.set(ip, n)
   return n <= max
 }
@@ -43,9 +45,7 @@ function cors(res: Response, origin: string | null): Response {
 }
 
 function getIp(req: Request): string {
-  return req.headers.get('CF-Connecting-IP')
-    || req.headers.get('X-Forwarded-For')?.split(',')[0].trim()
-    || 'unknown'
+  return req.headers.get('CF-Connecting-IP') || 'unknown'
 }
 
 async function handleRequest(req: Request): Promise<Response> {
