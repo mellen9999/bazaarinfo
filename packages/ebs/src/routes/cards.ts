@@ -3,9 +3,11 @@
 import type { CardCache } from '@bazaarinfo/shared'
 
 let cache: CardCache | null = null
+let cachedJson: string | null = null
 
 export function setCardCache(data: CardCache) {
   cache = data
+  cachedJson = JSON.stringify(data)
 }
 
 export function getCardCache(): CardCache | null {
@@ -13,10 +15,13 @@ export function getCardCache(): CardCache | null {
 }
 
 export function handleCards(): Response {
-  if (!cache) {
+  if (!cachedJson) {
     return new Response('card cache not loaded', { status: 503 })
   }
-  return Response.json(cache, {
-    headers: { 'Cache-Control': 'public, max-age=300' },
+  return new Response(cachedJson, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=300',
+    },
   })
 }
