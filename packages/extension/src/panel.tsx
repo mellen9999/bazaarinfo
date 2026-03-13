@@ -40,34 +40,30 @@ function Panel() {
     setResults(hits)
   }, [index])
 
-  const pick = (card: BazaarCard) => {
+  const pick = useCallback((card: BazaarCard) => {
     setSelected({ card, tier: card.BaseTier })
     setResults([])
     setQuery(card.Title)
-  }
+  }, [])
 
   return (
-    <div style={{ padding: '12px', background: '#111', minHeight: '100vh', color: '#e8e8e8', fontFamily: 'sans-serif' }}>
+    <div class="panel">
       <input
         type="text"
+        class="panel-search"
         value={query}
         onInput={(e) => search((e.target as HTMLInputElement).value)}
         placeholder={index ? 'Search cards\u2026' : error ? 'Failed to load' : 'Loading\u2026'}
         disabled={!index}
         aria-label="Search cards"
-        style={{
-          width: '100%', padding: '8px', borderRadius: '6px',
-          border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.07)',
-          color: '#fff', fontSize: '13px', outline: 'none',
-        }}
       />
       {results.length > 0 && (
-        <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0, background: 'rgba(0,0,0,0.8)', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)' }}>
+        <ul class="panel-results">
           {results.map((c) => (
             <li
               key={c.item.Title}
+              class="panel-result"
               onClick={() => pick(c.item)}
-              style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '12px' }}
             >
               {c.item.Title}
             </li>
@@ -75,23 +71,19 @@ function Panel() {
         </ul>
       )}
       {selected && (
-        <div style={{ marginTop: '12px' }}>
+        <div class="panel-selected">
           <CardTooltip
             card={selected.card}
             tier={selected.tier}
             visible={true}
             style={{ position: 'relative', width: '100%' }}
           />
-          <div style={{ marginTop: '8px', display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+          <div class="panel-tiers">
             {selected.card.Tiers.map((t) => (
               <button
                 key={t}
+                class={`panel-tier-btn${selected.tier === t ? ' active' : ''}`}
                 onClick={() => setSelected({ ...selected, tier: t })}
-                style={{
-                  padding: '2px 8px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: 11,
-                  background: selected.tier === t ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.07)',
-                  color: '#ddd',
-                }}
               >
                 {t}
               </button>

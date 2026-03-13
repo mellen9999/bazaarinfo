@@ -1,3 +1,4 @@
+import { useMemo } from 'preact/hooks'
 import type { TierName } from '@bazaarinfo/shared/src/types'
 
 interface DetectedSlot {
@@ -26,6 +27,11 @@ export function HoverZone({ title, tier, x, y, w, h, owner, type, enchantment, o
   const cw = Math.min(w, 1) * 100
   const ch = Math.min(h, 1) * 100
 
+  const slot = useMemo(
+    () => ({ title, tier, x, y, w, h, owner, type, enchantment }),
+    [title, tier, x, y, w, h, owner, type, enchantment],
+  )
+
   return (
     <div
       class={cls}
@@ -37,7 +43,7 @@ export function HoverZone({ title, tier, x, y, w, h, owner, type, enchantment, o
         width: `${cw}%`,
         height: `${ch}%`,
       }}
-      onMouseEnter={() => onHover({ title, tier, x, y, w, h, owner, type, enchantment })}
+      onMouseEnter={() => onHover(slot)}
       onMouseLeave={onLeave}
     >
     </div>

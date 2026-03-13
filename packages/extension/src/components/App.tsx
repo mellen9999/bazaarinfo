@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'preact/hooks'
+import { useState, useEffect, useCallback, useMemo } from 'preact/hooks'
 import type { BazaarCard } from '@bazaarinfo/shared/src/types'
 import { HoverZone } from './HoverZone'
 import type { DetectedSlot } from './HoverZone'
@@ -68,7 +68,10 @@ export function App() {
 
   const handleLeave = useCallback(() => setHovered(null), [])
 
-  const hoveredCard = hovered ? cards.get(hovered.title.toLowerCase()) ?? null : null
+  const hoveredCard = useMemo(
+    () => hovered ? cards.get(hovered.title.toLowerCase()) ?? null : null,
+    [hovered, cards],
+  )
 
   return (
     <div class="overlay">
