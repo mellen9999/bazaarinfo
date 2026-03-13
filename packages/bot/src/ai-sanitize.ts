@@ -325,7 +325,7 @@ function recordEmoteUsed(channel: string, emote: string) {
 }
 
 // shared state for emote cooldowns — also accessed by ai-cache for cleanup
-export const EMOTE_COOLDOWN_MS = 7 * 60_000
+export const EMOTE_COOLDOWN_MS = 20 * 60_000
 export const recentEmotesByChannel = new Map<string, Map<string, number>>()
 
 export function dedupeUserEmote(text: string, user: string, channel?: string): string {

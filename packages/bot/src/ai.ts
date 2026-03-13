@@ -35,6 +35,12 @@ function hasHallucinatedStats(text: string): boolean {
   return STAT_PATTERN.test(text)
 }
 
+const FAKE_DATA_PATTERN = /\b(game data|the data|the db|in my data|in the data)\b.{0,20}\b(has|says|shows|contains|literally|includes)\b|\btagged\s+(as|in)\s+"\w/i
+
+function hasFabricatedDataRef(text: string, hasGameData: boolean): boolean {
+  return !hasGameData && FAKE_DATA_PATTERN.test(text)
+}
+
 // --- interfaces ---
 
 export interface AiContext {
@@ -165,6 +171,15 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         if (attempt < MAX_RETRIES - 1) {
           messages.push({ role: 'assistant', content: data.content })
           messages.push({ role: 'user', content: 'You invented specific game numbers without data. Answer without citing specific damage/HP/percentage values.' })
+          continue
+        }
+      }
+      // reject fabricated data references ("the data has", "tagged as" etc) when no game data present
+      if (hasFabricatedDataRef(result.text, hasGameData)) {
+        log(`ai: fabricated data reference, retrying (attempt ${attempt + 1})`)
+        if (attempt < MAX_RETRIES - 1) {
+          messages.push({ role: 'assistant', content: data.content })
+          messages.push({ role: 'user', content: 'You claimed data/db contains something it doesnt. No "Game data:" section was provided. Answer without referencing game data or search results.' })
           continue
         }
       }
