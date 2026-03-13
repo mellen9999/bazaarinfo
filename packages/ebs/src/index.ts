@@ -44,8 +44,8 @@ function cors(res: Response, origin: string | null): Response {
 
 function getIp(req: Request): string {
   return req.headers.get('CF-Connecting-IP')
-    ?? req.headers.get('X-Forwarded-For')?.split(',')[0].trim()
-    ?? 'unknown'
+    || req.headers.get('X-Forwarded-For')?.split(',')[0].trim()
+    || 'unknown'
 }
 
 async function handleRequest(req: Request): Promise<Response> {

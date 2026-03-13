@@ -84,6 +84,7 @@ export function App() {
         <CardTooltip
           card={hoveredCard}
           tier={hovered.tier}
+          enchantment={hovered.enchantment}
           visible={true}
           style={{ position: 'absolute', left: tooltipPos.left, top: tooltipPos.top }}
         />

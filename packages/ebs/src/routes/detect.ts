@@ -37,13 +37,17 @@ function isValidPayload(body: unknown): body is DetectPayload {
     const c = card as Record<string, unknown>
     if (typeof c.title !== 'string') return false
     if (typeof c.tier !== 'string') return false
-    if (typeof c.x !== 'number' || typeof c.y !== 'number') return false
-    if (typeof c.w !== 'number' || typeof c.h !== 'number') return false
+    if (typeof c.x !== 'number' || typeof c.y !== 'number' || !isFinite(c.x) || !isFinite(c.y)) return false
+    if (typeof c.w !== 'number' || typeof c.h !== 'number' || !isFinite(c.w) || !isFinite(c.h)) return false
+    if (c.x < 0 || c.x > 1 || c.y < 0 || c.y > 1 || c.w <= 0 || c.w > 1 || c.h <= 0 || c.h > 1) return false
   }
   return true
 }
 
 export async function handleDetect(req: Request): Promise<Response> {
+  const len = parseInt(req.headers.get('Content-Length') ?? '0')
+  if (len > 100_000) return new Response('payload too large', { status: 413 })
+
   let body: unknown
   try {
     body = await req.json()

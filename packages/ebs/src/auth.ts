@@ -52,12 +52,11 @@ export async function verifyTwitchJwt(authHeader: string | null): Promise<Twitch
 
 export function verifyCompanionSecret(secret: string): boolean {
   if (!COMPANION_SECRET) return false
-  // constant-time comparison to prevent timing attacks
-  if (secret.length !== COMPANION_SECRET.length) return false
   const a = new TextEncoder().encode(secret)
   const b = new TextEncoder().encode(COMPANION_SECRET)
-  let diff = 0
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i]
+  const len = Math.max(a.length, b.length)
+  let diff = a.length ^ b.length
+  for (let i = 0; i < len; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0)
   return diff === 0
 }
 
