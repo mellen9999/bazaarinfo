@@ -10,59 +10,90 @@ import { handleDetect } from './routes/detect'
 
 const PORT = parseInt(process.env.EBS_PORT ?? '3100')
 
-const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+const TWITCH_ORIGIN_RE = /\.ext-twitch\.tv$/
+
+function allowedOrigin(req: Request): string | null {
+  const origin = req.headers.get('Origin')
+  if (!origin) return null
+  try {
+    const host = new URL(origin).hostname
+    if (TWITCH_ORIGIN_RE.test(host) || host === 'localhost') return origin
+  } catch {}
+  return null
 }
 
-function cors(res: Response): Response {
-  for (const [k, v] of Object.entries(CORS_HEADERS)) {
-    res.headers.set(k, v)
+// Simple per-IP rate limiter: 60 req/min, resets every minute
+const hits = new Map<string, number>()
+setInterval(() => hits.clear(), 60_000)
+
+function rateOk(ip: string, max = 60): boolean {
+  const n = (hits.get(ip) ?? 0) + 1
+  hits.set(ip, n)
+  return n <= max
+}
+
+function cors(res: Response, origin: string | null): Response {
+  if (origin) {
+    res.headers.set('Access-Control-Allow-Origin', origin)
+    res.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    res.headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type')
   }
+  res.headers.set('X-Content-Type-Options', 'nosniff')
   return res
+}
+
+function getIp(req: Request): string {
+  return req.headers.get('CF-Connecting-IP')
+    ?? req.headers.get('X-Forwarded-For')?.split(',')[0].trim()
+    ?? 'unknown'
 }
 
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url)
   const path = url.pathname
+  const origin = allowedOrigin(req)
 
   // CORS preflight
   if (req.method === 'OPTIONS') {
-    return cors(new Response(null, { status: 204 }))
+    return cors(new Response(null, { status: 204 }), origin)
+  }
+
+  // Rate limit
+  if (!rateOk(getIp(req))) {
+    return cors(new Response('rate limited', { status: 429 }), origin)
   }
 
   // POST /detect — companion → PubSub (uses companion secret, not JWT)
   if (req.method === 'POST' && path === '/detect') {
-    return cors(await handleDetect(req))
+    return cors(await handleDetect(req), origin)
   }
 
   // All other routes require valid Twitch JWT
   if (path.startsWith('/api/')) {
     const auth = await verifyTwitchJwt(req.headers.get('Authorization'))
     if (!auth) {
-      console.log(`[ebs] auth failed: ${path} from ${req.headers.get('Origin') ?? 'unknown'}`)
-      return cors(new Response('unauthorized', { status: 401 }))
+      console.log(`[ebs] auth failed: ${path}`)
+      return cors(new Response('unauthorized', { status: 401 }), origin)
     }
   }
 
   // GET /api/cards
   if (req.method === 'GET' && path === '/api/cards') {
-    return cors(handleCards())
+    return cors(handleCards(), origin)
   }
 
   // GET /api/images/:hash
   const imageMatch = path.match(/^\/api\/images\/([a-f0-9]+)$/)
   if (req.method === 'GET' && imageMatch) {
-    return cors(await handleImage(imageMatch[1]))
+    return cors(await handleImage(imageMatch[1]), origin)
   }
 
   // GET /health
   if (req.method === 'GET' && path === '/health') {
-    return cors(new Response('ok'))
+    return cors(new Response('ok'), origin)
   }
 
-  return cors(new Response('not found', { status: 404 }))
+  return cors(new Response('not found', { status: 404 }), origin)
 }
 
 const CACHE_PATH = process.env.CACHE_PATH ?? 'cache/items.json'

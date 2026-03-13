@@ -48,7 +48,8 @@ export async function broadcastState(channelId: string, payload: BroadcastPayloa
     }
     const slimMsg = JSON.stringify(slim)
     if (slimMsg.length > 5000) {
-      console.error(`[pubsub] still ${slimMsg.length} bytes after stripping`)
+      console.error(`[pubsub] still ${slimMsg.length} bytes after stripping, dropping`)
+      return false
     }
     return await sendPubSub(channelId, jwt, slimMsg)
   }

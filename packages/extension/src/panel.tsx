@@ -11,19 +11,24 @@ function Panel() {
   const [index, setIndex] = useState<ReturnType<typeof buildIndex> | null>(null)
   const [results, setResults] = useState<ScoredCard[]>([])
   const [selected, setSelected] = useState<{ card: BazaarCard; tier: TierName } | null>(null)
-  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState(false)
 
   useEffect(() => {
     const twitch = window.Twitch?.ext
     if (!twitch) return
     twitch.onAuthorized(async (auth) => {
-      try {
-        const all = await fetchCards(auth.token)
-        if (all.length > 0) {
-          setIndex(buildIndex(all))
-          setLoaded(true)
+      for (let i = 0; i < 2; i++) {
+        try {
+          const all = await fetchCards(auth.token)
+          if (all.length > 0) {
+            setIndex(buildIndex(all))
+            setError(false)
+          }
+          return
+        } catch {
+          if (i === 1) setError(true)
         }
-      } catch {}
+      }
     })
   }, [])
 
@@ -47,8 +52,9 @@ function Panel() {
         type="text"
         value={query}
         onInput={(e) => search((e.target as HTMLInputElement).value)}
-        placeholder={loaded ? 'Search cards…' : 'Loading…'}
-        disabled={!loaded}
+        placeholder={index ? 'Search cards\u2026' : error ? 'Failed to load' : 'Loading\u2026'}
+        disabled={!index}
+        aria-label="Search cards"
         style={{
           width: '100%', padding: '8px', borderRadius: '6px',
           border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.07)',
