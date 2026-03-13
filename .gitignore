@@ -8,3 +8,6 @@ __pycache__/
 *.npz
 packages/companion/card_images/
 packages/companion/features/
+
+# Claude Code (local only)
+CLAUDE.md
