@@ -1,7 +1,10 @@
 import type { BazaarCard, Monster, CardCache, DumpTooltip, DumpEnchantment, ReplacementValue, TierName, ItemSize, MonsterBoardEntry } from '@bazaarinfo/shared'
 
+import artKeys from '../art-keys.json'
+
 const DUMP_URL = 'https://bazaardb.gg/dump.json'
 const USER_AGENT = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
+const ART_MAP: Record<string, string> = artKeys as Record<string, string>
 
 const VALID_TIERS = new Set<string>(['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary'])
 const VALID_SIZES = new Set<string>(['Small', 'Medium', 'Large'])
@@ -26,6 +29,7 @@ interface DumpEntry {
     skills: MonsterBoardEntry[]
   }
   Shortlink: string
+  ArtKey?: string
 }
 
 function computeDisplayTags(entry: DumpEntry): string[] {
@@ -52,7 +56,7 @@ function validSize(s: string): ItemSize {
 
 function toCard(entry: DumpEntry): BazaarCard {
   if (!entry.Title || typeof entry.Title !== 'string') throw new Error('missing Title')
-  return {
+  const card: BazaarCard = {
     Type: entry.Type as 'Item' | 'Skill',
     Title: entry.Title,
     Size: validSize(entry.Size),
@@ -67,6 +71,9 @@ function toCard(entry: DumpEntry): BazaarCard {
     Enchantments: entry.Enchantments ?? {},
     Shortlink: entry.Shortlink ?? '',
   }
+  const artKey = entry.ArtKey || ART_MAP[entry.Title]
+  if (artKey) card.ArtKey = artKey
+  return card
 }
 
 function toMonster(entry: DumpEntry): Monster | null {
@@ -88,14 +95,13 @@ const MAX_RETRIES = 3
 const RETRY_DELAYS = [1000, 2000, 4000]
 
 function parseDump(dump: Record<string, DumpEntry>, onProgress?: (msg: string) => void): CardCache {
-  const entries = Object.values(dump)
   const items: BazaarCard[] = []
   const skills: BazaarCard[] = []
   const monsters: Monster[] = []
   let skipped = 0
   const skippedNames: string[] = []
 
-  for (const entry of entries) {
+  for (const entry of Object.values(dump)) {
     try {
       switch (entry.Type) {
         case 'Item':
