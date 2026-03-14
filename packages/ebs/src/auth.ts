@@ -16,6 +16,7 @@ if (!COMPANION_SECRET) {
 // Cache imported crypto keys to avoid per-request importKey overhead
 let verifyKeyCache: CryptoKey | null = null
 let signKeyCache: CryptoKey | null = null
+const enc = new TextEncoder()
 
 interface TwitchJwtPayload {
   exp: number
@@ -48,12 +49,12 @@ async function hmacVerify(token: string, secret: string): Promise<TwitchJwtPaylo
 
   const key = await getVerifyKey(secret)
 
-  const data = new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
+  const data = enc.encode(`${parts[0]}.${parts[1]}`)
   const signature = base64UrlDecode(parts[2])
   const valid = await crypto.subtle.verify('HMAC', key, signature, data)
   if (!valid) return null
 
-  const payload = JSON.parse(new TextDecoder().decode(new Uint8Array(base64UrlDecode(parts[1]))))
+  const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[1])))
   if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null
 
   return payload as TwitchJwtPayload
@@ -67,17 +68,20 @@ export async function verifyTwitchJwt(authHeader: string | null): Promise<Twitch
 
 export function verifyCompanionSecret(secret: string): boolean {
   if (!COMPANION_SECRET) return false
-  const a = new TextEncoder().encode(secret)
-  const b = new TextEncoder().encode(COMPANION_SECRET)
+  const a = enc.encode(secret)
+  const b = enc.encode(COMPANION_SECRET)
   const len = Math.max(a.length, b.length)
   let diff = a.length ^ b.length
   for (let i = 0; i < len; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0)
   return diff === 0
 }
 
+// Static JWT header — never changes, compute once
+const JWT_HEADER = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
 export function createServerJwt(channelId: string): Promise<string> {
-  const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  const header = JWT_HEADER
 
   const payload = btoa(JSON.stringify({
     exp: Math.floor(Date.now() / 1000) + 60,
@@ -100,7 +104,7 @@ async function getSignKey(): Promise<CryptoKey> {
 
 async function signJwt(headerPayload: string): Promise<string> {
   const key = await getSignKey()
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(headerPayload))
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(headerPayload))
   const sigStr = btoa(String.fromCharCode(...new Uint8Array(sig)))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
   return `${headerPayload}.${sigStr}`

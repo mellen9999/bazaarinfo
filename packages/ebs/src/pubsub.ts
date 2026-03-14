@@ -42,9 +42,9 @@ export async function broadcastState(channelId: string, payload: BroadcastPayloa
     console.warn(`[pubsub] message ${message.length} bytes, stripping attrs`)
     // Strip attrs to fit under 5KB Twitch limit
     const slim = {
-      ...payload,
       cards: payload.cards.map(({ title, tier, x, y, w, h, owner, type, enchantment }) =>
-        ({ title, tier, x, y, w, h, owner, type, enchantment }))
+        ({ title, tier, x, y, w, h, owner, type, enchantment })),
+      shop: payload.shop,
     }
     const slimMsg = JSON.stringify(slim)
     if (slimMsg.length > 5000) {

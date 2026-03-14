@@ -11,6 +11,7 @@ import { handleDetect } from './routes/detect'
 const PORT = parseInt(process.env.EBS_PORT ?? '3100')
 
 const TWITCH_ORIGIN_RE = /\.ext-twitch\.tv$/
+const IMAGE_PATH_RE = /^\/api\/images\/([a-f0-9]+)$/
 
 function allowedOrigin(req: Request): string | null {
   const origin = req.headers.get('Origin')
@@ -45,9 +46,14 @@ function cors(res: Response, origin: string | null): Response {
 }
 
 function getIp(req: Request): string {
-  return req.headers.get('CF-Connecting-IP')
-    || req.headers.get('X-Forwarded-For')?.split(',')[0].trim()
-    || 'unknown'
+  const cf = req.headers.get('CF-Connecting-IP')
+  if (cf) return cf
+  const xff = req.headers.get('X-Forwarded-For')
+  if (xff) {
+    const comma = xff.indexOf(',')
+    return comma === -1 ? xff.trim() : xff.slice(0, comma).trim()
+  }
+  return 'unknown'
 }
 
 async function handleRequest(req: Request): Promise<Response> {
@@ -85,7 +91,7 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   // GET /api/images/:hash
-  const imageMatch = path.match(/^\/api\/images\/([a-f0-9]+)$/)
+  const imageMatch = path.match(IMAGE_PATH_RE)
   if (req.method === 'GET' && imageMatch) {
     return cors(await handleImage(imageMatch[1]), origin)
   }
