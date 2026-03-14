@@ -64,12 +64,13 @@ RE_STATE_CHANGE = re.compile(
 
 # Item sockets: 10 slots per side, center-aligned
 # Measured from 1920x1080 fullscreen screenshots (ss1fin.png, 2ssfin.png)
-ITEM_SOCKET_W = 0.0561   # slot pitch measured from 10-single-slot board (65.9px / 1175px player)
+ITEM_SOCKET_W = 0.0611   # slot pitch (2026-03-14)
+ITEM_CARD_W = 0.0511     # visible card width within slot (60px / 1175px, excludes gap)
 PLAYER_ITEM_H = 0.1963   # player card height (212px / 1080)
 OPPONENT_ITEM_H = 0.1963  # opponent card height (same)
-PLAYER_ITEM_Y = 0.6088   # vertical center of player item row (657px / 1080)
+PLAYER_ITEM_Y = 0.6278   # vertical center adjusted from mele ss (2026-03-14)
 OPPONENT_ITEM_Y = 0.4005  # vertical center of opponent item row (433px / 1080)
-ITEM_BOARD_CENTER_X = 0.4809  # measured center of 10-slot board (615px / 1175px player, 2026-03-14)
+ITEM_BOARD_CENTER_X = 0.4932  # center adjusted from mele ss (2026-03-14)
 
 # Multi-size items occupy multiple slots
 SIZE_SLOTS = {"Small": 1, "Medium": 2, "Large": 3}
@@ -144,7 +145,7 @@ def make_item_payload(info: dict, owner: str) -> dict:
     else:
         y_center = OPPONENT_ITEM_Y
         h = OPPONENT_ITEM_H
-    w = ITEM_SOCKET_W * slots
+    w = ITEM_CARD_W + (slots - 1) * ITEM_SOCKET_W
     # socket is the leftmost slot. Card center = leftmost slot center + half the extra slots
     slot_center_x = ITEM_BOARD_CENTER_X + (socket - 4.5) * ITEM_SOCKET_W
     card_center_x = slot_center_x + (slots - 1) * ITEM_SOCKET_W / 2
@@ -219,6 +220,8 @@ def build_payload(state: dict) -> dict:
         for s in state["shop_cards"]
     ]
 
+    for c in cards:
+        logger.debug(f"  slot: {c.get('title','?'):20s} x={c.get('x',0):.4f} y={c.get('y',0):.4f} w={c.get('w',0):.4f} h={c.get('h',0):.4f} owner={c.get('owner','?')} type={c.get('type','?')}")
     return {"cards": cards, "shop": shop}
 
 

@@ -20,20 +20,25 @@ export function App() {
   const [detected, setDetected] = useState<DetectedSlot[]>([])
   const [hovered, setHovered] = useState<DetectedSlot | null>(null)
   const [tooltipPos, setTooltipPos] = useState<{ left: string; top: string }>({ left: '0', top: '0' })
+  const [dbg, setDbg] = useState('init')
 
   useEffect(() => {
     const twitch = window.Twitch?.ext
-    if (!twitch) return
+    if (!twitch) { setDbg('no twitch helper'); return }
+    setDbg('waiting for auth...')
 
     twitch.onAuthorized(async (auth) => {
+      setDbg('authed, fetching cards...')
       for (let i = 0; i < 2; i++) {
         try {
           const all = await fetchCards(auth.token)
           const map = new Map<string, BazaarCard>()
           for (const c of all) map.set(c.Title.toLowerCase(), c)
           setCards(map)
+          setDbg(`${map.size} cards, listening`)
           return
-        } catch {
+        } catch (e) {
+          setDbg(`fetch err ${i}: ${(e as Error).message}`)
           if (i === 1) break
         }
       }
@@ -43,7 +48,11 @@ export function App() {
       try {
         const data = JSON.parse(message)
         const raw = data?.cards
-        if (Array.isArray(raw)) setDetected(raw.filter(isValidSlot))
+        if (Array.isArray(raw)) {
+          const valid = raw.filter(isValidSlot)
+          setDetected(valid)
+          setDbg(prev => prev.replace(/listening.*/, `listening | ${valid.length} slots`))
+        }
       } catch {}
     }
     twitch.listen('broadcast', onBroadcast)
@@ -75,6 +84,12 @@ export function App() {
 
   return (
     <div class="overlay">
+      <div style={{
+        position: 'absolute', bottom: '4px', left: '4px', padding: '2px 6px',
+        background: 'rgba(0,0,0,0.7)', color: '#0f0', fontSize: '10px',
+        fontFamily: 'monospace', borderRadius: '3px', zIndex: 999,
+        pointerEvents: 'none',
+      }}>{dbg}</div>
       {detected.map((slot) => (
         <HoverZone
           key={`${slot.title}-${slot.x}-${slot.y}`}
