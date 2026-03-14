@@ -31,6 +31,7 @@ export interface BazaarCard {
   TooltipReplacements: Record<string, ReplacementValue>
   Enchantments: Record<string, DumpEnchantment>
   Shortlink: string
+  ArtKey?: string
 }
 
 export interface MonsterBoardEntry {

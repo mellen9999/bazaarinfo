@@ -120,7 +120,7 @@ SKILL_GRID_SCALE = 0.7  # grid skills are smaller
 # States where overlay should be hidden
 HIDDEN_STATES = {"StartRunAppState", "EndRunDefeatAppState", "EndRunVictoryAppState"}
 # States where overlay should be shown
-GAME_STATES = {"ChoiceState", "EncounterState", "CombatState", "ReplayState"}
+GAME_STATES = {"ChoiceState", "EncounterState", "CombatState", "ReplayState", "LevelUpState"}
 
 
 def load_card_db(cards_json: Path) -> dict:

@@ -1,26 +1,34 @@
 import { memo } from 'preact/compat'
-import { useMemo } from 'preact/hooks'
+import { useMemo, useState, useCallback } from 'preact/hooks'
 import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
 import { resolveTooltip } from '@bazaarinfo/shared/src/format'
+import { EBS_BASE } from '../twitch'
 
 const TIER_COLORS: Record<TierName, string> = {
   Bronze: '#cd7f32',
   Silver: '#c0c0c0',
   Gold: '#ffd700',
   Diamond: '#b9f2ff',
-  Legendary: '#9b59b6',
+  Legendary: '#b060ff',
+}
+
+const TIER_GLOW: Record<TierName, string> = {
+  Bronze: 'rgba(205, 127, 50, 0.35)',
+  Silver: 'rgba(192, 192, 192, 0.28)',
+  Gold: 'rgba(255, 215, 0, 0.38)',
+  Diamond: 'rgba(185, 242, 255, 0.32)',
+  Legendary: 'rgba(176, 96, 255, 0.42)',
+}
+
+const TIER_GRADIENT: Record<TierName, string> = {
+  Bronze: 'linear-gradient(90deg, #cd7f32 0%, #a0522d 100%)',
+  Silver: 'linear-gradient(90deg, #c0c0c0 0%, #888 100%)',
+  Gold: 'linear-gradient(90deg, #ffd700 0%, #b8860b 100%)',
+  Diamond: 'linear-gradient(90deg, #b9f2ff 0%, #5bb8d4 100%)',
+  Legendary: 'linear-gradient(90deg, #b060ff 0%, #6a0daa 100%)',
 }
 
 const SIZE_LABEL: Record<string, string> = { Small: 'S', Medium: 'M', Large: 'L' }
-
-// matches TIER_EMOJI in shared/format.ts — single source kept there, mirrored here for display
-const TIER_ART: Record<TierName, string> = {
-  Bronze: '🟤',
-  Silver: '⚪',
-  Gold: '🟡',
-  Diamond: '💎',
-  Legendary: '🟣',
-}
 
 interface Props {
   card: BazaarCard
@@ -32,9 +40,26 @@ interface Props {
 
 export const CardTooltip = memo(function CardTooltip({ card, tier, enchantment, visible, style }: Props) {
   const color = TIER_COLORS[tier] ?? TIER_COLORS.Bronze
+  const glow = TIER_GLOW[tier] ?? TIER_GLOW.Bronze
+  const gradient = TIER_GRADIENT[tier] ?? TIER_GRADIENT.Bronze
 
-  const tierBarStyle = useMemo(() => ({ background: color }), [color])
-  const nameStyle = useMemo(() => ({ color }), [color])
+  const [imgLoaded, setImgLoaded] = useState(false)
+  const [imgFailed, setImgFailed] = useState(false)
+
+  const handleImgLoad = useCallback(() => setImgLoaded(true), [])
+  const handleImgError = useCallback(() => setImgFailed(true), [])
+
+  const artUrl = useMemo(
+    () => card.ArtKey ? `${EBS_BASE}/api/images/${card.ArtKey}` : null,
+    [card.ArtKey],
+  )
+
+  const tooltipStyle = useMemo(() => ({
+    ...style,
+    '--tier-color': color,
+    '--tier-glow': glow,
+    '--tier-gradient': gradient,
+  } as Record<string, string>), [style, color, glow, gradient])
 
   const tags = useMemo(
     () => card.DisplayTags ?? card.Tags ?? [],
@@ -52,14 +77,29 @@ export const CardTooltip = memo(function CardTooltip({ card, tier, enchantment, 
   return (
     <div
       class={`card-tooltip${visible ? ' visible' : ''}`}
-      style={style}
+      style={tooltipStyle}
     >
-      <div class="tooltip-tier-bar" style={tierBarStyle} />
+      <div class="tooltip-tier-bar" style={{ background: gradient }} />
       <div class="tooltip-body">
         <div class="tooltip-header">
-          <div class="tooltip-art">{TIER_ART[tier]}</div>
+          <div class="tooltip-art" style={{ '--ring-color': color, '--ring-glow': glow } as Record<string, string>}>
+            {artUrl && !imgFailed ? (
+              <img
+                src={artUrl}
+                class={`tooltip-art-img${imgLoaded ? ' loaded' : ''}`}
+                onLoad={handleImgLoad}
+                onError={handleImgError}
+                alt=""
+                aria-hidden="true"
+              />
+            ) : (
+              <div class="tooltip-art-fallback" style={{ color }}>
+                {card.Type === 'Skill' ? '✦' : '◈'}
+              </div>
+            )}
+          </div>
           <div class="tooltip-title-block">
-            <div class="tooltip-name" style={nameStyle}>{card.Title}</div>
+            <div class="tooltip-name" style={{ color }}>{card.Title}</div>
             <div class="tooltip-badges">
               <span class="tooltip-size">{SIZE_LABEL[card.Size] ?? card.Size}</span>
               {enchantment && <span class="tooltip-enchantment">{enchantment}</span>}
