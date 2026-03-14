@@ -59,18 +59,27 @@ RE_SKILL_SELECTED = re.compile(
 RE_STATE_CHANGE = re.compile(
     r"\[AppState\] State changed from \[(\w+)\] to \[(\w+)\]"
 )
+RE_CARD_MOVED_TO = re.compile(
+    r"\[CardOperationUtility\] Successfully moved card to: \[(\S+) \[(\w+)\] \[(\w+)\] \[Socket_(\d+)\] \[(\w+)\]"
+)
+RE_CARD_MOVED_SOCKET = re.compile(
+    r"\[CardOperationUtility\] Successfully moved card (\S+) to Socket_(\d+)"
+)
+RE_CARD_REMOVED = re.compile(
+    r"\[CardOperationUtility\] Successfully removed item (\S+) from (\w+)'s inventory"
+)
 
 # --- Overlay positions (viewport-normalized, 1920x1080 reference) ---
 
 # Item sockets: 10 slots per side, center-aligned
 # Measured from 1920x1080 fullscreen screenshots (ss1fin.png, 2ssfin.png)
-ITEM_SOCKET_W = 0.0611   # slot pitch (2026-03-14)
-ITEM_CARD_W = 0.0511     # visible card width within slot (60px / 1175px, excludes gap)
-PLAYER_ITEM_H = 0.1963   # player card height (212px / 1080)
-OPPONENT_ITEM_H = 0.1963  # opponent card height (same)
-PLAYER_ITEM_Y = 0.6278   # vertical center adjusted from mele ss (2026-03-14)
-OPPONENT_ITEM_Y = 0.4005  # vertical center of opponent item row (433px / 1080)
-ITEM_BOARD_CENTER_X = 0.4932  # center adjusted from mele ss (2026-03-14)
+ITEM_SOCKET_W = 0.058604   # slot pitch (from BepInEx CoordsLogger)
+ITEM_CARD_W = 0.058604     # visible card width = pitch (single slot)
+PLAYER_ITEM_H = 0.231916   # player card height (from BepInEx)
+OPPONENT_ITEM_H = 0.231916  # opponent card height (from BepInEx)
+PLAYER_ITEM_Y = 0.618796   # vertical center (from BepInEx)
+OPPONENT_ITEM_Y = 0.397443  # vertical center (from BepInEx)
+ITEM_BOARD_CENTER_X = 0.5000  # exact center (from BepInEx)
 
 # Multi-size items occupy multiple slots
 SIZE_SLOTS = {"Small": 1, "Medium": 2, "Large": 3}
@@ -220,8 +229,6 @@ def build_payload(state: dict) -> dict:
         for s in state["shop_cards"]
     ]
 
-    for c in cards:
-        logger.debug(f"  slot: {c.get('title','?'):20s} x={c.get('x',0):.4f} y={c.get('y',0):.4f} w={c.get('w',0):.4f} h={c.get('h',0):.4f} owner={c.get('owner','?')} type={c.get('type','?')}")
     return {"cards": cards, "shop": shop}
 
 
@@ -415,22 +422,22 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
             if parsed["section"] != "Hand":
                 continue
 
+            title = info["title"] if info else inst_id
+            tier = info["tier"] if info else "Unknown"
+            size = parsed["size"] or (info["size"] if info else "Medium")
+
             if parsed["owner"] == "Player":
-                if inst_id not in state["player_board"] and info:
-                    state["player_board"][inst_id] = {
-                        "title": info["title"],
-                        "tier": info["tier"],
-                        "size": parsed["size"] or info["size"],
-                        "socket": parsed["socket"],
-                    }
-                    logger.info("~ respawn %s -> Socket_%d", info["title"], parsed["socket"])
-                    changed = True
+                state["player_board"][inst_id] = {
+                    "title": title,
+                    "tier": tier,
+                    "size": size,
+                    "socket": parsed["socket"],
+                }
+                if debug:
+                    logger.debug("~ spawn %s -> Socket_%d", title, parsed["socket"])
+                changed = True
 
             elif parsed["owner"] == "Opponent":
-                # Opponent IDs aren't in our instance_map — use ID as title
-                title = info["title"] if info else inst_id
-                tier = info["tier"] if info else "Unknown"
-                size = parsed["size"] or (info["size"] if info else "Medium")
                 state["opponent_board"][inst_id] = {
                     "title": title,
                     "tier": tier,
@@ -440,6 +447,55 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
                 changed = True
 
         return changed
+
+    # Card moved to (full placement with owner/section/socket/size)
+    m = RE_CARD_MOVED_TO.search(line)
+    if m:
+        inst_id, owner, section, socket_str, size = m.groups()
+        socket_num = int(socket_str)
+        if section == "Hand":
+            tid = state["instance_map"].get(inst_id)
+            info = card_db.get(tid) if tid else None
+            board = state["player_board"] if owner == "Player" else state["opponent_board"]
+            if inst_id in board:
+                board[inst_id]["socket"] = socket_num
+                if size in ("Small", "Medium", "Large"):
+                    board[inst_id]["size"] = size
+            elif info:
+                board[inst_id] = {
+                    "title": info["title"],
+                    "tier": info["tier"],
+                    "size": size if size in ("Small", "Medium", "Large") else info["size"],
+                    "socket": socket_num,
+                }
+                if debug:
+                    logger.debug("+ moved_to %s -> Socket_%d (%s)", info["title"], socket_num, owner)
+            return True
+        return False
+
+    # Card moved to different socket (no owner/section info — assume player)
+    m = RE_CARD_MOVED_SOCKET.search(line)
+    if m:
+        inst_id = m.group(1)
+        socket_num = int(m.group(2))
+        if inst_id in state["player_board"]:
+            state["player_board"][inst_id]["socket"] = socket_num
+            return True
+        if inst_id in state["opponent_board"]:
+            state["opponent_board"][inst_id]["socket"] = socket_num
+            return True
+        return False
+
+    # Card removed from inventory
+    m = RE_CARD_REMOVED.search(line)
+    if m:
+        inst_id = m.group(1)
+        owner = m.group(2)
+        if owner == "player" and inst_id in state["player_board"]:
+            logger.info("- removed %s", state["player_board"][inst_id]["title"])
+            del state["player_board"][inst_id]
+            return True
+        return False
 
     # Skill selected (from skill choice screen)
     m = RE_SKILL_SELECTED.search(line)
