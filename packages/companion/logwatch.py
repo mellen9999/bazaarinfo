@@ -15,6 +15,7 @@ import argparse
 import configparser
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -316,8 +317,15 @@ def parse_spawned_chunk(chunk: str) -> dict | None:
     }
 
 
+_LINE_PREFIXES = ("BoardManager", "GameSimHandler", "AppState", "CardOperationUtility")
+
+
 def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
     """Process a single log line, updating state. Returns True if state changed."""
+
+    # Fast bail-out: skip lines that can't match any pattern
+    if not any(p in line for p in _LINE_PREFIXES):
+        return False
 
     # Card purchased (player buys from shop)
     m = RE_CARD_PURCHASED.search(line)
@@ -491,7 +499,7 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
     if m:
         inst_id = m.group(1)
         owner = m.group(2)
-        if owner == "player" and inst_id in state["player_board"]:
+        if owner.lower() == "player" and inst_id in state["player_board"]:
             logger.info("- removed %s", state["player_board"][inst_id]["title"])
             del state["player_board"][inst_id]
             return True
@@ -540,10 +548,7 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
             state["opponent_board"].clear()
             state["shop_cards"].clear()
 
-        if to_state in HIDDEN_STATES:
-            state["show_overlay"] = False
-        else:
-            state["show_overlay"] = True
+        state["show_overlay"] = to_state in GAME_STATES
 
         return True
 
@@ -554,7 +559,7 @@ def build_initial_state(log_path: Path, card_db: dict) -> dict:
     """Parse full log to build current game state."""
     state = new_state()
 
-    with open(log_path) as f:
+    with open(log_path, errors="replace") as f:
         for line in f:
             process_line(line.strip(), state, card_db, debug=False)
 
@@ -565,7 +570,7 @@ def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, d
     """Tail the log file and track game state."""
     ebs_url = config["ebs"]["url"]
     channel_id = config["ebs"]["channel_id"]
-    secret = config["ebs"]["secret"]
+    secret = os.environ.get("EBS_SECRET") or config["ebs"]["secret"]
 
     logger.info("Building initial state from log...")
     state = build_initial_state(log_path, card_db)
@@ -580,18 +585,40 @@ def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, d
 
     logger.info("Watching %s", log_path)
 
-    with open(log_path) as f:
+    with open(log_path, errors="replace") as f:
         f.seek(0, 2)
+        last_inode = log_path.stat().st_ino
+        last_size = log_path.stat().st_size
 
         while True:
-            line = f.readline()
-            if not line:
-                time.sleep(0.1)
-                continue
+            try:
+                line = f.readline()
+                if not line:
+                    time.sleep(0.1)
+                    # Check for log rotation or truncation
+                    try:
+                        st = log_path.stat()
+                    except FileNotFoundError:
+                        logger.warning("Log file disappeared, waiting...")
+                        time.sleep(1)
+                        continue
+                    if st.st_ino != last_inode or st.st_size < last_size:
+                        logger.info("Log rotated/truncated, reopening...")
+                        f.close()
+                        f = open(log_path, errors="replace")
+                        last_inode = st.st_ino
+                        last_size = st.st_size
+                    else:
+                        last_size = st.st_size
+                    continue
 
-            line = line.strip()
-            if process_line(line, state, card_db, debug):
-                send_state(ebs_url, channel_id, secret, state)
+                last_size = log_path.stat().st_size
+                line = line.strip()
+                if process_line(line, state, card_db, debug):
+                    send_state(ebs_url, channel_id, secret, state)
+            except Exception as e:
+                logger.error("Tail loop error: %s", e)
+                time.sleep(1)
 
 
 def main():
@@ -603,6 +630,10 @@ def main():
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    if not args.config.exists():
+        logger.error("Config not found: %s", args.config)
+        raise SystemExit(1)
 
     config = configparser.ConfigParser()
     config.read(args.config)

@@ -45,7 +45,9 @@ function cors(res: Response, origin: string | null): Response {
 }
 
 function getIp(req: Request): string {
-  return req.headers.get('CF-Connecting-IP') || 'unknown'
+  return req.headers.get('CF-Connecting-IP')
+    || req.headers.get('X-Forwarded-For')?.split(',')[0].trim()
+    || 'unknown'
 }
 
 async function handleRequest(req: Request): Promise<Response> {
@@ -112,6 +114,7 @@ function init() {
 
   const server = Bun.serve({
     port: PORT,
+    hostname: '127.0.0.1',
     fetch: handleRequest,
   })
 

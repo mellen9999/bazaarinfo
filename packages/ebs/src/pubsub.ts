@@ -73,7 +73,7 @@ async function sendPubSub(channelId: string, jwt: string, message: string): Prom
   })
 
   if (!res.ok) {
-    console.error(`[pubsub] broadcast failed: ${res.status} ${await res.text()}`)
+    console.error(`[pubsub] broadcast failed: ${res.status}`)
     return false
   }
 

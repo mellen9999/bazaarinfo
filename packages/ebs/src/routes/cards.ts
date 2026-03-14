@@ -16,7 +16,7 @@ export function getCardCache(): CardCache | null {
 
 export function handleCards(): Response {
   if (!cachedJson) {
-    return new Response('card cache not loaded', { status: 503 })
+    return new Response('service unavailable', { status: 503 })
   }
   return new Response(cachedJson, {
     headers: {

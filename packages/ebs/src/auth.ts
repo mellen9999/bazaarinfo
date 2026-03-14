@@ -4,6 +4,15 @@
 const EXTENSION_SECRET = process.env.TWITCH_EXTENSION_SECRET ?? ''
 const COMPANION_SECRET = process.env.COMPANION_SECRET ?? ''
 
+if (!EXTENSION_SECRET) {
+  console.error('[auth] TWITCH_EXTENSION_SECRET is not set — refusing to start')
+  process.exit(1)
+}
+if (!COMPANION_SECRET) {
+  console.error('[auth] COMPANION_SECRET is not set — refusing to start')
+  process.exit(1)
+}
+
 // Cache imported crypto keys to avoid per-request importKey overhead
 let verifyKeyCache: CryptoKey | null = null
 let signKeyCache: CryptoKey | null = null

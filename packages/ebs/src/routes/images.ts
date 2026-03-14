@@ -24,7 +24,29 @@ export async function handleImage(hash: string): Promise<Response> {
     return new Response('too large', { status: 413 })
   }
 
-  return new Response(upstream.body, {
+  // Buffer and enforce actual body size regardless of Content-Length header
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  const reader = upstream.body!.getReader()
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    totalBytes += value.byteLength
+    if (totalBytes > MAX_IMAGE_SIZE) {
+      await reader.cancel()
+      return new Response('too large', { status: 413 })
+    }
+    chunks.push(value)
+  }
+
+  const body = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+
+  return new Response(body, {
     headers: {
       'Content-Type': upstream.headers.get('Content-Type') ?? 'image/webp',
       'Cache-Control': 'public, max-age=86400',
