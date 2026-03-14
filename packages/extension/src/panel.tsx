@@ -1,5 +1,5 @@
 import { render } from 'preact'
-import { useState, useEffect, useCallback } from 'preact/hooks'
+import { useState, useEffect, useCallback, useRef } from 'preact/hooks'
 import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
 import { buildIndex, searchCards, type ScoredCard } from '@bazaarinfo/shared/src/search'
 import { CardTooltip } from './components/CardTooltip'
@@ -12,6 +12,7 @@ function Panel() {
   const [results, setResults] = useState<ScoredCard[]>([])
   const [selected, setSelected] = useState<{ card: BazaarCard; tier: TierName } | null>(null)
   const [error, setError] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const twitch = window.Twitch?.ext
@@ -32,18 +33,29 @@ function Panel() {
     })
   }, [])
 
-  const search = useCallback((q: string) => {
-    setQuery(q)
+  const runSearch = useCallback((q: string) => {
     setSelected(null)
     if (!index || q.trim().length < 2) { setResults([]); return }
     const hits = searchCards(index, q).slice(0, 8)
     setResults(hits)
   }, [index])
 
+  const handleInput = useCallback((e: Event) => {
+    const q = (e.target as HTMLInputElement).value
+    setQuery(q)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => runSearch(q), 120)
+  }, [runSearch])
+
   const pick = useCallback((card: BazaarCard) => {
     setSelected({ card, tier: card.BaseTier })
     setResults([])
     setQuery(card.Title)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+  }, [])
+
+  const pickTier = useCallback((tier: TierName) => {
+    setSelected((s) => s ? { ...s, tier } : s)
   }, [])
 
   return (
@@ -52,7 +64,7 @@ function Panel() {
         type="text"
         class="panel-search"
         value={query}
-        onInput={(e) => search((e.target as HTMLInputElement).value)}
+        onInput={handleInput}
         placeholder={index ? 'Search cards\u2026' : error ? 'Failed to load' : 'Loading\u2026'}
         disabled={!index}
         aria-label="Search cards"
@@ -83,7 +95,7 @@ function Panel() {
               <button
                 key={t}
                 class={`panel-tier-btn${selected.tier === t ? ' active' : ''}`}
-                onClick={() => setSelected({ ...selected, tier: t })}
+                onClick={() => pickTier(t)}
               >
                 {t}
               </button>

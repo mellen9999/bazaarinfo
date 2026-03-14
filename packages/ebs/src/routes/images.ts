@@ -24,7 +24,22 @@ export async function handleImage(hash: string): Promise<Response> {
     return new Response('too large', { status: 413 })
   }
 
-  // Buffer and enforce actual body size regardless of Content-Length header
+  const contentType = upstream.headers.get('Content-Type') ?? 'image/webp'
+  const responseHeaders = {
+    'Content-Type': contentType,
+    'Cache-Control': 'public, max-age=86400',
+    'X-Content-Type-Options': 'nosniff',
+  }
+
+  // Fast path: Content-Length present and within bounds — buffer in one shot
+  if (contentLength > 0) {
+    const buf = await upstream.arrayBuffer()
+    if (buf.byteLength > MAX_IMAGE_SIZE) return new Response('too large', { status: 413 })
+    return new Response(buf, { headers: responseHeaders })
+  }
+
+  // Slow path: no Content-Length — stream with running size check to avoid
+  // allocating the full body before knowing its size
   const chunks: Uint8Array[] = []
   let totalBytes = 0
   const reader = upstream.body!.getReader()
@@ -39,6 +54,7 @@ export async function handleImage(hash: string): Promise<Response> {
     chunks.push(value)
   }
 
+  // Single allocation, single pass
   const body = new Uint8Array(totalBytes)
   let offset = 0
   for (const chunk of chunks) {
@@ -46,11 +62,5 @@ export async function handleImage(hash: string): Promise<Response> {
     offset += chunk.byteLength
   }
 
-  return new Response(body, {
-    headers: {
-      'Content-Type': upstream.headers.get('Content-Type') ?? 'image/webp',
-      'Cache-Control': 'public, max-age=86400',
-      'X-Content-Type-Options': 'nosniff',
-    },
-  })
+  return new Response(body, { headers: responseHeaders })
 }

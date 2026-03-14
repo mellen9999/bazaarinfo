@@ -70,14 +70,12 @@ function isValidPayload(body: unknown): body is DetectPayload {
 const MAX_BODY = 100_000
 
 export async function handleDetect(req: Request): Promise<Response> {
-  const len = parseInt(req.headers.get('Content-Length') ?? '0')
-  if (len > MAX_BODY) return new Response('bad request', { status: 413 })
+  const len = Number(req.headers.get('Content-Length') ?? 0)
+  if (Number.isFinite(len) && len > MAX_BODY) return new Response('bad request', { status: 413 })
 
   let body: unknown
   try {
-    const text = await req.text()
-    if (text.length > MAX_BODY) return new Response('bad request', { status: 413 })
-    body = JSON.parse(text)
+    body = await req.json()
   } catch {
     return new Response('bad request', { status: 400 })
   }

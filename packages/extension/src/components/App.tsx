@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'preact/hooks'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'preact/hooks'
 import type { BazaarCard } from '@bazaarinfo/shared/src/types'
 import { HoverZone } from './HoverZone'
 import type { DetectedSlot } from './HoverZone'
@@ -22,23 +22,36 @@ function isValidSlot(s: unknown): s is DetectedSlot {
   return true
 }
 
+function slotsEqual(a: DetectedSlot[], b: DetectedSlot[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].title !== b[i].title || a[i].x !== b[i].x || a[i].y !== b[i].y || a[i].tier !== b[i].tier) return false
+  }
+  return true
+}
+
 export function App() {
   const [cards, setCards] = useState<Map<string, BazaarCard>>(new Map())
   const [detected, setDetected] = useState<DetectedSlot[]>([])
   const [hovered, setHovered] = useState<DetectedSlot | null>(null)
   const [tooltipPos, setTooltipPos] = useState<{ left: string; top: string }>({ left: '0', top: '0' })
+  const cardsLoaded = useRef(false)
 
   useEffect(() => {
+    let mounted = true
     const twitch = window.Twitch?.ext
     if (!twitch) return
 
     twitch.onAuthorized(async (auth) => {
+      if (cardsLoaded.current) return
       for (let i = 0; i < 2; i++) {
         try {
           const all = await fetchCards(auth.token)
+          if (!mounted) return
           const map = new Map<string, BazaarCard>()
           for (const c of all) map.set(c.Title.toLowerCase(), c)
           setCards(map)
+          cardsLoaded.current = true
           return
         } catch {
           if (i === 1) break
@@ -47,11 +60,13 @@ export function App() {
     })
 
     const onBroadcast = (_target: string, _contentType: string, message: string) => {
+      if (!message.includes('"cards"')) return
       try {
         const data = JSON.parse(message)
         const raw = data?.cards
         if (Array.isArray(raw)) {
-          setDetected(raw.filter(isValidSlot))
+          const next = raw.filter(isValidSlot)
+          setDetected(prev => slotsEqual(prev, next) ? prev : next)
         }
       } catch {}
     }
@@ -61,7 +76,7 @@ export function App() {
       if (!isVisible) setDetected([])
     })
 
-    return () => twitch.unlisten('broadcast', onBroadcast)
+    return () => { mounted = false; twitch.unlisten('broadcast', onBroadcast) }
   }, [])
 
   const handleHover = useCallback((slot: DetectedSlot) => {
@@ -82,6 +97,11 @@ export function App() {
     [hovered, cards],
   )
 
+  const tooltipStyle = useMemo(
+    () => ({ position: 'absolute' as const, left: tooltipPos.left, top: tooltipPos.top }),
+    [tooltipPos.left, tooltipPos.top],
+  )
+
   return (
     <div class="overlay">
       {detected.map((slot) => (
@@ -98,7 +118,7 @@ export function App() {
           tier={hovered.tier}
           enchantment={hovered.enchantment}
           visible={true}
-          style={{ position: 'absolute', left: tooltipPos.left, top: tooltipPos.top }}
+          style={tooltipStyle}
         />
       )}
     </div>
