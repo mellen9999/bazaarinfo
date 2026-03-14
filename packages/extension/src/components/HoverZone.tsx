@@ -1,3 +1,4 @@
+import { memo } from 'preact/compat'
 import { useMemo } from 'preact/hooks'
 import type { TierName } from '@bazaarinfo/shared/src/types'
 
@@ -18,7 +19,7 @@ interface Props extends DetectedSlot {
   onLeave: () => void
 }
 
-export function HoverZone({ title, tier, x, y, w, h, owner, type, enchantment, onHover, onLeave }: Props) {
+export const HoverZone = memo(function HoverZone({ title, tier, x, y, w, h, owner, type, enchantment, onHover, onLeave }: Props) {
   const isSkill = type === 'Skill'
   const isOpponent = owner === 'opponent'
   const cls = `hover-zone${isSkill ? ' hover-zone--skill' : ''}${isOpponent ? ' hover-zone--opponent' : ''}`
@@ -48,6 +49,6 @@ export function HoverZone({ title, tier, x, y, w, h, owner, type, enchantment, o
     >
     </div>
   )
-}
+})
 
 export type { DetectedSlot }

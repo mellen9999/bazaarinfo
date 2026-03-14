@@ -1,3 +1,4 @@
+import { useMemo } from 'preact/hooks'
 import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
 import { resolveTooltip } from '@bazaarinfo/shared/src/format'
 
@@ -32,6 +33,14 @@ export function CardTooltip({ card, tier, enchantment, visible, style }: Props) 
   const tooltips = card.Tooltips ?? []
   const tags = card.DisplayTags ?? card.Tags ?? []
 
+  const resolvedTooltips = useMemo(
+    () => tooltips.map((tip) => ({
+      type: tip.type,
+      text: resolveTooltip(tip.text, card.TooltipReplacements ?? {}, tier),
+    })),
+    [card, tier],
+  )
+
   return (
     <div
       class={`card-tooltip${visible ? ' visible' : ''}`}
@@ -49,12 +58,12 @@ export function CardTooltip({ card, tier, enchantment, visible, style }: Props) 
             </div>
           </div>
         </div>
-        {tooltips.length > 0 && (
+        {resolvedTooltips.length > 0 && (
           <div class="tooltip-tooltips">
-            {tooltips.map((tip, i) => (
+            {resolvedTooltips.map((tip, i) => (
               <div class="tooltip-tip" key={i}>
                 <div class="tooltip-tip-type">{tip.type}</div>
-                {resolveTooltip(tip.text, card.TooltipReplacements ?? {}, tier)}
+                {tip.text}
               </div>
             ))}
           </div>

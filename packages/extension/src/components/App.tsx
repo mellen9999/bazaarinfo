@@ -5,14 +5,21 @@ import type { DetectedSlot } from './HoverZone'
 import { CardTooltip } from './CardTooltip'
 import { fetchCards } from '../twitch'
 
+const VALID_TIERS = new Set(['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary'])
+
 function isValidSlot(s: unknown): s is DetectedSlot {
   if (!s || typeof s !== 'object') return false
   const o = s as Record<string, unknown>
-  return typeof o.title === 'string' && typeof o.tier === 'string'
-    && typeof o.x === 'number' && typeof o.y === 'number'
-    && typeof o.w === 'number' && typeof o.h === 'number'
-    && o.x >= 0 && o.x <= 1 && o.y >= 0 && o.y <= 1
-    && o.w > 0 && o.w <= 1 && o.h > 0 && o.h <= 1
+  if (typeof o.title !== 'string' || typeof o.tier !== 'string') return false
+  if (!VALID_TIERS.has(o.tier)) return false
+  if (typeof o.x !== 'number' || typeof o.y !== 'number') return false
+  if (typeof o.w !== 'number' || typeof o.h !== 'number') return false
+  if (o.x < 0 || o.x > 1 || o.y < 0 || o.y > 1) return false
+  if (o.w <= 0 || o.w > 1 || o.h <= 0 || o.h > 1) return false
+  if (typeof o.owner === 'string' && o.owner.length > 50) return false
+  if (typeof o.type === 'string' && o.type.length > 50) return false
+  if (typeof o.enchantment === 'string' && o.enchantment.length > 50) return false
+  return true
 }
 
 export function App() {
@@ -20,25 +27,20 @@ export function App() {
   const [detected, setDetected] = useState<DetectedSlot[]>([])
   const [hovered, setHovered] = useState<DetectedSlot | null>(null)
   const [tooltipPos, setTooltipPos] = useState<{ left: string; top: string }>({ left: '0', top: '0' })
-  const [dbg, setDbg] = useState('init')
 
   useEffect(() => {
     const twitch = window.Twitch?.ext
-    if (!twitch) { setDbg('no twitch helper'); return }
-    setDbg('waiting for auth...')
+    if (!twitch) return
 
     twitch.onAuthorized(async (auth) => {
-      setDbg('authed, fetching cards...')
       for (let i = 0; i < 2; i++) {
         try {
           const all = await fetchCards(auth.token)
           const map = new Map<string, BazaarCard>()
           for (const c of all) map.set(c.Title.toLowerCase(), c)
           setCards(map)
-          setDbg(`${map.size} cards, listening`)
           return
-        } catch (e) {
-          setDbg(`fetch err ${i}: ${(e as Error).message}`)
+        } catch {
           if (i === 1) break
         }
       }
@@ -49,9 +51,7 @@ export function App() {
         const data = JSON.parse(message)
         const raw = data?.cards
         if (Array.isArray(raw)) {
-          const valid = raw.filter(isValidSlot)
-          setDetected(valid)
-          setDbg(prev => prev.replace(/listening.*/, `listening | ${valid.length} slots`))
+          setDetected(raw.filter(isValidSlot))
         }
       } catch {}
     }
@@ -84,12 +84,6 @@ export function App() {
 
   return (
     <div class="overlay">
-      <div style={{
-        position: 'absolute', bottom: '4px', left: '4px', padding: '2px 6px',
-        background: 'rgba(0,0,0,0.7)', color: '#0f0', fontSize: '10px',
-        fontFamily: 'monospace', borderRadius: '3px', zIndex: 999,
-        pointerEvents: 'none',
-      }}>{dbg}</div>
       {detected.map((slot) => (
         <HoverZone
           key={`${slot.title}-${slot.x}-${slot.y}`}

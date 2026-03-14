@@ -39,18 +39,26 @@ function isValidCard(c: Record<string, unknown>): boolean {
   if (c.enchantment !== undefined && typeof c.enchantment !== 'string') return false
   if (c.attrs !== undefined) {
     if (typeof c.attrs !== 'object' || c.attrs === null || Array.isArray(c.attrs)) return false
-    for (const v of Object.values(c.attrs as Record<string, unknown>)) {
+    const attrsObj = c.attrs as Record<string, unknown>
+    if (Object.keys(attrsObj).length > MAX_ATTRS_KEYS) return false
+    for (const v of Object.values(attrsObj)) {
       if (typeof v !== 'number' || !isFinite(v)) return false
     }
   }
   return true
 }
 
+const CHANNEL_ID_RE = /^\d{1,15}$/
+const MAX_SECRET_LEN = 256
+const MAX_ATTRS_KEYS = 100
+
 function isValidPayload(body: unknown): body is DetectPayload {
   if (!body || typeof body !== 'object') return false
   const b = body as Record<string, unknown>
   if (typeof b.channelId !== 'string' || !b.channelId) return false
+  if (!CHANNEL_ID_RE.test(b.channelId)) return false
   if (typeof b.secret !== 'string' || !b.secret) return false
+  if (b.secret.length > MAX_SECRET_LEN) return false
   if (!Array.isArray(b.cards) || b.cards.length > MAX_CARDS) return false
   for (const card of b.cards) {
     if (typeof card !== 'object' || !card) return false
