@@ -64,12 +64,12 @@ RE_STATE_CHANGE = re.compile(
 
 # Item sockets: 10 slots per side, center-aligned
 # Measured from 1920x1080 fullscreen screenshots (ss1fin.png, 2ssfin.png)
-ITEM_SOCKET_W = 0.0573   # width of one socket slot (110px / 1920)
+ITEM_SOCKET_W = 0.0561   # slot pitch measured from 10-single-slot board (65.9px / 1175px player)
 PLAYER_ITEM_H = 0.1963   # player card height (212px / 1080)
 OPPONENT_ITEM_H = 0.1963  # opponent card height (same)
 PLAYER_ITEM_Y = 0.6088   # vertical center of player item row (657px / 1080)
 OPPONENT_ITEM_Y = 0.4005  # vertical center of opponent item row (433px / 1080)
-ITEM_BOARD_CENTER_X = 0.5023  # horizontal center between sockets 4-5 (965px / 1920)
+ITEM_BOARD_CENTER_X = 0.4809  # measured center of 10-slot board (615px / 1175px player, 2026-03-14)
 
 # Multi-size items occupy multiple slots
 SIZE_SLOTS = {"Small": 1, "Medium": 2, "Large": 3}
