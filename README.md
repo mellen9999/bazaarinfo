@@ -45,7 +45,13 @@ See [`.env.example`](.env.example) for all options. Minimum needed:
 !b help                      show usage
 ```
 
-Users can `!join` / `!part` in the bot's own channel to add/remove it from theirs.
+## add to your channel
+
+1. go to [twitch.tv/bazaarinfo](https://twitch.tv/bazaarinfo)
+2. type `!join` in chat
+3. the bot joins your channel instantly — type `!b help` in your chat to confirm
+
+to remove, type `!part` in the bazaarinfo channel.
 
 ## structure
 
