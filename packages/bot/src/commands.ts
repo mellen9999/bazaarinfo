@@ -500,6 +500,17 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     if (match) return handler(match[1]?.trim() ?? cleanArgs, ctx, suffix)
   }
 
+  // spam wall interception — handle without AI, just repeat the word
+  const spamMatch = cleanArgs.match(/^spam\s+(?:this\s+)?(.+)/i)
+  if (spamMatch) {
+    const word = spamMatch[1].trim()
+    if (word.length > 0 && word.length <= 30) {
+      const maxReps = Math.floor((MAX_LEN - (suffix.length || 0)) / (word.length + 1))
+      const reps = Math.min(maxReps, 40)
+      return withSuffix(Array(reps).fill(word).join(' '), suffix)
+    }
+  }
+
   // detect conversational/creative queries that should skip item lookup entirely
   const isGreeting = /^(h(ello|i|ey|owdy)|yo|sup|hey+|what'?s? ?up|greetings|hola|whats good|good (morning|evening|night)|gm|gn|gg|ty|thanks|thank you|lol|lmao|wow|nice|cool|pog|based|true|real|facts|nah|bruh|bro|dude|man|omg|rip|oof|haha|o7|bye|cya|later|peace|gl|hf|glhf|ggs)\b/i.test(cleanArgs)
   const isConversational = isGreeting
