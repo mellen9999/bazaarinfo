@@ -147,6 +147,8 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   // strip asker's name from body — they get auto-tagged at the end
   if (asker) {
     s = s.replace(askerNameRe(asker), '')
+    // fix orphan punctuation left by name removal (e.g. "you, . you" → "you. you")
+    s = s.replace(/,\s*\./g, '.').replace(/\s{2,}/g, ' ')
   }
 
   // strip fake @mentions (model invents @you, @asking, etc.) — keep only real usernames

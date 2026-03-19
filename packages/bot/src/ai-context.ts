@@ -955,8 +955,23 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const recentAll = getChannelRecentResponses(ctx.channel)
   const hotSet = new Set(hot.map((e) => e.response))
   const deduped = recentAll.filter((r) => !hotSet.has(r))
+  // extract referenced chatters and quoted phrases from recent responses — burned material
+  const burnedNames = new Set<string>()
+  const burnedQuotes = new Set<string>()
+  for (const r of deduped) {
+    for (const m of r.matchAll(/@(\w+)/g)) burnedNames.add(m[1].toLowerCase())
+    // extract names used as subjects (word at start or after period/comma)
+    for (const m of r.matchAll(/(?:^|[.,]\s+)(\w{3,20})\s+(?:wins?|said|just|is|was|has|had|does|did)\b/gi)) {
+      const name = m[1].toLowerCase()
+      if (!/^(the|this|that|what|who|how|but|and|not|its|you|dude|bro|man)$/.test(name)) burnedNames.add(name)
+    }
+    for (const m of r.matchAll(/"([^"]{8,60})"/g)) burnedQuotes.add(m[1])
+  }
+  const burnedLine = burnedNames.size > 0
+    ? `\nBURNED references (pick DIFFERENT chatters/quotes): ${[...burnedNames].join(', ')}${burnedQuotes.size > 0 ? ` | quotes: ${[...burnedQuotes].slice(0, 5).map(q => `"${q}"`).join(', ')}` : ''}`
+    : ''
   const recentLine = deduped.length > 0
-    ? `\nYour recent responses (NEVER reuse specific phrases, punchlines, item combos, or scenarios from these — even if a similar question comes up, find a completely different angle. only continue a theme if [USER]'s message explicitly references it):\n${deduped.map((r) => `- "${r.length > 200 ? r.slice(0, 200) + '...' : r}"`).join('\n')}`
+    ? `\nYour recent responses (NEVER reuse specific phrases, punchlines, item combos, or scenarios from these — even if a similar question comes up, find a completely different angle. only continue a theme if [USER]'s message explicitly references it):\n${deduped.map((r) => `- "${r.length > 200 ? r.slice(0, 200) + '...' : r}"`).join('\n')}${burnedLine}`
     : ''
 
   // copypasta few-shot examples
