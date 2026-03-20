@@ -72,14 +72,14 @@ function buildRedditContext(posts: RedditPost[], commentMap: Map<string, RedditC
 
   for (const post of posts) {
     const flair = post.link_flair_text ? ` [${post.link_flair_text}]` : ''
-    const snippet = post.selftext.slice(0, 200)
+    const snippet = post.selftext.slice(0, 400)
     lines.push(`[${post.score}pts]${flair} ${post.title}`)
     if (snippet) lines.push(`  ${snippet}`)
 
     const comments = commentMap.get(post.id)
     if (comments?.length) {
       for (const c of comments) {
-        lines.push(`  > [${c.score}pts] ${c.body.slice(0, 150)}`)
+        lines.push(`  > [${c.score}pts] ${c.body.slice(0, 300)}`)
       }
     }
   }
@@ -99,10 +99,15 @@ async function summarizeWithHaiku(context: string): Promise<string> {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 120,
+      max_tokens: 250,
       messages: [{
         role: 'user',
-        content: `Summarize the current Bazaar meta, popular builds, and community sentiment in under 500 chars. Be specific about item/hero names. Raw Reddit data:\n\n${context}`,
+        content: `Summarize the r/PlayTheBazaar front page in under 600 chars. Cover ALL of these if present:
+- Meta: dominant heroes/builds/items, what's strong/weak
+- Community mood: complaints, praise, frustration, hype
+- Memes/jokes: recurring bits, copypastas, shitposts worth knowing
+- Drama: controversies, dev responses, monetization discourse
+Be specific with names. Lowercase, terse, no headers. Raw posts:\n\n${context}`,
       }],
     }),
     signal: AbortSignal.timeout(FETCH_TIMEOUT),
@@ -114,7 +119,7 @@ async function summarizeWithHaiku(context: string): Promise<string> {
     content: { type: string; text?: string }[]
   }
   const text = data.content?.find((b) => b.type === 'text')?.text ?? ''
-  return text.slice(0, 500)
+  return text.slice(0, 600)
 }
 
 export async function refreshRedditDigest(): Promise<void> {
