@@ -106,6 +106,8 @@ export class TwitchClient {
   private ircBackoff = BACKOFF_BASE
   private _channelIdMap: Record<string, string> = {}
   private ircOnlyChannels = new Set<string>()
+  private eventsubPingInterval: Timer | null = null
+  private ircPingInterval: Timer | null = null
   lastActivity = Date.now()
 
   constructor(config: TwitchConfig, onMessage: MessageHandler) {
@@ -150,6 +152,8 @@ export class TwitchClient {
     this.ircReconnecting = false
     if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
     if (this.ircWatchdog) clearInterval(this.ircWatchdog)
+    if (this.eventsubPingInterval) clearInterval(this.eventsubPingInterval)
+    if (this.ircPingInterval) clearInterval(this.ircPingInterval)
     this.eventsub?.close()
     this.irc?.close()
     log('connections closed')
@@ -183,8 +187,10 @@ export class TwitchClient {
       log(`eventsub connected, session: ${this.sessionId}`)
       this.eventsubBackoff = BACKOFF_BASE
       this.eventsubConsecutiveFailures = 0
+      await this.cleanupStaleSubscriptions()
       await this.subscribeAll()
       this.resetKeepalive()
+      this.startEventSubPing()
     } else if (type === 'session_keepalive') {
       this.resetKeepalive()
     } else if (type === 'notification') {
@@ -222,6 +228,53 @@ export class TwitchClient {
     }
   }
 
+  private startEventSubPing() {
+    if (this.eventsubPingInterval) clearInterval(this.eventsubPingInterval)
+    this.eventsubPingInterval = setInterval(() => {
+      try { this.eventsub?.ping() } catch {}
+    }, 20_000)
+  }
+
+  private startIrcPing() {
+    if (this.ircPingInterval) clearInterval(this.ircPingInterval)
+    this.ircPingInterval = setInterval(() => {
+      try { this.irc?.ping() } catch {}
+    }, 20_000)
+  }
+
+  private async cleanupStaleSubscriptions() {
+    try {
+      const res = await fetchWithTimeout(`${HELIX_URL}/eventsub/subscriptions`, {
+        headers: {
+          Authorization: `Bearer ${this.config.token}`,
+          'Client-Id': this.config.clientId,
+        },
+      })
+      if (!res.ok) return
+      const data = await res.json() as {
+        data: { id: string; status: string; transport: { session_id?: string } }[]
+      }
+      const stale = data.data.filter((s) =>
+        s.transport.session_id && s.transport.session_id !== this.sessionId
+      )
+      if (stale.length === 0) return
+      log(`eventsub: cleaning up ${stale.length} stale subscriptions`)
+      for (const sub of stale) {
+        try {
+          await fetchWithTimeout(`${HELIX_URL}/eventsub/subscriptions?id=${sub.id}`, {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Bearer ${this.config.token}`,
+              'Client-Id': this.config.clientId,
+            },
+          })
+        } catch {}
+      }
+    } catch (e) {
+      log(`eventsub: cleanup failed: ${e}`)
+    }
+  }
+
   private resetKeepalive() {
     this.lastActivity = Date.now()
     if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
@@ -247,6 +300,7 @@ export class TwitchClient {
 
   private reconnectEventSub() {
     if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
+    if (this.eventsubPingInterval) { clearInterval(this.eventsubPingInterval); this.eventsubPingInterval = null }
     this.eventsubConsecutiveFailures++
     if (this.eventsubConsecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
       log(`eventsub failed ${this.eventsubConsecutiveFailures} times consecutively — exiting for systemd restart`)
@@ -395,7 +449,7 @@ export class TwitchClient {
             break
           case 'join':
             log(`irc joined #${msg.channel}`)
-            if (!this.ircReady) { this.ircReady = true; this.flushQueue() }
+            if (!this.ircReady) { this.ircReady = true; this.startIrcPing(); this.flushQueue() }
             break
           case 'auth_failure':
             log('irc auth failed — refreshing token and reconnecting')
@@ -414,22 +468,24 @@ export class TwitchClient {
       this.ircReady = false
       if (this.ircWatchdog) clearInterval(this.ircWatchdog)
       this.ircWatchdog = null
+      if (this.ircPingInterval) { clearInterval(this.ircPingInterval); this.ircPingInterval = null }
       this.reconnectIrc()
     }
 
     this.irc.onerror = (ev) => log('irc error:', ev)
   }
 
-  // Twitch sends PING every ~5min. Watchdog checks every 60s if we've heard anything in 6min.
+  // Twitch sends PING every ~5min. Watchdog checks every 30s if we've heard anything in 90s.
+  // With client-side pings every 20s, any silence >90s means the connection is dead.
   private startIrcWatchdog() {
     if (this.ircWatchdog) clearInterval(this.ircWatchdog)
     this.ircLastData = Date.now()
     this.ircWatchdog = setInterval(() => {
-      if (Date.now() - this.ircLastData > 360_000) {
-        log('irc ping timeout (6min no data) — reconnecting')
+      if (Date.now() - this.ircLastData > 90_000) {
+        log('irc timeout (90s no data) — reconnecting')
         this.irc?.close()
       }
-    }, 60_000)
+    }, 30_000)
   }
 
   private async handleIrcAuthFailure() {
