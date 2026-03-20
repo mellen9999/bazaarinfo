@@ -7,7 +7,7 @@ import { log } from './log'
 
 const lastAiByChannel = new Map<string, number>()
 export const AI_GLOBAL_CD = 30_000 // 30s per-channel (non-game only)
-const USER_AI_CD = 0
+const USER_AI_CD = 30_000
 const lastAiByUser = new Map<string, number>()
 const USER_CD_MAX = 500
 
