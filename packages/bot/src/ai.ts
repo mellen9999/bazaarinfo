@@ -70,7 +70,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   const isGame = GAME_TERMS.test(query)
 
   const cd = getAiCooldown(ctx.user, ctx.channel)
-  if (cd > 0) return null
+  if (cd > 0) return { text: `${cd}s`, mentions: [] }
   if (!ctx.direct && !isGame && !isVip && getGlobalAiCooldown(ctx.channel) > 0) return null
 
   if (aiQueueDepth >= AI_MAX_QUEUE && !isVip) {
