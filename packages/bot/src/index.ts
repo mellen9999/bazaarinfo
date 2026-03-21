@@ -296,9 +296,13 @@ const client = new TwitchClient(
         const responseIsCommand = /^!/.test(response)
         const replyId = responseIsCommand ? undefined : messageId
         // proxy !commands without thread need @mention for context
-        const finalResponse = (responseIsCommand && messageId)
-          ? `${response} @${username}`
-          : response
+        let finalResponse = response
+        if (responseIsCommand && messageId) {
+          finalResponse = `${response} @${username}`
+        } else if (replyId) {
+          // strip leading @mention — Twitch reply threading already tags the user
+          finalResponse = finalResponse.replace(new RegExp(`^@${username}\\s+`, 'i'), '')
+        }
         client.say(channel, finalResponse, replyId)
         chatbuf.record(channel, BOT_USERNAME, response)
       }

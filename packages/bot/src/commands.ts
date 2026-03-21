@@ -10,6 +10,24 @@ import { log } from './log'
 
 const MAX_LEN = 480
 
+const NO_MATCH_LINES = [
+  (q: string) => `"${q}" isn't a thing... yet. petition to add it tho`,
+  (q: string) => `searched the entire bazaar for "${q}", found only dust`,
+  (q: string) => `"${q}"? the bazaar keeper squints and shakes his head`,
+  (q: string) => `legend says "${q}" was removed in the great patch of '25`,
+  (q: string) => `"${q}" sounds made up but honestly so does half this game`,
+  (q: string) => `i asked every merchant about "${q}". they laughed at me`,
+  (q: string) => `"${q}" not found. have you tried turning the bazaar off and on`,
+  (q: string) => `the ancient scrolls contain no record of "${q}"`,
+]
+let noMatchIdx = 0
+function noMatchMsg(query: string): string {
+  const q = query.slice(0, 30)
+  const msg = NO_MATCH_LINES[noMatchIdx % NO_MATCH_LINES.length](q)
+  noMatchIdx++
+  return msg
+}
+
 /** shared AI call + post-processing (dedup emotes/mentions, append missing @mentions) */
 async function tryAiRespond(query: string, ctx: CommandContext, mentions: string[] = []): Promise<string | null> {
   let result: Awaited<ReturnType<typeof aiRespond>> = null
@@ -534,7 +552,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (cd > 0) {
     const suggestions = store.suggest(cleanArgs, 3)
     if (suggestions.length) return withSuffix(`try: ${suggestions.join(', ')}`, suffix)
-    return withSuffix(`no match for ${cleanArgs.slice(0, 40)}`, suffix)
+    return withSuffix(noMatchMsg(cleanArgs), suffix)
   }
 
   const aiResponse = await tryAiRespond(aiQuery, ctx, mentions)
@@ -554,7 +572,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   const suggestions = store.suggest(cleanArgs, 3)
   if (suggestions.length) return withSuffix(`try: ${suggestions.join(', ')}`, suffix)
-  return withSuffix(`no match for ${cleanArgs.slice(0, 40)}`, suffix)
+  return withSuffix(noMatchMsg(cleanArgs), suffix)
 }
 
 // --- !b AI fallback cooldown: per-user ---
