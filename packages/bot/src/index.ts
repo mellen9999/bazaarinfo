@@ -292,12 +292,14 @@ const client = new TwitchClient(
         }
         lastResponseTime.set(channel, Date.now())
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
-        // proxy !commands get @mention for context; normal responses send plain (no reply thread)
+        // always reply-thread UNLESS the response is a !command (proxy for Streamlabs)
         const responseIsCommand = /^!/.test(response)
+        const replyId = responseIsCommand ? undefined : messageId
+        // proxy !commands without thread need @mention for context
         const finalResponse = (responseIsCommand && messageId)
           ? `${response} @${username}`
           : response
-        client.say(channel, finalResponse)
+        client.say(channel, finalResponse, replyId)
         chatbuf.record(channel, BOT_USERNAME, response)
       }
     } catch (e) {

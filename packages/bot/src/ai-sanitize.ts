@@ -144,8 +144,9 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   const hasSecret = SECRET_PATTERN.test(s) || SECRET_PATTERN.test(preStrip)
   if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || META_INSTRUCTION.test(s) || JAILBREAK_ECHO.test(s) || INSTRUCTION_ECHO.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
 
-  // strip asker's name from body — they get auto-tagged at the end
+  // strip asker's name from body — they get auto-tagged by reply threading
   if (asker) {
+    s = s.replace(new RegExp(`@${asker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'gi'), '')
     s = s.replace(askerNameRe(asker), '')
     // fix orphan punctuation left by name removal (e.g. "you, . you" → "you. you")
     s = s.replace(/,\s*\./g, '.').replace(/\s{2,}/g, ' ')
