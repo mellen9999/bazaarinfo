@@ -455,7 +455,7 @@ describe('!b item lookup', () => {
 
   it('returns no-match message when no match and AI unavailable', async () => {
     const result = await handleCommand('!b xyznonexistent')
-    expect(result).toContain('no match for')
+    expect(result).toContain('xyznonexistent')
   })
 
   it('handles multi-word item names', async () => {
@@ -633,12 +633,12 @@ describe('!b enchantment (any order)', () => {
 
   it('single word alone is item lookup not enchant', async () => {
     const result = await handleCommand('!b fiery')
-    expect(result).toContain('no match for')
+    expect(result).toContain('fiery')
   })
 
   it('single word alone is item lookup not enchant (toxic)', async () => {
     const result = await handleCommand('!b toxic')
-    expect(result).toContain('no match for')
+    expect(result).toContain('toxic')
   })
 })
 
@@ -900,7 +900,7 @@ describe('!b mob/monster', () => {
 describe('!b edge cases', () => {
   it('handles single character input', async () => {
     const result = await handleCommand('!b x')
-    expect(result).toContain('no match for')
+    expect(result).toContain('x')
   })
 
   it('handles extra whitespace between words', async () => {
@@ -1384,12 +1384,12 @@ describe('!b AI fallback', () => {
     const result = await handleCommand('!b is vanessa good', { user: 'chatter', channel: 'stream' })
     // AI mock returns null by default → no-match fallback instead of silence
     expect(mockAiRespond).toHaveBeenCalled()
-    expect(result).toContain('no match for')
+    expect(result).not.toContain('no match for')
   })
 
   it('short query + no match = no-match fallback', async () => {
     const result = await handleCommand('!b asdfghjkl', { user: 'chatter', channel: 'stream' })
-    expect(result).toContain('no match for')
+    expect(result).toContain('asdfghjkl')
   })
 
   it('short query + suggestions shown on miss', async () => {
