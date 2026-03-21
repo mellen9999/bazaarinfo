@@ -244,31 +244,44 @@ export class TwitchClient {
 
   private async cleanupStaleSubscriptions() {
     try {
-      const res = await fetchWithTimeout(`${HELIX_URL}/eventsub/subscriptions`, {
-        headers: {
-          Authorization: `Bearer ${this.config.token}`,
-          'Client-Id': this.config.clientId,
-        },
-      })
-      if (!res.ok) return
-      const data = await res.json() as {
-        data: { id: string; status: string; transport: { session_id?: string } }[]
-      }
-      const stale = data.data.filter((s) =>
-        s.transport.session_id && s.transport.session_id !== this.sessionId
-      )
-      if (stale.length === 0) return
-      log(`eventsub: cleaning up ${stale.length} stale subscriptions`)
-      for (const sub of stale) {
-        try {
-          await fetchWithTimeout(`${HELIX_URL}/eventsub/subscriptions?id=${sub.id}`, {
-            method: 'DELETE',
-            headers: {
-              Authorization: `Bearer ${this.config.token}`,
-              'Client-Id': this.config.clientId,
-            },
-          })
-        } catch {}
+      let deleted = 0
+      let cursor: string | undefined
+      // paginate through all subscriptions
+      do {
+        const url = cursor
+          ? `${HELIX_URL}/eventsub/subscriptions?after=${cursor}`
+          : `${HELIX_URL}/eventsub/subscriptions`
+        const res = await fetchWithTimeout(url, {
+          headers: {
+            Authorization: `Bearer ${this.config.token}`,
+            'Client-Id': this.config.clientId,
+          },
+        })
+        if (!res.ok) break
+        const data = await res.json() as {
+          data: { id: string; status: string; transport: { session_id?: string } }[]
+          pagination?: { cursor?: string }
+        }
+        const stale = data.data.filter((s) =>
+          s.transport.session_id && s.transport.session_id !== this.sessionId
+        )
+        for (const sub of stale) {
+          try {
+            await fetchWithTimeout(`${HELIX_URL}/eventsub/subscriptions?id=${sub.id}`, {
+              method: 'DELETE',
+              headers: {
+                Authorization: `Bearer ${this.config.token}`,
+                'Client-Id': this.config.clientId,
+              },
+            })
+            deleted++
+          } catch {}
+        }
+        cursor = data.pagination?.cursor
+      } while (cursor)
+      if (deleted > 0) {
+        log(`eventsub: cleaned up ${deleted} stale subscriptions, waiting 2s for Twitch to process`)
+        await new Promise((r) => setTimeout(r, 2000))
       }
     } catch (e) {
       log(`eventsub: cleanup failed: ${e}`)
