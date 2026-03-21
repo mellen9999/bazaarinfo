@@ -292,18 +292,12 @@ const client = new TwitchClient(
         }
         lastResponseTime.set(channel, Date.now())
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
-        // always reply-thread UNLESS the response is a !command (proxy for Streamlabs)
+        // proxy !commands get @mention for context; normal responses send plain (no reply thread)
         const responseIsCommand = /^!/.test(response)
-        const replyId = responseIsCommand ? undefined : messageId
-        // proxy !commands without thread need @mention for context
-        let finalResponse = response
-        if (responseIsCommand && messageId) {
-          finalResponse = `${response} @${username}`
-        } else if (replyId) {
-          // strip leading @mention — Twitch reply threading already tags the user
-          finalResponse = finalResponse.replace(new RegExp(`^@${username}\\s+`, 'i'), '')
-        }
-        client.say(channel, finalResponse, replyId)
+        const finalResponse = (responseIsCommand && messageId)
+          ? `${response} @${username}`
+          : response
+        client.say(channel, finalResponse)
         chatbuf.record(channel, BOT_USERNAME, response)
       }
     } catch (e) {
