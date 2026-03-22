@@ -586,7 +586,7 @@ export function buildRecallContext(query: string, channel: string): string {
 
 // --- chat history recall ---
 
-export const RECALL_INTENT = /\b(did|what did|when did|has|have|was|were|earlier|before|ago|said|told|say|suggest|recommend|mention|talk about|remember when|bring up|ask about|promise|claim|called? me|how many|how often|count|times|frequently)\b/i
+export const RECALL_INTENT = /\b(did|what did|when did|has|have|was|were|earlier|before|ago|said|told|say|suggest|recommend|mention|talk about|remember|bring up|ask about|promise|claim|called? me|how many|how often|count|times|frequently|earliest|first|oldest|history|messages?|sent|talked|chatted)\b/i
 
 export const COMMON_WORDS = new Set([
   'beau', 'grace', 'hope', 'jade', 'max', 'ruby', 'angel', 'chase', 'drew',
@@ -636,10 +636,14 @@ export function buildChatRecallFTS(query: string, excludeUser: string): string |
   return words.map((w) => `"${w}"`).join(' OR ')
 }
 
-export function buildChatRecall(query: string, channel: string): string {
+export function buildChatRecall(query: string, channel: string, asker?: string): string {
   if (!RECALL_INTENT.test(query) && !/@[a-zA-Z0-9_]+/.test(query)) return ''
 
-  const user = findReferencedUser(query, channel)
+  let user = findReferencedUser(query, channel)
+  // first-person pronouns ("i sent you", "my messages", "me") → asker is the target
+  if (!user && asker && /\b(i\s|my\s|me\b|i'v?e?\b|myself)\b/i.test(query)) {
+    user = asker.toLowerCase()
+  }
   if (!user) return ''
 
   const timeWindow = parseChatTimeWindow(query)
@@ -667,12 +671,14 @@ export function buildChatRecall(query: string, channel: string): string {
     return statsLine
   }
 
+  const wantsOldest = /\b(earliest|first|oldest)\b/i.test(query)
+
   const now = Date.now()
   const lines: string[] = []
   const seen = new Set<string>()
 
   const ftsQuery = buildChatRecallFTS(query, user)
-  if (ftsQuery) {
+  if (ftsQuery && !wantsOldest) {
     for (const h of db.searchChatFTS(channel, ftsQuery, 8, user)) {
       seen.add(h.message)
       lines.push(`[${formatAge(h.created_at, now)}] ${h.username}: ${h.message.replace(/\n/g, ' ')}`)
@@ -680,7 +686,10 @@ export function buildChatRecall(query: string, channel: string): string {
   }
 
   if (lines.length < 5) {
-    for (const r of db.getUserMessagesDetailed(user, channel, 10)) {
+    const detailed = wantsOldest
+      ? db.getUserMessagesOldest(user, channel, 10)
+      : db.getUserMessagesDetailed(user, channel, 10)
+    for (const r of detailed) {
       if (lines.length >= 10) break
       if (seen.has(r.message)) continue
       lines.push(`[${formatAge(r.created_at, now)}] ${r.username}: ${r.message.replace(/\n/g, ' ')}`)
@@ -689,7 +698,7 @@ export function buildChatRecall(query: string, channel: string): string {
 
   if (lines.length === 0) return ''
   let text = `Chat history (${user}):\n${lines.join('\n')}`
-  if (text.length > 600) text = text.slice(0, 600)
+  if (text.length > 1200) text = text.slice(0, 1200)
   return text
 }
 
@@ -949,7 +958,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const recallLine = isShortFollowup ? '' : buildRecallContext(query, ctx.channel)
 
   // chat history recall
-  const chatRecallLine = buildChatRecall(query, ctx.channel)
+  const chatRecallLine = buildChatRecall(query, ctx.channel, ctx.user)
 
   // channel-wide recent responses — anti-repetition
   const recentAll = getChannelRecentResponses(ctx.channel)

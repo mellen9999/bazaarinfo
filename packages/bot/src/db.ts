@@ -857,6 +857,13 @@ export function getUserMessagesDetailed(username: string, channel: string, limit
   return stmts.userMessagesDetailed.all(username.toLowerCase(), channel, limit) as FTSResult[]
 }
 
+// per-user oldest messages (for "earliest/first message" queries)
+export function getUserMessagesOldest(username: string, channel: string, limit = 10): FTSResult[] {
+  return db.query(
+    'SELECT username, message, created_at FROM chat_messages WHERE LOWER(username) = ? AND channel = ? ORDER BY created_at ASC LIMIT ?',
+  ).all(username.toLowerCase(), channel, limit) as FTSResult[]
+}
+
 // user's top looked-up items
 export function getUserTopItems(username: string, limit = 5): string[] {
   const lower = username.toLowerCase()
