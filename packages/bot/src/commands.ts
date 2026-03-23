@@ -373,8 +373,18 @@ function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: Tie
   return { tier: undefined, note: null }
 }
 
+// strip conversational prefixes so "what is birdge" → "birdge"
+const QUESTION_PREFIX = /^(?:what(?:'s| is| are| about)?|how about|tell me about|show me|look up|find me|can you (?:find|look up|show))\s+/i
+
+function stripQuestionPrefix(s: string): string {
+  const stripped = s.replace(QUESTION_PREFIX, '')
+  // only strip if something meaningful remains
+  return stripped.length >= 2 ? stripped : s
+}
+
 async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string | null> {
-  const words = cleanArgs.split(/\s+/)
+  const stripped = stripQuestionPrefix(cleanArgs)
+  const words = stripped.split(/\s+/)
   const { item: query, tier, enchant } = parseArgs(words)
 
   if (!query) return BASE_USAGE + JOIN_USAGE()
@@ -398,10 +408,8 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     const titleWords = title.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s\-]+/)
     // single-word query: must appear as substring in title (enrage ≠ Leverage Momentum)
     if (queryWords.length === 1) return titleWords.some((tw) => tw.includes(queryWords[0]) || queryWords[0].includes(tw))
-    // short queries (2-3 words): at least one word overlap
-    if (queryWords.length <= 3) return titleWords.some((tw) => tw.length >= 3 && queryWords.includes(tw))
-    // conversational (>3 words): same word overlap check
-    return titleWords.some((tw) => tw.length >= 3 && queryWords.includes(tw))
+    // multi-word: exact word overlap OR substring containment (pinkbirdge contains birdge)
+    return titleWords.some((tw) => tw.length >= 3 && (queryWords.includes(tw) || queryWords.some((qw) => qw.length >= 3 && (qw.includes(tw) || tw.includes(qw)))))
   }
 
   if (card && isRelevantMatch(card.Title, !!exactCard)) {
