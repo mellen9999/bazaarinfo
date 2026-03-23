@@ -5,6 +5,7 @@ import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation } from './ai'
+import { isEmote } from './emotes'
 import { getThread } from './chatbuf'
 import { log } from './log'
 
@@ -426,6 +427,10 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   logMiss(query, ctx)
+
+  // check if query is a known emote (prevent AI hallucination for emote lookups)
+  const emoteWord = queryWords.find((w) => isEmote(w))
+  if (emoteWord) return withSuffix(`${emoteWord} is an emote, not a bazaar item`, suffix)
 
   if (queryWords.length <= 2) {
     const suggestions = store.suggest(query, 3)
