@@ -282,6 +282,15 @@ export function fixEmoteCase(text: string, channel?: string): string {
   }).join('')
 }
 
+export function fixEmotePunctuation(text: string, channel?: string): string {
+  if (!channel) return text
+  const emoteSet = new Set(getEmotesForChannel(channel))
+  // strip trailing punctuation glued to emote words (breaks rendering)
+  return text.replace(/(\S+)([.,;:!?]+)/g, (full, word, punct) => {
+    return emoteSet.has(word) ? word : full
+  })
+}
+
 export function dedupeEmote(text: string, channel?: string): string {
   if (!channel) return text
   const emoteSet = new Set(getEmotesForChannel(channel))
