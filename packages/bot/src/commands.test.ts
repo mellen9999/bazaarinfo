@@ -71,6 +71,7 @@ mock.module('./ai', () => ({
   sanitize: mock((t: string) => ({ text: t, mentions: [] })),
   dedupeEmote: mock((t: string) => t),
   fixEmoteCase: mock((t: string) => t),
+  fixEmotePunctuation: mock((t: string) => t),
   dedupeMention: mock((t: string) => t),
 }))
 
