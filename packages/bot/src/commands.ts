@@ -375,7 +375,8 @@ function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: Tie
 }
 
 // strip conversational prefixes so "what is birdge" → "birdge"
-const QUESTION_PREFIX = /^(?:what(?:'s| is| are| about)?|how about|tell me about|show me|look up|find me|can you (?:find|look up|show))\s+/i
+// "how about" / "what about" excluded — they're continuations, not direct lookups
+const QUESTION_PREFIX = /^(?:what(?:'?s | is | are )|tell me about |show me |look up |find me |can you (?:find |look up |show ))/i
 
 function stripQuestionPrefix(s: string): string {
   const stripped = s.replace(QUESTION_PREFIX, '')
@@ -544,7 +545,9 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   // detect conversational/creative queries that should skip item lookup entirely
   const isGreeting = /^(h(ello|i|ey|owdy)|yo|sup|hey+|what'?s? ?up|greetings|hola|whats good|good (morning|evening|night)|gm|gn|gg|ty|thanks|thank you|lol|lmao|wow|nice|cool|pog|based|true|real|facts|nah|bruh|bro|dude|man|omg|rip|oof|haha|o7|bye|cya|later|peace|gl|hf|glhf|ggs)\b/i.test(cleanArgs)
+  const isContinuation = /^(how about|what about|and |or |but )\b/i.test(cleanArgs)
   const isConversational = isGreeting
+    || isContinuation
     || cleanArgs.split(/\s+/).length > 4
     || /\b(continue|extend|expand|write|make|create|do|say|tell|give|sing|rap|roast|rate|rank|compare|explain|describe|imagine|pretend|spam|repeat)\b/i.test(cleanArgs)
 
