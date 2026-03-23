@@ -161,6 +161,10 @@ export async function refreshChannelEmotes(channel: string, channelId: string): 
   return fetched
 }
 
+export function isEmote(name: string): boolean {
+  return allEmoteNames.has(name)
+}
+
 export function getEmotesForChannel(channel: string): string[] {
   const cached = mergedCache.get(channel)
   if (cached) return cached
