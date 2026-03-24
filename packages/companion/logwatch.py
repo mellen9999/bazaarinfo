@@ -29,12 +29,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Player.log path inside Proton prefix
-DEFAULT_LOG = (
-    Path.home()
-    / ".local/share/Steam/steamapps/compatdata/1617400/pfx/drive_c"
-    / "users/steamuser/AppData/LocalLow/Tempo Storm/The Bazaar/Player.log"
-)
+# Player.log path — auto-detect platform
+if os.name == "nt":
+    DEFAULT_LOG = (
+        Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming")).parent
+        / "LocalLow/Tempo Storm/The Bazaar/Player.log"
+    )
+else:
+    DEFAULT_LOG = (
+        Path.home()
+        / ".local/share/Steam/steamapps/compatdata/1617400/pfx/drive_c"
+        / "users/steamuser/AppData/LocalLow/Tempo Storm/The Bazaar/Player.log"
+    )
 
 # --- Log parsing patterns ---
 
