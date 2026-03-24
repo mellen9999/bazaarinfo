@@ -4,38 +4,6 @@ Twitch bot + overlay for [The Bazaar](https://www.playthebazaar.com/). Card look
 
 ---
 
-## chat bot
-
-Card info straight from Twitch chat. Works in any channel the bot has joined.
-
-### add to your channel
-
-1. go to [twitch.tv/bazaarinfo](https://twitch.tv/bazaarinfo)
-2. type `!join` in chat
-3. the bot joins your channel instantly — type `!b help` to confirm
-
-to remove: type `!part` in the bazaarinfo channel.
-
-### commands
-
-```
-!b <item> [tier] [enchant]   card lookup (fuzzy matched)
-!b hero <name>               list hero's items
-!b mob <name>                monster stats + skills
-!b skill <name>              skill details
-!b tag <tag>                 items by tag
-!b day <n>                   monsters by encounter day
-!b enchants                  list all enchantments
-!b trivia [category]         start a trivia round
-!b score                     trivia leaderboard
-!b stats [@user]             player trivia stats
-!b top                       channel trivia leaders
-!b <question>                ask anything (AI)
-!b help                      show usage
-```
-
----
-
 ## stream overlay
 
 Shows real-time card tooltips on your stream. When a viewer watches in fullscreen, they can hover over any card on your board to see its stats, tier, and abilities.
@@ -135,6 +103,38 @@ EBS (ebs.bazaarinfo.com)
     ↓ broadcasts via Twitch PubSub
 Extension overlay (viewer's browser)
     ↓ renders card tooltips on hover
+```
+
+---
+
+## chat bot
+
+Card info straight from Twitch chat. Works in any channel the bot has joined.
+
+### add to your channel
+
+1. go to [twitch.tv/bazaarinfo](https://twitch.tv/bazaarinfo)
+2. type `!join` in chat
+3. the bot joins your channel instantly — type `!b help` to confirm
+
+to remove: type `!part` in the bazaarinfo channel.
+
+### commands
+
+```
+!b <item> [tier] [enchant]   card lookup (fuzzy matched)
+!b hero <name>               list hero's items
+!b mob <name>                monster stats + skills
+!b skill <name>              skill details
+!b tag <tag>                 items by tag
+!b day <n>                   monsters by encounter day
+!b enchants                  list all enchantments
+!b trivia [category]         start a trivia round
+!b score                     trivia leaderboard
+!b stats [@user]             player trivia stats
+!b top                       channel trivia leaders
+!b <question>                ask anything (AI)
+!b help                      show usage
 ```
 
 ---
