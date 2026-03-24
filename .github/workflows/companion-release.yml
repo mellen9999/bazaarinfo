@@ -1,0 +1,110 @@
+name: Build Companion
+
+on:
+  push:
+    tags: ['companion-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r packages/companion/requirements.txt
+          pip install pyinstaller
+
+      - name: Build exe
+        run: |
+          cd packages/companion
+          pyinstaller --onefile --name bazaarinfo-companion --console --icon NONE logwatch.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-windows
+          path: packages/companion/dist/bazaarinfo-companion.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r packages/companion/requirements.txt
+          pip install pyinstaller
+
+      - name: Build binary
+        run: |
+          cd packages/companion
+          pyinstaller --onefile --name bazaarinfo-companion --console logwatch.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-linux
+          path: packages/companion/dist/bazaarinfo-companion
+
+  release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: companion-windows
+          path: artifacts/windows
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: companion-linux
+          path: artifacts/linux
+
+      - name: Rename artifacts
+        run: |
+          mv artifacts/windows/bazaarinfo-companion.exe artifacts/bazaarinfo-companion-windows.exe
+          mv artifacts/linux/bazaarinfo-companion artifacts/bazaarinfo-companion-linux
+          chmod +x artifacts/bazaarinfo-companion-linux
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        with:
+          name: "BazaarInfo Companion ${{ github.ref_name }}"
+          body: |
+            ## BazaarInfo Companion
+
+            Streams your card data to the BazaarInfo Twitch overlay so viewers can see card tooltips.
+
+            ### Setup
+            1. Install the [BazaarInfo extension](https://dashboard.twitch.tv/extensions/nlhnk69thm8drl49k4h7v18u3365fu) on your Twitch channel
+            2. Go to Extensions > BazaarInfo > Configure to get your Channel ID and Secret
+            3. Download the companion for your platform below
+            4. Run it and enter your Channel ID and Secret when prompted
+            5. Launch The Bazaar and start a game — the overlay will show card tooltips automatically
+
+            ### Downloads
+            - **Windows**: `bazaarinfo-companion-windows.exe` — double-click to run
+            - **Linux**: `bazaarinfo-companion-linux` — `chmod +x` and run
+
+            Settings are saved to `config.ini` next to the executable. Run with `--setup` to reconfigure.
+          files: |
+            artifacts/bazaarinfo-companion-windows.exe
+            artifacts/bazaarinfo-companion-linux
+          draft: false
+          prerelease: false

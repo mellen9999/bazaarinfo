@@ -8,6 +8,7 @@ __pycache__/
 *.npz
 packages/companion/card_images/
 packages/companion/features/
+packages/companion/config.ini
 
 # Claude Code (local only)
 CLAUDE.md
