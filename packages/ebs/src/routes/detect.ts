@@ -84,7 +84,7 @@ export async function handleDetect(req: Request): Promise<Response> {
     return new Response('bad request', { status: 400 })
   }
 
-  if (!verifyCompanionSecret(body.secret)) {
+  if (!verifyCompanionSecret(body.secret, body.channelId)) {
     return new Response('unauthorized', { status: 401 })
   }
 

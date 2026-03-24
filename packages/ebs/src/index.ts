@@ -3,7 +3,7 @@
 
 import { readFileSync } from 'fs'
 import type { CardCache } from '@bazaarinfo/shared'
-import { verifyTwitchJwt } from './auth'
+import { verifyTwitchJwt, deriveChannelSecret } from './auth'
 import { handleCards, setCardCache } from './routes/cards'
 import { handleImage } from './routes/images'
 import { handleDetect } from './routes/detect'
@@ -77,12 +77,23 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   // All other routes require valid Twitch JWT
+  let twitchAuth: Awaited<ReturnType<typeof verifyTwitchJwt>> = null
   if (path.startsWith('/api/')) {
-    const auth = await verifyTwitchJwt(req.headers.get('Authorization'))
-    if (!auth) {
+    twitchAuth = await verifyTwitchJwt(req.headers.get('Authorization'))
+    if (!twitchAuth) {
       console.log(`[ebs] auth failed: ${path}`)
       return cors(new Response('unauthorized', { status: 401 }), origin)
     }
+  }
+
+  // GET /api/companion-setup — broadcaster gets their companion secret + channel_id
+  if (req.method === 'GET' && path === '/api/companion-setup' && twitchAuth) {
+    if (twitchAuth.role !== 'broadcaster') {
+      return cors(new Response('broadcaster only', { status: 403 }), origin)
+    }
+    const channelId = twitchAuth.channel_id
+    const secret = deriveChannelSecret(channelId)
+    return cors(Response.json({ channelId, secret }), origin)
   }
 
   // GET /api/cards
