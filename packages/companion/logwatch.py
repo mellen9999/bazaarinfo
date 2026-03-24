@@ -29,18 +29,97 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Player.log path — auto-detect platform
-if os.name == "nt":
-    DEFAULT_LOG = (
-        Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming")).parent
-        / "LocalLow/Tempo Storm/The Bazaar/Player.log"
-    )
-else:
-    DEFAULT_LOG = (
+# --- Platform-aware path detection ---
+
+STEAM_APPID = "1617400"
+GAME_DIR_NAME = "The Bazaar"
+LOG_SUBPATH = Path("Tempo Storm/The Bazaar/Player.log")
+CARDS_SUBPATH = Path("TheBazaar_Data/StreamingAssets/cards.json")
+
+
+def _find_steam_library_dirs() -> list[Path]:
+    """Find all Steam library directories from libraryfolders.vdf."""
+    candidates = []
+    if os.name == "nt":
+        vdf_paths = [
+            Path(os.environ.get("PROGRAMFILES(X86)", "C:/Program Files (x86)"))
+            / "Steam/steamapps/libraryfolders.vdf",
+            Path(os.environ.get("PROGRAMFILES", "C:/Program Files"))
+            / "Steam/steamapps/libraryfolders.vdf",
+        ]
+    else:
+        vdf_paths = [
+            Path.home() / ".local/share/Steam/steamapps/libraryfolders.vdf",
+            Path.home() / ".steam/steam/steamapps/libraryfolders.vdf",
+        ]
+
+    for vdf in vdf_paths:
+        if not vdf.exists():
+            continue
+        try:
+            with open(vdf) as f:
+                for line in f:
+                    m = re.search(r'"path"\s+"([^"]+)"', line)
+                    if m:
+                        candidates.append(Path(m.group(1)) / "steamapps")
+        except Exception:
+            pass
+
+    # Always include default locations
+    if os.name == "nt":
+        candidates.append(
+            Path(os.environ.get("PROGRAMFILES(X86)", "C:/Program Files (x86)"))
+            / "Steam/steamapps"
+        )
+    else:
+        candidates.append(Path.home() / ".local/share/Steam/steamapps")
+
+    return list(dict.fromkeys(candidates))  # dedupe, preserve order
+
+
+def find_game_dir() -> Path | None:
+    """Find The Bazaar install directory across Steam libraries."""
+    for lib in _find_steam_library_dirs():
+        game = lib / "common" / GAME_DIR_NAME
+        if game.exists():
+            return game
+    return None
+
+
+def find_player_log() -> Path:
+    """Find Player.log path for the current platform."""
+    if os.name == "nt":
+        return (
+            Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming")).parent
+            / "LocalLow" / LOG_SUBPATH
+        )
+    # Linux: check Proton prefix
+    for lib in _find_steam_library_dirs():
+        proton_log = (
+            lib / "compatdata" / STEAM_APPID / "pfx/drive_c"
+            / "users/steamuser/AppData/LocalLow" / LOG_SUBPATH
+        )
+        if proton_log.exists():
+            return proton_log
+    # Fallback to default
+    return (
         Path.home()
-        / ".local/share/Steam/steamapps/compatdata/1617400/pfx/drive_c"
-        / "users/steamuser/AppData/LocalLow/Tempo Storm/The Bazaar/Player.log"
+        / ".local/share/Steam/steamapps/compatdata" / STEAM_APPID / "pfx/drive_c"
+        / "users/steamuser/AppData/LocalLow" / LOG_SUBPATH
     )
+
+
+def find_cards_json() -> Path | None:
+    """Find cards.json in the game directory."""
+    game = find_game_dir()
+    if game:
+        cards = game / CARDS_SUBPATH
+        if cards.exists():
+            return cards
+    return None
+
+
+DEFAULT_LOG = find_player_log()
 
 # --- Log parsing patterns ---
 
@@ -627,6 +706,36 @@ def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, d
                 time.sleep(1)
 
 
+def setup_config(config_path: Path):
+    """Interactive first-time setup — creates config.ini."""
+    print("\n=== BazaarInfo Companion Setup ===")
+    print("Get your Channel ID and Secret from the extension config page:")
+    print("  Twitch Dashboard > Extensions > BazaarInfo > Configure\n")
+
+    channel_id = input("Channel ID: ").strip()
+    if not channel_id:
+        print("Channel ID is required")
+        raise SystemExit(1)
+
+    secret = input("Companion Secret: ").strip()
+    if not secret:
+        print("Secret is required")
+        raise SystemExit(1)
+
+    config = configparser.ConfigParser()
+    config["ebs"] = {
+        "url": "https://ebs.bazaarinfo.com",
+        "channel_id": channel_id,
+        "secret": secret,
+    }
+
+    with open(config_path, "w") as f:
+        config.write(f)
+
+    print(f"\nConfig saved to {config_path}")
+    print("Starting companion...\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Bazaar log watcher companion")
     parser.add_argument("--config", type=Path, default=Path(__file__).parent / "config.ini")
@@ -638,19 +747,15 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
 
     if not args.config.exists():
-        logger.error("Config not found: %s", args.config)
-        raise SystemExit(1)
+        logger.info("No config.ini found — running first-time setup")
+        setup_config(args.config)
 
     config = configparser.ConfigParser()
     config.read(args.config)
 
-    game_cards = (
-        Path.home()
-        / ".local/share/Steam/steamapps/common/The Bazaar"
-        / "TheBazaar_Data/StreamingAssets/cards.json"
-    )
-    if not game_cards.exists():
-        logger.error("Game cards.json not found: %s", game_cards)
+    game_cards = find_cards_json()
+    if not game_cards:
+        logger.error("Game cards.json not found — is The Bazaar installed via Steam?")
         raise SystemExit(1)
 
     card_db = load_card_db(game_cards)
