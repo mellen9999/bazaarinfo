@@ -8,8 +8,10 @@ overlay positions to the EBS.
 Replaces BepInEx plugin — no game memory hooks, TOS-safe.
 
 Usage:
-    python logwatch.py [--config config.ini] [--debug]
+    python logwatch.py [--config config.ini] [--debug] [--setup]
 """
+
+VERSION = "1.0.0"
 
 import argparse
 import configparser
@@ -17,6 +19,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 from pathlib import Path
 
@@ -35,6 +38,9 @@ STEAM_APPID = "1617400"
 GAME_DIR_NAME = "The Bazaar"
 LOG_SUBPATH = Path("Tempo Storm/The Bazaar/Player.log")
 CARDS_SUBPATH = Path("TheBazaar_Data/StreamingAssets/cards.json")
+
+# How often to re-send current state (handles EBS recovery)
+HEARTBEAT_INTERVAL = 30
 
 
 def _find_steam_library_dirs() -> list[Path]:
@@ -117,6 +123,24 @@ def find_cards_json() -> Path | None:
         if cards.exists():
             return cards
     return None
+
+
+def wait_for_file(path: Path, label: str, timeout: float = 0) -> bool:
+    """Wait for a file to appear. Returns True if found, False on timeout.
+    timeout=0 means wait forever.
+    """
+    if path.exists():
+        return True
+    logger.info("Waiting for %s: %s", label, path)
+    logger.info("Launch The Bazaar to continue...")
+    start = time.monotonic()
+    while True:
+        time.sleep(2)
+        if path.exists():
+            logger.info("Found %s", label)
+            return True
+        if timeout and (time.monotonic() - start) > timeout:
+            return False
 
 
 DEFAULT_LOG = find_player_log()
@@ -213,9 +237,23 @@ def load_card_db(cards_json: Path) -> dict:
     with open(cards_json) as f:
         data = json.load(f)
 
-    cards = data.get("5.0.0", data) if isinstance(data, dict) else data
+    # cards.json wraps cards under a version key — find the list
+    cards = data
+    if isinstance(data, dict):
+        # Try each key until we find one that holds a list
+        for key in sorted(data.keys(), reverse=True):
+            if isinstance(data[key], list) and len(data[key]) > 0:
+                cards = data[key]
+                break
+
+    if not isinstance(cards, list):
+        logger.error("Unexpected cards.json format — expected a list of cards")
+        raise SystemExit(1)
+
     db = {}
     for c in cards:
+        if not isinstance(c, dict):
+            continue
         tid = c.get("Id", "")
         title = c.get("Localization", {}).get("Title", {}).get("Text", "")
         if not title:
@@ -318,10 +356,9 @@ def build_payload(state: dict) -> dict:
     return {"cards": cards, "shop": shop}
 
 
-def send_state(ebs_url: str, channel_id: str, secret: str, state: dict):
-    """POST current game state to EBS."""
+def send_state(ebs_url: str, channel_id: str, secret: str, state: dict) -> bool:
+    """POST current game state to EBS. Returns True on success."""
     if not state["show_overlay"]:
-        # Send empty to clear overlay
         payload = {"cards": [], "shop": []}
     else:
         payload = build_payload(state)
@@ -341,10 +378,13 @@ def send_state(ebs_url: str, channel_id: str, secret: str, state: dict):
         ns = len(payload.get("shop", []))
         if r.ok:
             logger.info("Broadcast %d cards, %d shop", n, ns)
+            return True
         else:
             logger.warning("EBS returned %d: %s", r.status_code, r.text[:200])
+            return False
     except Exception as e:
         logger.error("Send failed: %s", e)
+        return False
 
 
 def new_state() -> dict:
@@ -670,29 +710,46 @@ def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, d
 
     logger.info("Watching %s", log_path)
 
-    with open(log_path, errors="replace") as f:
-        f.seek(0, 2)
-        last_inode = log_path.stat().st_ino
-        last_size = log_path.stat().st_size
+    last_send = time.monotonic()
+    last_inode = log_path.stat().st_ino
+    last_size = log_path.stat().st_size
+    f = open(log_path, errors="replace")
+    f.seek(0, 2)
 
+    try:
         while True:
             try:
                 line = f.readline()
                 if not line:
                     time.sleep(0.1)
+
+                    # Heartbeat: re-send state periodically so EBS recovery works
+                    now = time.monotonic()
+                    if state["show_overlay"] and (now - last_send) >= HEARTBEAT_INTERVAL:
+                        if send_state(ebs_url, channel_id, secret, state):
+                            last_send = now
+
                     # Check for log rotation or truncation
                     try:
                         st = log_path.stat()
                     except FileNotFoundError:
                         logger.warning("Log file disappeared, waiting...")
-                        time.sleep(1)
+                        time.sleep(2)
                         continue
                     if st.st_ino != last_inode or st.st_size < last_size:
-                        logger.info("Log rotated/truncated, reopening...")
+                        logger.info("Log rotated/truncated, reopening and rebuilding state...")
                         f.close()
+                        # Wait a moment for the new log to be written
+                        time.sleep(0.5)
+                        # Rebuild state from the new log
+                        state = build_initial_state(log_path, card_db)
                         f = open(log_path, errors="replace")
-                        last_inode = st.st_ino
-                        last_size = st.st_size
+                        f.seek(0, 2)
+                        last_inode = log_path.stat().st_ino
+                        last_size = log_path.stat().st_size
+                        if state["show_overlay"]:
+                            send_state(ebs_url, channel_id, secret, state)
+                            last_send = time.monotonic()
                     else:
                         last_size = st.st_size
                     continue
@@ -700,21 +757,46 @@ def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, d
                 last_size = log_path.stat().st_size
                 line = line.strip()
                 if process_line(line, state, card_db, debug):
-                    send_state(ebs_url, channel_id, secret, state)
+                    if send_state(ebs_url, channel_id, secret, state):
+                        last_send = time.monotonic()
             except Exception as e:
                 logger.error("Tail loop error: %s", e)
                 time.sleep(1)
+    finally:
+        f.close()
+
+
+def validate_config(config: configparser.ConfigParser) -> bool:
+    """Validate config has all required fields. Returns True if valid."""
+    required = {"ebs": ["url", "channel_id", "secret"]}
+    ok = True
+    for section, keys in required.items():
+        if not config.has_section(section):
+            logger.error("Config missing [%s] section", section)
+            ok = False
+            continue
+        for key in keys:
+            if not config.has_option(section, key) or not config.get(section, key).strip():
+                logger.error("Config missing %s.%s", section, key)
+                ok = False
+    return ok
 
 
 def setup_config(config_path: Path):
     """Interactive first-time setup — creates config.ini."""
-    print("\n=== BazaarInfo Companion Setup ===")
+    print()
+    print("=== BazaarInfo Companion Setup ===")
+    print()
     print("Get your Channel ID and Secret from the extension config page:")
-    print("  Twitch Dashboard > Extensions > BazaarInfo > Configure\n")
+    print("  Twitch Dashboard > Extensions > BazaarInfo > Configure")
+    print()
 
     channel_id = input("Channel ID: ").strip()
     if not channel_id:
         print("Channel ID is required")
+        raise SystemExit(1)
+    if not channel_id.isdigit():
+        print("Channel ID should be a number (e.g. 73266147)")
         raise SystemExit(1)
 
     secret = input("Companion Secret: ").strip()
@@ -736,35 +818,60 @@ def setup_config(config_path: Path):
     print("Starting companion...\n")
 
 
+def print_banner():
+    """Print startup banner."""
+    print()
+    print(f"  BazaarInfo Companion v{VERSION}")
+    print(f"  Platform: {'Windows' if os.name == 'nt' else 'Linux'}")
+    game = find_game_dir()
+    if game:
+        print(f"  Game: {game}")
+    print()
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Bazaar log watcher companion")
+    parser = argparse.ArgumentParser(
+        description="BazaarInfo companion — streams card data to the Twitch overlay"
+    )
     parser.add_argument("--config", type=Path, default=Path(__file__).parent / "config.ini")
     parser.add_argument("--log", type=Path, default=DEFAULT_LOG)
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--setup", action="store_true", help="re-run first-time setup")
+    parser.add_argument("--version", action="version", version=f"bazaarinfo-companion {VERSION}")
     args = parser.parse_args()
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    if not args.config.exists():
-        logger.info("No config.ini found — running first-time setup")
+    print_banner()
+
+    # Setup
+    if args.setup or not args.config.exists():
+        if args.config.exists() and args.setup:
+            logger.info("Re-running setup (existing config will be overwritten)")
         setup_config(args.config)
 
+    # Load and validate config
     config = configparser.ConfigParser()
     config.read(args.config)
+    if not validate_config(config):
+        logger.error("Fix config.ini or run with --setup to reconfigure")
+        raise SystemExit(1)
 
+    # Find cards.json (wait if game not installed yet)
     game_cards = find_cards_json()
     if not game_cards:
-        logger.error("Game cards.json not found — is The Bazaar installed via Steam?")
+        logger.error("cards.json not found — is The Bazaar installed via Steam?")
+        logger.info("Install The Bazaar and run it once, then restart the companion")
         raise SystemExit(1)
 
     card_db = load_card_db(game_cards)
 
-    if not args.log.exists():
-        logger.error("Player.log not found: %s", args.log)
-        raise SystemExit(1)
+    # Wait for Player.log (created on first game launch)
+    log_path = args.log
+    wait_for_file(log_path, "Player.log")
 
-    tail_log(args.log, card_db, config, args.debug)
+    tail_log(log_path, card_db, config, args.debug)
 
 
 if __name__ == "__main__":
