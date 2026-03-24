@@ -6,7 +6,7 @@ Twitch bot + overlay for [The Bazaar](https://www.playthebazaar.com/). Card look
 
 ## stream overlay
 
-Shows real-time card tooltips on your stream. When a viewer watches in fullscreen, they can hover over any card on your board to see its stats, tier, and abilities.
+Shows real-time card tooltips on your stream. Viewers can hover over any card on your board to see its stats, tier, and abilities.
 
 The overlay reads your game's log file — no memory hooks, no game modification, fully TOS-safe.
 
@@ -17,7 +17,7 @@ The overlay reads your game's log file — no memory hooks, no game modification
 1. go to your [Twitch Dashboard](https://dashboard.twitch.tv/extensions)
 2. search **BazaarInfo** in the extension manager
 3. click **Install**, then **Activate** as an Overlay
-4. the overlay only appears in fullscreen/theatre mode for viewers
+4. the overlay appears on the video for all viewers
 
 **step 2: get your credentials**
 
@@ -87,7 +87,7 @@ python logwatch.py --setup
 |---------|-----|
 | companion says "waiting for Player.log" | launch The Bazaar — the log is created on first game start |
 | companion says "cards.json not found" | The Bazaar isn't installed via Steam, or hasn't been run once |
-| overlay not visible | only shows in fullscreen/theatre mode. check the extension is activated (not just installed) |
+| overlay not visible | check the extension is activated (not just installed). viewer must click the overlay icon on the video player |
 | "unauthorized" from EBS | re-run with `--setup` and re-enter your secret from the config page |
 | SmartScreen blocks the exe | click **More info** → **Run anyway** |
 | companion crashes on startup | delete `config.ini` next to the exe and re-run to reconfigure |
