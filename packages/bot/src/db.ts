@@ -1113,6 +1113,18 @@ export function pruneOldSummaries(days = 30) {
   }
 }
 
+export function pruneOldAsks(days = 365) {
+  try {
+    const result = db.run(
+      `DELETE FROM ask_queries WHERE created_at < datetime('now', ?)`,
+      [`-${days} days`],
+    )
+    if (result.changes > 0) log(`pruned ${result.changes} ask queries older than ${days}d`)
+  } catch (e) {
+    log(`ask prune error: ${e}`)
+  }
+}
+
 // --- chat lessons helpers ---
 
 export function insertChatLesson(lesson: string): void {
