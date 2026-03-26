@@ -50,7 +50,7 @@ export const MOD_ONLY = new Set([
 ])
 
 export function hasDangerousCommand(text: string): boolean {
-  for (const m of text.matchAll(/[\\/.]\s*(\w+)/gi))
+  for (const m of text.matchAll(/[!\\/.][\s\u200B]*(\w+)/gi))
     if (ALWAYS_BLOCKED.has(m[1].toLowerCase())) return true
   return false
 }
@@ -63,7 +63,7 @@ export function hasModCommand(text: string): boolean {
 
 // --- secret pattern ---
 
-export const SECRET_PATTERN = /\b(sk-ant-\S+|sk-[a-zA-Z0-9-]{20,}|ANTHROPIC_API_KEY|TWITCH_CLIENT_ID|TWITCH_CLIENT_SECRET|TWITCH_ACCESS_TOKEN|TWITCH_CHANNELS|BOT_OWNER|ALIAS_ADMINS|AI_VIP|process\.env\.\w+)\b/i
+export const SECRET_PATTERN = /\b(sk-ant-\S+|sk-[a-zA-Z0-9-]{20,}|oauth:[a-zA-Z0-9]+|ANTHROPIC_API_KEY|TWITCH_CLIENT_ID|TWITCH_CLIENT_SECRET|TWITCH_ACCESS_TOKEN|TWITCH_CHANNELS|COMPANION_SECRET|BOT_OWNER|ALIAS_ADMINS|AI_VIP|process\.env\.\w+)\b/i
 
 // --- cached per-asker regex for name stripping ---
 
@@ -88,6 +88,8 @@ function askerNameRe(asker: string): RegExp {
 
 export function sanitize(text: string, asker?: string, privileged?: boolean, knownUsers?: Set<string>): { text: string; mentions: string[] } {
   let s = text.trim()
+  // strip zero-width chars that bypass \b word boundaries
+  s = s.replace(/[\u200B-\u200F\u2028-\u202F\uFEFF\u00AD]/g, '')
   // normalize smart quotes → ASCII (model outputs U+2019 which bypasses regex patterns using ')
   s = s.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
   // normalize fullwidth/lookalike punctuation (homoglyph injection: ！ban, ／ban, ＼ban)

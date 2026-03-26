@@ -793,9 +793,9 @@ export function getChannelMessages(channel: string, limit = 5000): string[] {
 export function getChannelMessagesSince(channel: string, sinceExpr: string | null): string[] {
   if (sinceExpr === null) {
     const rows = db.query(
-      `SELECT message FROM chat_messages WHERE channel = ? ORDER BY created_at ASC`,
+      `SELECT message FROM chat_messages WHERE channel = ? ORDER BY created_at DESC LIMIT 10000`,
     ).all(channel) as { message: string }[]
-    return rows.map((r) => r.message)
+    return rows.map((r) => r.message).reverse()
   }
   const rows = db.query(
     `SELECT message FROM chat_messages WHERE channel = ? AND created_at >= date('now', ?) ORDER BY created_at ASC`,

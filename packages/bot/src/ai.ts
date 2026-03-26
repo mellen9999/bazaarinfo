@@ -29,13 +29,13 @@ const MAX_RETRIES = 3
 
 // --- hallucination detection ---
 
-const STAT_PATTERN = /\b(\d{2,})\s*(damage|poison|burn|shield|heal|hp|health|crit|gold|regen|haste|freeze|slow)\b|\b(deals?|gains?|grants?|gives?|adds?|stacks?|does)\s+\+?\d{2,}\b|\+\d+%?\s*(damage|crit|shield|hp|heal|poison|burn)\b/i
+const STAT_PATTERN = /\b(\d{2,})\s*(damage|poison|burn|shield|heal|hp|health|crit|gold|regen|haste|freeze|slow|attack|lifesteal|multicast|cooldown|luck)\b|\b(deals?|gains?|grants?|gives?|adds?|stacks?|does|heals?)\s+(for\s+)?\+?\d{2,}\b|\+\d+%?\s*(damage|crit|shield|hp|heal|poison|burn|lifesteal|multicast|cooldown)\b|\b(base|starting)\s+\w+\s+is\s+\d{2,}\b/i
 
 function hasHallucinatedStats(text: string): boolean {
   return STAT_PATTERN.test(text)
 }
 
-const FAKE_DATA_PATTERN = /\b(game data|the data|the db|in my data|in the data)\b.{0,20}\b(has|says|shows|contains|literally|includes)\b|\btagged\s+(as|in)\s+"\w/i
+const FAKE_DATA_PATTERN = /\b(game data|the data|the db|the database|the wiki|the tooltip|in my data|in the data)\b.{0,20}\b(has|says|shows|contains|literally|includes|lists|reads)\b|\b(based on|according to|looking at)\s+(the|my)\s+(data|records|stats|search|database)\b|\btagged\s+(as|in)\s+"\w/i
 
 function hasFabricatedDataRef(text: string, hasGameData: boolean): boolean {
   return !hasGameData && FAKE_DATA_PATTERN.test(text)
@@ -106,9 +106,11 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
 
   const messages: unknown[] = [{ role: 'user', content: userMessage }]
   const start = Date.now()
+  const REQUEST_DEADLINE = 30_000
 
   try {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      if (Date.now() - start > REQUEST_DEADLINE) { log('ai: request deadline exceeded'); break }
       const model = CHAT_MODEL
       const baseTemp = isCreative ? 0.95 : hasGameData ? 0.5 : 0.75
       const body = {
@@ -224,7 +226,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         if (isModelRefusal(result.text) && attempt < MAX_RETRIES - 1) {
           log(`ai: terse refusal "${result.text}", retrying (attempt ${attempt + 1})`)
           messages.push({ role: 'assistant', content: data.content })
-          messages.push({ role: 'user', content: 'Answer the question directly. Be brief, be opinionated. No refusals.' })
+          messages.push({ role: 'user', content: 'Don\'t dodge with diplomacy — pick actual names, give real opinions. Stay within your rules.' })
           continue
         }
         cbRecordSuccess()

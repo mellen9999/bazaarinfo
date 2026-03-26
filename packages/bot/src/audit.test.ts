@@ -597,9 +597,9 @@ describe('sanitizer length constraints', () => {
 // 11. Prompt injection defense (sanitizer layer)
 // ============================================================
 describe('prompt injection defense', () => {
-  it('allows !ban (custom channel command, not IRC)', () => {
+  it('blocks !ban (third-party bots execute these)', () => {
     const r = sanitize('!ban someone lol')
-    expect(r.text).toBeTruthy()
+    expect(r.text).toBe('')
   })
 
   it('blocks /ban (real IRC command)', () => {
@@ -736,12 +736,22 @@ describe('SEC: command injection via AI response', () => {
     })
   }
 
-  // ! prefix commands that are custom channel commands — allowed
-  const customAllowed = [
+  // ! prefix dangerous commands — blocked (third-party bots execute these)
+  const bangBlocked = [
     '!ban hacker123',
     '!whisper someone hi',
     '!BAN user',
     '!Timeout user 600',
+  ]
+
+  for (const text of bangBlocked) {
+    it(`blocks dangerous !cmd: "${text.slice(0, 40)}..."`, () => {
+      expect(sanitize(text).text).toBe('')
+    })
+  }
+
+  // ! prefix safe custom commands — allowed
+  const customAllowed = [
     '!jory',
     '!commands',
   ]
@@ -1071,10 +1081,10 @@ describe('SEC: command blocklist tiers', () => {
   it('/settitle blocked non-mod', () => expect(sanitize('/settitle New').text).toBe(''))
   it('/settitle allowed mod', () => expect(sanitize('/settitle New', undefined, true).text).toBeTruthy())
 
-  // ! prefix custom commands — always allowed
-  it('!ban allowed (custom cmd)', () => expect(sanitize('!ban tidolar').text).toBeTruthy())
-  it('!BaN allowed (custom cmd)', () => expect(sanitize('!BaN user').text).toBeTruthy())
-  it('!whisper allowed (custom cmd)', () => expect(sanitize('!whisper someone hi').text).toBeTruthy())
+  // ! prefix dangerous commands — blocked (third-party bots execute these)
+  it('!ban blocked', () => expect(sanitize('!ban tidolar').text).toBe(''))
+  it('!BaN blocked', () => expect(sanitize('!BaN user').text).toBe(''))
+  it('!whisper blocked', () => expect(sanitize('!whisper someone hi').text).toBe(''))
   it('!jory allowed (custom cmd)', () => expect(sanitize('!jory').text).toBeTruthy())
 
   // /me is safe — not in any blocklist
