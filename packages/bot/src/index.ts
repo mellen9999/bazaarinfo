@@ -364,6 +364,7 @@ scheduleDaily(4, async () => {
   try {
     db.pruneOldChats(180)
     db.pruneOldSummaries(365)
+    db.pruneOldAsks(365)
     db.pruneZeroHitLessons()
   } catch (e) { log(`daily prune failed: ${e}`) }
   try {

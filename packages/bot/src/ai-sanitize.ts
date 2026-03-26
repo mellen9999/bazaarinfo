@@ -223,10 +223,10 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
     }
   }
 
-  // hard cap at 440 chars (pasta needs 400, intent caps handle the rest)
+  // hard cap at 400 chars (matches pasta hardcap, intent caps handle the rest)
   s = s.trim()
-  if (s.length > 440) {
-    const cut = s.slice(0, 440)
+  if (s.length > 400) {
+    const cut = s.slice(0, 400)
     const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '), cut.lastIndexOf(' — '))
     s = lastBreak > 200 ? cut.slice(0, lastBreak) : cut.replace(/\s+\S*$/, '')
   }
