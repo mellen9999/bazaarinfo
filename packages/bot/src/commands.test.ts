@@ -94,6 +94,7 @@ mock.module('./trivia', () => ({
 // --- mock emotes ---
 mock.module('./emotes', () => ({
   isEmote: mock(() => false),
+  findEmote: mock(() => undefined),
   refreshGlobalEmotes: mock(async () => []),
   refreshChannelEmotes: mock(async () => []),
   getEmotesForChannel: mock(() => []),

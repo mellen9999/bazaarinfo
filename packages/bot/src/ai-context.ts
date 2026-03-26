@@ -5,7 +5,8 @@ import { getRedditDigest } from './reddit'
 import { getActivityFor } from './activity'
 import { getRecent, getSummary, getActiveThreads } from './chatbuf'
 import type { ChatEntry } from './chatbuf'
-import { formatEmotesForAI, getEmotesForChannel } from './emotes'
+import { formatEmotesForAI, getEmotesForChannel, isEmote } from './emotes'
+import { getDescriptions } from './emote-describe'
 import { getChannelStyle, getUserProfile, getChannelVoiceContext } from './style'
 import { formatAge, getHotExchanges, getChannelRecentResponses, getRecentEmotes } from './ai-cache'
 import { maybeFetchTwitchInfo } from './ai-background'
@@ -988,6 +989,26 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const isCreative = isPasta || isContinuationLike || /\b(continue|extend|expand|write|make|create|do)\b.{0,20}\b(scene|story|bit|narrative|fanfic|monologue|rant|copypasta|pasta|lore|saga)\b/i.test(query)
     || /\b(do the \w+test|plebtest|emote\s*(wall|spam|test)|wall of (emotes|text)|spam\s+(all|every)\s+emote|paste\b|give me a wall|as many\s*(times|as)\s*(you|u|ur)|\bspam\s+\w+\b|\brepeat\b.{0,15}\b(times|emote))\b/i.test(query)
   const fullEmoteLine = isCreative ? `\nAll channel emotes: ${getEmotesForChannel(ctx.channel).join(' ')}` : ''
+
+  // detect emotes mentioned in query — give AI their descriptions so it can incorporate them
+  let queryEmoteLine = ''
+  if (isCreative) {
+    const descriptions = getDescriptions()
+    const channelEmotes = getEmotesForChannel(ctx.channel)
+    const queryWords = query.split(/\s+/)
+    const found: string[] = []
+    for (const word of queryWords) {
+      // case-insensitive match against channel emotes
+      const match = channelEmotes.find((e) => e.toLowerCase() === word.toLowerCase())
+      if (match && descriptions[match]) {
+        found.push(`${match}: ${descriptions[match].desc} (${descriptions[match].mood})`)
+      }
+    }
+    if (found.length > 0) {
+      queryEmoteLine = `\nEmotes in request — FEATURE these prominently: ${found.join(', ')}`
+    }
+  }
+
   const recentPastas = isPasta
     ? deduped.filter((r) => r.length > 150).map((r) => `- ALREADY USED: "${r}"`)
     : []
@@ -1039,6 +1060,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     recentLine,
     emoteLine,
     fullEmoteLine,
+    queryEmoteLine,
     pastaBlock,
     todayWordsBlock,
     recallLine,

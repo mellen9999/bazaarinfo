@@ -165,6 +165,16 @@ export function isEmote(name: string): boolean {
   return allEmoteNames.has(name)
 }
 
+/** case-insensitive emote lookup — returns canonical name or undefined */
+export function findEmote(name: string): string | undefined {
+  if (allEmoteNames.has(name)) return name
+  const lower = name.toLowerCase()
+  for (const e of allEmoteNames) {
+    if (e.toLowerCase() === lower) return e
+  }
+  return undefined
+}
+
 export function getEmotesForChannel(channel: string): string[] {
   const cached = mergedCache.get(channel)
   if (cached) return cached
