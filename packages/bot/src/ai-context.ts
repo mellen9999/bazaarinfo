@@ -865,7 +865,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     ? chatContext.map((m) => {
         const user = m.user.replace(/[:\n]/g, '')
         const text = m.text.replace(/^!\w+\s*/, '').replace(/\n/g, ' ').replace(/^---+/, '')
-          .replace(/\b(Game data|Recent chat|Stream timeline|Who's chatting|Channel|Your prior exchanges|Chat culture|Bot stats|Chatters):/gi, '')
+          .replace(/\b(Game data|Recent chat|Stream timeline|Who's chatting|Channel|Your prior exchanges|Chat culture|Bot stats|Chatters|Context|Activity|Community buzz|Prior exchanges|Chat history|BURNED references|Your recent convo with|Your recent responses|Active convos|Memory|Facts|All channel emotes|Chat voice|Voice|Pasta examples):/gi, '')
           .slice(0, 300)
         return `> ${user}: ${text}`
       }).join('\n')

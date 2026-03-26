@@ -219,8 +219,8 @@ describe('sanitize', () => {
     expect(sanitize('"!settitle" test').text).toBe('')
   })
 
-  it('allows !ban (custom channel command)', () => {
-    expect(sanitize('!ban tidolar').text).toBeTruthy()
+  it('blocks !ban (third-party bots execute these)', () => {
+    expect(sanitize('!ban tidolar').text).toBe('')
   })
 
   it('allows !jory (custom channel command)', () => {
@@ -434,9 +434,9 @@ describe('sanitize', () => {
     expect(sanitize('\uFF3Cban tidolar').text).toBe('')
   })
 
-  it('fullwidth ！ normalizes to ! (custom cmd prefix, allowed)', () => {
-    // ！ban → !ban — custom channel command prefix, intentionally allowed
-    expect(sanitize('\uFF01ban tidolar').text).toBeTruthy()
+  it('fullwidth ！ban blocked after normalization', () => {
+    // ！ban → !ban — dangerous command, blocked
+    expect(sanitize('\uFF01ban tidolar').text).toBe('')
   })
 
   it('rejects fullwidth ／timeout (homoglyph injection)', () => {
