@@ -537,8 +537,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (spamMatch) {
     const word = spamMatch[1].trim()
     if (word.length > 0 && word.length <= 30) {
-      const maxReps = Math.floor((MAX_LEN - (suffix.length || 0)) / (word.length + 1))
-      const reps = Math.min(maxReps, 40)
+      const reps = 10
       return withSuffix(Array(reps).fill(word).join(' '), suffix)
     }
   }
