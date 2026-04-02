@@ -137,6 +137,23 @@ to remove: type `!part` in the bazaarinfo channel.
 !b help                      show usage
 ```
 
+### admin commands
+
+Bot admins (`BOT_ADMINS` env var) have full control from any channel:
+
+```
+!b update                    re-scrape game data (after a patch)
+!b status                    uptime, data age, item counts, memory
+!b join <channel>            add bot to a channel
+!b part <channel>            remove bot from a channel
+!b emote refresh             reload all 7TV emotes
+!b alias <slang> = <item>    add shortcut name for an item
+!b alias del <slang>         remove a shortcut
+!b alias list                show all shortcuts
+```
+
+Admins also bypass the AI cooldown.
+
 ---
 
 ## self-hosting the bot
