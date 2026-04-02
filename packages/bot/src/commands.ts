@@ -202,11 +202,29 @@ let lobbyChannel = ''
 export function setLobbyChannel(name: string) { lobbyChannel = name }
 
 const OWNER = (process.env.BOT_OWNER ?? '').toLowerCase()
+const BOT_ADMINS = new Set(
+  (process.env.BOT_ADMINS ?? '').split(',').concat(OWNER).map((s) => s.trim().toLowerCase()).filter(Boolean),
+)
+function isAdmin(user?: string): boolean {
+  return !!user && BOT_ADMINS.has(user.toLowerCase())
+}
+
 let onRefresh: (() => Promise<string>) | null = null
 export function setRefreshHandler(handler: () => Promise<string>) { onRefresh = handler }
 
 let onEmoteRefresh: (() => Promise<string>) | null = null
 export function setEmoteRefreshHandler(handler: () => Promise<string>) { onEmoteRefresh = handler }
+
+let onJoinChannel: ((target: string, requester: string) => Promise<string>) | null = null
+export function setJoinHandler(handler: (target: string, requester: string) => Promise<string>) { onJoinChannel = handler }
+
+let onPartChannel: ((target: string, requester: string) => Promise<string>) | null = null
+export function setPartHandler(handler: (target: string, requester: string) => Promise<string>) { onPartChannel = handler }
+
+let onStatus: (() => string) | null = null
+export function setStatusHandler(handler: () => string) { onStatus = handler }
+
+export { BOT_ADMINS }
 
 // --- query dedup: suppress identical lookups within 30s per channel ---
 const DEDUP_WINDOW = 30_000
@@ -258,36 +276,50 @@ type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string
 const RESERVED_SUBS = new Set([
   'mob', 'monster', 'hero', 'tag', 'skill', 'day', 'enchants', 'enchantments',
   'trivia', 'score', 'stats', 'top', 'alias', 'help', 'info',
-  'refresh', 'emotes',
+  'refresh', 'update', 'emotes', 'status', 'join', 'part',
 ])
 
 const subcommands: [RegExp, SubHandler][] = [
   [/^alias$/i, (_q, ctx) => {
-    if (!ctx.user || !ALIAS_ADMINS.has(ctx.user)) return 'alias management is restricted'
+    if (!isAdmin(ctx.user) && !ALIAS_ADMINS.has(ctx.user ?? '')) return 'alias management is restricted'
     return 'usage: !b alias <slang> = <item> | !b alias del <slang> | !b alias list'
   }],
   [/^alias\s+list$/i, (_q, ctx) => {
-    if (!ctx.user || !ALIAS_ADMINS.has(ctx.user)) return 'alias management is restricted'
+    if (!isAdmin(ctx.user) && !ALIAS_ADMINS.has(ctx.user ?? '')) return 'alias management is restricted'
     const aliases = store.getDynamicAliases()
     if (aliases.size === 0) return 'no dynamic aliases set'
     const entries = [...aliases.entries()].map(([k, v]) => `${k}→${v}`)
     return truncate(`aliases: ${entries.join(', ')}`)
   }],
   [/^alias\s+del\s+(.+)$/i, (query, ctx) => {
-    if (!ctx.user || !ALIAS_ADMINS.has(ctx.user)) return 'alias management is restricted'
+    if (!isAdmin(ctx.user) && !ALIAS_ADMINS.has(ctx.user ?? '')) return 'alias management is restricted'
     const removed = store.removeDynamicAlias(query)
     if (removed) invalidateAliasCache()
     return removed ? `removed alias "${query}"` : `no alias found for "${query}"`
   }],
-  [/^refresh$/i, async (_q, ctx) => {
-    if (ctx.user !== OWNER) return null
+  [/^(?:refresh|update)$/i, async (_q, ctx) => {
+    if (!isAdmin(ctx.user)) return null
     if (!onRefresh) return 'refresh not available'
     return onRefresh()
   }],
   [/^emotes?\s+refresh$/i, async (_q, ctx) => {
-    if (ctx.user !== OWNER) return null
+    if (!isAdmin(ctx.user)) return null
     if (!onEmoteRefresh) return 'emote refresh not available'
     return onEmoteRefresh()
+  }],
+  [/^status$/i, (_q, ctx) => {
+    if (!isAdmin(ctx.user)) return null
+    return onStatus?.() ?? 'status not available'
+  }],
+  [/^join\s+#?(\S+)$/i, async (query, ctx) => {
+    if (!isAdmin(ctx.user)) return null
+    if (!onJoinChannel) return 'join not available'
+    return onJoinChannel(query.toLowerCase(), ctx.user ?? '')
+  }],
+  [/^part\s+#?(\S+)$/i, async (query, ctx) => {
+    if (!isAdmin(ctx.user)) return null
+    if (!onPartChannel) return 'part not available'
+    return onPartChannel(query.toLowerCase(), ctx.user ?? '')
   }],
   [/^(?:mob|monster)$/i, () => 'usage: !b mob <name>'],
   [/^hero$/i, () => 'usage: !b hero <name>'],
@@ -517,7 +549,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // alias add: !b alias <slang> = <target>
   const aliasAdd = cleanArgs.match(/^alias\s+(.+?)\s*=\s*(.+)$/i)
   if (aliasAdd) {
-    if (!ctx.user || !ALIAS_ADMINS.has(ctx.user)) return 'alias management is restricted'
+    if (!isAdmin(ctx.user) && !ALIAS_ADMINS.has(ctx.user ?? '')) return 'alias management is restricted'
     const aliasKey = aliasAdd[1].trim().toLowerCase()
     if (/\s/.test(aliasKey)) return 'alias name cannot contain spaces'
     const targetQuery = aliasAdd[2].trim()

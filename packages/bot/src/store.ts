@@ -85,6 +85,7 @@ function loadDynamicAliases() {
 let items: BazaarCard[] = []
 let skills: BazaarCard[] = []
 let monsters: Monster[] = []
+let cacheFetchedAt = ''
 let allCards: BazaarCard[] = []
 let titleMap: Map<string, BazaarCard> = new Map()
 let index: Fuse<BazaarCard>
@@ -110,6 +111,7 @@ function loadCache(cache: CardCache) {
   items = dedup(cache.items)
   skills = dedup(cache.skills ?? [])
   monsters = dedup(cache.monsters ?? [])
+  cacheFetchedAt = cache.fetchedAt ?? ''
   allCards = [...items, ...skills]
   // build title map with skills first so items take priority on collision
   titleMap = buildTitleMap([...skills, ...items])
@@ -383,6 +385,9 @@ export function searchWithScore(query: string, limit = 5): { item: BazaarCard; s
 export function getItems(): BazaarCard[] { return items }
 export function getMonsters(): Monster[] { return monsters }
 export function getSkills(): BazaarCard[] { return skills }
+export function getCacheInfo() {
+  return { items: items.length, skills: skills.length, monsters: monsters.length, fetchedAt: cacheFetchedAt }
+}
 
 export function addDynamicAlias(alias: string, target: string, addedBy?: string) {
   db.addAlias(alias, target, addedBy)
