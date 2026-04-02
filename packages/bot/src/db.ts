@@ -265,10 +265,16 @@ type WriteOp =
   | { type: 'user_fact'; username: string; fact: string }
 
 const writeQueue: WriteOp[] = []
+const MAX_QUEUE = 10_000
 let flushTimer: Timer | null = null
 const FLUSH_INTERVAL = 100 // flush every 100ms
 
 function scheduleFlush() {
+  if (writeQueue.length >= MAX_QUEUE) {
+    log(`write queue full (${MAX_QUEUE}), force flushing`)
+    flushWrites()
+    return
+  }
   if (flushTimer) return
   flushTimer = setTimeout(flushWrites, FLUSH_INTERVAL)
 }
@@ -1150,5 +1156,36 @@ export function pruneZeroHitLessons(): void {
     if (result.changes > 0) log(`pruned ${result.changes} zero-hit lessons`)
   } catch (e) {
     log(`lesson prune error: ${e}`)
+  }
+}
+
+export function pruneOldAskQueries(days = 90) {
+  try {
+    const result = db.run(
+      `DELETE FROM ask_queries WHERE created_at < datetime('now', ?)`,
+      [`-${days} days`],
+    )
+    if (result.changes > 0) log(`pruned ${result.changes} ask queries older than ${days}d`)
+  } catch (e) {
+    log(`ask query prune error: ${e}`)
+  }
+}
+
+export function pruneOldTriviaGames(days = 180) {
+  try {
+    const result = db.run(
+      `DELETE FROM trivia_answers WHERE game_id IN (
+        SELECT id FROM trivia_games WHERE created_at < datetime('now', ?)
+      )`,
+      [`-${days} days`],
+    )
+    const result2 = db.run(
+      `DELETE FROM trivia_games WHERE created_at < datetime('now', ?)`,
+      [`-${days} days`],
+    )
+    const total = (result.changes ?? 0) + (result2.changes ?? 0)
+    if (total > 0) log(`pruned ${total} trivia records older than ${days}d`)
+  } catch (e) {
+    log(`trivia prune error: ${e}`)
   }
 }
