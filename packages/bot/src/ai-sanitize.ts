@@ -64,7 +64,7 @@ export function hasModCommand(text: string): boolean {
 
 // --- secret pattern ---
 
-export const SECRET_PATTERN = /\b(sk-ant-\S+|sk-[a-zA-Z0-9-]{20,}|oauth:[a-zA-Z0-9]+|ANTHROPIC_API_KEY|TWITCH_CLIENT_ID|TWITCH_CLIENT_SECRET|TWITCH_ACCESS_TOKEN|TWITCH_CHANNELS|COMPANION_SECRET|BOT_OWNER|ALIAS_ADMINS|AI_VIP|process\.env\.\w+)\b/i
+export const SECRET_PATTERN = /\b(sk-ant-\S+|sk-[a-zA-Z0-9-]{20,}|oauth:[a-zA-Z0-9]+|ANTHROPIC_API_KEY|TWITCH_CLIENT_ID|TWITCH_CLIENT_SECRET|TWITCH_ACCESS_TOKEN|TWITCH_CHANNELS|COMPANION_SECRET|BOT_OWNER|BOT_ADMINS|ALIAS_ADMINS|AI_VIP|process\.env\.\w+)\b/i
 
 // --- cached per-asker regex for name stripping ---
 

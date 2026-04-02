@@ -69,7 +69,10 @@ export function formatAge(createdAt: string, now: number): string {
 // --- VIP / channel sets ---
 
 export const AI_VIP = new Set(
-  (process.env.AI_VIP ?? '').split(',').concat(process.env.BOT_OWNER ?? '').map((s) => s.trim().toLowerCase()).filter(Boolean),
+  (process.env.AI_VIP ?? '').split(',')
+    .concat(process.env.BOT_OWNER ?? '')
+    .concat((process.env.BOT_ADMINS ?? '').split(','))
+    .map((s) => s.trim().toLowerCase()).filter(Boolean),
 )
 
 export const AI_CHANNELS = new Set(

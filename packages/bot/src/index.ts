@@ -2,7 +2,8 @@ import type { CardCache } from '@bazaarinfo/shared'
 import { TwitchClient, getUserId } from './twitch'
 import type { ChannelInfo } from './twitch'
 import { loadStore, reloadStore, CACHE_PATH } from './store'
-import { handleCommand, setLobbyChannel, setRefreshHandler, setEmoteRefreshHandler } from './commands'
+import { handleCommand, setLobbyChannel, setRefreshHandler, setEmoteRefreshHandler, setJoinHandler, setPartHandler, setStatusHandler, BOT_ADMINS } from './commands'
+import { getCacheInfo } from './store'
 import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily } from './scheduler'
 import { scrapeDump } from '@bazaarinfo/data'
@@ -165,6 +166,52 @@ setEmoteRefreshHandler(async () => {
   } catch (e) {
     return `emote refresh failed: ${e instanceof Error ? e.message : e}`
   }
+})
+
+// admin !b join/part <channel> from any chat
+setJoinHandler(async (target, requester) => {
+  if (client.hasChannel(target)) return `already in #${target}`
+  try {
+    const targetId = await getUserId(getAccessToken(), CLIENT_ID, target, doRefresh)
+    const info: ChannelInfo = { name: target, userId: targetId }
+    await client.joinChannel(info)
+    setChannelInfos(client.getChannels())
+    await channelStore.add(target)
+    refreshChannelEmotes(target, targetId).then(() => {
+      const setId = getEmoteSetId(target)
+      if (setId) emoteEvents.subscribeChannel(target, setId)
+    }).catch((e) => log(`emote refresh failed for ${target}: ${e}`))
+    return `joined #${target}`
+  } catch (e) {
+    return `failed to join #${target}: ${e instanceof Error ? e.message : e}`
+  }
+})
+
+setPartHandler(async (target, _requester) => {
+  if (envChannels.includes(target)) return `can't leave hardcoded channel #${target}`
+  if (!client.hasChannel(target)) return `not in #${target}`
+  client.leaveChannel(target)
+  cleanupChannel(target)
+  emoteEvents.unsubscribeChannel(target)
+  removeChannelEmotes(target)
+  chatbuf.cleanupChannel(target)
+  lastResponseTime.delete(target)
+  await channelStore.remove(target)
+  return `left #${target}`
+})
+
+// admin !b status
+const startedAt = Date.now()
+setStatusHandler(() => {
+  const uptime = Math.floor((Date.now() - startedAt) / 1000)
+  const h = Math.floor(uptime / 3600)
+  const m = Math.floor((uptime % 3600) / 60)
+  const cache = getCacheInfo()
+  const age = cache.fetchedAt ? Math.floor((Date.now() - new Date(cache.fetchedAt).getTime()) / 3600_000) : -1
+  const chans = client.getChannels()
+  const live = getLiveChannels()
+  const mem = Math.round(process.memoryUsage.rss() / 1024 / 1024)
+  return `up ${h}h${m}m | ${cache.items} items, ${cache.skills} skills, ${cache.monsters} monsters | data ${age}h old | ${chans.length} channels (${live.length} live) | ${mem}MB`
 })
 
 // load emote descriptions cache, then refresh emotes + describe new ones
