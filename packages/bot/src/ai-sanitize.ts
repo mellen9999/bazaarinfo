@@ -47,6 +47,7 @@ export const MOD_ONLY = new Set([
   'uniquechat', 'uniquechatoff',
   'commercial', 'marker',
   'sacrifice', 'nuke', 'nukeusername', 'votekick', 'vanish',
+  'endme', 'kms', 'sudoku', 'seppuku', 'die', 'kill', 'killme', 'rip',
 ])
 
 export function hasDangerousCommand(text: string): boolean {

@@ -72,6 +72,8 @@ const BLOCKED_BANG_CMDS = new Set([
   'nuke', 'nukeusername', 'permit', 'vanish', 'votekick',
   'ban', 'unban', 'timeout', 'untimeout', 'mute', 'unmute',
   'purge', 'clear', 'warn', 'sacrifice',
+  // self-harm / auto-timeout commands (other bots timeout the sender)
+  'endme', 'kms', 'sudoku', 'seppuku', 'die', 'kill', 'killme', 'rip',
   // DMs/blocking/connection
   'whisper', 'w', 'block', 'unblock', 'disconnect',
   // announcements (mod-only)
