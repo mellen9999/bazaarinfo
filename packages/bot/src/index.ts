@@ -345,6 +345,49 @@ setInterval(async () => {
   }
 }, 30 * 60 * 1000)
 
+// poll dump.json for changes every 15min via ETag
+const DUMP_POLL_URL = 'https://bazaardb.gg/dump.json'
+const DUMP_POLL_INTERVAL = 15 * 60_000
+let lastDumpEtag = ''
+
+// seed etag from current dump
+try {
+  const head = await fetch(DUMP_POLL_URL, {
+    method: 'HEAD',
+    headers: { 'User-Agent': 'BazaarInfo/1.0' },
+    signal: AbortSignal.timeout(10_000),
+  })
+  lastDumpEtag = head.headers.get('etag') ?? ''
+  if (lastDumpEtag) log(`dump poll: seeded etag ${lastDumpEtag}`)
+} catch (e) {
+  log(`dump poll: failed to seed etag: ${e}`)
+}
+
+setInterval(async () => {
+  try {
+    const headers: Record<string, string> = { 'User-Agent': 'BazaarInfo/1.0' }
+    if (lastDumpEtag) headers['If-None-Match'] = lastDumpEtag
+    const res = await fetch(DUMP_POLL_URL, {
+      method: 'HEAD',
+      headers,
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (res.status === 304) return // not modified
+    const newEtag = res.headers.get('etag') ?? ''
+    if (newEtag && newEtag === lastDumpEtag) return // same etag
+    if (!newEtag && !lastDumpEtag) return // no etag support, skip
+    lastDumpEtag = newEtag
+    log(`dump poll: data changed (etag ${newEtag}), refreshing...`)
+    await refreshData()
+    await reloadStore()
+    rebuildTriviaMaps()
+    invalidatePromptCache()
+    log('dump poll: refresh complete')
+  } catch (e) {
+    log(`dump poll: check failed: ${e}`)
+  }
+}, DUMP_POLL_INTERVAL)
+
 // daily data refresh at 4am PT
 scheduleDaily(4, async () => {
   try {
