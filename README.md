@@ -181,6 +181,7 @@ see [`.env.example`](.env.example) for all options. minimum needed:
 | `TWITCH_CLIENT_ID` | from [dev.twitch.tv/console](https://dev.twitch.tv/console) |
 | `TWITCH_CLIENT_SECRET` | from same app |
 | `BOT_OWNER` | your username (unlocks `!b refresh`, etc) |
+| `BOT_ADMINS` | comma-separated admin usernames (full chat control) |
 | `ANTHROPIC_API_KEY` | for AI features (optional) |
 
 ### structure
