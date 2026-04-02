@@ -158,15 +158,37 @@ Admins also bypass the AI cooldown.
 
 ## self-hosting the bot
 
-if you want to run your own instance:
+### quick start (your own bot account)
+
+1. create a twitch app at [dev.twitch.tv/console](https://dev.twitch.tv/console)
+   - OAuth redirect URL: `http://localhost:3000`
+   - category: Chat Bot
+2. generate an OAuth token for your bot account with scopes: `chat:read chat:edit user:bot user:read:chat user:write:chat channel:bot`
+3. clone, install, configure:
 
 ```sh
+git clone https://github.com/mellen9999/bazaarinfo.git
+cd bazaarinfo
 bun install
 cp .env.example .env   # fill in your creds
 bun run packages/bot/src/index.ts
 ```
 
-first run scrapes [bazaardb.gg](https://bazaardb.gg) and caches locally (~1-2 min). auto-refreshes daily.
+first run scrapes [bazaardb.gg](https://bazaardb.gg) and caches locally (~30s). auto-checks for updates every 15 minutes.
+
+### hosting with a shared bot account
+
+if someone else owns the bot account and you want to run an instance using it:
+
+1. create your own twitch app at [dev.twitch.tv/console](https://dev.twitch.tv/console)
+   - OAuth redirect URL: `http://localhost:3000`
+   - category: Chat Bot
+   - copy your **Client ID** and generate a **Client Secret**
+2. send your **Client ID** to the bot account owner (the Client ID is not secret)
+3. the owner authorizes the bot account through your app and sends you the **token** and **refresh token**
+4. fill in your `.env` with your Client ID/Secret and the tokens they gave you
+
+> **important:** two instances can't share the same channels — you'll get double responses. coordinate who runs which channels via `TWITCH_CHANNELS`.
 
 ### env
 
@@ -176,7 +198,7 @@ see [`.env.example`](.env.example) for all options. minimum needed:
 |-----|------|
 | `TWITCH_CHANNELS` | comma-separated channels to join |
 | `TWITCH_USERNAME` | bot's twitch username |
-| `TWITCH_TOKEN` | OAuth token (`chat:read chat:edit` scopes) |
+| `TWITCH_TOKEN` | OAuth token |
 | `TWITCH_REFRESH_TOKEN` | refresh token for auto-renewal |
 | `TWITCH_CLIENT_ID` | from [dev.twitch.tv/console](https://dev.twitch.tv/console) |
 | `TWITCH_CLIENT_SECRET` | from same app |
