@@ -140,8 +140,12 @@ function onMessage(event: MessageEvent) {
       missedBeats = 0
       startHeartbeatCheck()
       backoff = BASE_BACKOFF
-      // resubscribe all channels
-      for (const setId of channelSubs.values()) subscribe(setId)
+      // rebuild reverse map and resubscribe all channels
+      setIdToChannel.clear()
+      for (const [ch, setId] of channelSubs) {
+        setIdToChannel.set(setId, ch)
+        subscribe(setId)
+      }
       // subscribe global emote set
       const globalId = getGlobalEmoteSetId()
       if (globalId) subscribe(globalId)
@@ -191,11 +195,8 @@ function doConnect() {
 
   ws.onclose = (event) => {
     if (closed) return
-    if (RECONNECT_CODES.has(event.code) || event.code === 1006) {
-      reconnect()
-    } else {
-      log(`7TV EventAPI closed: ${event.code} ${event.reason} — not reconnecting`)
-    }
+    log(`7TV EventAPI closed: ${event.code} ${event.reason} — reconnecting`)
+    reconnect()
   }
 
   ws.onerror = () => {

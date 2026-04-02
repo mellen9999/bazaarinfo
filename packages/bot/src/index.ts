@@ -271,6 +271,7 @@ const client = new TwitchClient(
           emoteEvents.unsubscribeChannel(target)
           removeChannelEmotes(target)
           chatbuf.cleanupChannel(target)
+          lastResponseTime.delete(target)
           await channelStore.remove(target)
           client.say(channel, `@${username} left #${target}`, messageId)
           return
@@ -408,6 +409,8 @@ scheduleDaily(4, async () => {
     db.pruneOldChats(180)
     db.pruneOldSummaries(365)
     db.pruneZeroHitLessons()
+    db.pruneOldAskQueries(90)
+    db.pruneOldTriviaGames(180)
   } catch (e) { log(`daily prune failed: ${e}`) }
   try {
     await refreshGlobalEmotes()
@@ -432,16 +435,20 @@ setInterval(async () => {
 }, 2 * 60 * 60_000)
 
 // graceful shutdown
+let shuttingDown = false
 function shutdown() {
+  if (shuttingDown) return
+  shuttingDown = true
   log('shutting down...')
-  setTimeout(() => process.exit(1), 5_000) // hard kill if cleanup hangs
-  emoteEvents.close()
-  db.closeDb()
-  client.close()
+  setTimeout(() => { log('hard kill — cleanup hung'); process.exit(1) }, 5_000)
+  try { emoteEvents.close() } catch {}
+  try { db.closeDb() } catch {}
+  try { client.close() } catch {}
   process.exit(0)
 }
 process.on('SIGTERM', shutdown)
 process.on('SIGINT', shutdown)
+process.on('uncaughtException', (e) => { log('uncaught exception:', e); shutdown() })
 process.on('unhandledRejection', (e) => log('unhandled rejection:', e))
 
 // self-health: if eventsub hasn't sent a keepalive in 2min, exit and let systemd restart
