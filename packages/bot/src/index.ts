@@ -236,9 +236,8 @@ loadDescriptionCache().then(async () => {
   }
 }).catch((e) => log(`emote startup failed: ${e}`))
 
-// load reddit digest (non-blocking) + refresh every 2 hours
+// load reddit digest (non-blocking) — daily refresh at 5pm PT scheduled below
 refreshRedditDigest().catch((e) => log(`reddit digest load failed: ${e}`))
-setInterval(() => refreshRedditDigest().catch((e) => log(`reddit digest refresh failed: ${e}`)), 2 * 60 * 60_000)
 
 // load activity data (non-blocking) + refresh every 30 min
 refreshActivity().catch((e) => log(`activity load failed: ${e}`))
@@ -454,6 +453,13 @@ setInterval(async () => {
     log(`dump poll: check failed: ${e}`)
   }
 }, DUMP_POLL_INTERVAL)
+
+// daily reddit digest refresh at 5pm PT
+scheduleDaily(17, async () => {
+  try {
+    await refreshRedditDigest()
+  } catch (e) { log(`daily reddit refresh failed: ${e}`) }
+})
 
 // daily data refresh at 4am PT
 scheduleDaily(4, async () => {
