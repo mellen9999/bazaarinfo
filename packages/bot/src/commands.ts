@@ -608,13 +608,17 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     if (match) return handler(match[1]?.trim() ?? cleanArgs, ctx, suffix)
   }
 
-  // spam wall interception — handle without AI, just repeat the word
+  // spam wall interception — handle without AI. dedupe input tokens (handles
+  // both "spam Birdge" and "spam Birdge Birdge Birdge..." style requests).
   const spamMatch = cleanArgs.match(/^spam\s+(?:this\s+)?(.+)/i)
   if (spamMatch) {
-    const word = spamMatch[1].trim()
-    if (word.length > 0 && word.length <= 30) {
-      const reps = 10
-      return withSuffix(Array(reps).fill(word).join(' '), suffix)
+    const tokens = spamMatch[1].trim().split(/\s+/).filter(Boolean)
+    const unique = [...new Set(tokens)]
+    if (unique.length > 0 && unique.length <= 5 && unique.every((t) => t.length <= 30)) {
+      const seq = unique.join(' ')
+      let out = seq
+      while (out.length + seq.length + 1 <= 380) out += ' ' + seq
+      return withSuffix(out, suffix)
     }
   }
 

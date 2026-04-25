@@ -175,6 +175,8 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           messages.push({ role: 'user', content: 'You invented specific game numbers without data. Answer without citing specific damage/HP/percentage values.' })
           continue
         }
+        log('ai: hallucinated stats retries exhausted — returning null for clean fallback')
+        return null
       }
       // reject fabricated data references ("the data has", "tagged as" etc) when no game data present
       if (hasFabricatedDataRef(result.text, hasGameData)) {
@@ -184,6 +186,8 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           messages.push({ role: 'user', content: 'You claimed data/db contains something it doesnt. No "Game data:" section was provided. Answer without referencing game data or search results.' })
           continue
         }
+        log('ai: fabricated data ref retries exhausted — returning null for clean fallback')
+        return null
       }
       // enforce length caps in code
       const isShort = isShortResponse(query)
