@@ -56,8 +56,6 @@ export interface TwitchConfig {
 export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string) => void
 
 export type AuthRefreshFn = () => Promise<string>
-export type StreamStateHandler = (channel: string, live: boolean) => void
-export type ChannelUpdateHandler = (channel: string, game: string, title: string) => void
 
 function fetchWithTimeout(url: string, opts: RequestInit = {}): Promise<Response> {
   return fetch(url, { ...opts, signal: AbortSignal.timeout(FETCH_TIMEOUT) })
@@ -87,8 +85,6 @@ export class TwitchClient {
   private sessionId = ''
   private config: TwitchConfig
   private onMessage: MessageHandler
-  private onStreamState: StreamStateHandler | null = null
-  private onChannelUpdate: ChannelUpdateHandler | null = null
   private onAuthFailure: AuthRefreshFn | null = null
   private keepaliveTimeout: Timer | null = null
   private keepaliveMs = 15_000
@@ -128,14 +124,6 @@ export class TwitchClient {
 
   setIrcOnly(channels: string[]) {
     this.ircOnlyChannels = new Set(channels)
-  }
-
-  setStreamStateHandler(fn: StreamStateHandler) {
-    this.onStreamState = fn
-  }
-
-  setChannelUpdateHandler(fn: ChannelUpdateHandler) {
-    this.onChannelUpdate = fn
   }
 
   updateToken(token: string) {
@@ -206,16 +194,6 @@ export class TwitchClient {
         }
         const badges = (e.badges ?? []).map((b: { set_id: string }) => b.set_id)
         this.onMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, text, badges, e.message_id ?? '', e.reply?.thread_message_id)
-      } else if (subType === 'stream.online' || subType === 'stream.offline') {
-        const e = msg.payload.event
-        if (e?.broadcaster_user_login && this.onStreamState) {
-          this.onStreamState(e.broadcaster_user_login, subType === 'stream.online')
-        }
-      } else if (subType === 'channel.update') {
-        const e = msg.payload.event
-        if (e?.broadcaster_user_login && this.onChannelUpdate) {
-          this.onChannelUpdate(e.broadcaster_user_login, e.category_name ?? '', e.title ?? '')
-        }
       }
     } else if (type === 'session_reconnect') {
       const newUrl = msg.payload.session?.reconnect_url
@@ -336,21 +314,6 @@ export class TwitchClient {
       log('all eventsub subscriptions failed — exiting for systemd restart')
       process.exit(1)
     }
-    // stream online/offline + channel.update for game tracking
-    for (const ch of this.config.channels) {
-      for (const type of ['stream.online', 'stream.offline'] as const) {
-        try {
-          await this.subscribeEvent(type, '1', { broadcaster_user_id: ch.userId })
-        } catch (e) {
-          log(`${type} subscribe error for ${ch.name}: ${e}`)
-        }
-      }
-      try {
-        await this.subscribeEvent('channel.update', '2', { broadcaster_user_id: ch.userId })
-      } catch (e) {
-        log(`channel.update subscribe error for ${ch.name}: ${e}`)
-      }
-    }
   }
 
   private async subscribe(broadcasterUserId: string, retries = 2): Promise<void> {
@@ -399,32 +362,6 @@ export class TwitchClient {
       throw new Error(`subscribe failed (${broadcasterUserId}): ${res.status} ${err}`)
     }
     log(`subscribed to channel.chat.message for ${broadcasterUserId}`)
-  }
-
-  private async subscribeEvent(type: string, version: string, condition: Record<string, string>, retries = 1): Promise<void> {
-    const res = await fetchWithTimeout(`${HELIX_URL}/eventsub/subscriptions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.config.token}`,
-        'Client-Id': this.config.clientId,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        type, version, condition,
-        transport: { method: 'websocket', session_id: this.sessionId },
-      }),
-    })
-    if (res.status === 409) return // already subscribed
-    if (res.status === 401 && this.onAuthFailure && retries > 0) {
-      log(`subscribeEvent ${type} 401 — refreshing token and retrying`)
-      const newToken = await this.onAuthFailure()
-      this.config.token = newToken
-      return this.subscribeEvent(type, version, condition, retries - 1)
-    }
-    if (!res.ok) {
-      const err = await res.text()
-      log(`subscribeEvent ${type} failed: ${res.status} ${err}`)
-    }
   }
 
   // --- IRC (send) ---
@@ -575,18 +512,6 @@ export class TwitchClient {
         await this.subscribe(channel.userId)
       } catch (e) {
         log(`subscribe error for ${channel.name}: ${e}`)
-      }
-      for (const type of ['stream.online', 'stream.offline'] as const) {
-        try {
-          await this.subscribeEvent(type, '1', { broadcaster_user_id: channel.userId })
-        } catch (e) {
-          log(`${type} subscribe error for ${channel.name}: ${e}`)
-        }
-      }
-      try {
-        await this.subscribeEvent('channel.update', '2', { broadcaster_user_id: channel.userId })
-      } catch (e) {
-        log(`channel.update subscribe error for ${channel.name}: ${e}`)
       }
     }
     log(`joined channel: ${channel.name}`)

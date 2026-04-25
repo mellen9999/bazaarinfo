@@ -358,30 +358,48 @@ const client = new TwitchClient(
 
 client.setAuthRefresh(doRefresh)
 client.setIrcOnly(['nl_kripp'])
-client.setStreamStateHandler((channel, live) => {
-  log(`stream ${live ? 'online' : 'offline'}: #${channel}`)
-  if (live) setChannelLive(channel)
-  else setChannelOffline(channel)
-})
-client.setChannelUpdateHandler((channel, game, title) => {
-  log(`channel update: #${channel} → ${game || '(no game)'}`)
-  setChannelGame(channel, game)
-})
 setSay((ch, msg) => client.say(ch, msg))
 
-// check which channels are currently live (eventsub only fires on transitions)
-try {
-  const ids = channels.map((c) => `user_id=${c.userId}`).join('&')
-  const res = await fetch(`https://api.twitch.tv/helix/streams?${ids}`, {
-    headers: { Authorization: `Bearer ${getAccessToken()}`, 'Client-Id': CLIENT_ID },
-    signal: AbortSignal.timeout(10_000),
-  })
-  if (res.ok) {
+// poll /helix/streams to track live state + game per channel.
+// (replaces stream.online/offline/channel.update EventSub — those exceed per-ws cost cap.)
+const liveState = new Map<string, string>() // channel -> game_name (empty string if no game set)
+async function pollStreams(initial = false) {
+  const chs = client.getChannels()
+  if (chs.length === 0) return
+  try {
+    const ids = chs.map((c) => `user_id=${c.userId}`).join('&')
+    const res = await fetch(`https://api.twitch.tv/helix/streams?${ids}`, {
+      headers: { Authorization: `Bearer ${getAccessToken()}`, 'Client-Id': CLIENT_ID! },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) return
     const data = await res.json() as { data: { user_login: string; game_name: string }[] }
-    for (const stream of data.data) setChannelLive(stream.user_login, stream.game_name)
-    log(`live channels: ${data.data.map((s) => `${s.user_login}[${s.game_name}]`).join(', ') || 'none'}`)
-  }
-} catch (e) { log(`live check failed: ${e}`) }
+    const seen = new Set<string>()
+    for (const s of data.data) {
+      const ch = s.user_login.toLowerCase()
+      seen.add(ch)
+      const prev = liveState.get(ch)
+      if (prev === undefined) {
+        log(`stream online: #${ch}${s.game_name ? ` [${s.game_name}]` : ''}`)
+        setChannelLive(ch, s.game_name)
+      } else if (prev !== s.game_name) {
+        log(`channel update: #${ch} → ${s.game_name || '(no game)'}`)
+        setChannelGame(ch, s.game_name)
+      }
+      liveState.set(ch, s.game_name)
+    }
+    for (const ch of liveState.keys()) {
+      if (!seen.has(ch)) {
+        log(`stream offline: #${ch}`)
+        setChannelOffline(ch)
+        liveState.delete(ch)
+      }
+    }
+    if (initial) log(`live channels: ${data.data.map((s) => `${s.user_login}[${s.game_name}]`).join(', ') || 'none'}`)
+  } catch (e) { log(`stream poll failed: ${e}`) }
+}
+await pollStreams(true)
+setInterval(() => pollStreams(), 60_000)
 
 // proactive token refresh every 30min
 setInterval(async () => {
