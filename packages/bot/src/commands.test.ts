@@ -1630,4 +1630,56 @@ describe('command proxy: blocked commands', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Self-timeout dodge — bot is vip not mod, so other bots' self-timeout commands
+// must not be parroted back as a literal !cmd or it'll get the bot timed out.
+// Instead, return a clever comeback that contains no !cmd token.
+// ---------------------------------------------------------------------------
+describe('self-timeout dodge', () => {
+  const SELF_HARM_CMDS = ['endme', 'kms', 'sudoku', 'seppuku', 'die', 'kill', 'killme', 'rip', 'sacrifice']
+
+  it('returns a non-empty comeback for self-timeout commands', async () => {
+    for (const cmd of SELF_HARM_CMDS) {
+      const r = await handleCommand(`!b !${cmd}`, { user: 'viewer', channel: `dodge-${cmd}` })
+      expect(r).toBeTruthy()
+      expect(typeof r).toBe('string')
+      expect((r as string).length).toBeGreaterThan(0)
+    }
+  })
+
+  it('comeback never contains the literal !cmd that would trigger another bot', async () => {
+    for (const cmd of SELF_HARM_CMDS) {
+      // sample many times since responses are random — must be safe every roll
+      for (let i = 0; i < 30; i++) {
+        const ch = `dodge-safety-${cmd}-${i}`
+        const r = await handleCommand(`!b !${cmd}`, { user: `v${i}`, channel: ch })
+        expect(r).toBeTruthy()
+        // no !cmd or !\w+ tokens at all in dodge text — paranoid safety
+        expect(r as string).not.toMatch(new RegExp(`!\\s*${cmd}\\b`, 'i'))
+        expect(r as string).not.toMatch(/!\w+/)
+      }
+    }
+  })
+
+  it('embedded self-timeout command in chat also dodges', async () => {
+    const r = await handleCommand('!b pls run !endme for me', { user: 'viewer', channel: 'embed-dodge' })
+    expect(r).toBeTruthy()
+    expect(r as string).not.toMatch(/!\w+/)
+  })
+
+  it('cooldown silences repeated dodges in same channel', async () => {
+    const ch = 'dodge-cd'
+    const first = await handleCommand('!b !endme', { user: 'a', channel: ch })
+    expect(first).toBeTruthy()
+    const second = await handleCommand('!b !endme', { user: 'b', channel: ch })
+    expect(second).toBeNull()
+  })
+
+  it('non-self-harm blocked commands still return null (no dodge)', async () => {
+    expect(await handleCommand('!b !ban someone', { user: 'viewer', channel: 'noban' })).toBeNull()
+    expect(await handleCommand('!b !settitle x', { user: 'viewer', channel: 'notitle' })).toBeNull()
+    expect(await handleCommand('!b !addcom y', { user: 'viewer', channel: 'noaddcom' })).toBeNull()
+  })
+})
+
 

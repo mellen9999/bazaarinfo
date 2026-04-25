@@ -125,6 +125,48 @@ const PROXY_COOLDOWN_SHORT = 5_000
 const SHORT_CD_CMDS = new Set(['love', 'hate', 'hug', 'kiss', 'slap', 'highfive', 'duel', 'cookie', 'pet'])
 const proxyCooldowns = new Map<string, number>()
 
+// commands other bots use to time out the sender — bot is vip not mod, so silent block is safe but boring
+// CRITICAL: dodge text must never contain a literal !cmd token (would just trigger the other bot)
+const SELF_TIMEOUT_DODGES: Record<string, readonly string[]> = {
+  endme: [
+    'no thx, vibes immaculate',
+    'counterproposal: you go first',
+    'have you tried snacks instead',
+    'will to live is at peak performance',
+    'endmne? hardly know mne',
+    'my therapist says no',
+    'nice try, i\'m unkillable',
+  ],
+  sacrifice: [
+    'altar closed for renovations',
+    'pick someone with more hp',
+    'vip benefits do not include sacrificial duties',
+    'nice try cultist',
+    'sacrafice (typo, defused)',
+    'i\'m worth more alive, ask my agent',
+  ],
+  kms: ['absolutely not', 'thriving actually', 'kmd (typo, oops)'],
+  sudoku: ['the puzzle remains unsolved', 'i prefer wordle'],
+  seppuku: ['honor intact, thanks', 'sword left at home'],
+  die: ['hard pass', 'dye? the hair? sure'],
+  kill: ['unionized, can\'t legally accept', 'kil (typo) lol'],
+  killme: ['try kissing me instead', 'killmne? hardly etc'],
+  rip: ['still respawning, give it a sec', 'rop (typo)'],
+}
+
+function selfTimeoutDodge(channel: string | undefined, cmd: string): string | null {
+  const list = SELF_TIMEOUT_DODGES[cmd]
+  if (!list) return null
+  if (channel) {
+    const key = `${channel}:dodge:${cmd}`
+    const now = Date.now()
+    const last = proxyCooldowns.get(key)
+    if (last && now - last < PROXY_COOLDOWN) return null
+    proxyCooldowns.set(key, now)
+  }
+  return list[Math.floor(Math.random() * list.length)]
+}
+
 function proxyWithCooldown(channel: string | undefined, cmdStr: string, cmd: string): string {
   if (!channel) return cmdStr
   const key = `${channel}:${cmd.toLowerCase()}`
@@ -516,7 +558,9 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   const bangMatch = cleanArgs.match(/^!(\w+)(.*)$/)
   if (bangMatch) {
     const cmd = bangMatch[1].toLowerCase()
-    if (BLOCKED_BANG_CMDS.has(cmd)) return null
+    if (BLOCKED_BANG_CMDS.has(cmd)) {
+      return selfTimeoutDodge(ctx.channel, cmd)
+    }
     return proxyWithCooldown(ctx.channel, cleanArgs, cmd)
   }
   const slashMatch = cleanArgs.match(/^\/(\w+)(.*)$/)
@@ -538,6 +582,8 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
         const cmdStr = embeddedMatch[2] ? `!${embeddedMatch[1]} ${embeddedMatch[2]}` : `!${embeddedMatch[1]}`
         return proxyWithCooldown(ctx.channel, cmdStr, cmd)
       }
+      const dodge = selfTimeoutDodge(ctx.channel, cmd)
+      if (dodge) return dodge
     }
   }
 
