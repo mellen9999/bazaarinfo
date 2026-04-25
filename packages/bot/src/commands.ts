@@ -142,16 +142,16 @@ const SELF_TIMEOUT_DODGES: Record<string, readonly string[]> = {
     'pick someone with more hp',
     'vip benefits do not include sacrificial duties',
     'nice try cultist',
-    'sacrafice (typo, defused)',
+    '!sacarafice',
     'i\'m worth more alive, ask my agent',
   ],
-  kms: ['absolutely not', 'thriving actually', 'kmd (typo, oops)'],
+  kms: ['absolutely not', 'thriving actually', '!kmd'],
   sudoku: ['the puzzle remains unsolved', 'i prefer wordle'],
   seppuku: ['honor intact, thanks', 'sword left at home'],
   die: ['hard pass', 'dye? the hair? sure'],
-  kill: ['unionized, can\'t legally accept', 'kil (typo) lol'],
+  kill: ['unionized, can\'t legally accept', '!kil lol'],
   killme: ['try kissing me instead', 'killmne? hardly etc'],
-  rip: ['still respawning, give it a sec', 'rop (typo)'],
+  rip: ['still respawning, give it a sec', '!rop'],
 }
 
 function selfTimeoutDodge(channel: string | undefined, cmd: string): string | null {

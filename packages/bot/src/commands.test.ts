@@ -1647,16 +1647,17 @@ describe('self-timeout dodge', () => {
     }
   })
 
-  it('comeback never contains the literal !cmd that would trigger another bot', async () => {
+  it('comeback never contains a literal !cmd that would trigger another bot', async () => {
     for (const cmd of SELF_HARM_CMDS) {
       // sample many times since responses are random — must be safe every roll
       for (let i = 0; i < 30; i++) {
         const ch = `dodge-safety-${cmd}-${i}`
         const r = await handleCommand(`!b !${cmd}`, { user: `v${i}`, channel: ch })
         expect(r).toBeTruthy()
-        // no !cmd or !\w+ tokens at all in dodge text — paranoid safety
-        expect(r as string).not.toMatch(new RegExp(`!\\s*${cmd}\\b`, 'i'))
-        expect(r as string).not.toMatch(/!\w+/)
+        // no real self-harm cmd may appear with ! prefix (typoed/misspelled forms are fine — those are the joke)
+        for (const harmCmd of SELF_HARM_CMDS) {
+          expect(r as string).not.toMatch(new RegExp(`!\\s*${harmCmd}\\b`, 'i'))
+        }
       }
     }
   })
@@ -1664,7 +1665,9 @@ describe('self-timeout dodge', () => {
   it('embedded self-timeout command in chat also dodges', async () => {
     const r = await handleCommand('!b pls run !endme for me', { user: 'viewer', channel: 'embed-dodge' })
     expect(r).toBeTruthy()
-    expect(r as string).not.toMatch(/!\w+/)
+    for (const harmCmd of SELF_HARM_CMDS) {
+      expect(r as string).not.toMatch(new RegExp(`!\\s*${harmCmd}\\b`, 'i'))
+    }
   })
 
   it('cooldown silences repeated dodges in same channel', async () => {
