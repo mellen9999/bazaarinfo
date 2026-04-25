@@ -35,7 +35,7 @@ function hasHallucinatedStats(text: string): boolean {
   return STAT_PATTERN.test(text)
 }
 
-const FAKE_DATA_PATTERN = /\b(game data|the data|the db|the database|the wiki|the tooltip|in my data|in the data)\b.{0,20}\b(has|says|shows|contains|literally|includes|lists|reads)\b|\b(based on|according to|looking at)\s+(the|my)\s+(data|records|stats|search|database)\b|\btagged\s+(as|in)\s+"\w/i
+const FAKE_DATA_PATTERN = /\b(game data|the data|the db|the database|the wiki|the tooltip|in my data|in the data)\b.{0,20}\b(has|says|shows|contains|literally|includes|lists|reads|exactly|hint|points? to)\b|\b(based on|according to|looking at)\s+(the|my)\s+(data|records|stats|search|database)\b|\bitems?\s+tagged\b|\btagged\s+(as|in)?\s*["“]\w/i
 
 function hasFabricatedDataRef(text: string, hasGameData: boolean): boolean {
   return !hasGameData && FAKE_DATA_PATTERN.test(text)
