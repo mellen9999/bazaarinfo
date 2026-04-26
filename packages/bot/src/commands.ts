@@ -617,7 +617,11 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     if (unique.length > 0 && unique.length <= 5 && unique.every((t) => t.length <= 30)) {
       const seq = unique.join(' ')
       let out = seq
-      while (out.length + seq.length + 1 <= 380) out += ' ' + seq
+      let reps = 1
+      while (reps < 15 && out.length + seq.length + 1 <= 380) {
+        out += ' ' + seq
+        reps++
+      }
       return withSuffix(out, suffix)
     }
   }
