@@ -618,7 +618,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
       const seq = unique.join(' ')
       let out = seq
       let reps = 1
-      while (reps < 15 && out.length + seq.length + 1 <= 380) {
+      while (reps < 6 && out.length + seq.length + 1 <= 380) {
         out += ' ' + seq
         reps++
       }
