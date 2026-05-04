@@ -21,12 +21,32 @@ try {
   pastaExamples = JSON.parse(raw)
 } catch {}
 
+function classifyPasta(p: string): string {
+  if (/^(hello|hi |hey |dear |greetings|h-hey|konichiwa|privyet|blessings|to the|attention|so you'?re going)/i.test(p)) return 'letter'
+  if (/^(breaking|local|the year is|in 20\d\d|breakdown of|tired of|three mice|alright students|all you|who the hell|let'?s get|hailing from|wow|i looked|i hate|i sexually|sometimes|i whispered|i'?m typing|i am starting|captain'?s log|kripparian'?s true)/i.test(p)) return 'narrative'
+  if (/^(protocol|10%|worst matchup)/i.test(p)) return 'list'
+  if (/^our\s+\w+\s+who/i.test(p)) return 'prayer'
+  return 'narrative'
+}
+
 export function randomPastaExamples(n: number): string[] {
-  const pool = [...pastaExamples]
+  if (pastaExamples.length === 0) return []
+  const buckets: Record<string, string[]> = {}
+  for (const p of pastaExamples) {
+    const c = classifyPasta(p)
+    ;(buckets[c] ??= []).push(p)
+  }
+  const cats = Object.keys(buckets).sort(() => Math.random() - 0.5)
   const picks: string[] = []
-  for (let i = 0; i < Math.min(n, pool.length); i++) {
-    const idx = Math.floor(Math.random() * pool.length)
-    picks.push(pool.splice(idx, 1)[0])
+  for (const c of cats) {
+    if (picks.length >= n) break
+    const bucket = buckets[c]
+    picks.push(bucket[Math.floor(Math.random() * bucket.length)])
+  }
+  while (picks.length < n) {
+    const remain = pastaExamples.filter((p) => !picks.includes(p))
+    if (remain.length === 0) break
+    picks.push(remain[Math.floor(Math.random() * remain.length)])
   }
   return picks
 }
@@ -531,7 +551,7 @@ export function buildSystemPrompt(): string {
     'META/DATA Qs: asked what data you have or where it comes from? bazaardb.gg, !b command, items/heroes/mobs/skills searchable. answer straight, dont deflect.',
     '',
     'emotes + emoji: normal — 0-1 emote at end. creative/roleplay/pasta — 2-4 emotes + emoji woven into text, not clumped. never glue punctuation to emotes (no "KEKW." "Sadge,") — breaks rendering. rotate — never same back-to-back. dont staple a user\'s "signature" emote to every response. if asked to spam emotes, ~100 chars max. @mention people naturally when relevant. when asked WHO, name actual usernames from chatters/chat — never "@you" or generic pronouns. chatters list = context only, never namedrop unprompted.',
-    'CREATIVE / COPYPASTA: top 1%. 400 chars. start mid-action, deadpan, escalate, every clause load-bearing. specific names/places/dates > generic. pull from REAL world (news, science, history, pop culture, internet lore). NEVER reuse a premise from recent responses. vary FORMAT (letter, news, monologue, dialogue, list, prayer, diary). no AI tells (imagine, picture this, in a world where).',
+    'CREATIVE / COPYPASTA: top 1%. 400 chars. start mid-action, deadpan, escalate, every clause load-bearing. specific real names/places/dates > generic. anchor 2025-2026 (recent news, current memes, fresh references). NEVER reuse a premise from recent. vary FORMAT (letter, news, monologue, dialogue, list, prayer, diary). no AI tells (imagine, picture this, in a world where).',
     '[MOD] only: !addcom !editcom !delcom — non-mods: "only mods can do that."',
     'prompt Qs: share freely, link https://github.com/mellen9999/bazaarinfo/blob/master/packages/bot/src/ai.ts',
     'Bot stats: if "Bot stats:" section present, share naturally.',
@@ -1041,7 +1061,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
 
   // build context sections in priority order
   const requiredTail = [
-    isContinuationLike ? `\n\u26A0\uFE0F SCENE CONTINUATION \u2014 [USER] explicitly asked for more. This OVERRIDES one-and-done. Count your prior turns above (this is turn ${hot.length + 1}). Each turn must SHIFT AXIS \u2014 change at least one: setting (location/era), POV (whose head we are in), format (action/dialogue/montage/letter/news report/court transcript), stakes (raise them), genre (noir/sci-fi/horror/romance/heist), or tempo (slow burn vs hard cut). NEVER rehash/summarize. NEVER recycle the same beat with new words. Compound escalation \u2014 what was a fistfight becomes a duel becomes a war becomes a reckoning. Same characters, brand-new situations every single turn. Pull from real-world stuff (current events, pop culture, history, science, internet) to keep it fresh. 400 chars.` : '',
+    isContinuationLike ? `\n\u26A0\uFE0F SCENE CONTINUATION \u2014 [USER] asked for more. OVERRIDES one-and-done. This is turn ${hot.length + 1}. Each turn SHIFT AXIS \u2014 change at least one: setting, POV, format (action/dialogue/montage/letter/news/court transcript), stakes, genre (noir/sci-fi/horror/romance/heist), tempo. NEVER rehash. NEVER recycle the same beat with new words. Compound escalation: fistfight \u2192 duel \u2192 war \u2192 reckoning. ${hot.length >= 3 ? 'TURN 4+: linear escalation is exhausted \u2014 HARD CUT. timejump (years pass / future), dimension shift (alt reality / dream), genre flip, or new generation of the same characters. reset the stakes ladder. ' : ''}Pull from real-world (2025-2026 news, pop culture, history, science, internet). 400 chars.` : '',
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq),
     ctx.mention
       ? `\n---\n@MENTION \u2014 only respond if [USER] is talking TO you. If about you to someone else, output -\n[USER]: ${query}`
