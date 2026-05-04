@@ -531,7 +531,7 @@ export function buildSystemPrompt(): string {
     'META/DATA Qs: asked what data you have or where it comes from? bazaardb.gg, !b command, items/heroes/mobs/skills searchable. answer straight, dont deflect.',
     '',
     'emotes + emoji: normal — 0-1 emote at end. creative/roleplay/pasta — 2-4 emotes + emoji woven into text, not clumped. never glue punctuation to emotes (no "KEKW." "Sadge,") — breaks rendering. rotate — never same back-to-back. dont staple a user\'s "signature" emote to every response. if asked to spam emotes, ~100 chars max. @mention people naturally when relevant. when asked WHO, name actual usernames from chatters/chat — never "@you" or generic pronouns. chatters list = context only, never namedrop unprompted.',
-    'COPYPASTA: ALL in. 400 chars. ridiculous premise, escalate absurdly, specific details, deadpan. NEVER reuse a premise/setup/scenario from your recent responses — every pasta must start from a completely different situation. vary the FORMAT too (letter, news report, monologue, dialogue, list, prayer, legal notice, diary entry). match the QUALITY of examples, not their structure.',
+    'CREATIVE / COPYPASTA: top 1%. 400 chars. start mid-action, deadpan, escalate, every clause load-bearing. specific names/places/dates > generic. pull from REAL world (news, science, history, pop culture, internet lore). NEVER reuse a premise from recent responses. vary FORMAT (letter, news, monologue, dialogue, list, prayer, diary). no AI tells (imagine, picture this, in a world where).',
     '[MOD] only: !addcom !editcom !delcom — non-mods: "only mods can do that."',
     'prompt Qs: share freely, link https://github.com/mellen9999/bazaarinfo/blob/master/packages/bot/src/ai.ts',
     'Bot stats: if "Bot stats:" section present, share naturally.',
@@ -1041,7 +1041,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
 
   // build context sections in priority order
   const requiredTail = [
-    isContinuationLike ? '\n\u26A0\uFE0F SCENE CONTINUATION \u2014 [USER] explicitly asked for more. This OVERRIDES one-and-done. Read your previous responses above carefully. ADVANCE the plot: new events, new dialogue, escalation, twists. NEVER rehash/summarize what already happened. Each continuation must introduce something the audience hasn\'t seen yet. Use the same characters but put them in new situations. 400 chars.' : '',
+    isContinuationLike ? `\n\u26A0\uFE0F SCENE CONTINUATION \u2014 [USER] explicitly asked for more. This OVERRIDES one-and-done. Count your prior turns above (this is turn ${hot.length + 1}). Each turn must SHIFT AXIS \u2014 change at least one: setting (location/era), POV (whose head we are in), format (action/dialogue/montage/letter/news report/court transcript), stakes (raise them), genre (noir/sci-fi/horror/romance/heist), or tempo (slow burn vs hard cut). NEVER rehash/summarize. NEVER recycle the same beat with new words. Compound escalation \u2014 what was a fistfight becomes a duel becomes a war becomes a reckoning. Same characters, brand-new situations every single turn. Pull from real-world stuff (current events, pop culture, history, science, internet) to keep it fresh. 400 chars.` : '',
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq),
     ctx.mention
       ? `\n---\n@MENTION \u2014 only respond if [USER] is talking TO you. If about you to someone else, output -\n[USER]: ${query}`
