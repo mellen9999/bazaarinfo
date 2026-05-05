@@ -1,22 +1,7 @@
 import { memo } from 'preact/compat'
 import { useCallback, useMemo } from 'preact/hooks'
 import type { TierName } from '@bazaarinfo/shared/src/types'
-
-const TIER_HZ_COLOR: Record<TierName, string> = {
-  Bronze: 'rgba(205, 127, 50, 0.7)',
-  Silver: 'rgba(192, 192, 192, 0.6)',
-  Gold: 'rgba(255, 215, 0, 0.75)',
-  Diamond: 'rgba(185, 242, 255, 0.65)',
-  Legendary: 'rgba(176, 96, 255, 0.72)',
-}
-
-const TIER_HZ_GLOW: Record<TierName, string> = {
-  Bronze: 'rgba(205, 127, 50, 0.22)',
-  Silver: 'rgba(192, 192, 192, 0.18)',
-  Gold: 'rgba(255, 215, 0, 0.26)',
-  Diamond: 'rgba(185, 242, 255, 0.22)',
-  Legendary: 'rgba(176, 96, 255, 0.28)',
-}
+import { tierStyle } from '../tiers'
 
 interface DetectedSlot {
   title: string
@@ -45,14 +30,17 @@ export const HoverZone = memo(function HoverZone({ title, tier, x, y, w, h, owne
     [title, tier, x, y, w, h, owner, type, enchantment],
   )
 
-  const style = useMemo(() => ({
-    left: `${Math.max(0, Math.min(1 - w, x)) * 100}%`,
-    top: `${Math.max(0, Math.min(1 - h, y)) * 100}%`,
-    width: `${Math.min(w, 1) * 100}%`,
-    height: `${Math.min(h, 1) * 100}%`,
-    '--hz-color': isOpponent ? undefined : TIER_HZ_COLOR[tier],
-    '--hz-glow': isOpponent ? undefined : TIER_HZ_GLOW[tier],
-  } as Record<string, string>), [x, y, w, h, tier, isOpponent])
+  const style = useMemo(() => {
+    const s = tierStyle(tier)
+    return {
+      left: `${Math.max(0, Math.min(1 - w, x)) * 100}%`,
+      top: `${Math.max(0, Math.min(1 - h, y)) * 100}%`,
+      width: `${Math.min(w, 1) * 100}%`,
+      height: `${Math.min(h, 1) * 100}%`,
+      '--hz-color': isOpponent ? undefined : s.hzColor,
+      '--hz-glow': isOpponent ? undefined : s.hzGlow,
+    } as Record<string, string>
+  }, [x, y, w, h, tier, isOpponent])
 
   const handleEnter = useCallback(() => onHover(slot), [onHover, slot])
 
@@ -61,11 +49,14 @@ export const HoverZone = memo(function HoverZone({ title, tier, x, y, w, h, owne
       class={cls}
       role="button"
       aria-label={`${title} (${tier})`}
+      tabIndex={0}
       style={style}
       onMouseEnter={handleEnter}
       onMouseLeave={onLeave}
-    >
-    </div>
+      onFocus={handleEnter}
+      onBlur={onLeave}
+      onClick={handleEnter}
+    />
   )
 })
 

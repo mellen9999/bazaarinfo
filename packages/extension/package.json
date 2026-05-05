@@ -3,10 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun run build:overlay && bun run build:panel",
+    "build": "bun run build:overlay && bun run build:panel && bun run build:config && bun run copy:html",
     "build:overlay": "esbuild src/overlay.tsx --bundle --outfile=dist/video_overlay.js --format=iife --platform=browser --loader:.css=css --jsx=automatic --jsx-import-source=preact --minify --drop:console --drop:debugger",
     "build:panel": "esbuild src/panel.tsx --bundle --outfile=dist/panel.js --format=iife --platform=browser --loader:.css=css --jsx=automatic --jsx-import-source=preact --minify --drop:console --drop:debugger",
-    "clean": "rm -rf dist/*.js dist/*.css",
+    "build:config": "esbuild src/config.ts --bundle --outfile=dist/config.js --format=iife --platform=browser --minify --drop:console --drop:debugger && cp src/config.css dist/config.css",
+    "copy:html": "cp src/config.html src/panel.html src/video_overlay.html dist/",
+    "clean": "rm -rf dist/*.js dist/*.css dist/config.html",
     "zip": "bun run build && cd dist && zip -r ../bazaarinfo-extension.zip ."
   },
   "dependencies": {

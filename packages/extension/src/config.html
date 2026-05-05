@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BazaarInfo Companion Setup</title>
+<script src="https://extension-files.twitch.tv/helper/v1/twitch-ext.min.js"></script>
+<link rel="stylesheet" href="config.css">
+</head>
+<body>
+<h1>BazaarInfo Companion Setup</h1>
+<p>The companion app watches your game and sends card positions to the overlay so viewers can hover over cards for tooltips.</p>
+
+<div class="setup-box">
+  <div id="status" class="loading">Authenticating with Twitch&hellip;</div>
+  <div id="fields" hidden>
+    <div class="field">
+      <label for="channel-id">Channel ID</label>
+      <code id="channel-id" tabindex="0" data-copy></code>
+    </div>
+    <div class="field">
+      <label for="secret">Companion Secret</label>
+      <code id="secret" tabindex="0" data-copy></code>
+    </div>
+  </div>
+</div>
+
+<h2>Quick Start</h2>
+<ol>
+  <li>Download the companion from <a href="https://github.com/mellen/bazaarinfo/releases/latest" target="_blank" rel="noopener">GitHub Releases</a></li>
+  <li>Run it &mdash; it will ask for your Channel ID and Secret shown above</li>
+  <li>Launch The Bazaar and start a game</li>
+  <li>Viewers in fullscreen will see card tooltips on hover</li>
+</ol>
+
+<h2>Manual Setup (Python)</h2>
+<ol>
+  <li>Clone the repo and go to <code class="inline">packages/companion/</code></li>
+  <li>Install deps: <code class="inline">pip install -r requirements.txt</code></li>
+  <li>Edit <code class="inline">config.ini</code> with your Channel ID and Secret</li>
+  <li>Run: <code class="inline">python logwatch.py</code></li>
+</ol>
+
+<script src="config.js"></script>
+</body>
+</html>

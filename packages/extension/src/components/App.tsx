@@ -1,25 +1,30 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'preact/hooks'
+import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'preact/hooks'
 import type { BazaarCard } from '@bazaarinfo/shared/src/types'
 import { HoverZone } from './HoverZone'
 import type { DetectedSlot } from './HoverZone'
 import { CardTooltip } from './CardTooltip'
 import { fetchCards } from '../twitch'
+import { deriveValidTiers, isPlausibleTierString } from '../tiers'
 
-const VALID_TIERS = new Set(['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary'])
+const VIEWPORT_MARGIN = 4
+const MAX_SLOTS = 50
 
-function isValidSlot(s: unknown): s is DetectedSlot {
-  if (!s || typeof s !== 'object') return false
-  const o = s as Record<string, unknown>
-  if (typeof o.title !== 'string' || typeof o.tier !== 'string') return false
-  if (!VALID_TIERS.has(o.tier)) return false
-  if (typeof o.x !== 'number' || typeof o.y !== 'number') return false
-  if (typeof o.w !== 'number' || typeof o.h !== 'number') return false
-  if (o.x < 0 || o.x > 1 || o.y < 0 || o.y > 1) return false
-  if (o.w <= 0 || o.w > 1 || o.h <= 0 || o.h > 1) return false
-  if (typeof o.owner === 'string' && o.owner.length > 50) return false
-  if (typeof o.type === 'string' && o.type.length > 50) return false
-  if (typeof o.enchantment === 'string' && o.enchantment.length > 50) return false
-  return true
+function makeSlotValidator(validTiers: Set<string>) {
+  return function isValidSlot(s: unknown): s is DetectedSlot {
+    if (!s || typeof s !== 'object') return false
+    const o = s as Record<string, unknown>
+    if (typeof o.title !== 'string' || o.title.length === 0 || o.title.length > 80) return false
+    if (!isPlausibleTierString(o.tier, validTiers)) return false
+    if (typeof o.x !== 'number' || typeof o.y !== 'number') return false
+    if (typeof o.w !== 'number' || typeof o.h !== 'number') return false
+    if (!Number.isFinite(o.x) || !Number.isFinite(o.y) || !Number.isFinite(o.w) || !Number.isFinite(o.h)) return false
+    if (o.x < 0 || o.x > 1 || o.y < 0 || o.y > 1) return false
+    if (o.w <= 0 || o.w > 1 || o.h <= 0 || o.h > 1) return false
+    if (typeof o.owner === 'string' && o.owner.length > 50) return false
+    if (typeof o.type === 'string' && o.type.length > 50) return false
+    if (typeof o.enchantment === 'string' && o.enchantment.length > 50) return false
+    return true
+  }
 }
 
 function slotsEqual(a: DetectedSlot[], b: DetectedSlot[]): boolean {
@@ -36,6 +41,9 @@ export function App() {
   const [hovered, setHovered] = useState<DetectedSlot | null>(null)
   const [tooltipPos, setTooltipPos] = useState<{ left: string; top: string }>({ left: '0', top: '0' })
   const cardsLoaded = useRef(false)
+  const tooltipRef = useRef<HTMLDivElement | null>(null)
+  const lastSlotRef = useRef<DetectedSlot | null>(null)
+  const validatorRef = useRef<(s: unknown) => s is DetectedSlot>(makeSlotValidator(new Set<string>()))
 
   useEffect(() => {
     let mounted = true
@@ -51,6 +59,7 @@ export function App() {
           const map = new Map<string, BazaarCard>()
           for (const c of all) map.set(c.Title.toLowerCase(), c)
           setCards(map)
+          validatorRef.current = makeSlotValidator(deriveValidTiers(all))
           cardsLoaded.current = true
           return
         } catch {
@@ -65,7 +74,7 @@ export function App() {
         const data = JSON.parse(message)
         const raw = data?.cards
         if (Array.isArray(raw)) {
-          const next = raw.filter(isValidSlot)
+          const next = raw.slice(0, MAX_SLOTS).filter(validatorRef.current)
           setDetected(prev => slotsEqual(prev, next) ? prev : next)
         }
       } catch {}
@@ -73,24 +82,73 @@ export function App() {
     twitch.listen('broadcast', onBroadcast)
 
     twitch.onVisibilityChanged?.((isVisible) => {
-      if (!isVisible) setDetected([])
+      if (!isVisible) {
+        setDetected([])
+        setHovered(null)
+      }
     })
 
     return () => { mounted = false; twitch.unlisten('broadcast', onBroadcast) }
   }, [])
 
-  const handleHover = useCallback((slot: DetectedSlot) => {
+  const positionTooltip = useCallback((slot: DetectedSlot) => {
+    lastSlotRef.current = slot
+    const tip = tooltipRef.current
     const vw = window.innerWidth
     const vh = window.innerHeight
-    const cx = slot.x * vw + (slot.w * vw) / 2
-    const cy = slot.y * vh
-    const left = `${Math.max(4, Math.min(vw - 264, cx + 140 > vw ? cx - 280 : cx))}px`
-    const top = `${Math.max(4, Math.min(vh - 244, cy + 240 > vh ? cy - 240 : cy))}px`
-    setTooltipPos({ left, top })
-    setHovered(slot)
+    const tipW = tip?.offsetWidth ?? Math.min(280, vw - VIEWPORT_MARGIN * 2)
+    const tipH = tip?.offsetHeight ?? Math.min(320, vh - VIEWPORT_MARGIN * 2)
+
+    const slotCx = slot.x * vw + (slot.w * vw) / 2
+    const slotTop = slot.y * vh
+    const slotBottom = (slot.y + slot.h) * vh
+
+    // Prefer placing tooltip right of slot center, but flip if it overflows
+    const wantLeft = slotCx + tipW / 2 > vw - VIEWPORT_MARGIN ? slotCx - tipW : slotCx
+    const left = Math.max(VIEWPORT_MARGIN, Math.min(vw - tipW - VIEWPORT_MARGIN, wantLeft))
+
+    // Prefer above slot, fall back to below if no room
+    const wantTop = slotTop - tipH - 8 < VIEWPORT_MARGIN ? slotBottom + 8 : slotTop - tipH - 8
+    const top = Math.max(VIEWPORT_MARGIN, Math.min(vh - tipH - VIEWPORT_MARGIN, wantTop))
+
+    setTooltipPos({ left: `${left}px`, top: `${top}px` })
   }, [])
 
-  const handleLeave = useCallback(() => setHovered(null), [])
+  const handleHover = useCallback((slot: DetectedSlot) => {
+    setHovered(slot)
+    positionTooltip(slot)
+  }, [positionTooltip])
+
+  const handleLeave = useCallback(() => {
+    setHovered(null)
+    lastSlotRef.current = null
+  }, [])
+
+  // re-clamp tooltip when its rendered size is known and on resize
+  useLayoutEffect(() => {
+    if (hovered) positionTooltip(hovered)
+  }, [hovered, positionTooltip])
+
+  useEffect(() => {
+    const onResize = () => {
+      if (lastSlotRef.current) positionTooltip(lastSlotRef.current)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [positionTooltip])
+
+  // outside-tap dismissal for touch users
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse') return
+      const target = e.target as Element | null
+      if (!target?.closest('.hover-zone') && !target?.closest('.card-tooltip')) {
+        setHovered(null)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown, { passive: true })
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [])
 
   const hoveredCard = useMemo(
     () => hovered ? cards.get(hovered.title.toLowerCase()) ?? null : null,
@@ -114,6 +172,7 @@ export function App() {
       ))}
       {hoveredCard && hovered && (
         <CardTooltip
+          ref={tooltipRef}
           card={hoveredCard}
           tier={hovered.tier}
           enchantment={hovered.enchantment}

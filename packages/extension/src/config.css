@@ -1,0 +1,109 @@
+* { box-sizing: border-box; margin: 0; padding: 0 }
+
+:root {
+  --bg: #0e0e10;
+  --bg-card: #18181b;
+  --border: #303032;
+  --text: #efeff1;
+  --text-muted: #adadb8;
+  --accent: #ff8700;
+  --code-bg: #0e0e10;
+  --success: #00c853;
+  --error: #f44;
+}
+
+body[data-theme="light"] {
+  --bg: #f7f7f8;
+  --bg-card: #ffffff;
+  --border: #d3d3d7;
+  --text: #0e0e10;
+  --text-muted: #53535f;
+  --accent: #c46300;
+  --code-bg: #f0f0f1;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  padding: clamp(16px, 4vw, 24px);
+  min-height: 100vh;
+}
+
+h1 { font-size: clamp(18px, 3vw, 22px); margin-bottom: 16px; color: var(--accent) }
+h2 { font-size: clamp(14px, 2vw, 16px); margin: 20px 0 8px; color: var(--accent) }
+p { font-size: 14px; line-height: 1.5; margin-bottom: 12px; color: var(--text-muted) }
+
+.setup-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px 0;
+}
+
+.field { margin: 8px 0 }
+.field label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+code {
+  font-family: "Cascadia Code", "Fira Code", ui-monospace, monospace;
+}
+
+.field code {
+  display: block;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-all;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.field code:hover,
+.field code:focus-visible { border-color: var(--accent); outline: none }
+
+.field code::after {
+  content: " (click to copy)";
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+code.copied {
+  color: var(--success) !important;
+  border-color: var(--success) !important;
+}
+code.copied::after {
+  content: " copied!" !important;
+  color: var(--success) !important;
+}
+
+code.inline {
+  display: inline;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: text;
+  font-size: inherit;
+  color: var(--text);
+}
+
+a { color: var(--accent) }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+
+.loading { color: var(--text-muted); font-style: italic }
+.error { color: var(--error) }
+
+ol { padding-left: 20px; margin: 8px 0 }
+li { font-size: 14px; line-height: 1.8; color: var(--text-muted) }
+
+@media (prefers-reduced-motion: reduce) {
+  .field code, code.copied { transition: none }
+}
