@@ -12,6 +12,7 @@ import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel } from './trivia'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
 import { refreshRedditDigest } from './reddit'
+import { refreshTopicalDigest } from './topical'
 import { refreshActivity } from './activity'
 import * as chatbuf from './chatbuf'
 import { refreshGlobalEmotes, refreshChannelEmotes, getEmoteSetId, getAllEmoteSetIds, removeChannelEmotes } from './emotes'
@@ -238,6 +239,10 @@ loadDescriptionCache().then(async () => {
 
 // load reddit digest (non-blocking) — daily refresh at 5pm PT scheduled below
 refreshRedditDigest().catch((e) => log(`reddit digest load failed: ${e}`))
+
+// load topical (HN + r/popular) digest — refresh every 4h for fresh world-knowledge in creative path
+refreshTopicalDigest().catch((e) => log(`topical digest load failed: ${e}`))
+setInterval(() => refreshTopicalDigest().catch((e) => log(`topical refresh failed: ${e}`)), 4 * 60 * 60_000)
 
 // load activity data (non-blocking) + refresh every 30 min
 refreshActivity().catch((e) => log(`activity load failed: ${e}`))
