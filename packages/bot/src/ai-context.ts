@@ -2,6 +2,7 @@ import type { BazaarCard, Monster } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
 import { getRedditDigest } from './reddit'
+import { getTopicalDigest } from './topical'
 import { getActivityFor } from './activity'
 import { getRecent, getSummary, getActiveThreads } from './chatbuf'
 import type { ChatEntry } from './chatbuf'
@@ -1056,8 +1057,12 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   }
 
   const pastaBlock = isPasta && pastaExamples.length > 0
-    ? `\nPasta examples (match quality, NOT structure):\n${randomPastaExamples(3).map((p, i) => `${i + 1}. ${p}`).join('\n')}${recentPastas.length > 0 ? `\n\nDO NOT reuse these premises/setups:\n${recentPastas.join('\n')}` : ''}\n`
+    ? `\nPasta voice samples (match pacing/density/punchline geometry — IGNORE subject matter):\n${randomPastaExamples(3).map((p, i) => `${i + 1}. ${p}`).join('\n')}${recentPastas.length > 0 ? `\n\nDO NOT reuse these premises/setups:\n${recentPastas.join('\n')}` : ''}\n`
     : ''
+
+  // topical world-knowledge digest — fresh news/memes for creative path
+  const topical = getTopicalDigest()
+  const topicalLine = (isCreative && topical) ? `\nWorld pulse (recent — pull from this for topical jokes/references):\n${topical}\n` : ''
 
   // build context sections in priority order
   const requiredTail = [
@@ -1083,6 +1088,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     fullEmoteLine,
     queryEmoteLine,
     pastaBlock,
+    topicalLine,
     todayWordsBlock,
     recallLine,
     chatRecallLine ? `\n${chatRecallLine}` : '',
