@@ -84,7 +84,7 @@ export const KNOWLEDGE: [RegExp, string][] = [
 ]
 
 // detect game-related terms (used by extractEntities to flag game queries)
-export const GAME_TERMS = /\b(items?|heroes?|monsters?|mobs?|builds?|tiers?|enchant(ment)?s?|skills?|tags?|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|rage|weapons?|relics?|aqua|friend|ammo|charge|board|dps|beat|fight|counter|synergy|scaling|combo|lethal|survive|bronze|silver|gold|diamond|legendary|lifesteal|multicast|luck|cooldown|pygmy|pygmalien|vanessa|dooley|stelle|jules|mak|karnok|common|run|pick|draft|comp|strat(egy)?|nerf|buff|patch|meta|broken)\b/i
+export const GAME_TERMS = /\b(items?|heroes?|monsters?|mobs?|builds?|tiers?|enchant(ment)?s?|skills?|tags?|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|rage|weapons?|relics?|aqua(tic)?|friend|ammo|charge|board|dps|beat|fight|counter|synergy|scaling|combo|lethal|survive|bronze|silver|gold|diamond|legendary|lifesteal|multicast|luck|cooldown|pygmy|pygmalien|vanessa|dooley|stelle|jules|mak|karnok|common|run|pick|draft|comp|strat(egy)?|nerf|buff|patch|meta|broken|heated|chilled|drones?|reagents?|rays?|absorbs?|absorbed|enrage[ds]?|loot|traps?|quests?|propert(y|ies)|vehicles?|reloads?|hasted|frozen|chained|sealed)\b/i
 
 // --- entity extraction ---
 
