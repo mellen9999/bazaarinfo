@@ -7,6 +7,7 @@ import { describe, expect, it, beforeAll } from 'bun:test'
 import * as store from './store'
 import { sanitize, buildSystemPrompt, isModelRefusal, buildFTSQuery, GREETINGS } from './ai'
 import { handleCommand, parseArgs } from './commands'
+import { GAME_TERMS, extractEntities } from './ai-context'
 
 // --- load real data so extractEntities / store calls work ---
 beforeAll(async () => {
@@ -64,6 +65,45 @@ describe('entity extraction via store', () => {
 
   it('searchByEffect finds items with burn', () => {
     const results = store.searchByEffect('burn', undefined, 5)
+    expect(results.length).toBeGreaterThan(0)
+  })
+})
+
+// ============================================================
+// 1b. GAME_TERMS regex — s3 mechanics must route to game path
+// ============================================================
+describe('GAME_TERMS s3 vocabulary', () => {
+  const s3Mechanics = [
+    'heated', 'chilled', 'aquatic', 'drone', 'drones', 'reagent', 'reagents',
+    'ray', 'rays', 'absorb', 'absorbs', 'absorbed', 'enrage', 'enraged',
+    'loot', 'trap', 'traps', 'quest', 'quests', 'property', 'properties',
+    'vehicle', 'vehicles', 'reload', 'reloads', 'frozen', 'hasted',
+  ]
+  for (const term of s3Mechanics) {
+    it(`flags "${term}" as a game query`, () => {
+      expect(GAME_TERMS.test(term)).toBe(true)
+      expect(GAME_TERMS.test(`what does ${term} do`)).toBe(true)
+    })
+  }
+
+  it('still skips conversational chat', () => {
+    expect(GAME_TERMS.test('lol nice')).toBe(false)
+    expect(GAME_TERMS.test('how are you')).toBe(false)
+    expect(GAME_TERMS.test('what time is it')).toBe(false)
+  })
+
+  it('marks heated/chilled as game via tag-extraction too', () => {
+    expect(extractEntities('what does heated do').isGame).toBe(true)
+    expect(extractEntities('chilled items').isGame).toBe(true)
+  })
+
+  it('searchByEffect finds items mentioning heated', () => {
+    const results = store.searchByEffect('heated', undefined, 5)
+    expect(results.length).toBeGreaterThan(0)
+  })
+
+  it('searchByEffect finds items mentioning chilled', () => {
+    const results = store.searchByEffect('chilled', undefined, 5)
     expect(results.length).toBeGreaterThan(0)
   })
 })
