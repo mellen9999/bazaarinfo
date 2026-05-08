@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { sanitize, getAiCooldown, getGlobalAiCooldown, recordUsage, isModelRefusal, buildFTSQuery } from './ai'
+import { sanitize, getAiCooldown, getGlobalAiCooldown, recordUsage, isModelRefusal, buildFTSQuery, capEmoteTotal } from './ai'
 
 describe('sanitize', () => {
   it('strips markdown bold', () => {
@@ -652,5 +652,54 @@ describe('buildFTSQuery', () => {
   it('limits to 5 terms', () => {
     const result = buildFTSQuery('one two three four five six seven eight')
     expect(result!.split(' AND ').length).toBe(5)
+  })
+})
+
+describe('capEmoteTotal', () => {
+  // KNOWN_GLOBALS in emotes.ts seeds these without any 7TV fetch
+  const ch = 'testchan'
+
+  it('passes through when under cap', () => {
+    expect(capEmoteTotal('hey LULW that play KEKW', ch)).toBe('hey LULW that play KEKW')
+  })
+
+  it('passes through when exactly at cap', () => {
+    expect(capEmoteTotal('LULW LULW LULW LULW LULW', ch)).toBe('LULW LULW LULW LULW LULW')
+  })
+
+  it('caps single-emote spam at 5', () => {
+    const out = capEmoteTotal('LULW LULW LULW LULW LULW LULW LULW LULW LULW LULW', ch)
+    expect((out.match(/LULW/g) || []).length).toBe(5)
+  })
+
+  it('caps memory-driven 30x spam at 5', () => {
+    const input = Array(30).fill('Sadge').join(' ')
+    const out = capEmoteTotal(input, ch)
+    expect((out.match(/Sadge/g) || []).length).toBe(5)
+  })
+
+  it('caps mixed multi-emote total at 5 (not 5 each)', () => {
+    const out = capEmoteTotal('KEKW KEKW KEKW KEKW KEKW Sadge Sadge Sadge Sadge Sadge LULW LULW LULW LULW LULW', ch)
+    const total = (out.match(/\b(KEKW|Sadge|LULW)\b/g) || []).length
+    expect(total).toBe(5)
+  })
+
+  it('preserves non-emote prose past cap', () => {
+    const out = capEmoteTotal('LULW LULW LULW LULW LULW LULW that was wild', ch)
+    expect(out).toContain('that was wild')
+    expect((out.match(/LULW/g) || []).length).toBe(5)
+  })
+
+  it('does not count non-emote words', () => {
+    expect(capEmoteTotal('the the the the the the the', ch)).toBe('the the the the the the the')
+  })
+
+  it('no-op without channel', () => {
+    expect(capEmoteTotal('LULW LULW LULW LULW LULW LULW LULW')).toBe('LULW LULW LULW LULW LULW LULW LULW')
+  })
+
+  it('case-sensitive — lowercase is not a known emote', () => {
+    // canonicalization is fixEmoteCase's job; cap only counts canonical tokens
+    expect(capEmoteTotal('lulw lulw lulw lulw lulw lulw lulw lulw', ch)).toBe('lulw lulw lulw lulw lulw lulw lulw lulw')
   })
 })

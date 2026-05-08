@@ -73,6 +73,7 @@ mock.module('./ai', () => ({
   fixEmoteCase: mock((t: string) => t),
   fixEmotePunctuation: mock((t: string) => t),
   dedupeMention: mock((t: string) => t),
+  capEmoteTotal: mock((t: string) => t),
 }))
 
 // --- mock trivia ---
