@@ -1686,4 +1686,27 @@ describe('self-timeout dodge', () => {
   })
 })
 
+describe('spam wall cap', () => {
+  function tokens(s: string | null): string[] {
+    return (s ?? '').split(/\s+/).filter((t) => t && !t.startsWith('bzdb.to') && !t.startsWith('http'))
+  }
+
+  it('caps single emote at 5 copies', async () => {
+    const out = await handleCommand('!b spam LICK', { user: 'u', channel: 'c' })
+    const t = tokens(out).filter((w) => w === 'LICK')
+    expect(t.length).toBe(5)
+  })
+
+  it('caps multi-emote total at 5 (not 5 each)', async () => {
+    const out = await handleCommand('!b spam KEKW Sadge LULW', { user: 'u', channel: 'c' })
+    const t = tokens(out).filter((w) => /^(KEKW|Sadge|LULW)$/.test(w))
+    expect(t.length).toBe(5)
+  })
+
+  it('rotates through unique tokens', async () => {
+    const out = await handleCommand('!b spam A B', { user: 'u', channel: 'c' })
+    expect(out).toContain('A B A B A')
+  })
+})
+
 
