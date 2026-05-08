@@ -4,7 +4,7 @@ import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
-import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation } from './ai'
+import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal } from './ai'
 import { isEmote } from './emotes'
 import { getThread } from './chatbuf'
 import { log } from './log'
@@ -34,7 +34,7 @@ async function tryAiRespond(query: string, ctx: CommandContext, mentions: string
   let result: Awaited<ReturnType<typeof aiRespond>> = null
   try { result = await aiRespond(query, { ...ctx, direct: true }) } catch (e) { log(`ai: call failed: ${e}`) }
   if (!result?.text) return null
-  let response = dedupeMention(dedupeEmote(fixEmotePunctuation(fixEmoteCase(result.text, ctx.channel), ctx.channel), ctx.channel), ctx.channel, ctx.user)
+  let response = dedupeMention(capEmoteTotal(dedupeEmote(fixEmotePunctuation(fixEmoteCase(result.text, ctx.channel), ctx.channel), ctx.channel), ctx.channel), ctx.channel, ctx.user)
   if (mentions.length > 0) {
     const lower = response.toLowerCase()
     const missing = mentions.map((m) => m.toLowerCase()).filter((m) => !lower.includes(m))

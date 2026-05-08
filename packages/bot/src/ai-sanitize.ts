@@ -343,6 +343,28 @@ function recordEmoteUsed(channel: string, emote: string) {
 export const EMOTE_COOLDOWN_MS = 20 * 60_000
 export const recentEmotesByChannel = new Map<string, Map<string, number>>()
 
+// hard cap total emote tokens per message — defensive against AI ignoring prompt rule
+// applies regardless of how many distinct emotes are requested or implied by recent chat memory
+export const EMOTE_CAP_PER_MSG = 5
+export function capEmoteTotal(text: string, channel?: string, max = EMOTE_CAP_PER_MSG): string {
+  if (!channel) return text
+  const emoteSet = new Set(getEmotesForChannel(channel))
+  if (emoteSet.size === 0) return text
+  const parts = text.split(/(\s+)/)
+  let count = 0
+  let dropped = false
+  const kept: string[] = []
+  for (const p of parts) {
+    if (emoteSet.has(p)) {
+      if (count >= max) { dropped = true; continue }
+      count++
+    }
+    kept.push(p)
+  }
+  if (!dropped) return text
+  return kept.join('').replace(/\s{2,}/g, ' ').trim()
+}
+
 export function dedupeUserEmote(text: string, user: string, channel?: string): string {
   if (!channel) return text
   const emoteSet = new Set(getEmotesForChannel(channel))
