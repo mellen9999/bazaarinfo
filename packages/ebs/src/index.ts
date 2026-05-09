@@ -4,9 +4,12 @@
 import { readFileSync } from 'fs'
 import type { CardCache } from '@bazaarinfo/shared'
 import { verifyTwitchJwt, deriveChannelSecret } from './auth'
-import { handleCards, setCardCache } from './routes/cards'
+import { handleCards, setCardCache, getCardCache } from './routes/cards'
 import { handleImage } from './routes/images'
 import { handleDetect } from './routes/detect'
+import { pubsubStats } from './pubsub'
+
+const STARTED_AT = Date.now()
 
 const PORT = parseInt(process.env.EBS_PORT ?? '3100')
 
@@ -107,7 +110,27 @@ async function handleRequest(req: Request): Promise<Response> {
     return cors(await handleImage(imageMatch[1]), origin)
   }
 
-  // GET /health
+  // GET /health/live — process is up
+  if (req.method === 'GET' && path === '/health/live') {
+    return cors(new Response('ok'), origin)
+  }
+
+  // GET /health/ready — card cache loaded + ready to serve
+  if (req.method === 'GET' && path === '/health/ready') {
+    const cache = getCardCache()
+    if (!cache) return cors(new Response('not ready', { status: 503 }), origin)
+    const stats = pubsubStats()
+    return cors(Response.json({
+      status: 'ready',
+      uptime: Math.floor((Date.now() - STARTED_AT) / 1000),
+      cards: cache.items.length,
+      skills: cache.skills.length,
+      monsters: cache.monsters.length,
+      pubsub: stats,
+    }), origin)
+  }
+
+  // GET /health (back-compat alias of /health/live)
   if (req.method === 'GET' && path === '/health') {
     return cors(new Response('ok'), origin)
   }

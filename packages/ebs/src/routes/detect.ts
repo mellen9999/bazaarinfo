@@ -88,13 +88,13 @@ export async function handleDetect(req: Request): Promise<Response> {
     return new Response('unauthorized', { status: 401 })
   }
 
-  const ok = await broadcastState(body.channelId, {
+  const accepted = broadcastState(body.channelId, {
     cards: body.cards,
     shop: body.shop,
   })
-  if (!ok) {
+  if (!accepted) {
     return new Response('broadcast failed', { status: 502 })
   }
 
-  return new Response('ok', { status: 200 })
+  return new Response('ok', { status: 202 })
 }
