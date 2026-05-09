@@ -1,0 +1,10 @@
+[Unit]
+Description=BazaarInfo daily backup (sqlite + items.json)
+
+[Service]
+Type=oneshot
+ExecStart=%h/projects/bazaarinfo/scripts/backup.sh
+Nice=10
+IOSchedulingClass=idle
+StandardOutput=journal
+StandardError=journal
