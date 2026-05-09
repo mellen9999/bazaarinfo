@@ -32,6 +32,7 @@ export interface BazaarCard {
   Enchantments: Record<string, DumpEnchantment>
   Shortlink: string
   ArtKey?: string
+  Cooldown?: number | Partial<Record<TierName, number>>
 }
 
 export interface MonsterBoardEntry {

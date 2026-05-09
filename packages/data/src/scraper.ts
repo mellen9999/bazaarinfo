@@ -3,7 +3,9 @@ import type { BazaarCard, Monster, CardCache, DumpTooltip, DumpEnchantment, Repl
 import artKeys from '../art-keys.json'
 
 const DUMP_URL = 'https://bazaardb.gg/dump.json'
+const HOWBAZAAR_URL = 'https://www.howbazaar.gg/api/items'
 const USER_AGENT = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
+const COOLDOWN_RE = /^Cooldown\s+([\d.]+)\s+second/i
 const ART_MAP: Record<string, string> = artKeys as Record<string, string>
 
 const VALID_TIERS = new Set<string>(['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary'])
@@ -134,8 +136,59 @@ function parseDump(dump: Record<string, DumpEntry>, onProgress?: (msg: string) =
   return { items, skills, monsters, fetchedAt: new Date().toISOString() }
 }
 
+type CooldownValue = number | Partial<Record<TierName, number>>
+
+interface HowbazaarTier { tooltips?: string[] }
+interface HowbazaarItem { name?: string; tiers?: Partial<Record<TierName, HowbazaarTier>> }
+
+function extractCooldown(it: HowbazaarItem): CooldownValue | null {
+  if (!it.tiers) return null
+  const perTier: Partial<Record<TierName, number>> = {}
+  for (const t of ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary'] as TierName[]) {
+    const tier = it.tiers[t]
+    if (!tier?.tooltips) continue
+    for (const tt of tier.tooltips) {
+      const m = COOLDOWN_RE.exec(tt)
+      if (m) { perTier[t] = parseFloat(m[1]); break }
+    }
+  }
+  const vals = Object.values(perTier)
+  if (!vals.length) return null
+  const first = vals[0]
+  return vals.every((v) => v === first) ? first : perTier
+}
+
+async function fetchCooldowns(onProgress?: (msg: string) => void): Promise<Map<string, CooldownValue>> {
+  const map = new Map<string, CooldownValue>()
+  try {
+    const res = await fetch(HOWBAZAAR_URL, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const body = await res.json() as { data?: HowbazaarItem[] }
+    const list = body.data ?? []
+    for (const it of list) {
+      if (!it.name) continue
+      const cd = extractCooldown(it)
+      if (cd != null) map.set(it.name, cd)
+    }
+    onProgress?.(`fetched ${map.size} cooldowns from howbazaar`)
+  } catch (e) {
+    onProgress?.(`cooldown fetch failed (continuing without): ${e instanceof Error ? e.message : e}`)
+  }
+  return map
+}
+
+function applyCooldowns(cache: CardCache, cooldowns: Map<string, CooldownValue>) {
+  for (const item of cache.items) {
+    const cd = cooldowns.get(item.Title)
+    if (cd != null) item.Cooldown = cd
+  }
+}
+
 // exported for testing
-export { computeDisplayTags, toCard, toMonster, parseDump }
+export { computeDisplayTags, toCard, toMonster, parseDump, fetchCooldowns, applyCooldowns, extractCooldown }
 export type { DumpEntry }
 
 export async function scrapeDump(onProgress?: (msg: string) => void): Promise<CardCache> {
@@ -161,6 +214,8 @@ export async function scrapeDump(onProgress?: (msg: string) => void): Promise<Ca
       }
       const dump = raw as Record<string, DumpEntry>
       const cache = parseDump(dump, onProgress)
+      const cooldowns = await fetchCooldowns(onProgress)
+      applyCooldowns(cache, cooldowns)
       if (cache.items.length < 50) {
         throw new Error(`suspiciously few items (${cache.items.length}), refusing to use`)
       }
