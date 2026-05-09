@@ -202,3 +202,50 @@ export const AI_MAX_QUEUE = 5
 export function setAiLock(p: Promise<void>) { aiLock = p }
 export function incrementQueue() { aiQueueDepth++ }
 export function decrementQueue() { aiQueueDepth-- }
+
+// --- per-channel daily token cap ---
+
+export const AI_DAILY_TOKEN_CAP = Math.max(0, parseInt(process.env.AI_DAILY_TOKEN_CAP ?? '200000') || 0)
+
+export function isOverDailyCap(channel: string): boolean {
+  if (AI_DAILY_TOKEN_CAP === 0) return false
+  try {
+    const s = db.getDailyAiSpend(channel)
+    return s.input_tokens + s.output_tokens >= AI_DAILY_TOKEN_CAP
+  } catch { return false }
+}
+
+// --- repeat-query abuse detection (per user, per 5min window) ---
+
+interface RecentQuery { norm: string; ts: number; count: number }
+const recentQueriesByUser = new Map<string, RecentQuery[]>()
+const REPEAT_WINDOW_MS = 5 * 60_000
+const REPEAT_THRESHOLD = 3
+const RECENT_QUERY_KEEP = 8
+
+function normQuery(q: string): string {
+  return q.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+export function isRepeatAbuse(user: string, query: string): boolean {
+  const u = user.toLowerCase()
+  const norm = normQuery(query)
+  if (!norm) return false
+  const now = Date.now()
+  const list = (recentQueriesByUser.get(u) ?? []).filter((r) => now - r.ts < REPEAT_WINDOW_MS)
+  let entry = list.find((r) => r.norm === norm)
+  if (entry) {
+    entry.count++
+    entry.ts = now
+  } else {
+    entry = { norm, ts: now, count: 1 }
+    list.push(entry)
+  }
+  while (list.length > RECENT_QUERY_KEEP) list.shift()
+  recentQueriesByUser.set(u, list)
+  if (recentQueriesByUser.size > 5_000) {
+    const first = recentQueriesByUser.keys().next().value!
+    recentQueriesByUser.delete(first)
+  }
+  return entry.count >= REPEAT_THRESHOLD
+}

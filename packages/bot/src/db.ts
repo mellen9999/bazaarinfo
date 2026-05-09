@@ -68,6 +68,9 @@ let stmts: {
   bumpLesson: Statement
   countLessons: Statement
   searchLessonFTS: Statement
+  upsertAiSpend: Statement
+  selectAiSpend: Statement
+  totalAiSpend: Statement
 }
 
 function prepareStatements() {
@@ -244,6 +247,21 @@ function prepareStatements() {
       `SELECT cl.id, cl.lesson FROM chat_lessons_fts f
        JOIN chat_lessons cl ON cl.id = f.rowid
        WHERE f.lesson MATCH ? LIMIT ?`,
+    ),
+    upsertAiSpend: db.prepare(
+      `INSERT INTO ai_spend (channel, day, input_tokens, output_tokens, calls, updated_at)
+       VALUES (?, ?, ?, ?, 1, datetime('now'))
+       ON CONFLICT(channel, day) DO UPDATE SET
+         input_tokens = input_tokens + excluded.input_tokens,
+         output_tokens = output_tokens + excluded.output_tokens,
+         calls = calls + 1,
+         updated_at = datetime('now')`,
+    ),
+    selectAiSpend: db.prepare(
+      `SELECT input_tokens, output_tokens, calls FROM ai_spend WHERE channel = ? AND day = ?`,
+    ),
+    totalAiSpend: db.prepare(
+      `SELECT SUM(input_tokens + output_tokens) as tokens, SUM(calls) as calls FROM ai_spend WHERE day = ?`,
     ),
   }
 }
@@ -574,6 +592,19 @@ const migrations: (() => void)[] = [
   // migration 15: ask_queries channel+time index for FTS search performance
   () => {
     db.run(`CREATE INDEX IF NOT EXISTS idx_ask_channel_time ON ask_queries(channel, created_at DESC)`)
+  },
+  // migration 16: per-channel AI spend ledger (token + call budgeting)
+  () => {
+    db.run(`CREATE TABLE ai_spend (
+      channel TEXT NOT NULL COLLATE NOCASE,
+      day TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      calls INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (channel, day)
+    )`)
+    db.run(`CREATE INDEX idx_ai_spend_day ON ai_spend(day)`)
   },
 ]
 
@@ -1168,6 +1199,42 @@ export function pruneOldAskQueries(days = 90) {
     if (result.changes > 0) log(`pruned ${result.changes} ask queries older than ${days}d`)
   } catch (e) {
     log(`ask query prune error: ${e}`)
+  }
+}
+
+// --- per-channel AI spend ledger ---
+
+function utcDay(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+export function recordAiSpend(channel: string, inputTokens: number, outputTokens: number): void {
+  try {
+    stmts.upsertAiSpend.run(channel.toLowerCase(), utcDay(), inputTokens, outputTokens)
+  } catch (e) {
+    log(`ai_spend write failed: ${e}`)
+  }
+}
+
+export interface DailySpend { input_tokens: number; output_tokens: number; calls: number }
+
+export function getDailyAiSpend(channel: string): DailySpend {
+  const row = stmts.selectAiSpend.get(channel.toLowerCase(), utcDay()) as DailySpend | null
+  return row ?? { input_tokens: 0, output_tokens: 0, calls: 0 }
+}
+
+export function getGlobalDailyAiSpend(): { tokens: number; calls: number } {
+  const row = stmts.totalAiSpend.get(utcDay()) as { tokens: number | null; calls: number | null } | null
+  return { tokens: row?.tokens ?? 0, calls: row?.calls ?? 0 }
+}
+
+export function pruneOldAiSpend(days = 60): void {
+  try {
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
+    const result = db.run(`DELETE FROM ai_spend WHERE day < ?`, [cutoff])
+    if (result.changes > 0) log(`pruned ${result.changes} ai_spend rows older than ${days}d`)
+  } catch (e) {
+    log(`ai_spend prune error: ${e}`)
   }
 }
 
