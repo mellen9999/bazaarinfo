@@ -209,14 +209,14 @@ export class TwitchClient {
   private startEventSubPing() {
     if (this.eventsubPingInterval) clearInterval(this.eventsubPingInterval)
     this.eventsubPingInterval = setInterval(() => {
-      try { this.eventsub?.ping() } catch {}
+      try { (this.eventsub as unknown as { ping?: () => void })?.ping?.() } catch {}
     }, 20_000)
   }
 
   private startIrcPing() {
     if (this.ircPingInterval) clearInterval(this.ircPingInterval)
     this.ircPingInterval = setInterval(() => {
-      try { this.irc?.ping() } catch {}
+      try { (this.irc as unknown as { ping?: () => void })?.ping?.() } catch {}
     }, 20_000)
   }
 

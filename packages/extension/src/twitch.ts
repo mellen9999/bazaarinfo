@@ -1,19 +1,5 @@
 import type { BazaarCard } from '@bazaarinfo/shared/src/types'
 
-declare global {
-  interface Window {
-    Twitch?: {
-      ext: {
-        onAuthorized: (cb: (auth: { token: string; channelId: string; clientId: string }) => void) => void
-        listen: (target: string, cb: (target: string, contentType: string, message: string) => void) => void
-        unlisten: (target: string, cb: (target: string, contentType: string, message: string) => void) => void
-        onContext?: (cb: (context: { theme: string; language: string; mode: string }) => void) => void
-        onVisibilityChanged?: (cb: (isVisible: boolean, context: unknown) => void) => void
-      }
-    }
-  }
-}
-
 export const EBS_BASE = 'https://ebs.bazaarinfo.com'
 
 export async function fetchCards(token: string): Promise<BazaarCard[]> {
