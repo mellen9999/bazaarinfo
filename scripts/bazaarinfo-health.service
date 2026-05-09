@@ -1,0 +1,10 @@
+[Unit]
+Description=BazaarInfo health probe (ebs + services)
+
+[Service]
+Type=oneshot
+ExecStart=%h/projects/bazaarinfo/scripts/health-probe.sh
+EnvironmentFile=-%h/.config/bazaarinfo/alert.env
+Nice=10
+StandardOutput=journal
+StandardError=journal

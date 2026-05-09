@@ -1,0 +1,9 @@
+[Unit]
+Description=BazaarInfo alert for failed unit %i
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/bazaarinfo/alert.env
+ExecStart=%h/projects/bazaarinfo/scripts/alert.sh "bazaarinfo: %i failed on %H" "%i entered failed state — check 'journalctl --user -u %i -n 50'" urgent
+StandardOutput=journal
+StandardError=journal
