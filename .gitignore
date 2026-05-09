@@ -12,3 +12,4 @@ packages/companion/config.ini
 
 # Claude Code (local only)
 CLAUDE.md
+.claude/
