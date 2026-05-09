@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { computeDisplayTags, toCard, toMonster, parseDump } from './scraper'
+import { computeDisplayTags, toCard, toMonster, parseDump, applyCooldowns, extractCooldown } from './scraper'
 import type { DumpEntry } from './scraper'
 
 function makeDumpEntry(overrides: Partial<DumpEntry> = {}): DumpEntry {
@@ -153,5 +153,59 @@ describe('parseDump', () => {
     expect(cache.items).toHaveLength(0)
     expect(cache.skills).toHaveLength(0)
     expect(cache.monsters).toHaveLength(0)
+  })
+})
+
+describe('applyCooldowns', () => {
+  it('attaches uniform cooldown by Title match', () => {
+    const cache = parseDump({ a: makeDumpEntry({ Title: 'Boomerang' }) })
+    applyCooldowns(cache, new Map([['Boomerang', 4]]))
+    expect(cache.items[0].Cooldown).toBe(4)
+  })
+
+  it('attaches per-tier cooldown', () => {
+    const cache = parseDump({ a: makeDumpEntry({ Title: 'Boomerang' }) })
+    applyCooldowns(cache, new Map([['Boomerang', { Bronze: 12, Silver: 10, Gold: 8 }]]))
+    expect(cache.items[0].Cooldown).toEqual({ Bronze: 12, Silver: 10, Gold: 8 })
+  })
+
+  it('leaves Cooldown undefined when no match', () => {
+    const cache = parseDump({ a: makeDumpEntry({ Title: 'Boomerang' }) })
+    applyCooldowns(cache, new Map([['Other', 5]]))
+    expect(cache.items[0].Cooldown).toBeUndefined()
+  })
+})
+
+describe('extractCooldown', () => {
+  it('returns single number when all tiers match', () => {
+    const cd = extractCooldown({ tiers: {
+      Bronze: { tooltips: ['Cooldown 4 seconds', 'Deal 20'] },
+      Silver: { tooltips: ['Cooldown 4 seconds', 'Deal 40'] },
+      Gold: { tooltips: ['Cooldown 4 seconds', 'Deal 60'] },
+    }})
+    expect(cd).toBe(4)
+  })
+
+  it('returns per-tier object when values differ', () => {
+    const cd = extractCooldown({ tiers: {
+      Silver: { tooltips: ['Cooldown 12 seconds'] },
+      Gold: { tooltips: ['Cooldown 10 seconds'] },
+      Diamond: { tooltips: ['Cooldown 8 seconds'] },
+    }})
+    expect(cd).toEqual({ Silver: 12, Gold: 10, Diamond: 8 })
+  })
+
+  it('returns null when no cooldown found', () => {
+    const cd = extractCooldown({ tiers: {
+      Bronze: { tooltips: ['Deal 20 damage'] },
+    }})
+    expect(cd).toBeNull()
+  })
+
+  it('handles fractional cooldowns', () => {
+    const cd = extractCooldown({ tiers: {
+      Bronze: { tooltips: ['Cooldown 2.5 seconds'] },
+    }})
+    expect(cd).toBe(2.5)
   })
 })

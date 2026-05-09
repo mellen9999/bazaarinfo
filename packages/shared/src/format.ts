@@ -28,6 +28,14 @@ function tierPrefix(tier?: TierName): string {
   return tier ? `${TIER_EMOJI[tier]} ` : ''
 }
 
+function formatCooldown(cd: BazaarCard['Cooldown'], tier?: TierName): string {
+  if (cd == null) return ''
+  if (typeof cd === 'number') return `CD:${cd}s`
+  if (tier && cd[tier] != null) return `CD:${cd[tier]}s`
+  const vals = TIER_ORDER.map((t) => cd[t]).filter((v): v is number => v != null)
+  return vals.length ? `CD:${vals.join('/')}s` : ''
+}
+
 export function truncate(str: string): string {
   if (str.length <= MAX_LEN) return str
   const cut = str.lastIndexOf(' | ', MAX_LEN - 4)
@@ -99,9 +107,11 @@ export function formatItem(card: BazaarCard, tier?: TierName): string {
   )
 
   const tags = card.DisplayTags?.length ? ` [${card.DisplayTags.join(', ')}]` : ''
+  const cd = formatCooldown(card.Cooldown, tier)
 
   const parts = [
     `${prefix}${name}${size}${heroes ? ` · ${heroes}` : ''}${tags}`,
+    cd,
     ...abilities,
   ].filter(Boolean)
 

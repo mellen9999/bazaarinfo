@@ -46,6 +46,32 @@ describe('formatItem', () => {
     expect(result).toContain('Boomerang [M] · Pyg')
   })
 
+  it('shows uniform cooldown when defined', () => {
+    const result = formatItem(makeCard({ Cooldown: 4 }))
+    expect(result).toContain('| CD:4s |')
+  })
+
+  it('omits cooldown segment when undefined', () => {
+    const result = formatItem(makeCard())
+    expect(result).not.toContain('CD:')
+  })
+
+  it('preserves fractional cooldowns', () => {
+    const result = formatItem(makeCard({ Cooldown: 2.5 }))
+    expect(result).toContain('CD:2.5s')
+  })
+
+  it('shows per-tier cooldowns slash-joined when no tier specified', () => {
+    const result = formatItem(makeCard({ Cooldown: { Silver: 12, Gold: 10, Diamond: 8 } }))
+    expect(result).toContain('CD:12/10/8s')
+  })
+
+  it('resolves per-tier cooldown to specific tier value', () => {
+    const result = formatItem(makeCard({ Cooldown: { Silver: 12, Gold: 10, Diamond: 8 } }), 'Gold')
+    expect(result).toContain('CD:10s')
+    expect(result).not.toContain('CD:12')
+  })
+
   it('resolves fixed replacement values in tooltips', () => {
     const result = formatItem(makeCard())
     expect(result).toContain('Deal 60 Damage')
