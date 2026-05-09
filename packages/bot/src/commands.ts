@@ -468,7 +468,11 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   if (!query) return BASE_USAGE + JOIN_USAGE()
 
   if (enchant) {
-    const card = store.exact(query) ?? store.search(query, 1)[0]
+    // prefer cards that actually have the requested enchant — disambiguates
+    // skill/item collisions like "depth charge" (skill) vs "Elemental Depth Charge" (item)
+    const exact = store.exact(query)
+    const candidates = exact ? [exact, ...store.search(query, 5)] : store.search(query, 5)
+    const card = candidates.find((c) => c.Enchantments[enchant]) ?? candidates[0]
     if (!card) { logMiss(query, ctx); return `no item found for ${query}` }
     logHit('enchant', query, `${card.Title}+${enchant}`, ctx, tier)
     return withSuffix(formatEnchantment(card, enchant, tier), suffix)

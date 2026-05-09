@@ -643,6 +643,27 @@ describe('!b enchantment (any order)', () => {
     const result = await handleCommand('!b toxic')
     expect(result).toContain('toxic')
   })
+
+  it('skill/item collision: prefers item with enchant over skill without', async () => {
+    const skill = makeCard({
+      Type: 'Skill',
+      Title: 'Depth Charge',
+      Enchantments: {},
+    })
+    const item = makeCard({
+      Title: 'Elemental Depth Charge',
+      Enchantments: {
+        Fiery: {
+          tags: ['Burn'],
+          tooltips: [{ text: 'Burn for {n}', type: 'Active' }],
+        },
+      },
+    })
+    mockExact.mockImplementation((name) => name === 'depth charge' ? skill : undefined)
+    mockSearch.mockImplementation(() => [skill, item])
+    const result = await handleCommand('!b fiery depth charge')
+    expect(result).toContain('[Elemental Depth Charge - Fiery]')
+  })
 })
 
 // ---------------------------------------------------------------------------
