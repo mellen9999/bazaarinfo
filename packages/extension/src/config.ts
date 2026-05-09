@@ -1,17 +1,6 @@
 // Twitch extension config view — broadcaster fetches their companion secret.
 // Loaded as a static script via <script src>. CSP-clean: no inline handlers.
 
-declare global {
-  interface Window {
-    Twitch?: {
-      ext: {
-        onAuthorized: (cb: (auth: { token: string; channelId: string; clientId: string }) => void) => void
-        onContext?: (cb: (ctx: { theme?: string }) => void) => void
-      }
-    }
-  }
-}
-
 const EBS_URL = 'https://ebs.bazaarinfo.com'
 
 function copy(text: string, el: HTMLElement) {
