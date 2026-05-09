@@ -72,6 +72,8 @@ export function App() {
       if (!message.includes('"cards"')) return
       try {
         const data = JSON.parse(message)
+        // ignore future protocol versions to fail-soft on schema changes
+        if (typeof data?.v === 'number' && data.v > 1) return
         const raw = data?.cards
         if (Array.isArray(raw)) {
           const next = raw.slice(0, MAX_SLOTS).filter(validatorRef.current)
