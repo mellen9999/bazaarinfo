@@ -13,7 +13,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 // --- local imports from sub-modules ---
 
 import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal } from './ai-sanitize'
-import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiLock, aiQueueDepth, setAiLock, incrementQueue, decrementQueue } from './ai-cache'
+import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiLock, aiQueueDepth, setAiLock, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, GAME_TERMS } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 
@@ -84,6 +84,17 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 
   const isVip = AI_VIP.has(ctx.user.toLowerCase())
   const isGame = GAME_TERMS.test(query)
+
+  // per-channel daily token cap — silent throttle (VIP exempt)
+  if (!isVip && isOverDailyCap(ctx.channel)) {
+    log(`ai: daily cap hit for ${ctx.channel}, dropping`)
+    return null
+  }
+  // repeat-query abuse — silent drop (VIP exempt)
+  if (!isVip && isRepeatAbuse(ctx.user, query)) {
+    log(`ai: repeat abuse from ${ctx.user}, dropping`)
+    return null
+  }
 
   const cd = getAiCooldown(ctx.user, ctx.channel)
   if (cd > 0) return { text: `${cd}s`, mentions: [] }
@@ -291,8 +302,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         }
         cbRecordSuccess()
         try {
-          const tokens = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0)
-          db.logAsk(ctx, query, result.text, tokens, latency)
+          const inT = data.usage?.input_tokens ?? 0
+          const outT = data.usage?.output_tokens ?? 0
+          db.logAsk(ctx, query, result.text, inT + outT, latency)
+          db.recordAiSpend(ctx.channel, inT, outT)
         } catch {}
         log(`ai: responded in ${latency}ms`)
         // hot cache for instant follow-up context
