@@ -1,0 +1,39 @@
+{
+  "name": "BazaarInfo Overlay",
+  "summary": "Real-time card tooltips for The Bazaar.",
+  "description": "Hover any card on stream to see tier, stats, and tooltip. Powered by an opt-in companion app the broadcaster runs locally — no game data leaves the broadcaster machine besides card name + on-screen position.",
+  "version": "1.0.0",
+  "author": "mellen",
+  "support_email": "mellen@heatsync.org",
+  "category": "overlay",
+  "viewer_urls": {
+    "video_overlay": "video_overlay.html",
+    "panel": "panel.html"
+  },
+  "config_url": "config.html",
+  "live_config_url": "config.html",
+  "asset_urls": {
+    "icon_24": "assets/icon_24.png",
+    "icon_300": "assets/icon_300.png",
+    "icon_1080": "assets/icon_1080.png",
+    "screenshot_1": "assets/screenshot_overlay.png",
+    "screenshot_2": "assets/screenshot_panel.png",
+    "screenshot_3": "assets/screenshot_setup.png"
+  },
+  "required_permissions": ["broadcast"],
+  "whitelisted_config_urls": [],
+  "whitelisted_panel_urls": [],
+  "ebs_url": "https://ebs.bazaarinfo.com",
+  "privacy_policy_url": "https://github.com/mellen9999/bazaarinfo/blob/master/PRIVACY.md",
+  "terms_url": "https://github.com/mellen9999/bazaarinfo/blob/master/TERMS.md",
+  "csp": {
+    "default_src": "'none'",
+    "script_src": "'self'",
+    "style_src": "'self' 'unsafe-inline'",
+    "img_src": "'self' https://ebs.bazaarinfo.com data:",
+    "connect_src": "'self' https://ebs.bazaarinfo.com wss://pubsub-edge.twitch.tv",
+    "font_src": "'self'",
+    "frame_ancestors": "https://*.ext-twitch.tv https://*.twitch.tv"
+  },
+  "schema_version": 1
+}
