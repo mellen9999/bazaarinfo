@@ -130,9 +130,9 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq } = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()
   const baseMaxTokens = isCreative ? MAX_TOKENS_PASTA : hasGameData ? MAX_TOKENS_GAME : MAX_TOKENS_CHAT
-  // extended thinking: only on creative path. budget=800 lets model brainstorm 2-3 angles internally.
+  // extended thinking: only on creative path. budget=1024 (API minimum) lets model brainstorm 2-3 angles internally.
   const useThinking = isCreative
-  const thinkingBudget = 800
+  const thinkingBudget = 1024
   const effectiveMaxTokens = useThinking ? thinkingBudget + 400 : baseMaxTokens
 
   const messages: unknown[] = [{ role: 'user', content: userMessage }]
