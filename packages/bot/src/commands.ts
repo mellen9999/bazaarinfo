@@ -574,7 +574,9 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // skip if asking about a command ("who has the most !a"), not requesting one
   // questions about commands mention them as nouns; requests use action verbs near them
   const isAskingAbout = /^(who|what|when|where|why|how|does|has|have|is|should|can|will|could|would|may|might|don'?t|never|please)\b/i.test(cleanArgs)
-  if (!isAskingAbout) {
+  // content-gen request — !cmd is a topic, not a request to proxy ("write a pasta about !afk")
+  const isContentGen = /\b(copypasta|pasta|joke|story|poem|rant|monologue|lore|sonnet|haiku|fanfic|saga|ballad|essay|tweet|limerick|rap|song|roast|narrative|bit)\b/i.test(cleanArgs)
+  if (!isAskingAbout && !isContentGen) {
     const embeddedMatch = cleanArgs.match(/!(\w+)(?:\s+(\d+))?/)
     if (embeddedMatch) {
       const cmd = embeddedMatch[1].toLowerCase()

@@ -1518,6 +1518,31 @@ describe('command proxy: embedded in chat', () => {
   it('preserves original case of command name', async () => {
     expect(await handleCommand('!b run !Jory pls')).toBe('!Jory')
   })
+
+  it('"make new !afk pasta" → !afk NOT proxied (content-gen, !cmd is topic)', async () => {
+    const result = await handleCommand('!b make new !afk pasta', { user: 'u', channel: 'c' })
+    if (result) expect(result).not.toBe('!afk')
+  })
+
+  it('"write a copypasta about !lurk" → !lurk NOT proxied', async () => {
+    const result = await handleCommand('!b write a copypasta about !lurk', { user: 'u', channel: 'c' })
+    if (result) expect(result).not.toBe('!lurk')
+  })
+
+  it('"make new !sacrifice pasta" → no selfTimeoutDodge (content-gen)', async () => {
+    const result = await handleCommand('!b make new !sacrifice pasta', { user: 'u', channel: 'c' })
+    if (result) expect(result).not.toMatch(/sacrificial|vip benefits/i)
+  })
+
+  it('"roast !jory" → !jory NOT proxied (roast is content-gen)', async () => {
+    const result = await handleCommand('!b roast !jory', { user: 'u', channel: 'c' })
+    if (result) expect(result).not.toBe('!jory')
+  })
+
+  it('"give me a joke about !lurk" → !lurk NOT proxied', async () => {
+    const result = await handleCommand('!b give me a joke about !lurk', { user: 'u', channel: 'c' })
+    if (result) expect(result).not.toBe('!lurk')
+  })
 })
 
 // ---------------------------------------------------------------------------
