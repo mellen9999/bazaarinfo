@@ -39,7 +39,7 @@ function pastaScore(text: string): number {
   // dialog quotes
   score += (text.match(/"/g) || []).length * 2
   // AI tells: heavy penalty
-  if (/^(imagine|picture this|in a world where|let me tell you|once upon a time)/i.test(text)) score -= 60
+  if (/^(imagine|picture this|in a world where|let me tell you|once upon a time|buckle up|settle in|let me paint|gather round|strap in|well well well|hold on to your|grab your popcorn|let me set the scene)/i.test(text)) score -= 60
   return score
 }
 
