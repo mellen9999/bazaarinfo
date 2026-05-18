@@ -30,6 +30,26 @@ export function restoreSummary(channel: string, summary: string) {
   if (summary) summaries.set(channel, summary)
 }
 
+// Hydrate in-memory buffer from persisted chat on startup. Without this, getRecent()
+// returns [] for ~5-10 mins after restart and the bot says "chat's dead" on a live channel.
+// entries must be in ASCENDING time order (oldest first). Side effects (summarizer, lesson
+// extractor, session bumps) are deliberately skipped — this is just replaying history.
+export function restoreChat(channel: string, entries: { username: string; message: string; created_at: string }[]) {
+  if (entries.length === 0) return
+  let buf = buffers.get(channel)
+  if (!buf) {
+    buf = []
+    buffers.set(channel, buf)
+  }
+  for (const e of entries) {
+    const ts = new Date(e.created_at + 'Z').getTime()
+    buf.push({ user: e.username, text: e.message, ts })
+    if (buf.length > MAX_SIZE) buf.shift()
+  }
+  const last = buf[buf.length - 1]
+  if (last) lastMessageTime.set(channel, last.ts)
+}
+
 // --- rolling summary ---
 
 const summaries = new Map<string, string>()

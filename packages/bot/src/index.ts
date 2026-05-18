@@ -252,12 +252,19 @@ setInterval(() => refreshActivity().catch((e) => log(`activity refresh failed: $
 initSummarizer()
 initLearner()
 
-// restore persisted summaries + session IDs from DB
+// restore persisted summaries + session IDs + recent chat from DB.
+// Hydrating chatbuf is critical: without it, the bot's "Recent chat" prompt block is
+// empty for several minutes after restart and it falsely concludes "chat is dead".
 for (const ch of channelNames) {
   const sid = db.getMaxSessionId(ch)
   if (sid > 0) chatbuf.restoreSessionId(ch, sid)
   const rows = db.getLatestSummaries(ch, 1)
   if (rows.length > 0) chatbuf.restoreSummary(ch, rows[0].summary)
+  const recent = db.getRecentChannelChat(ch, 100)
+  if (recent.length > 0) {
+    chatbuf.restoreChat(ch, recent)
+    log(`hydrated #${ch}: ${recent.length} chat msgs from db`)
+  }
 }
 
 // --- per-channel response debounce (2s) ---
