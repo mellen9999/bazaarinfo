@@ -254,17 +254,75 @@ export function buildRecallContext(query: string, channel: string): string {
 
 // --- chat history recall ---
 
+const PASTA_INTENT_RE = /\b(copypasta|pasta|meme|bit|joke|rant|trend|spam(ming|med)?|chat'?s? (current|latest|recent|new))\b/i
+
+// Content-only recall when query references chat history with no specific user
+// ("what was that copypasta from yesterday", "anything funny earlier today").
+// Two paths: (1) FTS across all users when query has substantive keywords;
+// (2) repeated-message detection when query asks about pastas/memes/bits
+//     where the keyword "copypasta" isn't in the pasta itself.
+function buildContentRecall(query: string, channel: string, timeWindow: ReturnType<typeof parseChatTimeWindow>): string {
+  const now = Date.now()
+  const label = timeWindow ? timeWindow.label.toLowerCase().replace(/'s?$/, '') : 'history'
+
+  // Path 2: pasta/meme/bit lookup — surface most-repeated long messages in window
+  if (PASTA_INTENT_RE.test(query)) {
+    try {
+      const since = timeWindow?.sinceExpr ?? '-2 days'
+      const repeats = db.findRepeatedMessages(channel, since, 3, 80, 5)
+      if (repeats.length > 0) {
+        const lines = repeats.map((r) => `[${formatAge(r.created_at, now)} ×${r.count}] ${r.message.replace(/\n/g, ' ').slice(0, 280)}`)
+        let text = `Repeated chat (${label}):\n${lines.join('\n')}`
+        if (text.length > 1200) text = text.slice(0, 1200)
+        return text
+      }
+    } catch {}
+  }
+
+  // Path 1: FTS keyword search
+  const ftsQuery = buildChatRecallFTS(query, '')
+  if (!ftsQuery) return ''
+
+  const hits = db.searchChatFTS(channel, ftsQuery, 20)
+  if (hits.length === 0) return ''
+
+  let filtered = hits
+  if (timeWindow?.sinceExpr) {
+    const days = parseInt(timeWindow.sinceExpr.match(/-(\d+) days/)?.[1] ?? '0')
+    const cutoffMs = now - days * 86_400_000 - 86_400_000
+    filtered = hits.filter((h) => new Date(h.created_at + 'Z').getTime() >= cutoffMs)
+    if (filtered.length === 0) return ''
+  }
+
+  const seen = new Set<string>()
+  const unique: typeof filtered = []
+  for (const h of filtered) {
+    const key = h.message.slice(0, 80).toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    unique.push(h)
+    if (unique.length >= 8) break
+  }
+
+  const lines = unique.map((h) => `[${formatAge(h.created_at, now)}] ${h.username}: ${h.message.replace(/\n/g, ' ').slice(0, 220)}`)
+  let text = `Chat ${label} (no specific user):\n${lines.join('\n')}`
+  if (text.length > 1200) text = text.slice(0, 1200)
+  return text
+}
+
 export function buildChatRecall(query: string, channel: string, asker?: string): string {
-  if (!RECALL_INTENT.test(query) && !/@[a-zA-Z0-9_]+/.test(query)) return ''
+  const hasMention = /@[a-zA-Z0-9_]+/.test(query)
+  const hasIntent = RECALL_INTENT.test(query)
+  const timeWindow = parseChatTimeWindow(query)
+  // any recall signal counts as entry — time-window alone catches "yesterday's pasta"
+  if (!hasIntent && !hasMention && !timeWindow) return ''
 
   let user = findReferencedUser(query, channel)
   // first-person pronouns ("i sent you", "my messages", "me") → asker is the target
   if (!user && asker && /\b(i\s|my\s|me\b|i'v?e?\b|myself)\b/i.test(query)) {
     user = asker.toLowerCase()
   }
-  if (!user) return ''
-
-  const timeWindow = parseChatTimeWindow(query)
+  if (!user) return buildContentRecall(query, channel, timeWindow)
 
   const countIntent = /\b(how many|how often|count|times|frequently|frequency)\b/i.test(query)
   if (countIntent && timeWindow) {
@@ -574,16 +632,24 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
       try {
         const msgs = db.getChannelMessagesSince(ctx.channel, timeWindow.sinceExpr)
         if (msgs.length > 0) {
-          const wordSet = new Set<string>()
+          // rank by frequency, drop common english stopwords so signal isn't drowned by "the/and/you"
+          const counts = new Map<string, number>()
           for (const msg of msgs) {
             if (msg.startsWith('!') || msg.startsWith('/')) continue
             for (const w of msg.split(/\s+/)) {
               const clean = w.replace(/[^a-zA-Z']/g, '').toLowerCase()
-              if (clean.length >= 2) wordSet.add(clean)
+              if (clean.length < 3 || STOP_WORDS.has(clean)) continue
+              counts.set(clean, (counts.get(clean) ?? 0) + 1)
             }
           }
-          const words = [...wordSet].slice(0, 500)
-          todayWordsBlock = `\n${timeWindow.label} chat word pool (${msgs.length} messages, ${words.length} unique words — USE ONLY THESE WORDS):\n${words.join(', ')}\n`
+          const words = [...counts.entries()]
+            .filter(([, c]) => c >= 2)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 200)
+            .map(([w]) => w)
+          if (words.length > 0) {
+            todayWordsBlock = `\n${timeWindow.label} chat vocabulary (${msgs.length} msgs, top ${words.length} repeated words — bias toward these for voice):\n${words.join(', ')}\n`
+          }
         }
       } catch {}
     }
