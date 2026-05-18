@@ -44,6 +44,11 @@ export const ENTITY_SKIP = new Set([
   'ever', 'after', 'before', 'about', 'think', 'know', 'take',
   'come', 'keep', 'give', 'tell', 'find', 'here', 'there',
   'card', 'cards', 'spell', 'use', 'item', 'items',
+  // creative/meta keywords that collide with card titles ("Pasta", etc.) in chat context
+  'pasta', 'copypasta', 'story', 'scene', 'bit', 'rant', 'lore', 'saga',
+  'poem', 'meme', 'joke', 'fanfic', 'narrative', 'monologue',
+  // chat-meta words seen in social queries — never refer to game entities
+  'chat', 'chats', 'chatter', 'chatters', 'current', 'twist', 'own',
 ])
 
 export const STOP_WORDS = new Set([
@@ -86,15 +91,22 @@ export function extractEntities(query: string): ResolvedEntities {
   const atMatch = query.match(/@([a-zA-Z0-9_]+)/)
   if (atMatch) result.chatQuery = atMatch[1]
 
-  // sliding window: 3→2→1 word combos
+  // sliding window: 3→2→1 word combos.
+  // Single-word matches are gated: short or common English words ("do", "pasta", "chat") false-match
+  // hero/card prefixes ("do" → "Dooley") and poison the prompt with bogus Game data, which then
+  // crowds out Recent chat via the section-budget loop in buildUserMessage.
   const matched = new Set<number>()
   for (let size = Math.min(3, words.length); size >= 1; size--) {
     for (let i = 0; i <= words.length - size; i++) {
       if ([...Array(size)].some((_, j) => matched.has(i + j))) continue
       const phrase = words.slice(i, i + size).join(' ')
 
+      const safe = size >= 2 || (
+        phrase.length >= 4 && !STOP_WORDS.has(phrase) && !ENTITY_SKIP.has(phrase)
+      )
+
       // exact card match first (user typed an actual card name)
-      if (result.cards.length < 3) {
+      if (result.cards.length < 3 && safe) {
         const card = store.exact(phrase)
         if (card) {
           result.cards.push(card)
@@ -104,7 +116,7 @@ export function extractEntities(query: string): ResolvedEntities {
       }
 
       // hero before fuzzy cards — "karnok" should match the hero, not "Karnok's Rage"
-      if (!result.hero) {
+      if (!result.hero && safe) {
         const hero = store.findHeroName(phrase)
         if (hero) {
           result.hero = hero
@@ -114,7 +126,7 @@ export function extractEntities(query: string): ResolvedEntities {
       }
 
       // tag (first match)
-      if (!result.tag) {
+      if (!result.tag && safe) {
         const tag = store.findTagName(phrase)
         if (tag) {
           result.tag = tag
@@ -124,19 +136,17 @@ export function extractEntities(query: string): ResolvedEntities {
       }
 
       // fuzzy card match — after hero/tag so known names aren't consumed
-      if (result.cards.length < 3) {
-        if (size >= 2 || (size === 1 && phrase.length >= 4 && !STOP_WORDS.has(phrase) && !ENTITY_SKIP.has(phrase))) {
-          const [fuzzy] = store.searchWithScore(phrase, 1)
-          if (fuzzy && fuzzy.score < 0.3) {
-            result.cards.push(fuzzy.item)
-            for (let j = 0; j < size; j++) matched.add(i + j)
-            continue
-          }
+      if (result.cards.length < 3 && safe) {
+        const [fuzzy] = store.searchWithScore(phrase, 1)
+        if (fuzzy && fuzzy.score < 0.3) {
+          result.cards.push(fuzzy.item)
+          for (let j = 0; j < size; j++) matched.add(i + j)
+          continue
         }
       }
 
-      // monsters (max 2) — skip single common words for fuzzy matching
-      if (result.monsters.length < 2 && (size >= 2 || (size === 1 && phrase.length >= 4 && !STOP_WORDS.has(phrase) && !ENTITY_SKIP.has(phrase)))) {
+      // monsters (max 2)
+      if (result.monsters.length < 2 && safe) {
         const monster = store.findMonster(phrase)
         if (monster) {
           result.monsters.push(monster)
