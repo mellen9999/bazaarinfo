@@ -267,8 +267,10 @@ export function exact(name: string) {
 }
 
 // includes but only at word boundaries — "book" matches "Spell Book" not "Zookeeper"
+// Why: 3-char queries like "ash" or "ban" alias to unrelated long names (e.g. "do" → "Dooley")
+// and pollute downstream prompt context with bogus game data.
 function wordIncludes(text: string, query: string): boolean {
-  if (query.length < 3) return false
+  if (query.length < 4) return false
   const idx = text.indexOf(query)
   if (idx < 0) return false
   return idx === 0 || /[\s\-']/.test(text[idx - 1])
@@ -276,8 +278,10 @@ function wordIncludes(text: string, query: string): boolean {
 
 function findInList(list: string[], query: string): string | undefined {
   const lower = query.toLowerCase()
-  return list.find((n) => n.toLowerCase() === lower)
-    ?? list.find((n) => n.toLowerCase().startsWith(lower))
+  const exact = list.find((n) => n.toLowerCase() === lower)
+  if (exact) return exact
+  if (lower.length < 4) return undefined
+  return list.find((n) => n.toLowerCase().startsWith(lower))
     ?? list.find((n) => wordIncludes(n.toLowerCase(), lower))
 }
 
@@ -303,8 +307,10 @@ export function getEnchantments(): string[] {
 
 function findByTitle<T extends { Title: string }>(list: T[], query: string): T | undefined {
   const lower = query.toLowerCase()
-  return list.find((x) => x.Title.toLowerCase() === lower)
-    ?? list.find((x) => x.Title.toLowerCase().startsWith(lower))
+  const exact = list.find((x) => x.Title.toLowerCase() === lower)
+  if (exact) return exact
+  if (lower.length < 4) return undefined
+  return list.find((x) => x.Title.toLowerCase().startsWith(lower))
     ?? list.find((x) => wordIncludes(x.Title.toLowerCase(), lower))
 }
 

@@ -20,6 +20,7 @@ import {
   ResolvedEntities,
 } from './ai-query'
 import { randomPastaExamples } from './ai-prompt'
+import { log } from './log'
 
 // --- game context builder ---
 
@@ -392,21 +393,39 @@ export function buildChattersContext(chatEntries: ChatEntry[], asker: string, ch
 
 export interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean; isCreative: boolean; isContinuation: boolean; isRememberReq: boolean }
 
+// Hard cap so Recent chat always fits the section budget — trim oldest first.
+// Without this, a flood of long copypastas can blow past the section budget,
+// the whole Recent-chat block gets skipped, and the bot says "chat's dead".
+const CHAT_BLOCK_CAP = 1800
+
+function buildChatStr(entries: ChatEntry[]): string {
+  if (entries.length === 0) return ''
+  const lines = entries.map((m) => {
+    const user = m.user.replace(/[:\n]/g, '')
+    const text = m.text.replace(/^!\w+\s*/, '').replace(/\n/g, ' ').replace(/^---+/, '')
+      .replace(/\b(Game data|Recent chat|Stream timeline|Who's chatting|Channel|Your prior exchanges|Chat culture|Bot stats|Chatters|Context|Activity|Community buzz|Prior exchanges|Chat history|BURNED references|Your recent convo with|Your recent responses|Active convos|Memory|Facts|All channel emotes|Chat voice|Voice|Pasta examples):/gi, '')
+      .slice(0, 300)
+    return `> ${user}: ${text}`
+  })
+  const header = 'Recent chat:\n'
+  let total = header.length + 1
+  const kept: string[] = []
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const lineLen = lines[i].length + 1
+    if (total + lineLen > CHAT_BLOCK_CAP && kept.length > 0) break
+    kept.unshift(lines[i])
+    total += lineLen
+  }
+  return kept.join('\n')
+}
+
 export function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
   const isRememberReq = REMEMBER_RE.test(query) && !isAboutOtherUser(query)
   const chatDepth = ctx.mention ? 25 : 15
   const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
   const chatContext = getRecent(ctx.channel, chatDepth)
     .filter((m) => !isNoise(m.text) && m.user.toLowerCase() !== botName)
-  const chatStr = chatContext.length > 0
-    ? chatContext.map((m) => {
-        const user = m.user.replace(/[:\n]/g, '')
-        const text = m.text.replace(/^!\w+\s*/, '').replace(/\n/g, ' ').replace(/^---+/, '')
-          .replace(/\b(Game data|Recent chat|Stream timeline|Who's chatting|Channel|Your prior exchanges|Chat culture|Bot stats|Chatters|Context|Activity|Community buzz|Prior exchanges|Chat history|BURNED references|Your recent convo with|Your recent responses|Active convos|Memory|Facts|All channel emotes|Chat voice|Voice|Pasta examples):/gi, '')
-          .slice(0, 300)
-        return `> ${user}: ${text}`
-      }).join('\n')
-    : ''
+  const chatStr = buildChatStr(chatContext)
 
   const chattersLine = buildChattersContext(chatContext, ctx.user, ctx.channel)
 
@@ -592,42 +611,51 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     `\n[USER] = ${ctx.user}`,
   ].filter(Boolean).join('')
 
-  // trimmable sections in priority order
-  const sections = [
-    gameBlock,
-    hotLine,
-    chatStr ? `Recent chat:\n${chatStr}\n` : '',
-    chattersLine ? `\n${chattersLine}` : '',
-    recentLine,
-    emoteLine,
-    fullEmoteLine,
-    queryEmoteLine,
-    pastaBlock,
-    topicalLine,
-    todayWordsBlock,
-    recallLine,
-    chatRecallLine ? `\n${chatRecallLine}` : '',
-    timelineLine,
-    threadLine,
-    contextLine,
-    voiceBlock,
-    lessonsLine,
-    activityBlock,
-    statsLine,
-    redditLine,
-  ].filter(Boolean)
+  // trimmable sections in priority order.
+  // Recent chat is first: it's the bot's primary social context. Without it the model
+  // hallucinates "chat is dead" or fabricates chatter names. CHAT_BLOCK_CAP keeps it
+  // bounded so it never starves the rest.
+  const sections: { name: string; text: string }[] = [
+    { name: 'recentChat', text: chatStr ? `Recent chat:\n${chatStr}\n` : '' },
+    { name: 'gameBlock', text: gameBlock },
+    { name: 'hotConvo', text: hotLine },
+    { name: 'chatters', text: chattersLine ? `\n${chattersLine}` : '' },
+    { name: 'recentResponses', text: recentLine },
+    { name: 'pastaBlock', text: pastaBlock },
+    { name: 'queryEmotes', text: queryEmoteLine },
+    { name: 'fullEmotes', text: fullEmoteLine },
+    { name: 'emotes', text: emoteLine },
+    { name: 'topical', text: topicalLine },
+    { name: 'todayWords', text: todayWordsBlock },
+    { name: 'recall', text: recallLine },
+    { name: 'chatRecall', text: chatRecallLine ? `\n${chatRecallLine}` : '' },
+    { name: 'timeline', text: timelineLine },
+    { name: 'threads', text: threadLine },
+    { name: 'channelStyle', text: contextLine },
+    { name: 'voice', text: voiceBlock },
+    { name: 'lessons', text: lessonsLine },
+    { name: 'activity', text: activityBlock },
+    { name: 'botStats', text: statsLine },
+    { name: 'reddit', text: redditLine },
+  ].filter((s) => s.text)
 
   // cap total user message at ~3500 chars (excluding required tail)
   const USER_MSG_CAP = 3500
   const tailLen = requiredTail.length
   let budget = USER_MSG_CAP - tailLen
   const included: string[] = []
+  const dropped: string[] = []
   for (const section of sections) {
-    if (budget <= 0) break
-    if (section.length <= budget) {
-      included.push(section)
-      budget -= section.length
+    if (budget <= 0) { dropped.push(section.name); continue }
+    if (section.text.length <= budget) {
+      included.push(section.text)
+      budget -= section.text.length
+    } else {
+      dropped.push(section.name)
     }
+  }
+  if (dropped.length > 0) {
+    log(`prompt: budget skipped sections [${dropped.join(',')}] (cap=${USER_MSG_CAP} tail=${tailLen} q="${query.slice(0, 40)}")`)
   }
 
   const text = included.join('') + requiredTail
