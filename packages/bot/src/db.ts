@@ -825,6 +825,16 @@ export function getChannelMessages(channel: string, limit = 5000): string[] {
   return rows.map((r) => r.message)
 }
 
+// most recent N messages per channel — used to hydrate the in-memory chatbuf on startup
+// so the bot has short-term recall immediately after restart instead of waiting for new traffic.
+export function getRecentChannelChat(channel: string, limit: number): { username: string; message: string; created_at: string }[] {
+  const rows = db.query(
+    `SELECT username, message, created_at FROM chat_messages
+     WHERE channel = ? ORDER BY id DESC LIMIT ?`,
+  ).all(channel, limit) as { username: string; message: string; created_at: string }[]
+  return rows.reverse()
+}
+
 // chat messages for a channel within a time window (full DB, not just in-memory buffer)
 // sinceExpr: SQLite date modifier like '-0 days' (today), '-7 days', '-30 days', or null for all time
 export function getChannelMessagesSince(channel: string, sinceExpr: string | null): string[] {
