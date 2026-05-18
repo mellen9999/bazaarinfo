@@ -835,6 +835,25 @@ export function getRecentChannelChat(channel: string, limit: number): { username
   return rows.reverse()
 }
 
+// Find spammed/repeated long messages in a time window — copypastas, memes, bits.
+// Surfaces "what was that thing chat was spamming yesterday" without needing FTS keywords.
+export function findRepeatedMessages(channel: string, sinceExpr: string | null, minRepeats = 3, minLen = 80, limit = 5): { message: string; count: number; created_at: string }[] {
+  const sql = sinceExpr === null
+    ? `SELECT message, COUNT(*) as count, MAX(created_at) as created_at FROM chat_messages
+       WHERE channel = ? AND LENGTH(message) >= ?
+       GROUP BY message HAVING COUNT(*) >= ?
+       ORDER BY count DESC, created_at DESC LIMIT ?`
+    : `SELECT message, COUNT(*) as count, MAX(created_at) as created_at FROM chat_messages
+       WHERE channel = ? AND LENGTH(message) >= ? AND created_at >= date('now', ?)
+       GROUP BY message HAVING COUNT(*) >= ?
+       ORDER BY count DESC, created_at DESC LIMIT ?`
+  const stmt = db.query(sql)
+  const args = sinceExpr === null
+    ? [channel, minLen, minRepeats, limit]
+    : [channel, minLen, sinceExpr, minRepeats, limit]
+  return stmt.all(...args) as { message: string; count: number; created_at: string }[]
+}
+
 // chat messages for a channel within a time window (full DB, not just in-memory buffer)
 // sinceExpr: SQLite date modifier like '-0 days' (today), '-7 days', '-30 days', or null for all time
 export function getChannelMessagesSince(channel: string, sinceExpr: string | null): string[] {
