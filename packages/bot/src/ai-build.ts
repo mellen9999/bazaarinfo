@@ -677,13 +677,22 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     `\n[USER] = ${ctx.user}`,
   ].filter(Boolean).join('')
 
-  // trimmable sections in priority order.
-  // Recent chat is first: it's the bot's primary social context. Without it the model
-  // hallucinates "chat is dead" or fabricates chatter names. CHAT_BLOCK_CAP keeps it
-  // bounded so it never starves the rest.
+  // Section ordering toggles on query intent:
+  // - Pure game query (named entity, no recall/mention/creative signal): gameBlock first.
+  //   The user is asking about an item/hero/build; data accuracy beats chat awareness.
+  // - Everything else: Recent chat first. The bot needs social context to riff,
+  //   continue bits, or answer "what's chat doing right now". CHAT_BLOCK_CAP keeps it bounded.
+  const isPureGameQuery = entities.isGame
+    && !RECALL_INTENT.test(query)
+    && !/@[a-zA-Z0-9_]+/.test(query)
+    && !isCreative
+    && (entities.cards.length > 0 || entities.monsters.length > 0 || !!entities.hero || !!entities.tag)
+  const recentChatSection = { name: 'recentChat', text: chatStr ? `Recent chat:\n${chatStr}\n` : '' }
+  const gameBlockSection = { name: 'gameBlock', text: gameBlock }
+  const primaryPair = isPureGameQuery ? [gameBlockSection, recentChatSection] : [recentChatSection, gameBlockSection]
+
   const sections: { name: string; text: string }[] = [
-    { name: 'recentChat', text: chatStr ? `Recent chat:\n${chatStr}\n` : '' },
-    { name: 'gameBlock', text: gameBlock },
+    ...primaryPair,
     { name: 'hotConvo', text: hotLine },
     { name: 'chatters', text: chattersLine ? `\n${chattersLine}` : '' },
     { name: 'recentResponses', text: recentLine },
