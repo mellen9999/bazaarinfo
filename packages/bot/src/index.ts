@@ -21,6 +21,7 @@ import { loadDescriptionCache } from './emote-describe'
 import { preloadStyles } from './style'
 import { writeAtomic } from './fs-util'
 import { log } from './log'
+import * as raid from './raid'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
 const CLIENT_ID = process.env.TWITCH_CLIENT_ID
@@ -102,6 +103,7 @@ try {
 
 // init db
 db.initDb()
+raid.setDb(db.getDb())
 
 const doRefresh = () => refreshToken(CLIENT_ID, CLIENT_SECRET)
 
@@ -196,6 +198,7 @@ setPartHandler(async (target, _requester) => {
   emoteEvents.unsubscribeChannel(target)
   removeChannelEmotes(target)
   chatbuf.cleanupChannel(target)
+  raid.cleanupChannel(target)
   lastResponseTime.delete(target)
   await channelStore.remove(target)
   return `left #${target}`
@@ -371,6 +374,8 @@ const client = new TwitchClient(
 client.setAuthRefresh(doRefresh)
 client.setIrcOnly(['nl_kripp'])
 setSay((ch, msg) => client.say(ch, msg))
+raid.initEngine((ch, msg) => client.say(ch, msg))
+raid.restoreFromDb()
 
 // poll /helix/streams to track live state + game per channel.
 // (replaces stream.online/offline/channel.update EventSub — those exceed per-ws cost cap.)

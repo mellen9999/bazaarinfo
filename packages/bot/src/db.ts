@@ -606,6 +606,64 @@ const migrations: (() => void)[] = [
     )`)
     db.run(`CREATE INDEX idx_ai_spend_day ON ai_spend(day)`)
   },
+  // migration 17: raid game tables
+  () => {
+    db.run(`CREATE TABLE raids (
+      id INTEGER PRIMARY KEY,
+      channel TEXT NOT NULL COLLATE NOCASE,
+      hero TEXT NOT NULL,
+      day INTEGER NOT NULL DEFAULT 1,
+      hp INTEGER NOT NULL DEFAULT 20,
+      gold INTEGER NOT NULL DEFAULT 0,
+      wins INTEGER NOT NULL DEFAULT 0,
+      losses INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active',
+      last_resolved_at TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      started_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+    db.run(`CREATE INDEX idx_raids_channel_active ON raids(channel, status)`)
+
+    db.run(`CREATE TABLE raid_slots (
+      raid_id INTEGER NOT NULL REFERENCES raids(id),
+      position INTEGER NOT NULL,
+      username TEXT COLLATE NOCASE,
+      board_json TEXT NOT NULL DEFAULT '[]',
+      submitted_this_day INTEGER,
+      joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_active_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (raid_id, position)
+    )`)
+    db.run(`CREATE INDEX idx_slots_username ON raid_slots(username)`)
+
+    db.run(`CREATE TABLE raid_submissions (
+      raid_id INTEGER NOT NULL REFERENCES raids(id),
+      day INTEGER NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      shop_slot INTEGER NOT NULL,
+      submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (raid_id, day, user_id)
+    )`)
+
+    db.run(`CREATE TABLE raid_votes (
+      raid_id INTEGER NOT NULL REFERENCES raids(id),
+      day INTEGER NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      choice TEXT NOT NULL,
+      PRIMARY KEY (raid_id, day, user_id)
+    )`)
+
+    db.run(`CREATE TABLE raid_resolutions (
+      id INTEGER PRIMARY KEY,
+      raid_id INTEGER NOT NULL REFERENCES raids(id),
+      day INTEGER NOT NULL,
+      narrative TEXT NOT NULL,
+      combat_log_json TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+    db.run(`CREATE INDEX idx_resolutions_raid ON raid_resolutions(raid_id, day)`)
+  },
 ]
 
 function runMigrations() {
