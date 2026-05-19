@@ -8,6 +8,7 @@ import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuatio
 import { isEmote } from './emotes'
 import { getThread } from './chatbuf'
 import { log } from './log'
+import * as raidCmds from './raid/commands'
 
 const MAX_LEN = 480
 
@@ -319,6 +320,7 @@ const RESERVED_SUBS = new Set([
   'mob', 'monster', 'hero', 'tag', 'skill', 'day', 'enchants', 'enchantments',
   'trivia', 'score', 'stats', 'top', 'alias', 'help', 'info',
   'refresh', 'update', 'emotes', 'status', 'join', 'part',
+  'leave', 'pick', 'vote', 'party', 'history', 'resolve', 'game',
 ])
 
 const subcommands: [RegExp, SubHandler][] = [
@@ -429,6 +431,15 @@ const subcommands: [RegExp, SubHandler][] = [
     if (!ctx.channel) return null
     return withSuffix(getTriviaScore(ctx.channel), suffix)
   }],
+  // --- raid game commands (silent) ---
+  [/^join$/i, (_q, ctx) => raidCmds.handleJoin('', ctx)],
+  [/^leave$/i, (_q, ctx) => raidCmds.handleLeave('', ctx)],
+  [/^pick\s+(\d+)$/i, (query, ctx) => raidCmds.handlePick(query, ctx)],
+  [/^vote\s+(.+)$/i, (query, ctx) => raidCmds.handleVote(query, ctx)],
+  [/^party$/i, (_q, ctx) => raidCmds.handleParty('', ctx)],
+  [/^history$/i, (_q, ctx) => raidCmds.handleHistory('', ctx)],
+  [/^resolve$/i, (_q, ctx) => raidCmds.handleResolve('', ctx)],
+  [/^game\s+(on|off)$/i, (query, ctx) => raidCmds.handleGameToggle(query, ctx)],
   [/^stats(?:\s+@?(\S+))?$/i, (query, ctx, suffix) => {
     const target = query || ctx.user
     if (!target) return null

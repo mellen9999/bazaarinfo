@@ -1,7 +1,7 @@
 {
   "name": "bazaarinfo",
   "scripts": {
-    "test": "bun test packages/shared/ packages/data/ packages/bot/src/commands.test.ts packages/extension/src/tiers.test.ts && bun test packages/bot/src/trivia.test.ts && bun test packages/bot/src/db.test.ts && bun test packages/bot/src/sanitize.test.ts packages/bot/src/audit.test.ts",
+    "test": "bun test packages/shared/ packages/data/ packages/bot/src/commands.test.ts packages/extension/src/tiers.test.ts && bun test packages/bot/src/trivia.test.ts && bun test packages/bot/src/db.test.ts && bun test packages/bot/src/raid/raid.test.ts && bun test packages/bot/src/sanitize.test.ts packages/bot/src/audit.test.ts",
     "typecheck": "bun x tsc --noEmit -p tsconfig.json",
     "preflight": "bun run typecheck && bun run test",
     "install-hooks": "scripts/install-hooks.sh"
