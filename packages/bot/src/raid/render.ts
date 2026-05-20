@@ -84,11 +84,11 @@ export function renderHistory(raid: RaidState): string {
 
 const INTRO_TEMPLATES = [
   (hero: string, first: string) =>
-    `A horn sounds — ${hero} walks the market again. @${first} steps in first. !b join for a slot (10 max), !b party to see today's shop, !b pick <n> to commit your item. Townsfolk: !b vote — lopsided turnout can flip combat. Day 1 resolves when half the party picks, or in 10min.`,
+    `🎺 A new run begins. ${hero} walks the Bazaar — @${first} draws first blood for the party. Nine more swords welcome: !b join. The rest of chat IS the crowd — lopsided votes can flip a fight. !b party for today's shop. First combat in ~10min, or when half the party picks.`,
   (hero: string, first: string) =>
-    `A new run begins under ${hero}. @${first} answers the call first. Up to 10 take slots (!b join), the rest become townsfolk who !b vote on the path. !b party to peek the shop, !b pick <n> to commit. First combat fires on threshold or after 10min.`,
+    `🎺 The lanterns flare. ${hero} has issued the call, and @${first} answers first. Nine more can take up arms: !b join. Everyone else — you ARE the city, and the crowd decides where the party walks. !b vote to steer the fight. First combat soon. !b party for the shop.`,
   (hero: string, first: string) =>
-    `The Bazaar reopens. ${hero} surveys the stalls; @${first} stands ready. 9 slots remain — !b join. Everyone else: !b vote to sway the fight (one tipping vote can decide it). !b party for the shop, !b pick <n> to lock your item.`,
+    `🎺 Day 1 dawns. ${hero} walks the market with @${first} at their side. Nine more swords waiting: !b join. The rest of chat is the crowd — your !b vote can swing a close fight. !b party to see what's for sale. First fight in ~10min.`,
 ]
 
 export function renderIntro(raid: RaidState, firstUser: string): string {
