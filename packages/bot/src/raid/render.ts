@@ -81,3 +81,17 @@ export function renderHistory(raid: RaidState): string {
   if (!raid.lastResolution) return 'no resolution yet this run — !b join to participate'
   return truncate(raid.lastResolution.narrative)
 }
+
+const INTRO_TEMPLATES = [
+  (hero: string, first: string) =>
+    `A horn sounds — ${hero} walks the market again. @${first} steps in first. !b join for a slot (10 max), !b party to see today's shop, !b pick <n> to commit your item. Townsfolk: !b vote — lopsided turnout can flip combat. Day 1 resolves when half the party picks, or in 10min.`,
+  (hero: string, first: string) =>
+    `A new run begins under ${hero}. @${first} answers the call first. Up to 10 take slots (!b join), the rest become townsfolk who !b vote on the path. !b party to peek the shop, !b pick <n> to commit. First combat fires on threshold or after 10min.`,
+  (hero: string, first: string) =>
+    `The Bazaar reopens. ${hero} surveys the stalls; @${first} stands ready. 9 slots remain — !b join. Everyone else: !b vote to sway the fight (one tipping vote can decide it). !b party for the shop, !b pick <n> to lock your item.`,
+]
+
+export function renderIntro(raid: RaidState, firstUser: string): string {
+  const tpl = INTRO_TEMPLATES[raid.raidId % INTRO_TEMPLATES.length]
+  return truncate(tpl(raid.hero, firstUser))
+}

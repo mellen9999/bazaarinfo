@@ -496,6 +496,29 @@ describe('commands', () => {
     const result = handleVote('Galleon', { user: 'dave', channel: 'cmdchan', isMod: false })
     expect(result).toBeNull()
   })
+
+  it('handleParty on raidless channel responds with discovery hint (no auto-create)', async () => {
+    const { handleParty } = await import('./commands')
+    const raidState = await import('./state')
+    const result = handleParty('', { user: 'eve', channel: 'partypeek', isMod: false })
+    expect(result).toMatch(/!b join/i)
+    expect(raidState.getRaid('partypeek')).toBeUndefined()
+  })
+
+  it('first !b join triggers intro narrative, subsequent joins are silent', async () => {
+    const { handleJoin } = await import('./commands')
+    const engineMod = await import('./engine')
+    const captured: string[] = []
+    engineMod.setSay((_ch, msg) => captured.push(msg))
+
+    handleJoin('', { user: 'frank', channel: 'introchan', isMod: false })
+    expect(captured.length).toBe(1)
+    expect(captured[0].toLowerCase()).toContain('frank')
+    expect(captured[0].length).toBeLessThanOrEqual(480)
+
+    handleJoin('', { user: 'grace', channel: 'introchan', isMod: false })
+    expect(captured.length).toBe(1)  // no second intro
+  })
 })
 
 // --- 90s floor test ---
