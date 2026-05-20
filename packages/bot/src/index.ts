@@ -375,6 +375,7 @@ client.setAuthRefresh(doRefresh)
 client.setIrcOnly(['nl_kripp'])
 setSay((ch, msg) => client.say(ch, msg))
 raid.initEngine((ch, msg) => client.say(ch, msg))
+raid.setIsLive((ch) => getLiveChannels().includes(ch.toLowerCase()))
 raid.restoreFromDb()
 
 // poll /helix/streams to track live state + game per channel.

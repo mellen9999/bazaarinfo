@@ -41,26 +41,31 @@ export function renderResolution(
 
   const verb = won ? pick(WIN_VERBS, seed) : pick(LOSS_VERBS, seed)
   const mItem = result.monsterItems[0]
-  const mFlavor = mItem ? ` ${mItem} strikes` : ''
+  const mFlavor = mItem ? ` ${mItem} answers` : ''
   const combatLine = won
     ? `The party meets the ${monsterTitle}.${mFlavor} — the ${monsterTitle} ${verb}.`
     : `The ${monsterTitle} ${verb}.${mFlavor ? ` Its ${mItem} cuts the line.` : ''}`
 
-  // crowd impact: only narrate when meaningful (>3% swing).
+  // crowd: surface the tally whenever a vote happened. boost emphasis when lopsided.
   let crowdLine = ''
-  if (vote && crowdBoost - 1 > 0.03) {
+  if (vote) {
     const total = vote.winnerCount + vote.loserCount
-    crowdLine = ` The crowd's roar lifts the party (${vote.winnerCount}-${vote.loserCount}/${total}).`
+    if (crowdBoost - 1 > 0.03) {
+      crowdLine = ` The crowd roars (${vote.winnerCount}-${vote.loserCount}/${total}) and the party rallies.`
+    } else if (total > 0) {
+      crowdLine = ` The crowd splits (${vote.winnerCount}-${vote.loserCount}/${total}).`
+    }
   }
 
   const hpStr = won ? '' : ` HP:${raid.hp}`
-  const record = `${raid.wins}W-${raid.losses}L${hpStr}`
+  const goldStr = won ? ` ${raid.gold}g` : ''
+  const record = `${raid.wins}W-${raid.losses}L${hpStr}${goldStr}`
 
-  const voteChoiceLine = vote ? ` Chose: ${vote.winner.label}.` : ''
+  const voteChoiceLine = vote ? ` Path: ${vote.winner.label}.` : ''
   let nextVote = ''
   if (raid.pendingVote) {
     const [a, b] = raid.pendingVote.options
-    nextVote = ` Next: !b vote ${a.label} | ${b.label}`
+    nextVote = ` · Next: !b vote ${a.label} | ${b.label}`
   }
 
   const full = `${open} ${arrivalLine}${combatLine}${voteChoiceLine}${crowdLine} [${record}]${nextVote}`
@@ -69,11 +74,25 @@ export function renderResolution(
 
 export function renderParty(raid: RaidState, shopItems: Array<{ shopSlot: number; card: { Title: string } }>): string {
   const filled = raid.slots.filter((s) => s.username !== null)
-  const slotStr = filled.map((s) => `@${s.username}`).join(', ') || 'empty'
-  const shopStr = shopItems.map((s) => `${s.shopSlot}:${s.card.Title}`).join(', ')
+  // slot owners + how many items they've stacked
+  const slotStr = filled.map((s) => `@${s.username}(${s.boardItems.length})`).join(' ') || 'empty'
+  const shopStr = shopItems.map((s) => `${s.shopSlot}:${s.card.Title}`).join(' ')
   const status = raid.status !== 'active' ? ` [${raid.status.toUpperCase()}]` : ''
+
+  // pending vote tally
+  let voteStr = ''
+  if (raid.pendingVote) {
+    const [a, b] = raid.pendingVote.options
+    let ca = 0, cb = 0
+    for (const v of raid.pendingVote.tally.values()) {
+      if (v === a.label.toLowerCase()) ca++
+      else if (v === b.label.toLowerCase()) cb++
+    }
+    voteStr = ` Vote: ${a.label} ${ca} / ${b.label} ${cb} ·`
+  }
+
   return truncate(
-    `[${raid.hero}]${status} Day${raid.day} HP:${raid.hp} ${raid.wins}W-${raid.losses}L | Party(${filled.length}/10): ${slotStr} | Shop: ${shopStr} | !b join / !b pick <n>`,
+    `[${raid.hero}${status}] D${raid.day} HP:${raid.hp} ${raid.wins}W-${raid.losses}L ${raid.gold}g · Party(${filled.length}/10): ${slotStr} ·${voteStr} Shop: ${shopStr} · !b join / !b pick <n>`,
   )
 }
 
@@ -82,16 +101,20 @@ export function renderHistory(raid: RaidState): string {
   return truncate(raid.lastResolution.narrative)
 }
 
-const INTRO_TEMPLATES = [
+// 3 atmospheric intro openers; shop preview appended deterministically
+const INTRO_OPENERS = [
   (hero: string, first: string) =>
-    `🎺 A new run begins. ${hero} walks the Bazaar — @${first} draws first blood for the party. Nine more swords welcome: !b join. The rest of chat IS the crowd — lopsided votes can flip a fight. !b party for today's shop. First combat in ~10min, or when half the party picks.`,
+    `🎺 ${hero} walks the Bazaar again. @${first} draws first blood for the party.`,
   (hero: string, first: string) =>
-    `🎺 The lanterns flare. ${hero} has issued the call, and @${first} answers first. Nine more can take up arms: !b join. Everyone else — you ARE the city, and the crowd decides where the party walks. !b vote to steer the fight. First combat soon. !b party for the shop.`,
+    `🎺 The lanterns flare. ${hero} has issued the call, and @${first} answers first.`,
   (hero: string, first: string) =>
-    `🎺 Day 1 dawns. ${hero} walks the market with @${first} at their side. Nine more swords waiting: !b join. The rest of chat is the crowd — your !b vote can swing a close fight. !b party to see what's for sale. First fight in ~10min.`,
+    `🎺 Day 1 dawns. ${hero} walks the market with @${first} at their side.`,
 ]
 
-export function renderIntro(raid: RaidState, firstUser: string): string {
-  const tpl = INTRO_TEMPLATES[raid.raidId % INTRO_TEMPLATES.length]
-  return truncate(tpl(raid.hero, firstUser))
+export function renderIntro(raid: RaidState, firstUser: string, shop: Array<{ shopSlot: number; card: { Title: string } }>): string {
+  const opener = INTRO_OPENERS[raid.raidId % INTRO_OPENERS.length](raid.hero, firstUser)
+  // compact shop preview — first 6 items by name (room budget after opener + footer)
+  const previewItems = shop.slice(0, 6).map((s) => `${s.shopSlot}:${s.card.Title}`).join(' · ')
+  const footer = `Nine more swords welcome: !b join. Everyone else: !b vote to swing the fight. !b pick <n> for your slot.`
+  return truncate(`${opener} Day 1 shop → ${previewItems} · !b shop for the full list. ${footer}`)
 }

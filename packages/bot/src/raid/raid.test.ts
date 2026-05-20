@@ -226,6 +226,11 @@ describe('state (DB)', () => {
       outcome TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`)
+    testDb.run(`CREATE TABLE raid_channel_settings (
+      channel TEXT PRIMARY KEY COLLATE NOCASE,
+      pace TEXT NOT NULL DEFAULT 'normal',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
 
     // dynamically import state to allow fresh module per test
     raidState = await import('./state')
@@ -463,6 +468,10 @@ describe('commands', () => {
       id INTEGER PRIMARY KEY, raid_id INTEGER NOT NULL REFERENCES raids(id), day INTEGER NOT NULL,
       narrative TEXT NOT NULL, combat_log_json TEXT NOT NULL, outcome TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+    cmdDb.run(`CREATE TABLE raid_channel_settings (
+      channel TEXT PRIMARY KEY COLLATE NOCASE, pace TEXT NOT NULL DEFAULT 'normal',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`)
     // set DB on state module
     const stateModule = require('./state')

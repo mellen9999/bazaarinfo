@@ -320,7 +320,7 @@ const RESERVED_SUBS = new Set([
   'mob', 'monster', 'hero', 'tag', 'skill', 'day', 'enchants', 'enchantments',
   'trivia', 'score', 'stats', 'top', 'alias', 'help', 'info',
   'refresh', 'update', 'emotes', 'status', 'join', 'part',
-  'leave', 'pick', 'vote', 'party', 'history', 'resolve', 'game',
+  'leave', 'pick', 'vote', 'party', 'shop', 'history', 'resolve', 'game',
 ])
 
 const subcommands: [RegExp, SubHandler][] = [
@@ -434,11 +434,12 @@ const subcommands: [RegExp, SubHandler][] = [
   // --- raid game commands (silent) ---
   [/^join$/i, (_q, ctx) => raidCmds.handleJoin('', ctx)],
   [/^leave$/i, (_q, ctx) => raidCmds.handleLeave('', ctx)],
-  [/^pick\s+(\d+)$/i, (query, ctx) => raidCmds.handlePick(query, ctx)],
+  [/^pick\s+(.+)$/i, (query, ctx) => raidCmds.handlePick(query, ctx)],
   [/^vote\s+(.+)$/i, (query, ctx) => raidCmds.handleVote(query, ctx)],
-  [/^party$/i, (_q, ctx) => raidCmds.handleParty('', ctx)],
+  [/^(?:party|shop)$/i, (_q, ctx) => raidCmds.handleParty('', ctx)],
   [/^history$/i, (_q, ctx) => raidCmds.handleHistory('', ctx)],
   [/^resolve$/i, (_q, ctx) => raidCmds.handleResolve('', ctx)],
+  [/^game\s+pace\s+(fast|normal|slow)$/i, (query, ctx) => raidCmds.handleGamePace(query, ctx)],
   [/^game\s+(on|off)$/i, (query, ctx) => raidCmds.handleGameToggle(query, ctx)],
   [/^stats(?:\s+@?(\S+))?$/i, (query, ctx, suffix) => {
     const target = query || ctx.user

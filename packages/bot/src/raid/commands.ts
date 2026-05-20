@@ -54,17 +54,28 @@ export function handleLeave(args: string, ctx: CommandContext): null {
   return null
 }
 
-export function handlePick(shopSlotStr: string, ctx: CommandContext): null {
+// supports both numeric (`!b pick 3`) and name-fuzzy (`!b pick crusher claw`) forms
+export function handlePick(arg: string, ctx: CommandContext): null {
   if (!ctx.user || !ctx.channel) return null
   if (!checkCooldown(ctx.user)) return null
   if (!state.isEnabled(ctx.channel)) return null
-  const slot = parseInt(shopSlotStr)
-  if (isNaN(slot)) return null
   const raid = state.getRaid(ctx.channel)
   if (!raid) return null
-  // validate slot exists in today's shop (silent fail on bad slot)
   const shop = getShop(raid.raidId, raid.day, raid.hero)
-  if (!shop.find((s) => s.shopSlot === slot)) return null
+
+  let slot: number | null = null
+  const trimmed = arg.trim()
+  const asNum = parseInt(trimmed)
+  if (!isNaN(asNum) && shop.find((s) => s.shopSlot === asNum)) {
+    slot = asNum
+  } else if (trimmed.length >= 2) {
+    // fuzzy name match against shop titles (substring, then word-prefix)
+    const lower = trimmed.toLowerCase()
+    const direct = shop.find((s) => s.card.Title.toLowerCase().includes(lower))
+    slot = direct?.shopSlot ?? null
+  }
+
+  if (slot === null) return null
   state.submitPick(ctx.channel, ctx.user, slot)
   engine.triggerCheck(ctx.channel)
   return null
@@ -107,4 +118,17 @@ export function handleGameToggle(onOff: string, ctx: CommandContext): string | n
   const on = onOff.toLowerCase() === 'on'
   state.setEnabled(ctx.channel, on)
   return on ? 'raid game enabled' : 'raid game disabled'
+}
+
+// !b game pace fast|normal|slow — streamer matches the run cadence to their stream feel
+export function handleGamePace(paceArg: string, ctx: CommandContext): string | null {
+  if (!ctx.channel) return null
+  if (!isMod(ctx)) return null
+  const p = paceArg.toLowerCase().trim()
+  if (p !== 'fast' && p !== 'normal' && p !== 'slow') return null
+  state.setPace(ctx.channel, p)
+  const cfg = p === 'fast' ? 'floor 60s, slow-chat 3m, force 10m'
+    : p === 'slow' ? 'floor 2m, slow-chat 10m, force 30m'
+    : 'floor 90s, slow-chat 5m, force 15m'
+  return `raid pace set to ${p} (${cfg})`
 }
