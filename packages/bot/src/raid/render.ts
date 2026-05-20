@@ -1,5 +1,6 @@
 import { truncate } from '@bazaarinfo/shared'
 import type { RaidState, SimResult } from './types'
+import type { VoteResult } from './state'
 
 const DAY_OPEN = [
   'The Bazaar opens to fog and brine',
@@ -22,14 +23,14 @@ export function renderResolution(
   result: SimResult,
   monsterTitle: string,
   namedPicks: Map<string, string>,
-  voteWinner?: string,
+  vote: VoteResult | null,
+  crowdBoost: number,
 ): string {
   const seed = raid.day * 31 + raid.raidId
   const won = result.winner === 'party'
 
   const open = `Day ${raid.day} · ${pick(DAY_OPEN, seed)}.`
 
-  // 2-3 named arrivals
   const arrivals: string[] = []
   let i = 0
   for (const [user, item] of namedPicks) {
@@ -38,7 +39,6 @@ export function renderResolution(
   }
   const arrivalLine = arrivals.length ? `${arrivals.join('. ')}. ` : ''
 
-  // combat beat
   const verb = won ? pick(WIN_VERBS, seed) : pick(LOSS_VERBS, seed)
   const mItem = result.monsterItems[0]
   const mFlavor = mItem ? ` ${mItem} strikes` : ''
@@ -46,20 +46,24 @@ export function renderResolution(
     ? `The party meets the ${monsterTitle}.${mFlavor} — the ${monsterTitle} ${verb}.`
     : `The ${monsterTitle} ${verb}.${mFlavor ? ` Its ${mItem} cuts the line.` : ''}`
 
-  // run state
+  // crowd impact: only narrate when meaningful (>3% swing).
+  let crowdLine = ''
+  if (vote && crowdBoost - 1 > 0.03) {
+    const total = vote.winnerCount + vote.loserCount
+    crowdLine = ` The crowd's roar lifts the party (${vote.winnerCount}-${vote.loserCount}/${total}).`
+  }
+
   const hpStr = won ? '' : ` HP:${raid.hp}`
   const record = `${raid.wins}W-${raid.losses}L${hpStr}`
 
-  // vote outcome (last day) + new vote prompt (next day)
-  let voteLine = ''
-  if (voteWinner) voteLine = ` Chose: ${voteWinner}.`
+  const voteChoiceLine = vote ? ` Chose: ${vote.winner.label}.` : ''
   let nextVote = ''
   if (raid.pendingVote) {
     const [a, b] = raid.pendingVote.options
     nextVote = ` Next: !b vote ${a.label} | ${b.label}`
   }
 
-  const full = `${open} ${arrivalLine}${combatLine}${voteLine} [${record}]${nextVote}`
+  const full = `${open} ${arrivalLine}${combatLine}${voteChoiceLine}${crowdLine} [${record}]${nextVote}`
   return truncate(full)
 }
 

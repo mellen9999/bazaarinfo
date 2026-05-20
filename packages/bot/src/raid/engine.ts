@@ -118,20 +118,30 @@ async function resolveChannel(channel: string) {
   if (!raid) return
 
   const { board: partyBoard, namedPicks } = resolvePartyBoard(channel, raid.day, raid.hero, raid.raidId)
-  const voteWinner = state.resolveVote(channel)
-  const monster = pickMonster(raid.day, voteWinner?.monsterHint)
-  const result = simulate(partyBoard, monster.board, raid.raidId, raid.day)
+  const vote = state.resolveVote(channel)
+  const monster = pickMonster(raid.day, vote?.winner.monsterHint)
+
+  // crowd influence: lopsided consensus rallies the party. (winner − loser) × 0.3%, capped at +20%.
+  // a divided crowd offers no boost. one tipping vote in a close fight can decide the run.
+  const netVotes = vote ? vote.winnerCount - vote.loserCount : 0
+  const crowdBoost = Math.min(1.20, 1 + Math.max(0, netVotes) * 0.003)
+
+  const result = simulate(partyBoard, monster.board, raid.raidId, raid.day, crowdBoost)
 
   const outcome: 'win' | 'loss' = result.winner === 'party' ? 'win' : 'loss'
-  // mutate in-memory state (wins/losses/hp/status). Render then persists with full narrative.
   const updated = state.applyDayOutcome(channel, outcome, result.margin)
-  const narrative = renderResolution(updated, result, monster.title, namedPicks, voteWinner?.label)
+  const narrative = renderResolution(updated, result, monster.title, namedPicks, vote, crowdBoost)
 
   state.commitResolution(channel, {
     day: raid.day,
     narrative,
     outcome,
-    combatLog: { margin: result.margin, vote: voteWinner?.label ?? null },
+    combatLog: {
+      margin: result.margin,
+      vote: vote?.winner.label ?? null,
+      votes: vote ? [vote.winnerCount, vote.loserCount] : null,
+      crowdBoost,
+    },
     createdAt: Date.now(),
   })
 
