@@ -49,11 +49,12 @@ export function simulate(
   monsterBoard: BoardItem[],
   raidId: number,
   day: number,
+  partyBoost = 1,
 ): SimResult {
   const rng = mulberry32(hashSeed(raidId, day))
   const noise = () => 1 + (rng() * 0.30 - 0.15)  // ±15%
 
-  const partyScore = scoreBoard(partyBoard) * noise()
+  const partyScore = scoreBoard(partyBoard) * noise() * partyBoost
   const monsterScore = scoreBoard(monsterBoard) * noise()
 
   const winner: 'party' | 'monster' = partyScore >= monsterScore ? 'party' : 'monster'

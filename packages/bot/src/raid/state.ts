@@ -293,8 +293,14 @@ export function commitResolution(channel: string, resolution: Resolution): RaidS
   return state
 }
 
+export interface VoteResult {
+  winner: VoteOption
+  winnerCount: number
+  loserCount: number
+}
+
 // resolves the channel's pending vote (consumed before monster pick). Default to options[0] on tie/empty.
-export function resolveVote(channel: string): VoteOption | null {
+export function resolveVote(channel: string): VoteResult | null {
   const state = getRaid(channel)
   if (!state?.pendingVote) return null
   const counts = new Map<string, number>()
@@ -304,7 +310,12 @@ export function resolveVote(channel: string): VoteOption | null {
   const [a, b] = state.pendingVote.options
   const ca = counts.get(a.label.toLowerCase()) ?? 0
   const cb = counts.get(b.label.toLowerCase()) ?? 0
-  return cb > ca ? b : a
+  const winner = cb > ca ? b : a
+  return {
+    winner,
+    winnerCount: cb > ca ? cb : ca,
+    loserCount: cb > ca ? ca : cb,
+  }
 }
 
 // called after run ends — auto-start new raid for channel

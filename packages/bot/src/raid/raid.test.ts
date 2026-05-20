@@ -102,6 +102,21 @@ describe('sim', () => {
     const r = simulate(makeBoard(3), [], 1, 1)
     expect(r.winner).toBe('party')
   })
+
+  it('crowd boost can flip a close fight', () => {
+    // build evenly-matched boards
+    const party: BoardItem[] = [{ title: 'A', tier: 'Silver', size: 'Medium', cooldownMs: 3000, tags: [] }]
+    const monster: BoardItem[] = [{ title: 'B', tier: 'Silver', size: 'Medium', cooldownMs: 3000, tags: [] }]
+    // find a seed where monster wins with no boost
+    let flippableSeed = -1
+    for (let s = 0; s < 100; s++) {
+      const r = simulate(party, monster, s, 1)
+      if (r.winner === 'monster' && r.margin < 0.10) { flippableSeed = s; break }
+    }
+    if (flippableSeed < 0) return  // skip if no close monster-win seed found
+    const boosted = simulate(party, monster, flippableSeed, 1, 1.20)
+    expect(boosted.winner).toBe('party')
+  })
 })
 
 // --- shop tests ---
