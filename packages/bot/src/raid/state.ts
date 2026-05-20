@@ -318,7 +318,12 @@ export function resolveVote(channel: string): VoteResult | null {
   }
 }
 
-// called after run ends — auto-start new raid for channel
+// clear in-memory raid (DB row persists with terminal status). Next !b join creates a fresh raid + intro.
+export function endRaid(channel: string) {
+  raids.delete(channel.toLowerCase())
+}
+
+// kept for tests / admin: explicit reset to a fresh raid
 export function startNewRun(channel: string): RaidState {
   const key = channel.toLowerCase()
   raids.delete(key)

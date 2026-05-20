@@ -34,12 +34,15 @@ function checkCooldown(user: string): boolean {
   return true
 }
 
-// all silent handlers return null
+// !b join is silent UNLESS this join creates a brand-new raid, in which case the engine
+// emits the intro narrative (the third bounded bot-output trigger after resolutions + run-end).
 export function handleJoin(args: string, ctx: CommandContext): null {
   if (!ctx.user || !ctx.channel) return null
   if (!checkCooldown(ctx.user)) return null
   if (!state.isEnabled(ctx.channel)) return null
+  const createdNewRaid = !state.getRaid(ctx.channel)
   state.claimSlot(ctx.channel, ctx.user)
+  if (createdNewRaid) engine.announceStart(ctx.channel, ctx.user)
   engine.triggerCheck(ctx.channel)
   return null
 }
@@ -77,7 +80,8 @@ export function handleVote(choice: string, ctx: CommandContext): null {
 
 export function handleParty(args: string, ctx: CommandContext): string | null {
   if (!ctx.channel) return null
-  const raid = state.getRaid(ctx.channel) ?? state.getOrCreateRaid(ctx.channel)
+  const raid = state.getRaid(ctx.channel)
+  if (!raid) return 'no raid yet — !b join to start one'
   const shop = getShop(raid.raidId, raid.day, raid.hero)
   return renderParty(raid, shop)
 }

@@ -2,7 +2,7 @@ import * as store from '../store'
 import { log } from '../log'
 import { getShop } from './shop'
 import { simulate } from './sim'
-import { renderResolution } from './render'
+import { renderResolution, renderIntro } from './render'
 import * as state from './state'
 import type { BoardItem, Resolution } from './types'
 
@@ -150,17 +150,28 @@ async function resolveChannel(channel: string) {
 
   if (updated.status !== 'active') {
     const endMsg = updated.status === 'won'
-      ? `The party wins the run after ${updated.wins} days. A new adventure begins...`
-      : `The run ends in defeat (${updated.losses} losses, HP:${updated.hp}). A new adventure begins...`
+      ? `The party wins the run after ${updated.wins} days. !b join to begin the next.`
+      : `The run ends in defeat (${updated.losses} losses, HP:${updated.hp}). !b join to begin again.`
     say(channel, endMsg)
-    state.startNewRun(channel)
+    state.endRaid(channel)
   }
+}
+
+// emit the intro narrative for a freshly-created raid. one-shot per raid lifecycle.
+export function announceStart(channel: string, firstUser: string) {
+  const raid = state.getRaid(channel)
+  if (!raid) return
+  say(channel, renderIntro(raid, firstUser))
+  log(`raid: [#${channel}] intro posted (raid ${raid.raidId}, hero ${raid.hero})`)
 }
 
 let tickTimer: Timer | null = null
 
+// test seam: set the bot output sink without starting the periodic tick
+export function setSay(sayFn: SayFn) { say = sayFn }
+
 export function initEngine(sayFn: SayFn) {
-  say = sayFn
+  setSay(sayFn)
   tickTimer = setInterval(tick, TICK_MS)
   log('raid: engine started')
 }
