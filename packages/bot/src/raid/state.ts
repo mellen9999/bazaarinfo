@@ -250,10 +250,45 @@ export function applyDayOutcome(channel: string, outcome: 'win' | 'loss', margin
     state.hp -= 5 + Math.floor(margin * 10)
     if (state.hp < 0) state.hp = 0
   }
-  if (state.wins >= 10) state.status = 'won'
+  if (state.wins >= 7) state.status = 'won'
   else if (state.losses >= 3 || state.hp <= 0) state.status = 'lost'
   state.lastResolvedAt = Date.now()
   return state
+}
+
+// channel-level pace setting (persists across runs)
+export type Pace = 'fast' | 'normal' | 'slow'
+const paceCache = new Map<string, Pace>()
+
+export function getPace(channel: string): Pace {
+  const key = channel.toLowerCase()
+  const cached = paceCache.get(key)
+  if (cached) return cached
+  const row = db.query(`SELECT pace FROM raid_channel_settings WHERE channel = ?`).get(key) as { pace: string } | null
+  const pace = (row?.pace === 'fast' || row?.pace === 'slow') ? row.pace as Pace : 'normal'
+  paceCache.set(key, pace)
+  return pace
+}
+
+export function setPace(channel: string, pace: Pace) {
+  const key = channel.toLowerCase()
+  paceCache.set(key, pace)
+  db.run(
+    `INSERT INTO raid_channel_settings (channel, pace, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(channel) DO UPDATE SET pace = excluded.pace, updated_at = datetime('now')`,
+    [key, pace],
+  )
+}
+
+// who picked most items this run — used in run-end MVP callout
+export function getRunMvp(raidId: number): { username: string; picks: number } | null {
+  const row = db.query(
+    `SELECT u.username, COUNT(*) as picks FROM raid_submissions s
+     JOIN users u ON s.user_id = u.id
+     WHERE s.raid_id = ?
+     GROUP BY u.id ORDER BY picks DESC LIMIT 1`,
+  ).get(raidId) as { username: string; picks: number } | null
+  return row
 }
 
 // persist resolution + state changes + advance day in one pass

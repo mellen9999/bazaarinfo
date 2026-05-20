@@ -664,6 +664,14 @@ const migrations: (() => void)[] = [
     )`)
     db.run(`CREATE INDEX idx_resolutions_raid ON raid_resolutions(raid_id, day)`)
   },
+  // migration 18: per-channel raid pace setting
+  () => {
+    db.run(`CREATE TABLE raid_channel_settings (
+      channel TEXT PRIMARY KEY COLLATE NOCASE,
+      pace TEXT NOT NULL DEFAULT 'normal',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+  },
 ]
 
 function runMigrations() {

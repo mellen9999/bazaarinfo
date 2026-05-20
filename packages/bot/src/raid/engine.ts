@@ -6,13 +6,20 @@ import { renderResolution, renderIntro } from './render'
 import * as state from './state'
 import type { BoardItem, Resolution } from './types'
 
-const FLOOR_MS = 90_000
 const TICK_MS = 60_000
-const SLOW_CHAT_MS = 10 * 60_000
-const FORCE_MS = 30 * 60_000
+
+// per-pace tuning. normal is the default; fast for active chat, slow for deliberate streams.
+const PACE_CONFIG: Record<string, { floor: number; slow: number; force: number }> = {
+  fast:   { floor: 60_000,  slow:  3 * 60_000, force: 10 * 60_000 },
+  normal: { floor: 90_000,  slow:  5 * 60_000, force: 15 * 60_000 },
+  slow:   { floor: 120_000, slow: 10 * 60_000, force: 30 * 60_000 },
+}
 
 type SayFn = (channel: string, msg: string) => void
+type IsLiveFn = (channel: string) => boolean
 let say: SayFn = () => {}
+let isLive: IsLiveFn = () => true  // default: assume live (engine works without stream-state wired)
+export function setIsLive(fn: IsLiveFn) { isLive = fn }
 
 function itemToBoard(title: string, tier: string, size: string, cd: number | undefined | null, tags: string[]): BoardItem {
   return {
@@ -86,29 +93,26 @@ function resolvePartyBoard(channel: string, day: number, hero: string, raidId: n
   return { board, namedPicks }
 }
 
-function shouldResolve(channel: string): boolean {
+function shouldResolve(channel: string, manual = false): boolean {
   const raid = state.getRaid(channel)
   if (!raid || raid.status !== 'active' || !raid.enabled) return false
 
+  // stream-aware: only manual resolves fire when stream is offline. prevents burning runs at 3am.
+  if (!manual && !isLive(channel)) return false
+
+  const cfg = PACE_CONFIG[state.getPace(channel)] ?? PACE_CONFIG.normal
   const now = Date.now()
-  // lastResolvedAt=0 means brand-new raid, never resolved — use raid creation time
   const base = raid.lastResolvedAt > 0 ? raid.lastResolvedAt : now
   const elapsed = now - base
 
-  // hard 90s floor
-  if (elapsed < FLOOR_MS) return false
+  if (elapsed < cfg.floor) return false
 
   const filledSlots = raid.slots.filter((s) => s.username !== null)
   const submitted = filledSlots.filter((s) => s.submittedThisDay !== null).length
 
-  // trigger 1: ≥50% of filled slots submitted + 90s elapsed
   if (filledSlots.length > 0 && submitted >= Math.ceil(filledSlots.length / 2)) return true
-
-  // trigger 2: 10min elapsed + at least 1 submission
-  if (elapsed >= SLOW_CHAT_MS && submitted >= 1) return true
-
-  // trigger 3: 30min force-progress (fills NPCs, always fires)
-  if (elapsed >= FORCE_MS) return true
+  if (elapsed >= cfg.slow && submitted >= 1) return true
+  if (elapsed >= cfg.force) return true
 
   return false
 }
@@ -149,9 +153,11 @@ async function resolveChannel(channel: string) {
   log(`raid: [#${channel}] day ${raid.day} resolved — ${outcome}`)
 
   if (updated.status !== 'active') {
+    const mvp = state.getRunMvp(updated.raidId)
+    const mvpLine = mvp ? ` MVP: @${mvp.username} (${mvp.picks} picks).` : ''
     const endMsg = updated.status === 'won'
-      ? `The party wins the run after ${updated.wins} days. !b join to begin the next.`
-      : `The run ends in defeat (${updated.losses} losses, HP:${updated.hp}). !b join to begin again.`
+      ? `🏆 The party wins the run after ${updated.wins} days!${mvpLine} !b join to begin the next.`
+      : `💀 The run ends — ${updated.losses} losses, HP:${updated.hp}.${mvpLine} !b join to begin again.`
     say(channel, endMsg)
     state.endRaid(channel)
   }
@@ -161,7 +167,8 @@ async function resolveChannel(channel: string) {
 export function announceStart(channel: string, firstUser: string) {
   const raid = state.getRaid(channel)
   if (!raid) return
-  say(channel, renderIntro(raid, firstUser))
+  const shop = getShop(raid.raidId, raid.day, raid.hero)
+  say(channel, renderIntro(raid, firstUser, shop))
   log(`raid: [#${channel}] intro posted (raid ${raid.raidId}, hero ${raid.hero})`)
 }
 
