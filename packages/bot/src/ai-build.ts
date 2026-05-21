@@ -456,6 +456,19 @@ export interface UserMessageResult { text: string; hasGameData: boolean; isPasta
 // the whole Recent-chat block gets skipped, and the bot says "chat's dead".
 const CHAT_BLOCK_CAP = 1800
 
+// A budget-managed context section. `base` sets default priority (lower = kept
+// first); `boost` lifts it when the query makes it relevant; `trunc` allows a
+// newline-bounded partial include instead of dropping wholesale when budget is tight.
+interface Sec { name: string; text: string; base: number; boost?: number; trunc?: boolean; prio?: number }
+
+// Largest newline-bounded prefix of `text` that fits `budget`. Returns null when
+// even the first line overflows — caller drops the section entirely.
+export function fitToBudget(text: string, budget: number): string | null {
+  if (text.length <= budget) return text
+  const cut = text.lastIndexOf('\n', budget)
+  return cut > 0 ? text.slice(0, cut) : null
+}
+
 function buildChatStr(entries: ChatEntry[]): string {
   if (entries.length === 0) return ''
   const lines = entries.map((m) => {
@@ -596,8 +609,13 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const burnedLine = burnedNames.size > 0
     ? `\nBURNED references (pick DIFFERENT chatters/quotes): ${[...burnedNames].join(', ')}${burnedQuotes.size > 0 ? ` | quotes: ${[...burnedQuotes].slice(0, 5).map(q => `"${q}"`).join(', ')}` : ''}`
     : ''
-  const recentLine = deduped.length > 0
-    ? `\nYour recent responses (NEVER reuse specific phrases, punchlines, item combos, or scenarios from these — even if a similar question comes up, find a completely different angle. only continue a theme if [USER]'s message explicitly references it):\n${deduped.map((r) => `- "${r.length > 200 ? r.slice(0, 200) + '...' : r}"`).join('\n')}${burnedLine}`
+  // inject only the 6 most-recent responses (≤140ch each). anti-repetition signal
+  // decays fast, and the old 12×200ch block was the second-largest section after
+  // recentChat — together they ate the whole 3500 budget and starved the tail.
+  // burned names/quotes still scan ALL of deduped (compact, high-coverage signal).
+  const injectResponses = deduped.slice(-6)
+  const recentLine = injectResponses.length > 0
+    ? `\nYour recent responses (NEVER reuse specific phrases, punchlines, item combos, or scenarios from these — even if a similar question comes up, find a completely different angle. only continue a theme if [USER]'s message explicitly references it):\n${injectResponses.map((r) => `- "${r.length > 140 ? r.slice(0, 140) + '…' : r}"`).join('\n')}${burnedLine}`
     : ''
 
   // copypasta few-shot examples
@@ -690,52 +708,72 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     && !/@[a-zA-Z0-9_]+/.test(query)
     && !isCreative
     && (entities.cards.length > 0 || entities.monsters.length > 0 || !!entities.hero || !!entities.tag)
-  const recentChatSection = { name: 'recentChat', text: chatStr ? `Recent chat:\n${chatStr}\n` : '' }
-  const gameBlockSection = { name: 'gameBlock', text: gameBlock }
-  const primaryPair = isPureGameQuery ? [gameBlockSection, recentChatSection] : [recentChatSection, gameBlockSection]
+  // ── Context budget: relevance-scored priority + graceful truncation ──
+  // Bases mirror the historical fixed order, so a query with no intent signal
+  // behaves exactly as before. Intent boosts lift a section only when the query
+  // makes it relevant — voice for banter, recall for "remember when", emotes for
+  // emote talk, timeline for stream-history Qs, reddit for community/meta Qs.
+  const recallIntent = RECALL_INTENT.test(query) || /\b(remember|earlier|yesterday|last (?:time|stream|night)|moments? ago|while back|before)\b/i.test(query)
+  const emoteIntent = isCreative || /\b(emote|emoji|spam|7tv|bttv)\b/i.test(query)
+  const historyIntent = /\b(today|tonight|this stream|so far|how long|stream history|been (?:live|streaming|on)|when did (?:you|we|the))\b/i.test(query)
 
-  const redditSection = { name: 'reddit', text: redditLine }
-  const sections: { name: string; text: string }[] = [
+  const recentChatSection: Sec = { name: 'recentChat', text: chatStr ? `Recent chat:\n${chatStr}\n` : '', base: -100, trunc: true }
+  const gameBlockSection: Sec = { name: 'gameBlock', text: gameBlock, base: -90 }
+  const primaryPair: Sec[] = isPureGameQuery
+    ? [{ ...gameBlockSection, base: -100 }, { ...recentChatSection, base: -90 }]
+    : [recentChatSection, gameBlockSection]
+
+  const sections: Sec[] = [
     ...primaryPair,
-    ...(redditRelevant ? [redditSection] : []),
-    { name: 'hotConvo', text: hotLine },
-    { name: 'chatters', text: chattersLine ? `\n${chattersLine}` : '' },
-    { name: 'recentResponses', text: recentLine },
-    { name: 'pastaBlock', text: pastaBlock },
-    { name: 'queryEmotes', text: queryEmoteLine },
-    { name: 'fullEmotes', text: fullEmoteLine },
-    { name: 'emotes', text: emoteLine },
-    { name: 'topical', text: topicalLine },
-    { name: 'todayWords', text: todayWordsBlock },
-    { name: 'recall', text: recallLine },
-    { name: 'chatRecall', text: chatRecallLine ? `\n${chatRecallLine}` : '' },
-    { name: 'timeline', text: timelineLine },
-    { name: 'threads', text: threadLine },
-    { name: 'channelStyle', text: contextLine },
-    { name: 'voice', text: voiceBlock },
-    { name: 'lessons', text: lessonsLine },
-    { name: 'activity', text: activityBlock },
-    { name: 'botStats', text: statsLine },
-    ...(redditRelevant ? [] : [redditSection]),
-  ].filter((s) => s.text)
+    { name: 'reddit', text: redditLine, base: 190, boost: redditRelevant ? 185 : 0 },
+    { name: 'hotConvo', text: hotLine, base: 10 },
+    { name: 'chatters', text: chattersLine ? `\n${chattersLine}` : '', base: 20 },
+    { name: 'recentResponses', text: recentLine, base: 30, trunc: true },
+    { name: 'pastaBlock', text: pastaBlock, base: 40 },
+    { name: 'queryEmotes', text: queryEmoteLine, base: 50 },
+    { name: 'fullEmotes', text: fullEmoteLine, base: 60, trunc: true },
+    { name: 'emotes', text: emoteLine, base: 70, boost: emoteIntent ? 55 : 0, trunc: true },
+    { name: 'topical', text: topicalLine, base: 80 },
+    { name: 'todayWords', text: todayWordsBlock, base: 90, trunc: true },
+    { name: 'recall', text: recallLine, base: 100, boost: recallIntent ? 85 : 0, trunc: true },
+    { name: 'chatRecall', text: chatRecallLine ? `\n${chatRecallLine}` : '', base: 110, boost: recallIntent ? 95 : 0, trunc: true },
+    { name: 'timeline', text: timelineLine, base: 120, boost: historyIntent ? 95 : 0, trunc: true },
+    { name: 'threads', text: threadLine, base: 130 },
+    { name: 'channelStyle', text: contextLine, base: 140 },
+    { name: 'voice', text: voiceBlock, base: 150, boost: entities.isGame ? 0 : 70 },
+    { name: 'lessons', text: lessonsLine, base: 160 },
+    { name: 'activity', text: activityBlock, base: 170 },
+    { name: 'botStats', text: statsLine, base: 180 },
+  ]
+    .filter((s) => s.text)
+    .map((s) => ({ ...s, prio: s.base - (s.boost ?? 0) }))
+    .sort((a, b) => a.prio! - b.prio!)
 
-  // cap total user message at ~3500 chars (excluding required tail)
+  // cap optional context at ~3500 chars (the required tail is always included).
+  // truncatable list-sections degrade to a partial include rather than losing
+  // their slot to a smaller, lower-value section that happens to fit the crumbs.
   const USER_MSG_CAP = 3500
   const tailLen = requiredTail.length
   let budget = USER_MSG_CAP - tailLen
   const included: string[] = []
+  const trimmed: string[] = []
   const dropped: string[] = []
-  for (const section of sections) {
-    if (budget <= 0) { dropped.push(section.name); continue }
-    if (section.text.length <= budget) {
-      included.push(section.text)
-      budget -= section.text.length
+  for (const s of sections) {
+    if (budget <= 0) { dropped.push(s.name); continue }
+    if (s.text.length <= budget) {
+      included.push(s.text)
+      budget -= s.text.length
+    } else if (s.trunc) {
+      const fit = fitToBudget(s.text, budget)
+      if (fit) { included.push(fit); budget -= fit.length; trimmed.push(s.name) }
+      else dropped.push(s.name)
     } else {
-      dropped.push(section.name)
+      dropped.push(s.name)
     }
   }
-  if (dropped.length > 0) {
-    log(`prompt: budget skipped sections [${dropped.join(',')}] (cap=${USER_MSG_CAP} tail=${tailLen} q="${query.slice(0, 40)}")`)
+  if (trimmed.length > 0 || dropped.length > 0) {
+    const used = USER_MSG_CAP - tailLen - budget
+    log(`prompt: ${included.length} kept, used ${used}/${USER_MSG_CAP - tailLen}${trimmed.length ? `, trimmed [${trimmed.join(',')}]` : ''}${dropped.length ? `, dropped [${dropped.join(',')}]` : ''} (tail=${tailLen} q="${query.slice(0, 40)}")`)
   }
 
   const text = included.join('') + requiredTail
