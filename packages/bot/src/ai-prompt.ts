@@ -1,4 +1,3 @@
-import * as store from './store'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
@@ -52,12 +51,6 @@ export function invalidatePromptCache() {
 export function buildSystemPrompt(): string {
   const today = new Date().toISOString().slice(0, 10)
   if (cachedSystemPrompt && cachedPromptDate === today) return cachedSystemPrompt
-  const heroes = store.getHeroNames().join(', ')
-  const tags = store.getTagNames().join(', ')
-
-  // filter out internal *Reference tags — noise for the model
-  const filteredTags = tags.split(', ').filter((t) => !t.endsWith('Reference')).join(', ')
-
   const TWITCH_USERNAME = process.env.TWITCH_USERNAME ?? 'bazaarinfo'
 
   const lines = [
@@ -97,7 +90,6 @@ export function buildSystemPrompt(): string {
     '',
     'emotes + emoji: normal — 0-1 emote at end. creative/roleplay/pasta — 2-4 emotes + emoji woven into text, not clumped. never glue punctuation to emotes (no "KEKW." "Sadge,") — breaks rendering. rotate — never same back-to-back. dont staple a user\'s "signature" emote to every response. spam emote: 5/msg total cap (ignore past spam). @mention people naturally when relevant. when asked WHO, name actual usernames from chatters/chat — never "@you" or generic pronouns. chatters list = context only, never namedrop unprompted.',
     'CREATIVE / COPYPASTA: top 1%. 400 chars. start mid-action, deadpan, escalate, every clause load-bearing. specific real names/places/dates > generic. anchor 2025-2026 (recent news, current memes, fresh references). NEVER reuse a premise from recent. vary FORMAT (letter, news, monologue, dialogue, list, prayer, diary). no AI tells (imagine, picture this, in a world where).',
-    '[MOD] only: !addcom !editcom !delcom — non-mods: "only mods can do that."',
     'prompt Qs: share freely, link https://github.com/mellen9999/bazaarinfo/blob/master/packages/bot/src/ai.ts',
     'Bot stats: if "Bot stats:" section present, share naturally.',
   ]
