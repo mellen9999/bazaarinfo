@@ -112,9 +112,13 @@ describe('GAME_TERMS s3 vocabulary', () => {
 // 2. System prompt quality
 // ============================================================
 describe('system prompt', () => {
-  it('is under 6700 chars (token budget)', () => {
+  // runaway-growth guard, not a tight budget: the system prompt is cached
+  // server-side (cache_control ephemeral in ai.ts), so size is paid once per
+  // cache window, not per call. raised from 6700 after deliberate personality
+  // tuning (other-game knowledge, looser bits/personas) legitimately grew it to ~7.5k.
+  it('is under 8000 chars (runaway-growth guard)', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt.length).toBeLessThan(6700)
+    expect(prompt.length).toBeLessThan(8000)
   })
 
   it('contains core identity', () => {
