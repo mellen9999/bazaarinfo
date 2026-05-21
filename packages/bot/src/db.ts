@@ -163,17 +163,19 @@ function prepareStatements() {
     maxSessionId: db.prepare(
       'SELECT MAX(session_id) as max_id FROM chat_summaries WHERE channel = ?',
     ),
+    // bm25 ranks by textual relevance (best match first), recency as tiebreaker —
+    // an OR query matching all terms now outranks a newer message matching just one.
     searchFTS: db.prepare(
-      `SELECT cm.username, cm.message, cm.created_at FROM chat_fts f
-       JOIN chat_messages cm ON cm.id = f.rowid
-       WHERE f.message MATCH ? AND cm.channel = ?
-       ORDER BY cm.created_at DESC LIMIT ?`,
+      `SELECT cm.username, cm.message, cm.created_at FROM chat_fts
+       JOIN chat_messages cm ON cm.id = chat_fts.rowid
+       WHERE chat_fts MATCH ? AND cm.channel = ?
+       ORDER BY bm25(chat_fts), cm.created_at DESC LIMIT ?`,
     ),
     searchFTSByUser: db.prepare(
-      `SELECT cm.username, cm.message, cm.created_at FROM chat_fts f
-       JOIN chat_messages cm ON cm.id = f.rowid
-       WHERE f.message MATCH ? AND cm.channel = ? AND LOWER(cm.username) = ?
-       ORDER BY cm.created_at DESC LIMIT ?`,
+      `SELECT cm.username, cm.message, cm.created_at FROM chat_fts
+       JOIN chat_messages cm ON cm.id = chat_fts.rowid
+       WHERE chat_fts MATCH ? AND cm.channel = ? AND LOWER(cm.username) = ?
+       ORDER BY bm25(chat_fts), cm.created_at DESC LIMIT ?`,
     ),
     recentAsks: db.prepare(
       `SELECT query, response, created_at FROM ask_queries
@@ -185,7 +187,7 @@ function prepareStatements() {
        JOIN ask_queries aq ON aq.id = f.rowid
        LEFT JOIN users u ON aq.user_id = u.id
        WHERE ask_fts MATCH ? AND aq.channel = ?
-       ORDER BY aq.created_at DESC LIMIT ?`,
+       ORDER BY bm25(ask_fts), aq.created_at DESC LIMIT ?`,
     ),
     selectMemo: db.prepare('SELECT memo, ask_count_at FROM user_memos WHERE username = ?'),
     upsertMemo: db.prepare(
