@@ -2,6 +2,7 @@ import { getEmotesForChannel, invalidateEmoteBlockCache } from './emotes'
 import { getRecent } from './chatbuf'
 import { getRecentEmotes, getHotExchanges } from './ai-cache'
 import { log } from './log'
+import { normalizeText } from './text-safety'
 
 // --- validation regex constants ---
 
@@ -88,13 +89,9 @@ function askerNameRe(asker: string): RegExp {
 // --- sanitize ---
 
 export function sanitize(text: string, asker?: string, privileged?: boolean, knownUsers?: Set<string>): { text: string; mentions: string[] } {
-  let s = text.trim()
-  // strip zero-width chars that bypass \b word boundaries
-  s = s.replace(/[\u200B-\u200F\u2028-\u202F\uFEFF\u00AD]/g, '')
-  // normalize smart quotes → ASCII (model outputs U+2019 which bypasses regex patterns using ')
-  s = s.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
-  // normalize fullwidth/lookalike punctuation (homoglyph injection: ！ban, ／ban, ＼ban)
-  s = s.replace(/[\uFF01\u01C3\u2757]/g, '!').replace(/[\uFF0F\u2044\u2215]/g, '/').replace(/[\uFF3C]/g, '\\')
+  // strip invisibles + fold smart-quote/homoglyph lookalikes -> ascii (shared with the
+  // outgoing-message guard in twitch.say, so neither layer can drift on what it folds)
+  let s = normalizeText(text.trim())
   // strip leading quotes only when wrapping a command (not legitimate quoted words)
   if (/^["'`]+[!\\/.]/.test(s)) s = s.replace(/^["'`]+/, '')
   const preStrip = s

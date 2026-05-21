@@ -1,4 +1,5 @@
 import { log } from './log'
+import { stripOutgoingCommands } from './text-safety'
 
 const EVENTSUB_URL = 'wss://eventsub.wss.twitch.tv/ws'
 const IRC_URL = 'wss://irc-ws.chat.twitch.tv'
@@ -567,8 +568,8 @@ export class TwitchClient {
   }
 
   async say(channel: string, text: string, replyTo?: string) {
-    // strip twitch command prefixes (/ .) to prevent accidental mod actions
-    text = text.replace(/^[/.]+/, '')
+    // strip leading command prefixes (/ . ! \) to prevent the bot timing itself out
+    text = stripOutgoingCommands(text)
     // proactively trim stale sendTimes entries
     const now = Date.now()
     const cutoff = now - this.SEND_WINDOW
