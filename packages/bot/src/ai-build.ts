@@ -551,6 +551,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const digest = getRedditDigest()
   const skipReddit = hasGameData || query.length < 20
   const redditLine = (!skipReddit && digest) ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
+  // when the query is about the community/meta/news, reddit buzz is high-value and
+  // must survive the budget — otherwise it stays last and gets evicted every time.
+  const redditRelevant = !!redditLine && /\b(meta|patch|nerf|buff|broken|busted|op|tier|balance|reddit|subreddit|community|drama|hype|controvers|complain|what'?s\s+(?:new|happening|going on)|everyone|people)\b/i.test(query)
   const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getRecentEmotes(ctx.channel))
 
   // hot exchange cache
@@ -691,8 +694,10 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const gameBlockSection = { name: 'gameBlock', text: gameBlock }
   const primaryPair = isPureGameQuery ? [gameBlockSection, recentChatSection] : [recentChatSection, gameBlockSection]
 
+  const redditSection = { name: 'reddit', text: redditLine }
   const sections: { name: string; text: string }[] = [
     ...primaryPair,
+    ...(redditRelevant ? [redditSection] : []),
     { name: 'hotConvo', text: hotLine },
     { name: 'chatters', text: chattersLine ? `\n${chattersLine}` : '' },
     { name: 'recentResponses', text: recentLine },
@@ -711,7 +716,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'lessons', text: lessonsLine },
     { name: 'activity', text: activityBlock },
     { name: 'botStats', text: statsLine },
-    { name: 'reddit', text: redditLine },
+    ...(redditRelevant ? [] : [redditSection]),
   ].filter((s) => s.text)
 
   // cap total user message at ~3500 chars (excluding required tail)
