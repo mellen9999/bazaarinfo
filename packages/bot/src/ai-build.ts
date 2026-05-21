@@ -607,13 +607,15 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     for (const m of r.matchAll(/"([^"]{8,60})"/g)) burnedQuotes.add(m[1])
   }
   const burnedLine = burnedNames.size > 0
-    ? `\nBURNED references (pick DIFFERENT chatters/quotes): ${[...burnedNames].join(', ')}${burnedQuotes.size > 0 ? ` | quotes: ${[...burnedQuotes].slice(0, 5).map(q => `"${q}"`).join(', ')}` : ''}`
+    ? `\nBURNED references (pick DIFFERENT chatters/quotes): ${[...burnedNames].join(', ')}${burnedQuotes.size > 0 ? ` | quotes: ${[...burnedQuotes].slice(0, 8).map(q => `"${q}"`).join(', ')}` : ''}`
     : ''
-  // inject only the 6 most-recent responses (≤140ch each). anti-repetition signal
-  // decays fast, and the old 12×200ch block was the second-largest section after
-  // recentChat — together they ate the whole 3500 budget and starved the tail.
-  // burned names/quotes still scan ALL of deduped (compact, high-coverage signal).
-  const injectResponses = deduped.slice(-6)
+  // Full text of the 8 most-recent responses, NEWEST FIRST. Two-tier anti-repetition:
+  // distinctive @names + quoted phrases from ALL stored responses are always present
+  // via burnedLine above (the precise "you already said that" tripwire), while full
+  // premises are kept for the freshest 8. Newest-first matters because this section is
+  // truncatable — under tight budget fitToBudget keeps the head, so the head must be
+  // the newest. The old 12×200ch block was a budget whale that starved the tail.
+  const injectResponses = deduped.slice(-8).reverse()
   const recentLine = injectResponses.length > 0
     ? `\nYour recent responses (NEVER reuse specific phrases, punchlines, item combos, or scenarios from these — even if a similar question comes up, find a completely different angle. only continue a theme if [USER]'s message explicitly references it):\n${injectResponses.map((r) => `- "${r.length > 140 ? r.slice(0, 140) + '…' : r}"`).join('\n')}${burnedLine}`
     : ''
