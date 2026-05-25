@@ -13,7 +13,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 // --- local imports from sub-modules ---
 
 import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal } from './ai-sanitize'
-import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiLock, aiQueueDepth, setAiLock, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse } from './ai-cache'
+import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, GAME_TERMS } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 
@@ -105,11 +105,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
     return null
   }
   incrementQueue()
-
-  let release!: () => void
-  const prev = aiLock
-  setAiLock(new Promise((r) => release = r))
-  await prev
+  const release = await acquireAiSlot()
 
   try {
     const result = await doAiCall(query, ctx as AiContext & { user: string; channel: string })
