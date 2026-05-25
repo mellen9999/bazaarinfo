@@ -788,9 +788,10 @@ describe('!b hero', () => {
     expect(result).toContain('Boomerang')
   })
 
-  it('returns not found for unknown hero', async () => {
+  it('falls through to AI on unknown hero', async () => {
     const result = await handleCommand('!b hero nobody')
-    expect(result).toContain('no items found for hero nobody')
+    expect(result).toContain('nobody')
+    expect(result).not.toContain('no items found for hero nobody')
   })
 
   it('hero keyword is case-insensitive', async () => {
@@ -846,9 +847,10 @@ describe('!b mob/monster', () => {
     expect(await handleCommand('!b MONSTER lich')).toContain('Lich')
   })
 
-  it('returns not found for unknown monster', async () => {
+  it('falls through to AI on unknown monster', async () => {
     const result = await handleCommand('!b mob xyzmonster')
-    expect(result).toContain('no monster found for xyzmonster')
+    expect(result).toContain('xyzmonster')
+    expect(result).not.toContain('no monster found for xyzmonster')
   })
 
   it('multi-word monster name', async () => {
@@ -1224,9 +1226,10 @@ describe('!b tag', () => {
     expect(result).toContain('Shield')
   })
 
-  it('returns not found for unknown tag', async () => {
+  it('falls through to AI on unknown tag', async () => {
     const result = await handleCommand('!b tag Nonexistent')
-    expect(result).toContain('no items found with tag Nonexistent')
+    expect(result).toContain('Nonexistent')
+    expect(result).not.toContain('no items found with tag Nonexistent')
   })
 
   it('is case-insensitive keyword', async () => {
@@ -1290,9 +1293,10 @@ describe('!b day', () => {
     expect(result).toContain('Dragon (500HP)')
   })
 
-  it('returns not found for empty day', async () => {
+  it('falls through to AI on empty day', async () => {
     const result = await handleCommand('!b day 9')
-    expect(result).toContain('no monsters found for day 9')
+    expect(result).toContain('day 9')
+    expect(result).not.toContain('no monsters found for day 9')
   })
 
   it('rejects day 0', async () => {
@@ -1302,7 +1306,8 @@ describe('!b day', () => {
 
   it('returns empty for day with no monsters', async () => {
     const result = await handleCommand('!b day 11')
-    expect(result).toContain('no monsters found for day 11')
+    expect(result).toContain('day 11')
+    expect(result).not.toContain('no monsters found for day 11')
   })
 
   it('is case-insensitive keyword', async () => {
@@ -1344,9 +1349,10 @@ describe('!b skill', () => {
     expect(result).toContain('Ink Blast')
   })
 
-  it('returns not found for unknown skill', async () => {
+  it('falls through to AI on unknown skill', async () => {
     const result = await handleCommand('!b skill xyzskill')
-    expect(result).toContain('no skill found for xyzskill')
+    expect(result).toContain('xyzskill')
+    expect(result).not.toContain('no skill found for xyzskill')
   })
 
   it('is case-insensitive keyword', async () => {

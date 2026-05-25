@@ -370,21 +370,24 @@ const subcommands: [RegExp, SubHandler][] = [
   [/^tag$/i, () => 'usage: !b tag <tagname>'],
   [/^skill$/i, () => 'usage: !b skill <name>'],
   [/^day$/i, () => 'usage: !b day <number>'],
-  [/^(?:mob|monster)\s+(.+)$/i, (query, ctx, suffix) => {
+  [/^(?:mob|monster)\s+(.+)$/i, async (query, ctx, suffix) => {
     const monster = store.findMonster(query)
     if (!monster) {
       logMiss(query, ctx)
       const suggestions = store.suggest(query, 3)
-      if (suggestions.length) return `no monster found for ${query} — try: ${suggestions.join(', ')}`
-      return `no monster found for ${query}`
+      if (suggestions.length) return withSuffix(`no monster found for ${query} — try: ${suggestions.join(', ')}`, suffix)
+      return aiOrQuip(`mob ${query}`, ctx, suffix)
     }
     logHit('mob', query, monster.Title, ctx)
     return withSuffix(formatMonster(monster, resolveSkills(monster)), suffix)
   }],
-  [/^hero\s+(.+)$/i, (query, ctx, suffix) => {
+  [/^hero\s+(.+)$/i, async (query, ctx, suffix) => {
     const resolved = store.findHeroName(query)
     const items = store.byHero(query)
-    if (items.length === 0) return `no items found for hero ${query}`
+    if (items.length === 0) {
+      logMiss(query, ctx)
+      return aiOrQuip(`hero ${query}`, ctx, suffix)
+    }
     const displayName = resolved ?? query
     logHit('hero', query, `${items.length} items`, ctx)
     return withSuffix(truncate(`[${displayName}] ${items.map((i) => i.Title).join(', ')}`), suffix)
@@ -394,30 +397,30 @@ const subcommands: [RegExp, SubHandler][] = [
     logHit('enchants', _query, `${names.length} enchants`, ctx)
     return withSuffix(truncate(`Enchantments: ${names.join(', ')}`), suffix)
   }],
-  [/^tag\s+(.+)$/i, (query, ctx, suffix) => {
+  [/^tag\s+(.+)$/i, async (query, ctx, suffix) => {
     const resolved = store.findTagName(query)
     const cards = store.byTag(query)
     if (cards.length === 0) {
       logMiss(query, ctx)
       const suggestions = store.suggest(query, 3)
-      if (suggestions.length) return `no items found with tag ${query} — try: ${suggestions.join(', ')}`
-      return `no items found with tag ${query}`
+      if (suggestions.length) return withSuffix(`no items found with tag ${query} — try: ${suggestions.join(', ')}`, suffix)
+      return aiOrQuip(`tag ${query}`, ctx, suffix)
     }
     const displayTag = resolved ?? query
     logHit('tag', query, `${cards.length} items`, ctx)
     return withSuffix(formatTagResults(displayTag, cards), suffix)
   }],
-  [/^day\s+(\d+)$/i, (query, ctx, suffix) => {
+  [/^day\s+(\d+)$/i, async (query, ctx, suffix) => {
     const day = parseInt(query)
     if (day < 1 || day > 99) return `invalid day number (1-99)`
     const mobs = store.monstersByDay(day)
-    if (mobs.length === 0) { logMiss(query, ctx); return `no monsters found for day ${day}` }
+    if (mobs.length === 0) { logMiss(query, ctx); return aiOrQuip(`day ${day}`, ctx, suffix) }
     logHit('day', query, `${mobs.length} monsters`, ctx)
     return withSuffix(formatDayResults(day, mobs), suffix)
   }],
-  [/^skill\s+(.+)$/i, (query, ctx, suffix) => {
+  [/^skill\s+(.+)$/i, async (query, ctx, suffix) => {
     const skill = store.findSkill(query)
-    if (!skill) { logMiss(query, ctx); return `no skill found for ${query}` }
+    if (!skill) { logMiss(query, ctx); return aiOrQuip(`skill ${query}`, ctx, suffix) }
     logHit('skill', query, skill.Title, ctx)
     return withSuffix(formatItem(skill), suffix)
   }],
@@ -623,7 +626,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   for (const [pattern, handler] of subcommands) {
     const match = cleanArgs.match(pattern)
-    if (match) return handler(match[1]?.trim() ?? cleanArgs, ctx, suffix)
+    if (match) return await handler(match[1]?.trim() ?? cleanArgs, ctx, suffix)
   }
 
   // spam wall interception — handle without AI. cap at 5 TOTAL tokens
@@ -699,6 +702,19 @@ function getBFallbackCooldown(user?: string): number {
   return elapsed >= B_FALLBACK_CD ? 0 : Math.ceil((B_FALLBACK_CD - elapsed) / 1000)
 }
 
+// structured subcommand miss → always answer: AI if available, else quippy noMatch line
+async function aiOrQuip(query: string, ctx: CommandContext, suffix: string): Promise<string> {
+  if (getBFallbackCooldown(ctx.user) === 0) {
+    const response = await tryAiRespond(query, ctx)
+    if (response) {
+      if (ctx.user) bFallbackCooldowns.set(ctx.user.toLowerCase(), Date.now())
+      try { db.logCommand(ctx, 'ai', query, 'fallback') } catch {}
+      return response
+    }
+  }
+  return withSuffix(noMatchMsg(query), suffix)
+}
+
 const triviaCommand: CommandHandler = (args, ctx) => {
   if (!ctx.channel) return null
   const validCategories = new Set(['items', 'heroes', 'monsters'])
@@ -737,6 +753,7 @@ export function resetDedup() {
 
 export function resetProxyCooldowns() {
   proxyCooldowns.clear()
+  bFallbackCooldowns.clear()
 }
 
 export { PROXY_COOLDOWN }
