@@ -74,6 +74,7 @@ mock.module('./ai', () => ({
   fixEmotePunctuation: mock((t: string) => t),
   dedupeMention: mock((t: string) => t),
   capEmoteTotal: mock((t: string) => t),
+  capRepeatedSpam: mock((t: string) => t),
 }))
 
 // --- mock trivia ---

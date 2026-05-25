@@ -343,6 +343,18 @@ export const recentEmotesByChannel = new Map<string, Map<string, number>>()
 // hard cap total emote tokens per message — defensive against AI ignoring prompt rule
 // applies regardless of how many distinct emotes are requested or implied by recent chat memory
 export const EMOTE_CAP_PER_MSG = 5
+
+// catches AI emote-spam outputs that bypass the channel-emote cap (token shaped like an emote,
+// but absent from getEmotesForChannel — e.g. 7TV emotes not yet in the cache for this channel).
+// only acts on PascalCase/ALL-CAPS tokens repeated 6+ times in a row; leaves lowercase repeats alone
+// (so "the the the the the the the" is untouched).
+export function capRepeatedSpam(text: string, max = EMOTE_CAP_PER_MSG): string {
+  return text.replace(/(\b\w{2,15}\b)((?:\s+\1\b){5,})/g, (full, tok: string) => {
+    if (!/^[A-Z]/.test(tok)) return full
+    return Array(max).fill(tok).join(' ')
+  })
+}
+
 export function capEmoteTotal(text: string, channel?: string, max = EMOTE_CAP_PER_MSG): string {
   if (!channel) return text
   const emoteSet = new Set(getEmotesForChannel(channel))

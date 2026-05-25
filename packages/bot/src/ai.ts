@@ -5,7 +5,7 @@ import { log } from './log'
 
 // --- re-exports (preserve public API) ---
 
-export { sanitize, isModelRefusal, stripInputEcho, fixEmoteCase, fixEmotePunctuation, dedupeEmote, dedupeUserEmote, dedupeMention, capEmoteTotal, EMOTE_CAP_PER_MSG } from './ai-sanitize'
+export { sanitize, isModelRefusal, stripInputEcho, fixEmoteCase, fixEmotePunctuation, dedupeEmote, dedupeUserEmote, dedupeMention, capEmoteTotal, capRepeatedSpam, EMOTE_CAP_PER_MSG } from './ai-sanitize'
 export { cacheExchange, getChannelRecentResponses, getHotExchanges, getAiCooldown, getGlobalAiCooldown, recordUsage, setChannelLive, setChannelOffline, isChannelLive, getLiveChannels, getChannelGame, setChannelGame, setChannelInfos, cbRecordSuccess, cbRecordFailure, cbIsOpen, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, getRecentEmotes } from './ai-cache'
 export { buildSystemPrompt, invalidatePromptCache, buildFTSQuery, buildFTSQueryLoose, GREETINGS, isLowValue, isShortResponse, STOP_WORDS, REMEMBER_RE, extractEntities, buildUserMessage, buildGameContext, buildUserContext, buildTimeline, buildRecallContext, buildChatRecall, buildChattersContext, isNoise, parseChatTimeWindow, isAboutOtherUser } from './ai-context'
 export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, maybeExtractFacts } from './ai-background'
@@ -35,7 +35,9 @@ function hasHallucinatedStats(text: string): boolean {
   return STAT_PATTERN.test(text)
 }
 
-const FAKE_DATA_PATTERN = /\b(game data|the data|the db|the database|the wiki|the tooltip|in my data|in the data)\b.{0,20}\b(has|says|shows|contains|literally|includes|lists|reads|exactly|hint|points? to)\b|\b(based on|according to|looking at)\s+(the|my)\s+(data|records|stats|search|database)\b|\bitems?\s+tagged\b|\btagged\s+(as|in)?\s*["“]\w/i
+// data-ref → verb (within 30 chars after) OR verb → data-ref (within 40 chars after)
+// catches both "the data shows X" and "X is in the data pull alongside Y"
+const FAKE_DATA_PATTERN = /\b(game data|the data|the db|the database|the wiki|the tooltip|in my data|in the data|the data pull|in the data pull)\b.{0,30}\b(has|says?|shows?|contains?|literally|includes|lists|reads?|exactly|hints?|points? to|under|tagged|listed|labeled|marked|categor\w*)\b|\b(has|says?|shows?|reads?|listed|tagged|appears?|found|showed up|popped up|just (showed|popped|appeared))\b.{0,40}\b(in (?:the )?(?:game )?data(?: pull)?|in the (?:db|database|wiki|tooltip))\b|\b(based on|according to|looking at)\s+(the|my)\s+(data|records|stats|search|database)\b|\bitems?\s+tagged\b|\btagged\s+(as|in)\s+["“]?\w/i
 
 function hasFabricatedDataRef(text: string, hasGameData: boolean): boolean {
   return !hasGameData && FAKE_DATA_PATTERN.test(text)

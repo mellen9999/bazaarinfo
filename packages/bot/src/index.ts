@@ -539,10 +539,12 @@ process.on('SIGINT', shutdown)
 process.on('uncaughtException', (e) => { log('uncaught exception:', e); shutdown() })
 process.on('unhandledRejection', (e) => log('unhandled rejection:', e))
 
-// self-health: if eventsub hasn't sent a keepalive in 2min, exit and let systemd restart
+// self-health: only exit if eventsub previously connected AND has gone silent for 5min
+// (prevents kill-loop while reconnect/backoff is doing its job during prolonged outages)
 setInterval(() => {
-  if (Date.now() - client.lastActivity > 120_000) {
-    log('health check failed — no eventsub activity for 2min, exiting')
+  if (!client.eventsubEverConnected) return
+  if (Date.now() - client.lastActivity > 5 * 60_000) {
+    log('health check failed — eventsub silent for 5min after prior connect, exiting')
     db.closeDb()
     client.close()
     process.exit(1)
