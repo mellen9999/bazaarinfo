@@ -112,7 +112,11 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   const baseMaxTokens = isCreative ? MAX_TOKENS_PASTA : hasGameData ? MAX_TOKENS_GAME : MAX_TOKENS_CHAT
   // extended thinking + best-of-2 dropped — added ~2-3s of latency for marginal quality gain.
   // sonnet 4.6 is strong enough creative-cold; if quality regresses, reintroduce selectively.
-  const effectiveMaxTokens = baseMaxTokens
+  // fancy unicode (math alphanum, fullwidth, circled, enclosed) costs 3-5 tokens/char vs 0.25
+  // for ASCII — without compensation the model truncates mid-word ("Dearly beloved" bug).
+  const wantsFancyOutput = /[\u{1D400}-\u{1D7FF}\u{2460}-\u{24FF}\u{1F100}-\u{1F1FF}\u{FF00}-\u{FFEF}]/u.test(query)
+    || /\b(fraktur|cursive|fancy font|stylized text)\b/i.test(query)
+  const effectiveMaxTokens = wantsFancyOutput ? baseMaxTokens * 4 : baseMaxTokens
 
   const messages: unknown[] = [{ role: 'user', content: userMessage }]
   const start = Date.now()
