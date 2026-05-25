@@ -27,22 +27,6 @@ const MAX_TOKENS_PASTA = 200
 const TIMEOUT = 15_000
 const MAX_RETRIES = 3
 
-// --- pasta scoring (best-of-2 winner pick) ---
-
-function pastaScore(text: string): number {
-  if (!text) return 0
-  let score = Math.min(text.length, 400) * 0.3
-  // mid-sentence proper nouns = specificity
-  score += (text.match(/[a-z]\s+([A-Z][a-z]{2,})/g) || []).length * 8
-  // numbers/years anchor
-  score += (text.match(/\b\d{2,}\b/g) || []).length * 6
-  // dialog quotes
-  score += (text.match(/"/g) || []).length * 2
-  // AI tells: heavy penalty
-  if (/^(imagine|picture this|in a world where|let me tell you|once upon a time|buckle up|settle in|let me paint|gather round|strap in|well well well|hold on to your|grab your popcorn|let me set the scene)/i.test(text)) score -= 60
-  return score
-}
-
 // --- hallucination detection ---
 
 const STAT_PATTERN = /\b(\d{2,})\s*(damage|poison|burn|shield|heal|hp|health|crit|gold|regen|haste|freeze|slow|attack|lifesteal|multicast|cooldown|luck)\b|\b(deals?|gains?|grants?|gives?|adds?|stacks?|does|heals?)\s+(for\s+)?\+?\d{2,}\b|\+\d+%?\s*(damage|crit|shield|hp|heal|poison|burn|lifesteal|multicast|cooldown)\b|\b(base|starting)\s+\w+\s+is\s+\d{2,}\b/i
@@ -126,10 +110,9 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq } = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()
   const baseMaxTokens = isCreative ? MAX_TOKENS_PASTA : hasGameData ? MAX_TOKENS_GAME : MAX_TOKENS_CHAT
-  // extended thinking: only on creative path. budget=1024 (API minimum) lets model brainstorm 2-3 angles internally.
-  const useThinking = isCreative
-  const thinkingBudget = 1024
-  const effectiveMaxTokens = useThinking ? thinkingBudget + 400 : baseMaxTokens
+  // extended thinking + best-of-2 dropped — added ~2-3s of latency for marginal quality gain.
+  // sonnet 4.6 is strong enough creative-cold; if quality regresses, reintroduce selectively.
+  const effectiveMaxTokens = baseMaxTokens
 
   const messages: unknown[] = [{ role: 'user', content: userMessage }]
   const start = Date.now()
@@ -177,44 +160,20 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const body = {
         model,
         max_tokens: effectiveMaxTokens,
-        temperature: useThinking ? 1.0 : Math.min(1.0, baseTemp + attempt * 0.1),
-        ...(useThinking ? { thinking: { type: 'enabled' as const, budget_tokens: thinkingBudget } } : {}),
+        temperature: Math.min(1.0, baseTemp + attempt * 0.1),
         system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
         messages,
       }
 
-      let data: ApiData | undefined
-      // best-of-2 race for pasta on first attempt — both calls extended-thinking, pick winner by pastaScore
-      if (isPasta && useThinking && attempt === 0) {
-        const [a, b] = await Promise.all([fetchOnce(body), fetchOnce(body)])
-        const wins = [a, b].filter((r) => r.status === 200 && r.data) as { status: number; data: ApiData }[]
-        if (wins.length === 0) {
-          if ((a.status === 429 || b.status === 429) && attempt < MAX_RETRIES - 1) {
-            const delay = 3_000 * (attempt + 1)
-            log(`ai: best-of-2 429, retrying in ${delay / 1000}s`)
-            await new Promise((r) => setTimeout(r, delay))
-            continue
-          }
-          cbRecordFailure(); return null
-        }
-        const scored = wins.map((r) => ({
-          data: r.data,
-          score: pastaScore(r.data.content?.find((b) => b.type === 'text')?.text ?? ''),
-        }))
-        scored.sort((x, y) => y.score - x.score)
-        data = scored[0].data
-        log(`ai: best-of-2 picked score=${scored[0].score.toFixed(0)} loser=${scored[1]?.score.toFixed(0) ?? '-'}`)
-      } else {
-        const single = await fetchOnce(body)
-        if (single.status === 429 && attempt < MAX_RETRIES - 1) {
-          const delay = 3_000 * (attempt + 1)
-          log(`ai: 429, retrying in ${delay / 1000}s (attempt ${attempt + 1})`)
-          await new Promise((r) => setTimeout(r, delay))
-          continue
-        }
-        if (single.status !== 200 || !single.data) { cbRecordFailure(); return null }
-        data = single.data
+      const single = await fetchOnce(body)
+      if (single.status === 429 && attempt < MAX_RETRIES - 1) {
+        const delay = 3_000 * (attempt + 1)
+        log(`ai: 429, retrying in ${delay / 1000}s (attempt ${attempt + 1})`)
+        await new Promise((r) => setTimeout(r, delay))
+        continue
       }
+      if (single.status !== 200 || !single.data) { cbRecordFailure(); return null }
+      const data: ApiData = single.data
       const latency = Date.now() - start
 
       const textBlock = data.content?.find((b) => b.type === 'text')
