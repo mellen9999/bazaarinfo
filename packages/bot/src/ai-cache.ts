@@ -193,13 +193,30 @@ export function cbIsOpen(): boolean {
   return true
 }
 
-// --- AI queue serialization ---
+// --- AI concurrency semaphore ---
+// previously serial (1-at-a-time) — that meant a 6s pasta blocked the next user's
+// 1s query for the full 6s. now N concurrent, queue caps total waiting depth.
 
-export let aiLock: Promise<void> = Promise.resolve()
-export let aiQueueDepth = 0
+export const AI_MAX_CONCURRENT = 3
 export const AI_MAX_QUEUE = 5
 
-export function setAiLock(p: Promise<void>) { aiLock = p }
+let inFlight: Promise<void>[] = []
+export let aiQueueDepth = 0
+
+export async function acquireAiSlot(): Promise<() => void> {
+  while (inFlight.length >= AI_MAX_CONCURRENT) {
+    await Promise.race(inFlight).catch(() => {})
+  }
+  let release!: () => void
+  const p = new Promise<void>((r) => release = r)
+  inFlight.push(p)
+  return () => {
+    const i = inFlight.indexOf(p)
+    if (i >= 0) inFlight.splice(i, 1)
+    release()
+  }
+}
+
 export function incrementQueue() { aiQueueDepth++ }
 export function decrementQueue() { aiQueueDepth-- }
 
