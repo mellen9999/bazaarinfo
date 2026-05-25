@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { sanitize, getAiCooldown, getGlobalAiCooldown, recordUsage, isModelRefusal, buildFTSQuery, capEmoteTotal } from './ai'
+import { sanitize, getAiCooldown, getGlobalAiCooldown, recordUsage, isModelRefusal, buildFTSQuery, capEmoteTotal, capRepeatedSpam } from './ai'
 
 describe('sanitize', () => {
   it('strips markdown bold', () => {
@@ -701,5 +701,36 @@ describe('capEmoteTotal', () => {
   it('case-sensitive — lowercase is not a known emote', () => {
     // canonicalization is fixEmoteCase's job; cap only counts canonical tokens
     expect(capEmoteTotal('lulw lulw lulw lulw lulw lulw lulw lulw', ch)).toBe('lulw lulw lulw lulw lulw lulw lulw lulw')
+  })
+})
+
+describe('capRepeatedSpam', () => {
+  it('caps PascalCase token repeated 30x to 5', () => {
+    const input = Array(30).fill('LICK').join(' ')
+    expect(capRepeatedSpam(input)).toBe('LICK LICK LICK LICK LICK')
+  })
+
+  it('caps with surrounding prose', () => {
+    expect(capRepeatedSpam('hey SCUBA SCUBA SCUBA SCUBA SCUBA SCUBA SCUBA SCUBA wat')).toBe('hey SCUBA SCUBA SCUBA SCUBA SCUBA wat')
+  })
+
+  it('caps at 6 repeats (boundary)', () => {
+    expect(capRepeatedSpam('Sadge Sadge Sadge Sadge Sadge Sadge')).toBe('Sadge Sadge Sadge Sadge Sadge')
+  })
+
+  it('leaves 5-repeat alone (under threshold)', () => {
+    expect(capRepeatedSpam('KEKW KEKW KEKW KEKW KEKW')).toBe('KEKW KEKW KEKW KEKW KEKW')
+  })
+
+  it('does not touch lowercase token spam', () => {
+    expect(capRepeatedSpam('the the the the the the the')).toBe('the the the the the the the')
+  })
+
+  it('caps multiple spammed PascalCase tokens independently', () => {
+    expect(capRepeatedSpam('LULW LULW LULW LULW LULW LULW Sadge Sadge Sadge Sadge Sadge Sadge')).toBe('LULW LULW LULW LULW LULW Sadge Sadge Sadge Sadge Sadge')
+  })
+
+  it('leaves normal prose alone', () => {
+    expect(capRepeatedSpam('hello world thanks for the game')).toBe('hello world thanks for the game')
   })
 })

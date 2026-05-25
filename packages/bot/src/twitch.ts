@@ -1,5 +1,7 @@
 import { log } from './log'
 import { stripOutgoingCommands } from './text-safety'
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 
 const EVENTSUB_URL = 'wss://eventsub.wss.twitch.tv/ws'
 const IRC_URL = 'wss://irc-ws.chat.twitch.tv'
@@ -8,7 +10,34 @@ const FETCH_TIMEOUT = 10_000
 const MAX_QUEUE = 50
 const BACKOFF_BASE = 3_000
 const BACKOFF_MAX = 60_000 // 1min cap
+const BACKOFF_WAF_BLOCKED = 30 * 60_000 // 30min when CloudFront WAF blocks us
 const MAX_CONSECUTIVE_FAILURES = 10
+const STATE_FILE = 'cache/eventsub-state.json'
+// if N+ failures in last 30min recorded across processes, sleep before first connect
+const STARTUP_BACKOFF_THRESHOLD = 5
+const STARTUP_BACKOFF_WINDOW = 30 * 60_000
+
+interface EventSubState {
+  consecutiveFailures: number
+  lastFailureAt: number
+  firstFailureAt: number
+  lastWafBlockAt: number
+}
+
+function loadEventsubState(): EventSubState {
+  try {
+    return JSON.parse(readFileSync(STATE_FILE, 'utf-8')) as EventSubState
+  } catch {
+    return { consecutiveFailures: 0, lastFailureAt: 0, firstFailureAt: 0, lastWafBlockAt: 0 }
+  }
+}
+
+function saveEventsubState(s: EventSubState) {
+  try {
+    mkdirSync(dirname(STATE_FILE), { recursive: true })
+    writeFileSync(STATE_FILE, JSON.stringify(s))
+  } catch {}
+}
 
 interface EventSubMessage {
   metadata: {
@@ -100,6 +129,8 @@ export class TwitchClient {
   private readonly SEND_WINDOW = 30_000
   private eventsubBackoff = BACKOFF_BASE
   private eventsubConsecutiveFailures = 0
+  eventsubEverConnected = false
+  private eventsubLastWafBlockReason = ''
   private ircBackoff = BACKOFF_BASE
   private _channelIdMap: Record<string, string> = {}
   private ircOnlyChannels = new Set<string>()
@@ -132,8 +163,27 @@ export class TwitchClient {
   }
 
   async connect() {
+    await this.applyStartupBackoff()
     this.connectEventSub()
     this.connectIrc()
+  }
+
+  // if prior process(es) just hammered eventsub into a WAF block, sit out before first attempt
+  // so systemd-restart loops can't keep firing handshakes through the ban
+  private async applyStartupBackoff() {
+    const s = loadEventsubState()
+    const now = Date.now()
+    if (s.lastWafBlockAt && now - s.lastWafBlockAt < BACKOFF_WAF_BLOCKED) {
+      const wait = BACKOFF_WAF_BLOCKED - (now - s.lastWafBlockAt)
+      log(`startup: WAF block detected ${Math.round((now - s.lastWafBlockAt) / 60_000)}min ago, sleeping ${Math.round(wait / 60_000)}min before connecting`)
+      await new Promise((r) => setTimeout(r, wait))
+      return
+    }
+    if (s.consecutiveFailures >= STARTUP_BACKOFF_THRESHOLD && now - s.lastFailureAt < STARTUP_BACKOFF_WINDOW) {
+      const wait = Math.min(BACKOFF_MAX * 5, 60_000 * s.consecutiveFailures)
+      log(`startup: ${s.consecutiveFailures} recent failures (oldest ${Math.round((now - s.firstFailureAt) / 60_000)}min ago), sleeping ${Math.round(wait / 1000)}s before connecting`)
+      await new Promise((r) => setTimeout(r, wait))
+    }
   }
 
   close() {
@@ -159,11 +209,19 @@ export class TwitchClient {
       try { this.handleEventSub(JSON.parse(ev.data) as EventSubMessage) } catch (e) { log('eventsub message error:', e) }
     }
     ws.onclose = (ev) => {
-      log(`eventsub closed: ${ev.code}`)
+      const reason = ev.reason || ''
+      log(`eventsub closed: ${ev.code}${reason ? ` (${reason})` : ''}`)
+      // 1002 + "Expected 101" = HTTP upgrade rejected (CloudFront WAF / 403 / network gate)
+      const isWafBlock = ev.code === 1002 && /101|forbidden|403/i.test(reason)
+      if (isWafBlock) this.eventsubLastWafBlockReason = reason
       // only reconnect if this is still the active WS (prevents stray reconnect on session_reconnect)
-      if (this.eventsub === ws) this.reconnectEventSub()
+      if (this.eventsub === ws) this.reconnectEventSub(isWafBlock)
     }
-    ws.onerror = (ev) => log('eventsub error:', ev)
+    ws.onerror = (ev) => {
+      const msg = (ev as unknown as { message?: string }).message || ''
+      if (/101|forbidden|403/i.test(msg)) this.eventsubLastWafBlockReason = msg
+      log('eventsub error:', ev)
+    }
     return ws
   }
 
@@ -176,6 +234,9 @@ export class TwitchClient {
       log(`eventsub connected, session: ${this.sessionId}`)
       this.eventsubBackoff = BACKOFF_BASE
       this.eventsubConsecutiveFailures = 0
+      this.eventsubEverConnected = true
+      this.eventsubLastWafBlockReason = ''
+      saveEventsubState({ consecutiveFailures: 0, lastFailureAt: 0, firstFailureAt: 0, lastWafBlockAt: 0 })
       await this.cleanupStaleSubscriptions()
       await this.subscribeAll()
       this.resetKeepalive()
@@ -290,13 +351,34 @@ export class TwitchClient {
     if (!this.closing) connectFn()
   }
 
-  private reconnectEventSub() {
+  private reconnectEventSub(isWafBlock = false) {
     if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
     if (this.eventsubPingInterval) { clearInterval(this.eventsubPingInterval); this.eventsubPingInterval = null }
     this.eventsubConsecutiveFailures++
+
+    // persist failure across processes so systemd restarts can't reset the counter
+    const prior = loadEventsubState()
+    const now = Date.now()
+    const nextState: EventSubState = {
+      consecutiveFailures: prior.consecutiveFailures + 1,
+      firstFailureAt: prior.firstFailureAt || now,
+      lastFailureAt: now,
+      lastWafBlockAt: isWafBlock ? now : prior.lastWafBlockAt,
+    }
+    saveEventsubState(nextState)
+
+    // WAF block = HTTP upgrade rejected. exponential won't help — back off hard
+    if (isWafBlock) {
+      log(`eventsub WAF/403 blocked — sleeping ${BACKOFF_WAF_BLOCKED / 60_000}min before retry (in-process)`)
+      this.eventsubBackoff = BACKOFF_WAF_BLOCKED
+    }
+
     if (this.eventsubConsecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-      log(`eventsub failed ${this.eventsubConsecutiveFailures} times consecutively — exiting for systemd restart`)
-      process.exit(1)
+      // don't exit — exit + systemd restart resets in-memory state, defeats backoff
+      // sleep within process so we keep ratcheting backoff up rather than spamming
+      const sleep = isWafBlock ? BACKOFF_WAF_BLOCKED : Math.min(BACKOFF_MAX * 5, 5 * 60_000)
+      log(`eventsub failed ${this.eventsubConsecutiveFailures}x — long sleep ${Math.round(sleep / 60_000)}min instead of process.exit`)
+      this.eventsubBackoff = sleep
     }
     this.reconnectWithBackoff('eventsub', () => this.eventsubBackoff, (n) => { this.eventsubBackoff = n }, () => this.connectEventSub())
   }
