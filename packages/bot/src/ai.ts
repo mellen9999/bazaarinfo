@@ -307,7 +307,6 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           db.logAsk(ctx, query, result.text, inT + outT, latency)
           db.recordAiSpend(ctx.channel, inT, outT)
         } catch {}
-        log(`ai: responded in ${latency}ms`)
         // hot cache for instant follow-up context
         cacheExchange(ctx.user, query, result.text, ctx.channel)
         // fire-and-forget memo + fact extraction (force both on identity requests)

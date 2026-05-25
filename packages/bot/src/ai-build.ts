@@ -20,7 +20,6 @@ import {
   ResolvedEntities,
 } from './ai-query'
 import { randomPastaExamples } from './ai-prompt'
-import { log } from './log'
 
 // --- game context builder ---
 
@@ -773,11 +772,6 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
       dropped.push(s.name)
     }
   }
-  if (trimmed.length > 0 || dropped.length > 0) {
-    const used = USER_MSG_CAP - tailLen - budget
-    log(`prompt: ${included.length} kept, used ${used}/${USER_MSG_CAP - tailLen}${trimmed.length ? `, trimmed [${trimmed.join(',')}]` : ''}${dropped.length ? `, dropped [${dropped.join(',')}]` : ''} (tail=${tailLen} q="${query.slice(0, 40)}")`)
-  }
-
   const text = included.join('') + requiredTail
   return { text, hasGameData, isPasta, isCreative, isContinuation: isContinuationLike, isRememberReq }
 }
