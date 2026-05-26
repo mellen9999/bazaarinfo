@@ -166,13 +166,15 @@ export class TwitchClient {
   }
 
   async connect() {
-    await this.applyStartupBackoff()
-    this.connectEventSub()
+    // IRC connects immediately — chat reception/commands must not be blocked by
+    // an unrelated EventSub WAF cooldown. EventSub gets its own backoff in parallel.
     this.connectIrc()
+    this.applyStartupBackoff().then(() => this.connectEventSub())
   }
 
   // if prior process(es) just hammered eventsub into a WAF block, sit out before first attempt
-  // so systemd-restart loops can't keep firing handshakes through the ban
+  // so systemd-restart loops can't keep firing handshakes through the ban.
+  // EventSub-only — IRC is decoupled (see connect()).
   private async applyStartupBackoff() {
     const s = loadEventsubState()
     const now = Date.now()
