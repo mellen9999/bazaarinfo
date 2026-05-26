@@ -91,13 +91,38 @@ function fetchWithTimeout(url: string, opts: RequestInit = {}): Promise<Response
   return fetch(url, { ...opts, signal: AbortSignal.timeout(FETCH_TIMEOUT) })
 }
 
+interface IrcPrivmsg {
+  type: 'privmsg'
+  channel: string
+  login: string
+  text: string
+  userId: string
+  messageId: string
+  badges: string[]
+  replyParentUserLogin?: string
+  threadId?: string
+}
+
 type IrcMessage =
   | { type: 'ping'; payload: string }
   | { type: 'welcome' }
   | { type: 'join'; channel: string }
   | { type: 'auth_failure' }
   | { type: 'notice' }
+  | IrcPrivmsg
   | { type: 'other' }
+
+function parseIrcTags(raw: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const pair of raw.split(';')) {
+    const eq = pair.indexOf('=')
+    if (eq < 0) continue
+    const k = pair.slice(0, eq)
+    const v = pair.slice(eq + 1).replace(/\\s/g, ' ').replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\:/g, ';').replace(/\\\\/g, '\\')
+    out[k] = v
+  }
+  return out
+}
 
 function parseIrcLine(line: string): IrcMessage {
   if (line.startsWith('PING')) return { type: 'ping', payload: line.slice(5) }
@@ -106,6 +131,29 @@ function parseIrcLine(line: string): IrcMessage {
   if (joinMatch) return { type: 'join', channel: joinMatch[1] }
   if (/NOTICE.*(?:Login authentication failed|Login unsuccessful)/.test(line)) return { type: 'auth_failure' }
   if (line.startsWith(':tmi.twitch.tv NOTICE')) return { type: 'notice' }
+
+  // PRIVMSG with tags: @key=val;... :nick!user@host PRIVMSG #channel :text
+  if (line.startsWith('@')) {
+    const space = line.indexOf(' ')
+    if (space < 0) return { type: 'other' }
+    const tags = parseIrcTags(line.slice(1, space))
+    const rest = line.slice(space + 1)
+    const pmMatch = rest.match(/^:([^!]+)![^ ]+ PRIVMSG #(\S+) :(.*)$/)
+    if (!pmMatch) return { type: 'other' }
+    const [, login, channel, text] = pmMatch
+    const badges = (tags['badges'] || '').split(',').filter(Boolean).map((b) => b.split('/')[0])
+    return {
+      type: 'privmsg',
+      channel,
+      login,
+      text,
+      userId: tags['user-id'] || '',
+      messageId: tags['id'] || '',
+      badges,
+      replyParentUserLogin: tags['reply-parent-user-login'] || undefined,
+      threadId: tags['reply-thread-parent-msg-id'] || tags['reply-parent-msg-id'] || undefined,
+    }
+  }
   return { type: 'other' }
 }
 
@@ -139,6 +187,11 @@ export class TwitchClient {
   private ircConnectTimeout: Timer | null = null
   private ircJoinAckTimeout: Timer | null = null
   private ircJoinedChannels = new Set<string>()
+  // Dedup ring for messages seen via either transport. EventSub + IRC PRIVMSG can
+  // both deliver the same message; first wins, duplicates dropped by message id.
+  private seenMessageIds: string[] = []
+  private seenMessageIdSet = new Set<string>()
+  private readonly SEEN_MSG_CAP = 512
   lastActivity = Date.now()
 
   constructor(config: TwitchConfig, onMessage: MessageHandler) {
@@ -262,7 +315,7 @@ export class TwitchClient {
           text = text.replace(new RegExp(`^@${e.reply.parent_user_login}\\s+`, 'i'), '')
         }
         const badges = (e.badges ?? []).map((b: { set_id: string }) => b.set_id)
-        this.onMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, text, badges, e.message_id ?? '', e.reply?.thread_message_id)
+        this.dispatchMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, text, badges, e.message_id ?? '', e.reply?.thread_message_id)
       }
     } else if (type === 'session_reconnect') {
       const newUrl = msg.payload.session?.reconnect_url
@@ -517,6 +570,9 @@ export class TwitchClient {
           case 'notice':
             log('irc notice:', line)
             break
+          case 'privmsg':
+            this.dispatchPrivmsg(msg)
+            break
         }
       }
       this.ircLastData = Date.now()
@@ -532,6 +588,30 @@ export class TwitchClient {
     }
 
     this.irc.onerror = (ev) => log('irc error:', ev)
+  }
+
+  // IRC PRIVMSG receive path — fallback for when EventSub is WAF-blocked. The bot
+  // would otherwise be deaf during cooldown. Dedup by message id so dual-delivery
+  // (EventSub + IRC both alive) only fires once per message.
+  private dispatchPrivmsg(m: IrcPrivmsg) {
+    let text = m.text
+    if (m.replyParentUserLogin) {
+      text = text.replace(new RegExp(`^@${m.replyParentUserLogin}\\s+`, 'i'), '')
+    }
+    this.dispatchMessage(m.channel, m.userId, m.login, text, m.badges, m.messageId, m.threadId)
+  }
+
+  private dispatchMessage(channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string) {
+    if (messageId) {
+      if (this.seenMessageIdSet.has(messageId)) return
+      this.seenMessageIdSet.add(messageId)
+      this.seenMessageIds.push(messageId)
+      if (this.seenMessageIds.length > this.SEEN_MSG_CAP) {
+        const evicted = this.seenMessageIds.shift()
+        if (evicted) this.seenMessageIdSet.delete(evicted)
+      }
+    }
+    this.onMessage(channel, userId, username, text, badges, messageId, threadId)
   }
 
   // After welcome, JOIN ack should arrive within seconds. If a channel hasn't acked
