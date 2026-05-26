@@ -136,6 +136,9 @@ export class TwitchClient {
   private ircOnlyChannels = new Set<string>()
   private eventsubPingInterval: Timer | null = null
   private ircPingInterval: Timer | null = null
+  private ircConnectTimeout: Timer | null = null
+  private ircJoinAckTimeout: Timer | null = null
+  private ircJoinedChannels = new Set<string>()
   lastActivity = Date.now()
 
   constructor(config: TwitchConfig, onMessage: MessageHandler) {
@@ -193,6 +196,8 @@ export class TwitchClient {
     if (this.ircWatchdog) clearInterval(this.ircWatchdog)
     if (this.eventsubPingInterval) clearInterval(this.eventsubPingInterval)
     if (this.ircPingInterval) clearInterval(this.ircPingInterval)
+    if (this.ircConnectTimeout) clearTimeout(this.ircConnectTimeout)
+    if (this.ircJoinAckTimeout) clearTimeout(this.ircJoinAckTimeout)
     this.eventsub?.close()
     this.irc?.close()
     log('connections closed')
@@ -275,11 +280,14 @@ export class TwitchClient {
     }, 20_000)
   }
 
+  // IRC-level PING — Twitch replies with PONG as a real onmessage event, which bumps
+  // ircLastData. Frame-level ws.ping() does NOT fire onmessage in Bun, so it can't
+  // serve as application-layer liveness. Every 2min keeps us well under the 6min watchdog.
   private startIrcPing() {
     if (this.ircPingInterval) clearInterval(this.ircPingInterval)
     this.ircPingInterval = setInterval(() => {
-      try { (this.irc as unknown as { ping?: () => void })?.ping?.() } catch {}
-    }, 20_000)
+      this.ircSend('PING :keepalive')
+    }, 120_000)
   }
 
   private async cleanupStaleSubscriptions() {
@@ -452,13 +460,27 @@ export class TwitchClient {
   private connectIrc() {
     this.ircReady = false
     this.ircReconnecting = false
+    this.ircJoinedChannels.clear()
     // close old socket if still lingering — clear all handlers to prevent stray events
     if (this.irc) {
       try { this.irc.onmessage = null; this.irc.onclose = null; this.irc.onerror = null; this.irc.close() } catch {}
     }
+    if (this.ircConnectTimeout) clearTimeout(this.ircConnectTimeout)
     this.irc = new WebSocket(IRC_URL)
+    const ws = this.irc
+
+    // Handshake watchdog: if WebSocket never reaches OPEN within 20s (DNS hang, TCP black hole,
+    // proxy gate), force-close so onclose fires reconnect. Bun's WebSocket doesn't reliably
+    // surface stuck-in-CONNECTING failures via onerror.
+    this.ircConnectTimeout = setTimeout(() => {
+      if (ws.readyState !== WebSocket.OPEN) {
+        log('irc handshake stuck >20s — force closing')
+        try { ws.close() } catch {}
+      }
+    }, 20_000)
 
     this.irc.onopen = () => {
+      if (this.ircConnectTimeout) { clearTimeout(this.ircConnectTimeout); this.ircConnectTimeout = null }
       this.ircSend('CAP REQ :twitch.tv/tags twitch.tv/commands')
       this.ircSend(`PASS oauth:${this.config.token}`)
       this.ircSend(`NICK ${this.config.botUsername}`)
@@ -479,9 +501,11 @@ export class TwitchClient {
             this.ircBackoff = BACKOFF_BASE
             for (const ch of this.config.channels) this.ircSend(`JOIN #${ch.name}`)
             this.startIrcWatchdog()
+            this.scheduleJoinAckCheck()
             break
           case 'join':
             log(`irc joined #${msg.channel}`)
+            this.ircJoinedChannels.add(msg.channel)
             if (!this.ircReady) { this.ircReady = true; this.startIrcPing(); this.flushQueue() }
             break
           case 'auth_failure':
@@ -508,17 +532,31 @@ export class TwitchClient {
     this.irc.onerror = (ev) => log('irc error:', ev)
   }
 
-  // Twitch sends PING every ~5min. Watchdog checks every 30s if we've heard anything in 90s.
-  // With client-side pings every 20s, any silence >90s means the connection is dead.
+  // After welcome, JOIN ack should arrive within seconds. If a channel hasn't acked
+  // by 15s, re-issue the JOIN once. Catches silent JOIN drops (rare but observed).
+  private scheduleJoinAckCheck() {
+    if (this.ircJoinAckTimeout) clearTimeout(this.ircJoinAckTimeout)
+    this.ircJoinAckTimeout = setTimeout(() => {
+      const missing = this.config.channels.filter((c) => !this.ircJoinedChannels.has(c.name))
+      if (missing.length > 0) {
+        log(`irc re-issuing JOIN for ${missing.length} un-acked channel(s): ${missing.map((c) => c.name).join(', ')}`)
+        for (const ch of missing) this.ircSend(`JOIN #${ch.name}`)
+      }
+    }, 15_000)
+  }
+
+  // Twitch sends PING every ~5min — that's the real liveness signal. Frame-level pongs
+  // from our client ping don't fire onmessage, so ircLastData only bumps on chat or PING.
+  // Watchdog window must exceed Twitch's PING cycle, else quiet channels false-positive.
   private startIrcWatchdog() {
     if (this.ircWatchdog) clearInterval(this.ircWatchdog)
     this.ircLastData = Date.now()
     this.ircWatchdog = setInterval(() => {
-      if (Date.now() - this.ircLastData > 90_000) {
-        log('irc timeout (90s no data) — reconnecting')
+      if (Date.now() - this.ircLastData > 360_000) {
+        log('irc timeout (6min no data) — reconnecting')
         this.irc?.close()
       }
-    }, 30_000)
+    }, 60_000)
   }
 
   private async handleIrcAuthFailure() {
