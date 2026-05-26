@@ -545,9 +545,6 @@ export class TwitchClient {
       const lines = String(ev.data).split('\r\n').filter(Boolean)
       for (const line of lines) {
         const msg = parseIrcLine(line)
-        if (process.env.IRC_DEBUG === '1' && msg.type === 'other' && line.includes('PRIVMSG')) {
-          log('irc DEBUG unparsed PRIVMSG:', line.slice(0, 300))
-        }
         switch (msg.type) {
           case 'ping':
             if (!this.ircSend(`PONG ${msg.payload}`)) {
