@@ -78,13 +78,14 @@ mock.module('./ai', () => ({
 }))
 
 // --- mock trivia ---
+const mockIsGameActive = mock<(ch: string) => boolean>(() => false)
 mock.module('./trivia', () => ({
   startTrivia: mock(() => 'Trivia! test question (30s to answer)'),
   getTriviaScore: mock(() => 'no trivia scores yet'),
   formatStats: mock((u: string) => `[${u}] cmds:0`),
   formatTop: mock(() => 'no activity yet'),
   checkAnswer: mock(() => {}),
-  isGameActive: mock(() => false),
+  isGameActive: mockIsGameActive,
   setSay: mock(() => {}),
   matchAnswer: mock(() => false),
   invalidateAliasCache: mock(() => {}),
@@ -110,7 +111,8 @@ mock.module('./emotes', () => ({
   removeChannelEmotes: mock(() => {}),
 }))
 
-const { handleCommand, parseArgs, resetDedup, resetProxyCooldowns, PROXY_COOLDOWN } = await import('./commands')
+const { handleCommand, parseArgs, resetDedup, resetProxyCooldowns, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES } = await import('./commands')
+const chatbuf = await import('./chatbuf')
 
 // --- test fixtures ---
 function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
@@ -1751,6 +1753,205 @@ describe('spam wall cap', () => {
   it('rotates through unique tokens', async () => {
     const out = await handleCommand('!b spam A B', { user: 'u', channel: 'c' })
     expect(out).toContain('A B A B A')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// bare !b: bulletproof contract
+//   - never emits the legacy usage string
+//   - prioritizes answering an unanswered chat question
+//   - picks blunt vs guised based on spoiler-sensitive signals (no randomness)
+//   - falls back to varied nudge anchored on real chat
+//   - bounded to AI_MAX_QUERY_LEN (200)
+// ---------------------------------------------------------------------------
+describe('buildBareBQuery — bulletproof contract', () => {
+  const TAIL = 'dont react to "!b" itself.'
+
+  beforeEach(() => {
+    mockIsGameActive.mockReset()
+    mockIsGameActive.mockImplementation(() => false)
+    chatbuf.cleanupChannel('bare-test')
+    chatbuf.cleanupChannel('bare-trivia')
+    chatbuf.cleanupChannel('bare-spoiler')
+    chatbuf.cleanupChannel('bare-empty')
+  })
+
+  it('no channel: returns nudge + anti-meta tail, no anchor', () => {
+    const q = buildBareBQuery()
+    expect(q).toContain(TAIL)
+    expect(q).not.toContain('anchor:')
+    expect(BARE_B_NUDGES.some((n) => q.startsWith(n))).toBe(true)
+  })
+
+  it('always under AI_MAX_QUERY_LEN (200) — 200 iterations w/ long chat', () => {
+    for (let i = 0; i < 30; i++) {
+      chatbuf.record('bare-test', `user${i}`, 'x'.repeat(120) + ` msg ${i}`)
+    }
+    for (let i = 0; i < 200; i++) {
+      const q = buildBareBQuery('bare-test')
+      expect(q.length).toBeLessThanOrEqual(200)
+    }
+  })
+
+  it('every output ends with the anti-meta tail', () => {
+    chatbuf.record('bare-test', 'alice', 'vanessa loadout opinions?')
+    for (let i = 0; i < 30; i++) {
+      expect(buildBareBQuery('bare-test')).toContain(TAIL)
+    }
+  })
+
+  it('filters bot messages out of anchor and question detection', () => {
+    chatbuf.record('bare-test', 'bazaarinfo', 'is this a question?')
+    chatbuf.record('bare-test', 'alice', 'normal chatter line here')
+    const q = buildBareBQuery('bare-test')
+    expect(q).not.toContain('bazaarinfo:')
+    expect(q).toContain('alice')
+  })
+
+  it('filters !-prefixed messages out of anchor', () => {
+    chatbuf.record('bare-test', 'alice', '!ping')
+    chatbuf.record('bare-test', 'bob', 'real chat content here')
+    const q = buildBareBQuery('bare-test')
+    expect(q).not.toMatch(/alice:\s*!ping/)
+    expect(q).toContain('bob')
+  })
+
+  it('filters too-short messages from anchor (≤3 chars)', () => {
+    chatbuf.record('bare-test', 'alice', 'lol')
+    chatbuf.record('bare-test', 'bob', 'meaningful message text')
+    const q = buildBareBQuery('bare-test')
+    expect(q).not.toMatch(/alice:\s*lol/)
+    expect(q).toContain('bob')
+  })
+
+  it('caps per-message length in the anchor at ~60 chars', () => {
+    chatbuf.record('bare-test', 'alice', 'a'.repeat(200))
+    const q = buildBareBQuery('bare-test')
+    // alice's 200-char message should not appear at full length
+    expect(q).not.toContain('a'.repeat(100))
+  })
+
+  it('100 invocations span ≥ half the nudges (variety, no chat)', () => {
+    const seen = new Set<string>()
+    for (let i = 0; i < 200; i++) {
+      const q = buildBareBQuery()
+      for (const n of BARE_B_NUDGES) if (q.startsWith(n)) { seen.add(n); break }
+    }
+    expect(seen.size).toBeGreaterThanOrEqual(Math.ceil(BARE_B_NUDGES.length / 2))
+  })
+})
+
+describe('findUnansweredQuestion', () => {
+  beforeEach(() => { chatbuf.cleanupChannel('q-ch') })
+
+  it('detects trailing question mark', () => {
+    chatbuf.record('q-ch', 'alice', 'is vanessa busted right now?')
+    const q = findUnansweredQuestion('q-ch')
+    expect(q?.text).toContain('vanessa')
+  })
+
+  it('detects interrogative-word start without question mark', () => {
+    chatbuf.record('q-ch', 'alice', 'how does crit chance work')
+    const q = findUnansweredQuestion('q-ch')
+    expect(q?.user).toBe('alice')
+  })
+
+  it('returns null when question has a substantive reply by another user', () => {
+    chatbuf.record('q-ch', 'alice', 'how does crit work?')
+    chatbuf.record('q-ch', 'bob', 'crit doubles damage, simple math really')
+    expect(findUnansweredQuestion('q-ch')).toBeNull()
+  })
+
+  it('still flagged unanswered if "reply" is by same user', () => {
+    chatbuf.record('q-ch', 'alice', 'how does crit work?')
+    chatbuf.record('q-ch', 'alice', 'i mean specifically for vanessa builds')
+    const q = findUnansweredQuestion('q-ch')
+    expect(q?.user).toBe('alice')
+  })
+
+  it('still flagged unanswered if reply is too short (<=15 chars)', () => {
+    chatbuf.record('q-ch', 'alice', 'is shield good?')
+    chatbuf.record('q-ch', 'bob', 'idk')
+    const q = findUnansweredQuestion('q-ch')
+    expect(q?.text).toContain('shield')
+  })
+
+  it('ignores statements without question markers', () => {
+    chatbuf.record('q-ch', 'alice', 'vanessa is just fine honestly')
+    expect(findUnansweredQuestion('q-ch')).toBeNull()
+  })
+
+  it('walks back to find the most recent unanswered q', () => {
+    chatbuf.record('q-ch', 'a', 'is X good?')
+    chatbuf.record('q-ch', 'b', 'yeah X is solid, no question about it')
+    chatbuf.record('q-ch', 'c', 'what about Y though?')
+    const q = findUnansweredQuestion('q-ch')
+    expect(q?.text).toContain('Y')
+  })
+})
+
+describe('bare !b answer-style selection (context-driven, not random)', () => {
+  beforeEach(() => {
+    mockIsGameActive.mockReset()
+    mockIsGameActive.mockImplementation(() => false)
+    chatbuf.cleanupChannel('style-ch')
+  })
+
+  it('blunt by default when an unanswered question exists', () => {
+    chatbuf.record('style-ch', 'alice', 'is vanessa good vs aggro?')
+    const q = buildBareBQuery('style-ch')
+    expect(q.toLowerCase()).toContain('bluntly')
+    expect(q.toLowerCase()).not.toContain('guised')
+  })
+
+  it('guised when trivia is active in the channel', () => {
+    mockIsGameActive.mockImplementation(() => true)
+    chatbuf.record('style-ch', 'alice', 'what hero is this skill from?')
+    const q = buildBareBQuery('style-ch')
+    expect(q.toLowerCase()).toContain('guised')
+    expect(q.toLowerCase()).not.toContain('bluntly')
+  })
+
+  it('guised when chat signals "no spoilers"', () => {
+    chatbuf.record('style-ch', 'asker', 'whats the answer to the riddle?')
+    chatbuf.record('style-ch', 'other', 'no spoilers please im trying to figure it out')
+    const q = buildBareBQuery('style-ch')
+    expect(q.toLowerCase()).toContain('guised')
+  })
+
+  it('guised when chat signals "trying to guess"', () => {
+    chatbuf.record('style-ch', 'asker', 'is it the one with burn?')
+    chatbuf.record('style-ch', 'other', 'wait im trying to guess give me a sec')
+    const q = buildBareBQuery('style-ch')
+    expect(q.toLowerCase()).toContain('guised')
+  })
+})
+
+describe('bare !b: regression guardrails — usage string is dead', () => {
+  it('handleCommand never returns the legacy usage line', async () => {
+    mockAiRespond.mockImplementation(() => null)
+    const inputs = ['!b', '!b ', '!b help', '!b info', '!b gold', '!b bronze']
+    for (const input of inputs) {
+      const result = await handleCommand(input, { user: 'u', channel: 'c' })
+      if (result === null) continue
+      expect(result).not.toContain('hero/mob/skill')
+      expect(result).not.toContain('type !join')
+      expect(result).not.toContain('<item> [tier]')
+    }
+  })
+
+  it('commands.ts source contains no hardcoded usage constants', async () => {
+    const { readFileSync } = await import('fs')
+    const { resolve } = await import('path')
+    const src = readFileSync(resolve(import.meta.dir, 'commands.ts'), 'utf8')
+    // strip the regression-test bookkeeping comment lines so they don't self-match
+    const code = src.replace(/^\s*\/\/.*$/gm, '').replace(/^\s*\*.*$/gm, '')
+    expect(code).not.toMatch(/BASE_USAGE\s*=/)
+    expect(code).not.toMatch(/JOIN_USAGE\s*=/)
+    expect(code).not.toMatch(/\blobbyChannel\b/)
+    expect(code).not.toMatch(/!b <item> \[tier\]/)
+    expect(code).not.toMatch(/hero\/mob\/skill\/tag\/day/)
+    expect(code).not.toMatch(/type !join in/)
   })
 })
 
