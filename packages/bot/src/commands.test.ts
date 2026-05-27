@@ -92,6 +92,7 @@ mock.module('./trivia', () => ({
   looksLikeAnswer: mock(() => true),
   resetForTest: mock(() => {}),
   getActiveGameForTest: mock(() => undefined),
+  skipTrivia: mock(() => null),
 }))
 
 // --- mock emotes ---

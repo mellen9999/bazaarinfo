@@ -153,6 +153,8 @@ mock.module('./db', () => ({
   getUserStats: mockGetUserStats,
   getChannelLeaderboard: mockGetChannelLeaderboard,
   logCommand: mock(() => {}),
+  getTriviaStreak: mock(() => 0),
+  getTriviaTypeStats: mock(() => []),
 }))
 
 mock.module('./log', () => ({

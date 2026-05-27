@@ -887,6 +887,24 @@ export function getTriviaLeaderboard(channel: string, limit = 5): { username: st
   return stmts.triviaLeaderboard.all(channel, limit) as { username: string; trivia_wins: number }[]
 }
 
+export function getTriviaStreak(userId: number): number {
+  const row = db.query('SELECT trivia_streak FROM users WHERE id = ?').get(userId) as { trivia_streak: number } | undefined
+  return row?.trivia_streak ?? 0
+}
+
+// per-question-type solve stats for adaptive difficulty weighting.
+// returns rows for question types seen in this channel in the last 30 days.
+export function getTriviaTypeStats(channel: string): { question_type: number; games: number; wins: number }[] {
+  return db.query(
+    `SELECT question_type,
+            COUNT(*) as games,
+            SUM(CASE WHEN winner_id IS NOT NULL THEN 1 ELSE 0 END) as wins
+       FROM trivia_games
+      WHERE channel = ? AND started_at > datetime('now', '-30 days')
+      GROUP BY question_type`,
+  ).all(channel) as { question_type: number; games: number; wins: number }[]
+}
+
 // channel chat style profile
 export function getChannelMessages(channel: string, limit = 5000): string[] {
   const rows = stmts.channelMessages.all(channel, limit) as { message: string }[]

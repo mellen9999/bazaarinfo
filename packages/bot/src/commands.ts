@@ -3,7 +3,7 @@ import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
-import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive } from './trivia'
+import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia } from './trivia'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam } from './ai'
 import { isEmote } from './emotes'
 import { getThread, getRecent } from './chatbuf'
@@ -405,7 +405,7 @@ type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string
 
 const RESERVED_SUBS = new Set([
   'mob', 'monster', 'hero', 'tag', 'skill', 'day', 'enchants', 'enchantments',
-  'trivia', 'score', 'stats', 'top', 'alias', 'help', 'info',
+  'trivia', 'skip', 'score', 'stats', 'top', 'alias', 'help', 'info',
   'refresh', 'update', 'emotes', 'status', 'join', 'part',
   'leave', 'pick', 'vote', 'party', 'shop', 'history', 'resolve', 'game',
 ])
@@ -516,6 +516,11 @@ const subcommands: [RegExp, SubHandler][] = [
     const validCategories = new Set(['items', 'heroes', 'monsters'])
     const category = validCategories.has(query?.toLowerCase()) ? query.toLowerCase() as 'items' | 'heroes' | 'monsters' : undefined
     return withSuffix(startTrivia(ctx.channel, category), suffix)
+  }],
+  [/^skip$/i, (_query, ctx, suffix) => {
+    if (!ctx.channel) return null
+    const msg = skipTrivia(ctx.channel, ctx.user)
+    return msg ? withSuffix(msg, suffix) : null
   }],
   [/^score$/i, (_query, ctx, suffix) => {
     if (!ctx.channel) return null
