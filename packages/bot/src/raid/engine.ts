@@ -1,7 +1,7 @@
 import * as store from '../store'
 import { log } from '../log'
 import { getShop } from './shop'
-import { simulate } from './sim'
+import { simulate, scoreItem } from './sim'
 import { renderResolution, renderIntro } from './render'
 import * as state from './state'
 import type { BoardItem, Resolution } from './types'
@@ -106,8 +106,21 @@ function resolvePartyBoard(channel: string, day: number, hero: string, raidId: n
     }
   }
 
+  // sim sees one item per slot — the slot's strongest current pick — so the
+  // party board stays ~10 items regardless of accumulation depth. Accumulation
+  // is the visible build (`!b party` shows count), and strategy is: pick a
+  // higher-scoring item to upgrade your slot's contributor.
   const board: BoardItem[] = []
-  for (const slot of raid.slots) board.push(...slot.boardItems)
+  for (const slot of raid.slots) {
+    if (slot.boardItems.length === 0) continue
+    let best = slot.boardItems[0]
+    let bestScore = scoreItem(best)
+    for (let i = 1; i < slot.boardItems.length; i++) {
+      const s = scoreItem(slot.boardItems[i])
+      if (s > bestScore) { best = slot.boardItems[i]; bestScore = s }
+    }
+    board.push(best)
+  }
   return { board, namedPicks }
 }
 
