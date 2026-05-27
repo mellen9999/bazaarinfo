@@ -22,6 +22,13 @@ const SIZE_WEIGHT: Record<string, number> = {
   Small: 1, Medium: 2, Large: 4,
 }
 
+export function scoreItem(item: BoardItem): number {
+  const tw = TIER_WEIGHT[item.tier] ?? 1
+  const sw = SIZE_WEIGHT[item.size] ?? 1
+  const cd = item.cooldownMs > 0 ? item.cooldownMs : 5000
+  return tw * sw * (1000 / cd)
+}
+
 function hasTag(item: BoardItem, tag: string): boolean {
   return item.tags.some((t) => t.toLowerCase() === tag.toLowerCase())
 }
@@ -29,12 +36,7 @@ function hasTag(item: BoardItem, tag: string): boolean {
 function scoreBoard(items: BoardItem[]): number {
   if (items.length === 0) return 1
   let total = 0
-  for (const item of items) {
-    const tw = TIER_WEIGHT[item.tier] ?? 1
-    const sw = SIZE_WEIGHT[item.size] ?? 1
-    const cd = item.cooldownMs > 0 ? item.cooldownMs : 5000
-    total += tw * sw * (1000 / cd)
-  }
+  for (const item of items) total += scoreItem(item)
 
   const weaponCount = items.filter((i) => hasTag(i, 'Weapon')).length
   if (weaponCount >= 3) total *= 1.2
