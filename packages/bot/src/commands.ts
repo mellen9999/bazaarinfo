@@ -241,9 +241,6 @@ export function parseArgs(words: string[]): ParsedArgs {
   return { item: remaining.join(' '), tier, enchant }
 }
 
-let lobbyChannel = ''
-export function setLobbyChannel(name: string) { lobbyChannel = name }
-
 const OWNER = (process.env.BOT_OWNER ?? '').toLowerCase()
 const BOT_ADMINS = new Set(
   (process.env.BOT_ADMINS ?? '').split(',').concat(OWNER).map((s) => s.trim().toLowerCase()).filter(Boolean),
@@ -287,9 +284,6 @@ function isDuplicate(channel: string, query: string): boolean {
   }
   return false
 }
-
-const BASE_USAGE = '!b <item> [tier] [enchant] | !b hero/mob/skill/tag/day/enchants/trivia/score/stats | bazaardb.gg'
-const JOIN_USAGE = () => lobbyChannel ? ` | add bot: type !join in ${lobbyChannel}'s chat` : ''
 
 function logMiss(query: string, ctx: CommandContext) {
   try { db.logCommand(ctx, 'miss', query) } catch {}
@@ -480,7 +474,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   const words = stripped.split(/\s+/)
   const { item: query, tier, enchant } = parseArgs(words)
 
-  if (!query) return BASE_USAGE + JOIN_USAGE()
+  if (!query) return null
 
   if (enchant) {
     // prefer cards that actually have the requested enchant — disambiguates
@@ -563,7 +557,9 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     }
   }
 
-  if (!cleanArgs || cleanArgs === 'help' || cleanArgs === 'info') return BASE_USAGE + JOIN_USAGE()
+  // bare !b → riff on recent chat; help/info → describe capabilities (no hardcoded usage line)
+  if (!cleanArgs) return tryAiRespond('react to chat', ctx, mentions)
+  if (cleanArgs === 'help' || cleanArgs === 'info') return tryAiRespond('what does this bot do', ctx, mentions)
 
   if (/^(how (do you|does this( bot)?) work|what are you|what is this)\b/i.test(cleanArgs)) {
     return 'twitch chatbot for The Bazaar by mellen. looks up items/heroes/monsters from bazaardb.gg, runs trivia, and answers questions. try: !b <item> | !b hero <name> | !b <question>'

@@ -2,7 +2,7 @@ import type { CardCache } from '@bazaarinfo/shared'
 import { TwitchClient, getUserId } from './twitch'
 import type { ChannelInfo } from './twitch'
 import { loadStore, reloadStore, CACHE_PATH } from './store'
-import { handleCommand, setLobbyChannel, setRefreshHandler, setEmoteRefreshHandler, setJoinHandler, setPartHandler, setStatusHandler, BOT_ADMINS } from './commands'
+import { handleCommand, setRefreshHandler, setEmoteRefreshHandler, setJoinHandler, setPartHandler, setStatusHandler, BOT_ADMINS } from './commands'
 import { getCacheInfo } from './store'
 import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily } from './scheduler'
@@ -119,7 +119,6 @@ const channels: ChannelInfo[] = await Promise.all(
 log(`bot: ${BOT_USERNAME} (${botUserId}), channels: ${channels.map((c) => `${c.name}(${c.userId})`).join(', ')}`)
 
 setChannelInfos(channels)
-setLobbyChannel(BOT_USERNAME.toLowerCase())
 
 // owner-only !b refresh — re-scrapes data + reddit digest
 setRefreshHandler(async () => {

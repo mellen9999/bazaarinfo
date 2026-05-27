@@ -414,10 +414,11 @@ describe('handleCommand routing', () => {
     expect(result).toContain('Boomerang')
   })
 
-  it('shows usage when no args given', async () => {
-    const result = await handleCommand('!b')
-    expect(result).toContain('!b')
-    expect(result).toContain('<item>')
+  it('bare !b routes to AI for contextual response', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'chat is wild rn', mentions: [] }))
+    const result = await handleCommand('!b', { user: 'chatter', channel: 'stream' })
+    expect(mockAiRespond).toHaveBeenCalled()
+    expect(result).toBe('chat is wild rn')
   })
 
   it('trims whitespace from args', async () => {
@@ -957,8 +958,10 @@ describe('!b edge cases', () => {
   })
 
   it('handles empty string after command', async () => {
-    const result = await handleCommand('!b ')
-    expect(result).toContain('!b')
+    mockAiRespond.mockImplementation(() => ({ text: 'sup chat', mentions: [] }))
+    const result = await handleCommand('!b ', { user: 'chatter', channel: 'stream' })
+    expect(mockAiRespond).toHaveBeenCalled()
+    expect(result).toBe('sup chat')
   })
 
   it('strips quotes from input', async () => {
@@ -969,14 +972,21 @@ describe('!b edge cases', () => {
     expect(mockExact).toHaveBeenCalledWith('the eclipse')
   })
 
-  it('help and info show usage', async () => {
-    expect(await handleCommand('!b help')).toContain('!b')
-    expect(await handleCommand('!b info')).toContain('!b')
+  it('help and info route to AI (no hardcoded usage string)', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'i look up bazaar stuff', mentions: [] }))
+    const helpResult = await handleCommand('!b help', { user: 'chatter', channel: 'stream' })
+    const infoResult = await handleCommand('!b info', { user: 'chatter', channel: 'stream' })
+    expect(helpResult).toBe('i look up bazaar stuff')
+    expect(infoResult).toBe('i look up bazaar stuff')
+    expect(helpResult).not.toContain('hero/mob/skill')
+    expect(helpResult).not.toContain('type !join')
   })
 
-  it('tier-only input shows usage', async () => {
-    const result = await handleCommand('!b gold')
-    expect(result).toContain('!b')
+  it('tier-only input falls through to AI fallback', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'gold tier huh', mentions: [] }))
+    const result = await handleCommand('!b gold', { user: 'chatter', channel: 'stream' })
+    expect(mockAiRespond).toHaveBeenCalled()
+    expect(result).toBe('gold tier huh')
   })
 })
 
@@ -1100,7 +1110,8 @@ describe('analytics logging', () => {
     )
   })
 
-  it('does not log on help/usage', async () => {
+  it('does not log on help/usage when AI unavailable', async () => {
+    // no channel → tryAiRespond bails before any logCommand
     await handleCommand('!b help', { user: 'test' })
     expect(mockLogCommand).not.toHaveBeenCalled()
   })
@@ -1385,25 +1396,6 @@ describe('!b skill', () => {
     const result = await handleCommand('!b skill zap @someone')
     expect(result).toContain('@someone')
     expect(result).toContain('Zap')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Updated usage string
-// ---------------------------------------------------------------------------
-describe('usage string', () => {
-  it('includes new route keywords', async () => {
-    const result = (await handleCommand('!b help'))!
-    expect(result).toContain('hero')
-    expect(result).toContain('mob')
-    expect(result).toContain('skill')
-    expect(result).toContain('tag')
-    expect(result).toContain('day')
-    expect(result).toContain('enchants')
-    expect(result).toContain('trivia')
-    expect(result).toContain('score')
-    expect(result).toContain('stats')
-    expect(result).toContain('bazaardb.gg')
   })
 })
 

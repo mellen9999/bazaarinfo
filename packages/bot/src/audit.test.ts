@@ -453,17 +453,14 @@ describe('command routing with real data', () => {
     expect(result).toContain('Magnifying Glass')
   })
 
-  it('!b → help text', async () => {
+  it('!b → null without AI key (no hardcoded help)', async () => {
     const result = await handleCommand('!b', ctx)
-    expect(result).toBeTruthy()
-    expect(result).toContain('!b')
-    expect(result).toContain('bazaardb.gg')
+    expect(result).toBeNull()
   })
 
-  it('!b help → help text', async () => {
+  it('!b help → null without AI key (no hardcoded help)', async () => {
     const result = await handleCommand('!b help', ctx)
-    expect(result).toBeTruthy()
-    expect(result).toContain('bazaardb.gg')
+    expect(result).toBeNull()
   })
 
   it('!b enchants → enchantment list', async () => {
