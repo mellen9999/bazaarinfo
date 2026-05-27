@@ -94,7 +94,13 @@ const ROUND_DURATION = 30_000
 const HINT_DELAY = 15_000
 const COOLDOWN = 60_000
 const RECENT_BUFFER_SIZE = 10
+const RECENT_QUESTIONS_SIZE = 10
 const MIN_ANSWER_LENGTH = 1
+const MAX_CLOSE_MISS_PER_ROUND = 2
+
+// question types whose answer is from a tiny closed enum (hero, size, tier).
+// first-letter+length hint would uniquely identify, so we skip the hint entirely.
+const NO_HINT_TYPES = new Set([1, 9, 12, 13])
 
 type SayFn = (channel: string, text: string) => void
 
@@ -109,12 +115,14 @@ interface TriviaState {
   timeout: Timer
   hintTimeout: Timer | null
   hintText: string
+  closeMissCount: number
   say: SayFn
 }
 
 const activeGames = new Map<string, TriviaState>()
 const lastGameEnd = new Map<string, number>()
 const recentTypes = new Map<string, number[]>()
+const recentQuestions = new Map<string, string[]>()
 let globalSay: SayFn = () => {}
 
 export function setSay(fn: SayFn) {
@@ -392,17 +400,44 @@ function generateHint(answer: string): string {
   return `Hint: ${initials.join(' ')}`
 }
 
+// adaptive weighting: types with mid-range solve rates get higher weight.
+// types nobody ever solves (too hard / broken) or always solves in 2s (boring)
+// get down-weighted. Laplace smoothing handles cold-start.
+// the generator-index → question_type mapping is +1 (see generators[]), so we
+// translate when looking up DB stats.
+function typeWeights(channel: string, allowed: number[]): number[] {
+  const stats = db.getTriviaTypeStats(channel)
+  const byType = new Map<number, { games: number; wins: number }>()
+  for (const s of stats) byType.set(s.question_type, { games: s.games, wins: s.wins })
+  return allowed.map((idx) => {
+    const qType = idx + 1
+    const s = byType.get(qType)
+    // Laplace: pretend everyone goes 1/2 with no data, so cold start is uniform
+    const games = (s?.games ?? 0) + 2
+    const wins = (s?.wins ?? 0) + 1
+    const rate = wins / games
+    // peak weight at 50% solve rate, decay toward 0% and 100%
+    // 4 * rate * (1 - rate) maps [0..1] → [0..1] with peak 1.0 at 0.5
+    return Math.max(0.15, 4 * rate * (1 - rate))
+  })
+}
+
+function weightedPick<T>(items: T[], weights: number[]): T {
+  const total = weights.reduce((a, b) => a + b, 0)
+  let r = Math.random() * total
+  for (let i = 0; i < items.length; i++) {
+    r -= weights[i]
+    if (r <= 0) return items[i]
+  }
+  return items[items.length - 1]
+}
+
 function pickQuestionType(channel: string, category?: TriviaCategory): number {
   const recent = recentTypes.get(channel) ?? []
   const allowedIndices = category ? CATEGORY_GENERATORS[category] : generators.map((_, i) => i)
-  const available = allowedIndices
-    .filter((i) => {
-      const recentCount = recent.filter((t) => t === i).length
-      return recentCount < 2
-    })
-
-  if (available.length === 0) return pickRandom(allowedIndices)
-  return pickRandom(available)
+  const available = allowedIndices.filter((i) => recent.filter((t) => t === i).length < 2)
+  const pool = available.length > 0 ? available : allowedIndices
+  return weightedPick(pool, typeWeights(channel, pool))
 }
 
 function editDistance(a: string, b: string): number {
@@ -485,16 +520,24 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
     return `trivia on cooldown, ${Math.ceil(cooldownLeft / 1000)}s remaining`
   }
 
-  // try generators until one works
+  // try generators until one works AND its question isn't a recent repeat.
+  // recent-question check is independent of type-buffer so e.g. the same tag
+  // doesn't fire twice in 5 rounds even though "tag question" is a permitted type.
+  const recentQ = recentQuestions.get(channel) ?? []
   let q: ReturnType<QuestionGen> = null
   let lastTypeIdx = 0
   let attempts = 0
   while (!q && attempts < 20) {
     lastTypeIdx = pickQuestionType(channel, category)
-    q = generators[lastTypeIdx]()
+    const candidate = generators[lastTypeIdx]()
+    if (candidate && !recentQ.includes(candidate.question)) q = candidate
     attempts++
   }
   if (!q) return `couldn't generate a question, try again`
+
+  recentQ.push(q.question)
+  if (recentQ.length > RECENT_QUESTIONS_SIZE) recentQ.shift()
+  recentQuestions.set(channel, recentQ)
 
   // track recent types per-channel (use generator index, not 1-indexed q.type)
   const recent = recentTypes.get(channel) ?? []
@@ -509,13 +552,19 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
     if (msg) globalSay(channel, msg)
   }, ROUND_DURATION)
 
-  // hint uses the canonical answer (first accepted or raw answer)
-  const hintAnswer = q.answer.replace(/^any.*?:\s*/, '').split(',')[0].trim()
+  // for multi-answer questions ("any of: X,Y,Z" or "any <hero> <tag>"), the
+  // answer field is a description, not a real title — pick a random accepted
+  // answer so hints vary per round instead of deterministically leaking the
+  // same board item / monster every time.
+  const hintAnswer = q.answer.startsWith('any')
+    ? pickRandom(q.accepted)
+    : q.answer
   const hintText = generateHint(hintAnswer)
-
-  const hintTimeout = setTimeout(() => {
+  // skip hint when: answer is from tiny enum (would uniquely id), or chat
+  // isn't actually playing (announcing to dead chat is just noise).
+  const hintTimeout = NO_HINT_TYPES.has(q.type) ? null : setTimeout(() => {
     const game = activeGames.get(channel)
-    if (game && game.gameId === gameId) {
+    if (game && game.gameId === gameId && game.participants.size > 0) {
       globalSay(channel, hintText)
     }
   }, HINT_DELAY)
@@ -531,6 +580,7 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
     timeout,
     hintTimeout,
     hintText,
+    closeMissCount: 0,
     say: globalSay,
   })
 
@@ -547,6 +597,9 @@ function endTrivia(channel: string, expectedGameId?: number): string | null {
   if (game.hintTimeout) clearTimeout(game.hintTimeout)
   activeGames.delete(channel)
   lastGameEnd.set(channel, Date.now())
+
+  // silent end if nobody played — no point announcing a timeout to dead chat
+  if (game.participants.size === 0) return null
 
   const emote = pickEmoteByMood(channel, 'sad')
   return `Time's up! The answer was: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`
@@ -592,20 +645,40 @@ export function checkAnswer(
     const secs = answerTimeMs / 1000
     const timeStr = secs.toFixed(1)
     const speedTag = secs < 3 ? ' LEGENDARY' : secs < 5 ? ' FAST' : secs < 10 ? ' nice' : ''
-    const emote = secs < 3
+    const streak = db.getTriviaStreak(userId)
+    const streakTag = streak >= 5 ? ` (${streak} STREAK!!)` : streak >= 3 ? ` (${streak} streak)` : ''
+    const emote = secs < 3 || streak >= 5
       ? pickEmoteByMood(channel, 'hype', 'celebration')
-      : secs < 5
+      : secs < 5 || streak >= 3
         ? pickEmoteByMood(channel, 'celebration', 'hype')
         : pickEmoteByMood(channel, 'happy', 'celebration')
-    say(channel, `${username} got it in ${timeStr}s!${speedTag} Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`)
+    say(channel, `${username} got it in ${timeStr}s!${speedTag}${streakTag} Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`)
   } else {
     db.resetTriviaStreak(userId)
-    // close-miss taunt — if answer is edit-distance ≤2 from any accepted answer
-    if (cleaned.length >= 4 && isCloseMiss(cleaned, game.acceptedAnswers)) {
+    // close-miss taunt — capped per round so 10 chatters guessing close
+    // don't produce 10 bot lines.
+    if (
+      cleaned.length >= 4 &&
+      game.closeMissCount < MAX_CLOSE_MISS_PER_ROUND &&
+      isCloseMiss(cleaned, game.acceptedAnswers)
+    ) {
+      game.closeMissCount++
       const emote = pickEmoteByMood(channel, 'sarcasm', 'thinking')
       say(channel, `${username} so close!${emote ? ` ${emote}` : ''}`)
     }
   }
+}
+
+export function skipTrivia(channel: string, username?: string): string | null {
+  const game = activeGames.get(channel)
+  if (!game) return null
+  clearTimeout(game.timeout)
+  if (game.hintTimeout) clearTimeout(game.hintTimeout)
+  activeGames.delete(channel)
+  lastGameEnd.set(channel, Date.now())
+  const emote = pickEmoteByMood(channel, 'sad', 'thinking')
+  const who = username ? `${username} skipped` : 'Skipped'
+  return `${who}. Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`
 }
 
 export function cleanupChannel(channel: string) {
@@ -617,6 +690,7 @@ export function cleanupChannel(channel: string) {
   activeGames.delete(channel)
   lastGameEnd.delete(channel)
   recentTypes.delete(channel)
+  recentQuestions.delete(channel)
 }
 
 export function isGameActive(channel: string): boolean {
@@ -665,6 +739,7 @@ export function resetForTest() {
   activeGames.clear()
   lastGameEnd.clear()
   recentTypes.clear()
+  recentQuestions.clear()
 }
 
 export function getActiveGameForTest(channel: string) {
