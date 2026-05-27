@@ -127,8 +127,8 @@ export function handleGamePace(paceArg: string, ctx: CommandContext): string | n
   const p = paceArg.toLowerCase().trim()
   if (p !== 'fast' && p !== 'normal' && p !== 'slow') return null
   state.setPace(ctx.channel, p)
-  const cfg = p === 'fast' ? 'floor 60s, slow-chat 3m, force 10m'
-    : p === 'slow' ? 'floor 2m, slow-chat 10m, force 30m'
-    : 'floor 90s, slow-chat 5m, force 15m'
+  const cfg = p === 'fast' ? 'floor 30s, slow-chat 90s, force 4m'
+    : p === 'slow' ? 'floor 90s, slow-chat 5m, force 10m'
+    : 'floor 60s, slow-chat 3m, force 6m'
   return `raid pace set to ${p} (${cfg})`
 }
