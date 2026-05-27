@@ -239,6 +239,18 @@ function getUserId(username: string): number | null {
   return row?.id ?? null
 }
 
+// FIFO accumulation: each slot's board grows up to cap, then oldest picks fall off.
+// this is the roguelike "build over time" core — each day's pick contributes to
+// future days as well, until it ages out.
+const BOARD_CAP = 5
+
+export function appendSlotPick(slot: RaidSlot, item: BoardItem) {
+  slot.boardItems.push(item)
+  if (slot.boardItems.length > BOARD_CAP) {
+    slot.boardItems = slot.boardItems.slice(-BOARD_CAP)
+  }
+}
+
 // in-memory mutation only; caller renders narrative then calls commitResolution
 export function applyDayOutcome(channel: string, outcome: 'win' | 'loss', margin: number): RaidState {
   const state = getOrCreateRaid(channel)
@@ -323,7 +335,19 @@ export function commitResolution(channel: string, resolution: Resolution): RaidS
     `UPDATE raids SET day = ?, wins = ?, losses = ?, hp = ?, gold = ?, last_resolved_at = datetime('now'), enabled = ? WHERE id = ?`,
     [state.day, state.wins, state.losses, state.hp, state.gold, state.enabled ? 1 : 0, state.raidId],
   )
-  db.run(`UPDATE raid_slots SET submitted_this_day = NULL WHERE raid_id = ?`, [state.raidId])
+  // persist accumulated boards for every slot (NPC slots get rows too so their
+  // builds survive restarts). also clears today's submission.
+  for (const slot of state.slots) {
+    db.run(
+      `INSERT INTO raid_slots (raid_id, position, username, board_json, submitted_this_day)
+       VALUES (?, ?, ?, ?, NULL)
+       ON CONFLICT(raid_id, position) DO UPDATE SET
+         board_json = excluded.board_json,
+         submitted_this_day = NULL,
+         last_active_at = datetime('now')`,
+      [state.raidId, slot.position, slot.username, JSON.stringify(slot.boardItems)],
+    )
+  }
 
   return state
 }

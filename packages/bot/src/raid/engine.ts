@@ -9,10 +9,11 @@ import type { BoardItem, Resolution } from './types'
 const TICK_MS = 60_000
 
 // per-pace tuning. normal is the default; fast for active chat, slow for deliberate streams.
+// targets a full run inside a single stream segment: ~30min normal, ~1hr worst case.
 const PACE_CONFIG: Record<string, { floor: number; slow: number; force: number }> = {
-  fast:   { floor: 60_000,  slow:  3 * 60_000, force: 10 * 60_000 },
-  normal: { floor: 90_000,  slow:  5 * 60_000, force: 15 * 60_000 },
-  slow:   { floor: 120_000, slow: 10 * 60_000, force: 30 * 60_000 },
+  fast:   { floor: 30_000, slow:  90_000,   force:  4 * 60_000 },
+  normal: { floor: 60_000, slow: 3 * 60_000, force:  6 * 60_000 },
+  slow:   { floor: 90_000, slow: 5 * 60_000, force: 10 * 60_000 },
 }
 
 type SayFn = (channel: string, msg: string) => void
@@ -33,6 +34,9 @@ function itemToBoard(title: string, tier: string, size: string, cd: number | und
 
 // pick a monster for the day, optionally biased toward a hint (e.g. "sea" / "forest")
 // from the resolved vote. Falls back to random if no match.
+// Monster board items look up the real card to recover size + tags (the metadata
+// only stores title/tier/id), so sim weights and tag-synergy bonuses apply fairly
+// to both sides of the fight.
 function pickMonster(day: number, hint?: string): { title: string; board: BoardItem[] } {
   const pool = store.monstersByDay(day)
   if (!pool.length) return { title: `Day ${day} Boss`, board: [] }
@@ -47,16 +51,25 @@ function pickMonster(day: number, hint?: string): { title: string; board: BoardI
     if (filtered.length) candidates = filtered
   }
   const m = candidates[Math.floor(Math.random() * candidates.length)]
-  const board = (m.MonsterMetadata?.board ?? []).map((b) => ({
-    title: b.title,
-    tier: b.tier,
-    size: 'Medium',
-    cooldownMs: 0,
-    tags: [],
-  }))
+  const board = (m.MonsterMetadata?.board ?? []).map((b) => {
+    const card = store.findCard(b.title)
+    const cd = typeof card?.Cooldown === 'number'
+      ? card.Cooldown
+      : card?.Cooldown?.[b.tier] ?? undefined
+    return itemToBoard(b.title, b.tier, card?.Size ?? 'Medium', cd, card?.Tags ?? [])
+  })
   return { title: m.Title, board }
 }
 
+// deterministic NPC pick — varies per (raid, day, slot position) so the 7-NPC
+// majority doesn't homogenize the party board with 7 copies of shop slot 0.
+function npcShopSlot(raidId: number, day: number, position: number): number {
+  return ((raidId * 31 + day * 17 + position * 13) >>> 0) % 8
+}
+
+// Appends today's pick into each slot's accumulated board (FIFO, capped) and
+// returns the full combined party board for sim. Accumulation is the roguelike
+// core: a day-5 party board has ~5 items per slot, building synergies over time.
 function resolvePartyBoard(channel: string, day: number, hero: string, raidId: number): {
   board: BoardItem[]
   namedPicks: Map<string, string>
@@ -66,30 +79,35 @@ function resolvePartyBoard(channel: string, day: number, hero: string, raidId: n
 
   const shop = getShop(raidId, day, hero)
   const namedPicks = new Map<string, string>()
-  const board: BoardItem[] = []
 
   for (const slot of raid.slots) {
     let card = slot.submittedThisDay !== null
       ? shop.find((s) => s.shopSlot === slot.submittedThisDay)?.card ?? null
       : null
 
-    // NPC autofill: pick first shop item (cheapest / lowest slot)
-    if (!card) card = shop[0]?.card ?? null
+    // NPC autofill: deterministic varied slot per (raid, day, position).
+    if (!card && slot.username === null) {
+      const npcSlot = npcShopSlot(raidId, day, slot.position)
+      card = shop.find((s) => s.shopSlot === npcSlot)?.card ?? null
+    }
+
     if (!card) continue
 
-    // use the card's base tier (simplified — real pick would track selected tier)
     const tier = card.BaseTier
     const cd = typeof card.Cooldown === 'number'
       ? card.Cooldown
       : card.Cooldown?.[tier] ?? undefined
+    const item = itemToBoard(card.Title, tier, card.Size, cd, card.Tags ?? [])
 
-    board.push(itemToBoard(card.Title, tier, card.Size, cd, card.Tags ?? []))
+    state.appendSlotPick(slot, item)
 
     if (slot.username && slot.submittedThisDay !== null) {
       namedPicks.set(slot.username, card.Title)
     }
   }
 
+  const board: BoardItem[] = []
+  for (const slot of raid.slots) board.push(...slot.boardItems)
   return { board, namedPicks }
 }
 
