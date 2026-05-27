@@ -6,7 +6,7 @@ import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache } from './trivia'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam } from './ai'
 import { isEmote } from './emotes'
-import { getThread } from './chatbuf'
+import { getThread, getRecent } from './chatbuf'
 import { log } from './log'
 import * as raidCmds from './raid/commands'
 
@@ -42,6 +42,29 @@ async function tryAiRespond(query: string, ctx: CommandContext, mentions: string
     if (missing.length > 0) response = withSuffix(response, ` ${missing.join(' ')}`)
   }
   return response
+}
+
+// rotate among varied structure-forcing nudges so consecutive bare-!b calls produce different shapes
+const BARE_B_NUDGES = [
+  'pick one specific chatter or moment from recent chat and react in one sentence',
+  'observation about whats happening in chat right now — one concrete sentence, no meta',
+  'one-liner take on the current convo — fresh angle, dont repeat yourself',
+  'shout out a chatter by name with a real reason from their recent message',
+  'ask chat a sharp question based on what someone just said',
+  'short hot take on the topic chat is on right now',
+  'pick a real line from recent chat and riff on it — quote or paraphrase briefly',
+  'two-word reaction to the vibe in chat',
+]
+function buildBareBQuery(channel?: string): string {
+  const nudge = BARE_B_NUDGES[Math.floor(Math.random() * BARE_B_NUDGES.length)]
+  if (!channel) return `${nudge}. dont react to "!b" itself.`
+  const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
+  const recent = getRecent(channel, 15)
+    .filter((m) => m.user.toLowerCase() !== botName && !/^!\w/.test(m.text.trim()) && m.text.trim().length > 3)
+    .slice(-3)
+  if (recent.length === 0) return `${nudge}. dont react to "!b" itself.`
+  const snippet = recent.map((m) => `${m.user}: ${m.text}`).join(' / ')
+  return `${nudge}. anchor on this from chat: ${snippet}. dont react to "!b" itself.`
 }
 
 function withSuffix(text: string, suffix: string): string {
@@ -558,7 +581,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   }
 
   // bare !b → riff on recent chat; help/info → describe capabilities (no hardcoded usage line)
-  if (!cleanArgs) return tryAiRespond('react to chat', ctx, mentions)
+  if (!cleanArgs) return tryAiRespond(buildBareBQuery(ctx.channel), ctx, mentions)
   if (cleanArgs === 'help' || cleanArgs === 'info') return tryAiRespond('what does this bot do', ctx, mentions)
 
   if (/^(how (do you|does this( bot)?) work|what are you|what is this)\b/i.test(cleanArgs)) {
