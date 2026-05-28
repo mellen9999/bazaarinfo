@@ -610,16 +610,14 @@ describe('getAiCooldown', () => {
     expect(getAiCooldown()).toBe(0)
   })
 
-  it('returns >0 per-user after usage (30s cooldown)', () => {
+  it('per-user cooldown is disabled (always 0)', () => {
     recordUsage('testuser123')
-    const cd = getAiCooldown('testuser123')
-    expect(cd).toBeGreaterThan(0)
+    expect(getAiCooldown('testuser123')).toBe(0)
   })
 
-  it('returns >0 per-user for game queries (30s cooldown)', () => {
+  it('per-user cooldown stays 0 for game queries', () => {
     recordUsage('gameuser1', true)
-    const cd = getAiCooldown('gameuser1')
-    expect(cd).toBeGreaterThan(0)
+    expect(getAiCooldown('gameuser1')).toBe(0)
   })
 
   it('global cooldown set per-channel for non-game queries', () => {
