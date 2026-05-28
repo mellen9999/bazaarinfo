@@ -96,9 +96,10 @@ mock.module('./trivia', () => ({
 }))
 
 // --- mock emotes ---
+const TEST_EMOTES = new Set(['KEKW', 'Sadge', 'LULW', 'LICK', 'PogChamp', 'LUL', 'OMEGALUL', 'Kappa'])
 mock.module('./emotes', () => ({
-  isEmote: mock(() => false),
-  findEmote: mock(() => undefined),
+  isEmote: mock((name: string) => TEST_EMOTES.has(name)),
+  findEmote: mock((name: string) => TEST_EMOTES.has(name) ? name : undefined),
   refreshGlobalEmotes: mock(async () => []),
   refreshChannelEmotes: mock(async () => []),
   getEmotesForChannel: mock(() => []),
@@ -1740,8 +1741,8 @@ describe('spam wall cap', () => {
   }
 
   it('caps single emote at 5 copies', async () => {
-    const out = await handleCommand('!b spam LICK', { user: 'u', channel: 'c' })
-    const t = tokens(out).filter((w) => w === 'LICK')
+    const out = await handleCommand('!b spam KEKW', { user: 'u', channel: 'c' })
+    const t = tokens(out).filter((w) => w === 'KEKW')
     expect(t.length).toBe(5)
   })
 
@@ -1751,9 +1752,16 @@ describe('spam wall cap', () => {
     expect(t.length).toBe(5)
   })
 
-  it('rotates through unique tokens', async () => {
-    const out = await handleCommand('!b spam A B', { user: 'u', channel: 'c' })
-    expect(out).toContain('A B A B A')
+  it('rotates through unique emotes', async () => {
+    const out = await handleCommand('!b spam KEKW Sadge', { user: 'u', channel: 'c' })
+    expect(out).toContain('KEKW Sadge KEKW Sadge KEKW')
+  })
+
+  it('drops conversational filler around emote', async () => {
+    const out = await handleCommand('!b spam KEKW pls Mr. Clanker', { user: 'u', channel: 'c' })
+    const t = tokens(out).filter((w) => w === 'KEKW')
+    expect(t.length).toBe(5)
+    expect(out).not.toMatch(/pls|Clanker/)
   })
 })
 

@@ -5,7 +5,7 @@ import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia } from './trivia'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam } from './ai'
-import { isEmote } from './emotes'
+import { isEmote, findEmote } from './emotes'
 import { getThread, getRecent } from './chatbuf'
 import { log } from './log'
 import * as raidCmds from './raid/commands'
@@ -723,15 +723,16 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     if (match) return await handler(match[1]?.trim() ?? cleanArgs, ctx, suffix)
   }
 
-  // spam wall interception — handle without AI. cap at 5 TOTAL tokens
-  // (rotates through unique inputs); "spam X"=5 X, "spam X Y Z"=X Y Z X Y.
+  // spam wall interception — handle without AI. cap at 5 TOTAL tokens.
+  // only known emotes count as payload; conversational filler ("pls Mr. Clanker") is dropped.
+  // if no real emotes survive the filter, fall through to AI.
   const spamMatch = cleanArgs.match(/^spam\s+(?:this\s+)?(.+)/i)
   if (spamMatch) {
     const tokens = spamMatch[1].trim().split(/\s+/).filter(Boolean)
-    const unique = [...new Set(tokens)]
-    if (unique.length > 0 && unique.length <= 5 && unique.every((t) => t.length <= 30)) {
+    const emotes = [...new Set(tokens.map((t) => findEmote(t)).filter((e): e is string => !!e))]
+    if (emotes.length > 0 && emotes.length <= 5 && emotes.every((t) => t.length <= 30)) {
       const out: string[] = []
-      while (out.length < 5) out.push(unique[out.length % unique.length])
+      while (out.length < 5) out.push(emotes[out.length % emotes.length])
       return withSuffix(out.join(' '), suffix)
     }
   }

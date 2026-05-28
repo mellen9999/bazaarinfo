@@ -104,6 +104,9 @@ const KNOWN_GLOBALS = [
   'pepega', 'WideHardo', '5Head', '3Head', 'pepeDS', 'RainTime',
 ]
 
+// seed allEmoteNames with globals so isEmote/findEmote work before any 7TV fetch lands
+rebuildAllEmoteNames()
+
 async function fetch7TVData(url: string, extract: (data: any) => EmoteData[]): Promise<EmoteData[]> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(10_000) })
