@@ -26,6 +26,12 @@ export function stripUnpairedSurrogates(s: string): string {
     .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
 }
 
+// safe JSON.stringify that scrubs orphan surrogates from every string field.
+// (a bare regex after stringify can't see them — they get encoded as \uXXXX text.)
+export function safeStringify(body: unknown): string {
+  return JSON.stringify(body, (_k, v) => typeof v === 'string' ? stripUnpairedSurrogates(v) : v)
+}
+
 // --- constants ---
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
@@ -150,7 +156,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           'x-api-key': API_KEY!,
           'anthropic-version': '2023-06-01',
         },
-        body: stripUnpairedSurrogates(JSON.stringify(body)),
+        body: safeStringify(body),
         signal: controller.signal,
       })
       clearTimeout(timer)
