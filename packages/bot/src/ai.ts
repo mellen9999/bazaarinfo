@@ -17,6 +17,15 @@ import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSucc
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, GAME_TERMS } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 
+// strip orphan UTF-16 surrogate halves — twitch chat / 7TV emote names occasionally
+// inject lone D800-DBFF or DC00-DFFF code units. anthropic's JSON parser rejects them
+// with "no low surrogate in string", tripping the circuit breaker.
+export function stripUnpairedSurrogates(s: string): string {
+  return s
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '')
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
+}
+
 // --- constants ---
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
@@ -141,7 +150,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           'x-api-key': API_KEY!,
           'anthropic-version': '2023-06-01',
         },
-        body: JSON.stringify(body),
+        body: stripUnpairedSurrogates(JSON.stringify(body)),
         signal: controller.signal,
       })
       clearTimeout(timer)
