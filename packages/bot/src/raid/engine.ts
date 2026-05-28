@@ -85,8 +85,11 @@ function resolvePartyBoard(channel: string, day: number, hero: string, raidId: n
       ? shop.find((s) => s.shopSlot === slot.submittedThisDay)?.card ?? null
       : null
 
-    // NPC autofill: deterministic varied slot per (raid, day, position).
-    if (!card && slot.username === null) {
+    // NPC autofill for any unfilled slot — including humans who didn't pick
+    // this day. their slot keeps playing (NPC picks for them, varied per day)
+    // and they can override by picking next round. removes the silent
+    // "AFK = dead slot" footgun.
+    if (!card) {
       const npcSlot = npcShopSlot(raidId, day, slot.position)
       card = shop.find((s) => s.shopSlot === npcSlot)?.card ?? null
     }
@@ -127,6 +130,10 @@ function resolvePartyBoard(channel: string, day: number, hero: string, raidId: n
 function shouldResolve(channel: string, manual = false): boolean {
   const raid = state.getRaid(channel)
   if (!raid || raid.status !== 'active' || !raid.enabled) return false
+
+  // pause when zero humans: a run with all-NPC slots would otherwise keep
+  // posting narratives nobody asked for. next !b join resumes it.
+  if (!manual && !raid.slots.some((s) => s.username !== null)) return false
 
   // stream-aware: only manual resolves fire when stream is offline. prevents burning runs at 3am.
   if (!manual && !isLive(channel)) return false
