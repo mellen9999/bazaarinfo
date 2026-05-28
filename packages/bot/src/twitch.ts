@@ -183,6 +183,11 @@ export class TwitchClient {
   private _channelIdMap: Record<string, string> = {}
   private ircOnlyChannels = new Set<string>()
   private eventsubPingInterval: Timer | null = null
+  // warm-reconnect state: on keepalive timeout, open a new WS in parallel rather than
+  // close-then-reconnect. old WS keeps delivering (onmessage attached) until new session
+  // is fully subscribed, then we close it. dedup ring catches any momentary overlap.
+  private pendingOldEventsub: WebSocket | null = null
+  private warmReconnecting = false
   private ircPingInterval: Timer | null = null
   private ircConnectTimeout: Timer | null = null
   private ircJoinAckTimeout: Timer | null = null
@@ -254,6 +259,8 @@ export class TwitchClient {
     if (this.ircConnectTimeout) clearTimeout(this.ircConnectTimeout)
     if (this.ircJoinAckTimeout) clearTimeout(this.ircJoinAckTimeout)
     this.eventsub?.close()
+    this.pendingOldEventsub?.close()
+    this.pendingOldEventsub = null
     this.irc?.close()
     log('connections closed')
   }
@@ -275,7 +282,17 @@ export class TwitchClient {
       const isWafBlock = ev.code === 1002 && /101|forbidden|403/i.test(reason)
       if (isWafBlock) this.eventsubLastWafBlockReason = reason
       // only reconnect if this is still the active WS (prevents stray reconnect on session_reconnect)
-      if (this.eventsub === ws) this.reconnectEventSub(isWafBlock)
+      if (this.eventsub === ws) {
+        // warm reconnect's NEW ws died before welcome — drop both, fall back to cold reconnect
+        if (this.warmReconnecting) {
+          if (this.pendingOldEventsub) {
+            try { this.pendingOldEventsub.close() } catch {}
+            this.pendingOldEventsub = null
+          }
+          this.warmReconnecting = false
+        }
+        this.reconnectEventSub(isWafBlock)
+      }
     }
     ws.onerror = (ev) => {
       const msg = (ev as unknown as { message?: string }).message || ''
@@ -297,10 +314,20 @@ export class TwitchClient {
       this.eventsubEverConnected = true
       this.eventsubLastWafBlockReason = ''
       saveEventsubState({ consecutiveFailures: 0, lastFailureAt: 0, firstFailureAt: 0, lastWafBlockAt: 0 })
-      await this.cleanupStaleSubscriptions()
+      // subscribe new session FIRST so messages can flow before we tear anything down.
+      // cleanup of stale (old-session) subs runs in background — no race since each
+      // session's subs are independent slots on twitch's side.
       await this.subscribeAll()
       this.resetKeepalive()
       this.startEventSubPing()
+      // warm reconnect: now that new session is fully subscribed, close the old ws.
+      if (this.pendingOldEventsub) {
+        try { this.pendingOldEventsub.close() } catch {}
+        this.pendingOldEventsub = null
+        log('warm reconnect complete — old ws closed')
+      }
+      this.warmReconnecting = false
+      this.cleanupStaleSubscriptions().catch((e) => log(`background cleanup failed: ${e}`))
     } else if (type === 'session_keepalive') {
       this.resetKeepalive()
     } else if (type === 'notification') {
@@ -383,8 +410,7 @@ export class TwitchClient {
         cursor = data.pagination?.cursor
       } while (cursor)
       if (deleted > 0) {
-        log(`eventsub: cleaned up ${deleted} stale subscriptions, waiting 2s for Twitch to process`)
-        await new Promise((r) => setTimeout(r, 2000))
+        log(`eventsub: cleaned up ${deleted} stale subscriptions`)
       }
     } catch (e) {
       log(`eventsub: cleanup failed: ${e}`)
@@ -395,9 +421,25 @@ export class TwitchClient {
     this.lastActivity = Date.now()
     if (this.keepaliveTimeout) clearTimeout(this.keepaliveTimeout)
     this.keepaliveTimeout = setTimeout(() => {
-      log('keepalive timeout, reconnecting eventsub...')
-      this.eventsub?.close()
+      log('keepalive timeout — warm reconnecting')
+      this.warmReconnectEventSub()
     }, this.keepaliveMs + 5000)
+  }
+
+  private warmReconnectEventSub() {
+    if (this.warmReconnecting || this.closing) return
+    this.warmReconnecting = true
+    if (this.eventsubPingInterval) { clearInterval(this.eventsubPingInterval); this.eventsubPingInterval = null }
+    if (this.keepaliveTimeout) { clearTimeout(this.keepaliveTimeout); this.keepaliveTimeout = null }
+    const oldWs = this.eventsub
+    if (oldWs) {
+      // detach close/error so its eventual close doesn't trigger fresh reconnect.
+      // KEEP onmessage so it continues delivering until the new session is ready.
+      oldWs.onclose = null
+      oldWs.onerror = null
+    }
+    this.pendingOldEventsub = oldWs ?? null
+    this.eventsub = this.wireEventSub(new WebSocket(EVENTSUB_URL))
   }
 
   private async reconnectWithBackoff(
@@ -447,15 +489,15 @@ export class TwitchClient {
   }
 
   private async subscribeAll() {
-    let ok = 0
-    for (const ch of this.config.channels) {
-      try {
-        await this.subscribe(ch.userId)
-        ok++
-      } catch (e) {
-        log(`subscribe error for ${ch.name}: ${e}`)
-      }
-    }
+    const results = await Promise.allSettled(
+      this.config.channels.map((ch) =>
+        this.subscribe(ch.userId).catch((e) => {
+          log(`subscribe error for ${ch.name}: ${e}`)
+          throw e
+        }),
+      ),
+    )
+    const ok = results.filter((r) => r.status === 'fulfilled').length
     if (ok === 0 && this.config.channels.length > 0) {
       log('all eventsub subscriptions failed — exiting for systemd restart')
       process.exit(1)
