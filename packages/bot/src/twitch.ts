@@ -818,7 +818,13 @@ export class TwitchClient {
     const now = Date.now()
     const cutoff = now - this.SEND_WINDOW
     while (this.sendTimes.length > 0 && this.sendTimes[0] < cutoff) this.sendTimes.shift()
-    if (text.length > 490) text = text.slice(0, 487) + '...'
+    if (text.length > 490) {
+      let cut = text.slice(0, 487)
+      // if slice landed mid surrogate pair, drop the orphan high half
+      const last = cut.charCodeAt(cut.length - 1)
+      if (last >= 0xD800 && last <= 0xDBFF) cut = cut.slice(0, -1)
+      text = cut + '...'
+    }
     if (!this.canSend()) {
       if (this.ircQueue.length >= MAX_QUEUE) {
         log('queue full, dropping oldest')

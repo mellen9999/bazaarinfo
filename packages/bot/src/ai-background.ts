@@ -5,7 +5,7 @@ import { getUserInfo, getFollowage } from './twitch'
 import { getAccessToken } from './auth'
 import { AI_CHANNELS, getChannelId } from './ai-cache'
 import { REMEMBER_RE } from './ai-context'
-import { stripUnpairedSurrogates } from './ai'
+import { safeStringify } from './ai'
 import { log } from './log'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
@@ -37,12 +37,12 @@ async function summarizeChat(channel: string, recent: ChatEntry[], prev: string)
         'x-api-key': API_KEY,
         'anthropic-version': '2023-06-01',
       },
-      body: stripUnpairedSurrogates(JSON.stringify({
+      body: safeStringify({
         model: MODEL,
         max_tokens: 50,
         system: EXTRACT_SYSTEM,
         messages: [{ role: 'user', content: prompt }],
-      })),
+      }),
       signal: AbortSignal.timeout(10_000),
     })
     if (!res.ok) return prev
@@ -89,7 +89,7 @@ async function extractChatLessons(channel: string, recent: ChatEntry[]): Promise
         'content-type': 'application/json',
         'anthropic-version': '2023-06-01',
       },
-      body: stripUnpairedSurrogates(JSON.stringify({
+      body: safeStringify({
         model: MODEL,
         max_tokens: 150,
         system: EXTRACT_SYSTEM,
@@ -99,7 +99,7 @@ Each insight = one short line (10-80 chars). Output ONLY the insights, one per l
 
 Chat:
 ${chatLines}` }],
-      })),
+      }),
       signal: AbortSignal.timeout(TIMEOUT),
     })
 
@@ -184,12 +184,12 @@ export async function maybeUpdateMemo(user: string, force = false) {
         'x-api-key': API_KEY,
         'anthropic-version': '2023-06-01',
       },
-      body: stripUnpairedSurrogates(JSON.stringify({
+      body: safeStringify({
         model: MODEL,
         max_tokens: 80,
         system: EXTRACT_SYSTEM,
         messages: [{ role: 'user', content: prompt }],
-      })),
+      }),
       signal: AbortSignal.timeout(10_000),
     })
 
@@ -245,7 +245,7 @@ export async function maybeExtractFacts(user: string, query: string, response: s
         'x-api-key': API_KEY,
         'anthropic-version': '2023-06-01',
       },
-      body: stripUnpairedSurrogates(JSON.stringify({ model: MODEL, max_tokens: 60, system: EXTRACT_SYSTEM, messages: [{ role: 'user', content: prompt }] })),
+      body: safeStringify({ model: MODEL, max_tokens: 60, system: EXTRACT_SYSTEM, messages: [{ role: 'user', content: prompt }] }),
       signal: AbortSignal.timeout(10_000),
     })
 

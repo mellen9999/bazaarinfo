@@ -194,7 +194,16 @@ export function getActiveThreads(channel: string, windowMs = 120_000): Thread[] 
 
 // --- core ---
 
+// drop orphan UTF-16 surrogates BEFORE storing so a single corrupt input/output
+// can't keep poisoning later AI prompts (anthropic rejects them as invalid JSON).
+function stripSurrogates(s: string): string {
+  return s
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '')
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
+}
+
 export function record(channel: string, user: string, text: string, messageId?: string, threadId?: string) {
+  text = stripSurrogates(text)
   const now = Date.now()
   const last = lastMessageTime.get(channel) ?? 0
   if (last > 0 && now - last > SESSION_GAP) {
