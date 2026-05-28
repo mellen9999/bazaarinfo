@@ -6,8 +6,8 @@ import { log } from './log'
 // --- cooldowns ---
 
 const lastAiByChannel = new Map<string, number>()
-export const AI_GLOBAL_CD = 30_000 // 30s per-channel (non-game only)
-const USER_AI_CD = 30_000
+export const AI_GLOBAL_CD = 0 // disabled — busy chats (kripp) need firehose, irc 90/30s + ai concurrency are the real ceiling
+const USER_AI_CD = 0
 const lastAiByUser = new Map<string, number>()
 const USER_CD_MAX = 500
 

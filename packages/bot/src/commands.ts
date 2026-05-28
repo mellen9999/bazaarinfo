@@ -762,14 +762,12 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     }
   }
 
-  // established-spammer shortcut: bare emote from a user whose recent !b history
-  // shows they keep asking the bot to spam this same emote = treat as implicit spam.
-  // covers "!b LICK" from regulars who always mean "spam LICK".
-  if (ctx.user) {
-    const bareEmote = findEmote(cleanArgs.trim())
-    if (bareEmote && isEstablishedSpammer(ctx.user, bareEmote)) {
-      return withSuffix(Array(5).fill(bareEmote).join(' '), suffix)
-    }
+  // bare emote = spam intent. chat-norm for "!b <emote>" is participation,
+  // not "what does this emote mean" — let the AI handle the question form
+  // (e.g. "what is X?"), but a single emote name always = 5x spam.
+  const bareEmote = findEmote(cleanArgs.trim())
+  if (bareEmote) {
+    return withSuffix(Array(5).fill(bareEmote).join(' '), suffix)
   }
 
   // detect conversational/creative queries that should skip item lookup entirely
@@ -821,7 +819,8 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 }
 
 // --- !b AI fallback cooldown: per-user ---
-const B_FALLBACK_CD = 10_000
+// disabled — kripp chat needs every query answered; irc rate-limit + ai concurrency cap it naturally
+const B_FALLBACK_CD = 0
 const bFallbackCooldowns = new Map<string, number>()
 
 function getBFallbackCooldown(user?: string): number {
