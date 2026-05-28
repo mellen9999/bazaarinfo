@@ -66,6 +66,31 @@ const QUESTION_RE = /\?\s*$|^(who|what|when|where|why|how|does|do|is|are|am|can|
 
 function clip(s: string, n: number): string { return s.length <= n ? s : s.slice(0, n) }
 
+// returns true if `user`'s recent !b asks show a pattern of asking the bot to
+// spam this specific emote — e.g. two prior asks within the last hour where the
+// bot's response was a >=3x repeat of `emote`. used to interpret a bare "!b <emote>"
+// from a known spammer as implicit spam intent instead of routing to AI roulette.
+function isEstablishedSpammer(user: string, emote: string): boolean {
+  try {
+    const asks = db.getRecentAsks(user, 8)
+    if (asks.length < 2) return false
+    const cutoff = Date.now() - 60 * 60_000  // 1 hour
+    const escaped = emote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const re = new RegExp(`\\b${escaped}\\b`, 'gi')
+    let hits = 0
+    for (const a of asks) {
+      const ts = new Date(a.created_at).getTime()
+      if (Number.isFinite(ts) && ts < cutoff) continue
+      const count = (a.response?.match(re) ?? []).length
+      if (count >= 3) hits++
+      if (hits >= 2) return true
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
 function recentEligible(channel: string): { user: string; text: string }[] {
   try {
     const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
@@ -734,6 +759,16 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
       const out: string[] = []
       while (out.length < 5) out.push(emotes[out.length % emotes.length])
       return withSuffix(out.join(' '), suffix)
+    }
+  }
+
+  // established-spammer shortcut: bare emote from a user whose recent !b history
+  // shows they keep asking the bot to spam this same emote = treat as implicit spam.
+  // covers "!b LICK" from regulars who always mean "spam LICK".
+  if (ctx.user) {
+    const bareEmote = findEmote(cleanArgs.trim())
+    if (bareEmote && isEstablishedSpammer(ctx.user, bareEmote)) {
+      return withSuffix(Array(5).fill(bareEmote).join(' '), suffix)
     }
   }
 

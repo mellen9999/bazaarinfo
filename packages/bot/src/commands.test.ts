@@ -43,10 +43,12 @@ mock.module('./store', () => ({
 // --- mock db ---
 const mockLogCommand = mock<(...args: any[]) => void>(() => {})
 const mockGetOrCreateUser = mock<(username: string) => number>(() => 1)
+const mockGetRecentAsks = mock<(user: string, limit?: number) => { query: string; response: string | null; created_at: string }[]>(() => [])
 
 mock.module('./db', () => ({
   logCommand: mockLogCommand,
   getOrCreateUser: mockGetOrCreateUser,
+  getRecentAsks: mockGetRecentAsks,
   logChat: mock(() => {}),
   getUserStats: mock(() => null),
   getChannelLeaderboard: mock(() => []),
