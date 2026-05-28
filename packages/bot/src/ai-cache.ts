@@ -197,8 +197,11 @@ export function cbIsOpen(): boolean {
 // previously serial (1-at-a-time) — that meant a 6s pasta blocked the next user's
 // 1s query for the full 6s. now N concurrent, queue caps total waiting depth.
 
-export const AI_MAX_CONCURRENT = 3
-export const AI_MAX_QUEUE = 5
+// firehose mode: busy chats (kripp) need real throughput. at ~3s/response, 10 concurrent
+// = ~3 responses/sec sustained — comfortably above twitch's 90/30s send ceiling so the
+// irc rate-limit becomes the natural backpressure, not us.
+export const AI_MAX_CONCURRENT = 10
+export const AI_MAX_QUEUE = 30
 
 let inFlight: Promise<void>[] = []
 export let aiQueueDepth = 0
@@ -222,7 +225,9 @@ export function decrementQueue() { aiQueueDepth-- }
 
 // --- per-channel daily token cap ---
 
-export const AI_DAILY_TOKEN_CAP = Math.max(0, parseInt(process.env.AI_DAILY_TOKEN_CAP ?? '200000') || 0)
+// daily token cap disabled by default — uncapped per user direction. set AI_DAILY_TOKEN_CAP
+// env var to re-enable if cost ever needs a hard ceiling.
+export const AI_DAILY_TOKEN_CAP = Math.max(0, parseInt(process.env.AI_DAILY_TOKEN_CAP ?? '0') || 0)
 
 export function isOverDailyCap(channel: string): boolean {
   if (AI_DAILY_TOKEN_CAP === 0) return false
