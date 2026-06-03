@@ -34,17 +34,44 @@ function checkCooldown(user: string): boolean {
   return true
 }
 
-// !b join is silent UNLESS this join creates a brand-new raid, in which case the engine
-// emits the intro narrative (the third bounded bot-output trigger after resolutions + run-end).
-export function handleJoin(args: string, ctx: CommandContext): null {
+// throttle the per-join "you're in" ack so a burst of joiners can't spam chat —
+// one ack line per channel per window, the rest claim their slot silently.
+const JOIN_ACK_MS = 12_000
+const lastJoinAck = new Map<string, number>()
+
+function joinAckAllowed(channel: string): boolean {
+  const now = Date.now()
+  const last = lastJoinAck.get(channel) ?? 0
+  if (now - last < JOIN_ACK_MS) return false
+  lastJoinAck.set(channel, now)
+  return true
+}
+
+// !b join: creating a brand-new raid posts the intro narrative (bounded bot-output trigger).
+// joining an existing raid returns a terse, throttled ack so joiners aren't met with silence —
+// and a full raid says so instead of failing invisibly (the big-channel footgun: 10 slots fill,
+// everyone after gets nothing and thinks the bot is broken).
+export function handleJoin(args: string, ctx: CommandContext): string | null {
   if (!ctx.user || !ctx.channel) return null
   if (!checkCooldown(ctx.user)) return null
   if (!state.isEnabled(ctx.channel)) return null
   const createdNewRaid = !state.getRaid(ctx.channel)
-  state.claimSlot(ctx.channel, ctx.user)
-  if (createdNewRaid) engine.announceStart(ctx.channel, ctx.user)
+  const result = state.claimSlot(ctx.channel, ctx.user)
+  if (createdNewRaid) {
+    engine.announceStart(ctx.channel, ctx.user)
+    engine.triggerCheck(ctx.channel)
+    return null // intro already covers how to play
+  }
   engine.triggerCheck(ctx.channel)
-  return null
+  if (result === 'full') {
+    return joinAckAllowed(ctx.channel)
+      ? `raid's full (10/10) — !b party to watch, a slot frees when the run ends`
+      : null
+  }
+  if (result !== 'joined') return null // already in a slot — don't nag
+  return joinAckAllowed(ctx.channel)
+    ? `@${ctx.user} joined the raid — !b pick <item> to play, !b party for the board`
+    : null
 }
 
 export function handleLeave(args: string, ctx: CommandContext): null {

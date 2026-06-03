@@ -252,7 +252,7 @@ describe('state (DB)', () => {
   it('claimSlot assigns a slot to a user', () => {
     const state = raidState.getOrCreateRaid('chan1')
     const ok = raidState.claimSlot('chan1', 'alice')
-    expect(ok).toBe(true)
+    expect(ok).toBe('joined')
     const updated = raidState.getRaid('chan1')!
     const aliceSlot = updated.slots.find((s) => s.username === 'alice')
     expect(aliceSlot).toBeTruthy()
@@ -262,7 +262,7 @@ describe('state (DB)', () => {
     raidState.getOrCreateRaid('chan2')
     raidState.claimSlot('chan2', 'bob')
     const ok2 = raidState.claimSlot('chan2', 'bob')
-    expect(ok2).toBe(false)
+    expect(ok2).toBe('already')
     const state = raidState.getRaid('chan2')!
     const bobSlots = state.slots.filter((s) => s.username === 'bob')
     expect(bobSlots.length).toBe(1)

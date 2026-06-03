@@ -164,21 +164,23 @@ export function setEnabled(channel: string, on: boolean) {
   db.run(`UPDATE raids SET enabled = ? WHERE channel = ? AND status = 'active'`, [on ? 1 : 0, key])
 }
 
-export function claimSlot(channel: string, username: string): boolean {
+export type JoinResult = 'joined' | 'already' | 'full' | 'inactive'
+
+export function claimSlot(channel: string, username: string): JoinResult {
   const state = getOrCreateRaid(channel)
-  if (state.status !== 'active') return false
+  if (state.status !== 'active') return 'inactive'
   const lower = username.toLowerCase()
   // already in a slot
-  if (state.slots.some((s) => s.username?.toLowerCase() === lower)) return false
+  if (state.slots.some((s) => s.username?.toLowerCase() === lower)) return 'already'
   const open = state.slots.find((s) => s.username === null)
-  if (!open) return false
+  if (!open) return 'full'
   open.username = lower
   db.run(
     `INSERT OR REPLACE INTO raid_slots (raid_id, position, username, board_json, submitted_this_day)
      VALUES (?, ?, ?, ?, NULL)`,
     [state.raidId, open.position, lower, JSON.stringify(open.boardItems)],
   )
-  return true
+  return 'joined'
 }
 
 export function releaseSlot(channel: string, username: string): boolean {
