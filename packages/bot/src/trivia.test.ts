@@ -319,12 +319,12 @@ describe('startTrivia', () => {
     expect(result).toMatch(/\d+s left/)
   })
 
-  it('enforces cooldown', () => {
+  it('no cooldown — a new round can start immediately after one ends', () => {
     startTrivia('#test')
     const game = getActiveGameForTest('#test')!
     checkAnswer('#test', 'winner', game.acceptedAnswers[0], mockSay)
     const result = startTrivia('#test')
-    expect(result).toContain('trivia on cooldown')
+    expect(result).toContain('Trivia!')
   })
 
   it('creates db game record', () => {
