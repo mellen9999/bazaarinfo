@@ -92,7 +92,7 @@ function addNicknames(accepted: string[]): string[] {
 
 const ROUND_DURATION = 30_000
 const HINT_DELAY = 15_000
-const COOLDOWN = 60_000
+const COOLDOWN = 0
 const RECENT_BUFFER_SIZE = 10
 const RECENT_QUESTIONS_SIZE = 10
 const MIN_ANSWER_LENGTH = 1
