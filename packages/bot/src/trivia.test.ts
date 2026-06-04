@@ -155,6 +155,7 @@ mock.module('./db', () => ({
   getChannelLeaderboard: mockGetChannelLeaderboard,
   logCommand: mock(() => {}),
   getTriviaStreak: mock(() => 0),
+  getTriviaWins: mock(() => 5),
   getTriviaTypeStats: mock(() => []),
 }))
 
@@ -313,7 +314,8 @@ describe('startTrivia', () => {
   it('starts and returns question', () => {
     const result = startTrivia('#test')
     expect(result).toStartWith('Trivia!')
-    expect(result).toContain('(30s to answer)')
+    expect(result).toContain('just type your answer')
+    expect(result).toContain('(30s)')
     expect(isGameActive('#test')).toBe(true)
   })
 
@@ -364,7 +366,7 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([2, 3, 5, 6, 8, 12, 13, 14, 16]).toContain(t)
+      expect([2, 3, 5, 6, 8, 12, 13, 14, 16, 18]).toContain(t)
     }
   })
 
@@ -392,7 +394,7 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([4, 7, 10, 11, 15]).toContain(t)
+      expect([4, 7, 10, 11, 15, 17, 19]).toContain(t)
     }
   })
 
