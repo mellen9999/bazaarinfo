@@ -1022,6 +1022,90 @@
       ],
       "difficulty": "hard",
       "category": "twitch-moment"
+    },
+    {
+      "question": "kripp's webcam gesture for every new sub?",
+      "answer": "brofist",
+      "accept": [
+        "brofist",
+        "krippfist"
+      ],
+      "difficulty": "easy",
+      "category": "twitch-moment"
+    },
+    {
+      "question": "the battlegrounds tilt copypasta wished kripp to finish what place?",
+      "answer": "8th place",
+      "accept": [
+        "8th",
+        "last"
+      ],
+      "difficulty": "medium",
+      "category": "twitch-moment"
+    },
+    {
+      "question": "the 'i'm kripp harrison' copypasta parodies which tv show?",
+      "answer": "pawn stars",
+      "accept": [
+        "pawn stars"
+      ],
+      "difficulty": "hard",
+      "category": "twitch-moment"
+    },
+    {
+      "question": "a kripp copypasta parodies the lord's prayer with which one-word brand?",
+      "answer": "salt",
+      "accept": [
+        "salt"
+      ],
+      "difficulty": "medium",
+      "category": "twitch-moment"
+    },
+    {
+      "question": "kripp's 'super sellout TTS bonanza' runs only on which day?",
+      "answer": "his birthday",
+      "accept": [
+        "his birthday",
+        "birthday"
+      ],
+      "difficulty": "medium",
+      "category": "twitch-moment"
+    },
+    {
+      "question": "who hosted 'streamer showdown' with kripp, brode and toast?",
+      "answer": "noxious",
+      "accept": [
+        "noxious"
+      ],
+      "difficulty": "hard",
+      "category": "twitch-moment"
+    },
+    {
+      "question": "kripp won marvel snap twitch rivals duos with which creator?",
+      "answer": "dekkster",
+      "accept": [
+        "dekkster"
+      ],
+      "difficulty": "hard",
+      "category": "twitch-moment"
+    },
+    {
+      "question": "amaz's jeopardy-parody hearthstone gameshow kripp was always on?",
+      "answer": "jeoparino",
+      "accept": [
+        "jeoparino"
+      ],
+      "difficulty": "medium",
+      "category": "twitch-moment"
+    },
+    {
+      "question": "which build site bills kripp as 'the #1 player of the bazaar'?",
+      "answer": "mobalytics",
+      "accept": [
+        "mobalytics"
+      ],
+      "difficulty": "medium",
+      "category": "twitch-moment"
     }
   ]
 }
