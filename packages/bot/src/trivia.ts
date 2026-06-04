@@ -19,7 +19,7 @@ const KRIPP_MIX = 0.3 // ~30% of un-categorized rounds in a kripp channel are kr
 
 let krippPack: PackQ[] = []
 try {
-  const raw = readFileSync(join(import.meta.dir, '../../../cache/kripp-trivia.json'), 'utf-8')
+  const raw = readFileSync(join(import.meta.dir, '../data/kripp-trivia.json'), 'utf-8')
   const parsed = JSON.parse(raw) as { questions?: PackQ[] }
   krippPack = (parsed.questions ?? []).filter((q) => q.question && q.answer)
 } catch { krippPack = [] }
