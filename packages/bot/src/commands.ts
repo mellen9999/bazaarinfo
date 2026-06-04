@@ -536,10 +536,10 @@ const subcommands: [RegExp, SubHandler][] = [
     logHit('skill', query, skill.Title, ctx)
     return withSuffix(formatItem(skill), suffix)
   }],
-  [/^trivia(?:\s+(items|heroes|monsters))?$/i, (query, ctx, suffix) => {
+  [/^trivia(?:\s+(items|heroes|monsters|kripp))?$/i, (query, ctx, suffix) => {
     if (!ctx.channel) return null
-    const validCategories = new Set(['items', 'heroes', 'monsters'])
-    const category = validCategories.has(query?.toLowerCase()) ? query.toLowerCase() as 'items' | 'heroes' | 'monsters' : undefined
+    const validCategories = new Set(['items', 'heroes', 'monsters', 'kripp'])
+    const category = validCategories.has(query?.toLowerCase()) ? query.toLowerCase() as 'items' | 'heroes' | 'monsters' | 'kripp' : undefined
     return withSuffix(startTrivia(ctx.channel, category), suffix)
   }],
   [/^skip$/i, (_query, ctx, suffix) => {
