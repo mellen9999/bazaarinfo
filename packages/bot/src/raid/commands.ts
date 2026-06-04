@@ -34,16 +34,19 @@ function checkCooldown(user: string): boolean {
   return true
 }
 
-// throttle the per-join "you're in" ack so a burst of joiners can't spam chat —
-// one ack line per channel per window, the rest claim their slot silently.
-const JOIN_ACK_MS = 12_000
-const lastJoinAck = new Map<string, number>()
+// throttle bot acks so a burst of joiners can't spam chat — one line per channel
+// per window, the rest are silent. 'join' and 'full' have INDEPENDENT windows so a
+// flurry of join acks can never suppress the higher-value "raid's full" notice (the
+// whole point: a full-raid joiner must never be met with silence).
+const ACK_MS = 12_000
+const lastAck = new Map<string, number>()
 
-function joinAckAllowed(channel: string): boolean {
+function ackAllowed(channel: string, kind: 'join' | 'full'): boolean {
+  const key = `${channel}:${kind}`
   const now = Date.now()
-  const last = lastJoinAck.get(channel) ?? 0
-  if (now - last < JOIN_ACK_MS) return false
-  lastJoinAck.set(channel, now)
+  const last = lastAck.get(key) ?? 0
+  if (now - last < ACK_MS) return false
+  lastAck.set(key, now)
   return true
 }
 
@@ -64,12 +67,12 @@ export function handleJoin(args: string, ctx: CommandContext): string | null {
   }
   engine.triggerCheck(ctx.channel)
   if (result === 'full') {
-    return joinAckAllowed(ctx.channel)
+    return ackAllowed(ctx.channel, 'full')
       ? `raid's full (10/10) — !b party to watch, a slot frees when the run ends`
       : null
   }
   if (result !== 'joined') return null // already in a slot — don't nag
-  return joinAckAllowed(ctx.channel)
+  return ackAllowed(ctx.channel, 'join')
     ? `@${ctx.user} joined the raid — !b pick <item> to play, !b party for the board`
     : null
 }
