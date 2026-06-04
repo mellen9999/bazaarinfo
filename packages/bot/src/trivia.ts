@@ -30,6 +30,9 @@ let tagItemMap: [string, string[]][] = []       // [tag, lowercaseTitles] filter
 let heroSizeMap: [string, string[]][] = []      // ["Hero|Size", lowercaseTitles] filtered to >=5
 let heroTagMap: [string, string[]][] = []       // ["Hero|Tag", lowercaseTitles] filtered to 3..30
 let mechanicMap: [string, string[]][] = []      // [keyword, lowercaseTitles] filtered to >=5
+// blanked tooltip shell -> distinct fill-blank answers. shells with many answers
+// ("Deal ___ Damage") are guess-the-common-number lotteries; type 16 rejects them.
+let fillBlankSpread = new Map<string, Set<string>>()
 
 function pushToMap(map: Map<string, string[]>, key: string, val: string) {
   let arr = map.get(key)
@@ -62,8 +65,11 @@ export function rebuildTriviaMaps() {
       // "Cleanse", "If you have another item with ... Burn" do NOT make the item a Freezer/Burner.
       if (/immune to|cleanse|if you have another item with/i.test(resolved)) continue
       for (const keyword of Object.keys(MECHANIC_VERBS)) {
+        // "Crit Chance" GRANTS crit to other items — the item itself doesn't crit. strip
+        // the grant phrase first so "name an item that Crits" only buckets true critters.
+        const text = keyword === 'Crit' ? resolved.replace(/crit chance/gi, '') : resolved
         // word-boundary match on resolved text — "Heal" must not fire on "Max Health".
-        if (new RegExp(`\\b${keyword}(s|es|ing)?\\b`, 'i').test(resolved)) {
+        if (new RegExp(`\\b${keyword}(s|es|ing)?\\b`, 'i').test(text)) {
           const arr = mMap.get(keyword)
           if (!arr || !arr.includes(lower)) pushToMap(mMap, keyword, lower)
         }
@@ -75,6 +81,21 @@ export function rebuildTriviaMaps() {
   heroSizeMap = [...hsMap.entries()].filter(([, v]) => v.length >= 5)
   heroTagMap = [...htMap.entries()].filter(([, v]) => v.length >= 3 && v.length <= 30)
   mechanicMap = [...mMap.entries()].filter(([, v]) => v.length >= 5)
+
+  // fill-blank spread: group distinct answers per blanked shell so the generator can
+  // reject lottery shells (many items share "Deal ___ Damage" with a guessable number).
+  const fbMap = new Map<string, Set<string>>()
+  for (const item of items) {
+    if (item.Tooltips.length === 0) continue
+    const resolved = resolveTooltip(item.Tooltips[0].text, item.TooltipReplacements, item.Tiers[0])
+    if (resolved.includes('{') || resolved.length > 90) continue
+    const nums = resolved.match(/\d+/g)
+    if (!nums || nums.length !== 1) continue
+    const shell = resolved.replace(nums[0], '___')
+    if (!fbMap.has(shell)) fbMap.set(shell, new Set())
+    fbMap.get(shell)!.add(nums[0])
+  }
+  fillBlankSpread = fbMap
 }
 
 export function invalidateAliasCache() {
@@ -136,9 +157,10 @@ const RECENT_QUESTIONS_SIZE = 10
 const MIN_ANSWER_LENGTH = 1
 const MAX_CLOSE_MISS_PER_ROUND = 2
 
-// question types whose answer is from a tiny closed enum (hero, size, tier).
-// first-letter+length hint would uniquely identify, so we skip the hint entirely.
-const NO_HINT_TYPES = new Set([1, 9, 12, 13, 14])
+// question types that get NO hint: tiny closed enums (hero/size/tier/enchant) where a
+// hint uniquely identifies, plus numeric types (day/HP/fill-blank) where a range hint
+// either leaks the suffix or is identical at both stages — for those, no hint > a bad one.
+const NO_HINT_TYPES = new Set([1, 7, 9, 11, 12, 13, 14, 16])
 
 type SayFn = (channel: string, text: string) => void
 
@@ -459,12 +481,73 @@ function genFillBlankQuestion(): ReturnType<QuestionGen> {
   const nums = resolved.match(/\d+/g)
   if (!nums || nums.length !== 1) return null
   const answer = nums[0]
+  if (answer.length === 1) return null // single-digit (0-9) is a coin-flip guess, not knowledge
   const blanked = resolved.replace(answer, '___')
+  // reject lottery shells: if many items share this blanked template, the number is a
+  // common-value guess (e.g. "Deal ___ Damage"), not a deducible fact.
+  if ((fillBlankSpread.get(blanked)?.size ?? 1) > 5) return null
   return {
     question: `Fill the blank — ${item.Title}: "${blanked}"`,
     answer,
     accepted: [answer],
     type: 16,
+  }
+}
+
+// type 17: name a monster you fight on a given day (reverse of type 7). multi-answer.
+function genMonsterByDayQuestion(): ReturnType<QuestionGen> {
+  const byDay = new Map<number, Set<string>>()
+  for (const m of store.getMonsters()) {
+    const d = m.MonsterMetadata.day
+    if (d == null) continue
+    if (!byDay.has(d)) byDay.set(d, new Set())
+    byDay.get(d)!.add(m.Title.toLowerCase())
+  }
+  const days = [...byDay.entries()].filter(([, s]) => s.size >= 3)
+  if (days.length === 0) return null
+  const [day, titles] = pickRandom(days)
+  return {
+    question: `Name a monster you fight on day ${day}`,
+    answer: `any day ${day} monster`,
+    accepted: addNicknames([...titles]),
+    type: 17,
+  }
+}
+
+// type 18: name an item that can reach Legendary tier. multi-answer recall.
+function genLegendaryItemQuestion(): ReturnType<QuestionGen> {
+  // legendary items are hero-less specials (Sword of Swords, Dragon Heart...) — don't
+  // filter by hero, just by the tier ceiling.
+  const legendaries = store.getItems()
+    .filter((c) => c.Tiers.includes('Legendary'))
+    .map((c) => c.Title.toLowerCase())
+  if (legendaries.length < 5) return null
+  return {
+    question: `Name an item that can reach Legendary tier`,
+    answer: `any Legendary-tier item`,
+    accepted: addNicknames(legendaries),
+    type: 18,
+  }
+}
+
+// type 19: which monster carries a given item on its board? fire only when 1-4 carriers
+// so the answer set is tight and fair.
+function genItemCarrierQuestion(): ReturnType<QuestionGen> {
+  const carriers = new Map<string, Set<string>>()
+  for (const m of store.getMonsters()) {
+    for (const b of m.MonsterMetadata.board ?? []) {
+      if (!carriers.has(b.title)) carriers.set(b.title, new Set())
+      carriers.get(b.title)!.add(m.Title.toLowerCase())
+    }
+  }
+  const pool = [...carriers.entries()].filter(([, ms]) => ms.size >= 1 && ms.size <= 4)
+  if (pool.length === 0) return null
+  const [item, ms] = pickRandom(pool)
+  return {
+    question: `Which monster has ${item} on its board?`,
+    answer: ms.size === 1 ? [...ms][0] : `any of: ${[...ms].join(', ')}`,
+    accepted: addNicknames([...ms]),
+    type: 19,
   }
 }
 
@@ -485,14 +568,17 @@ const generators: QuestionGen[] = [
   genEnchantKeywordQuestion,// 13 (type 14)
   genHpCompareQuestion,     // 14 (type 15)
   genFillBlankQuestion,     // 15 (type 16)
+  genMonsterByDayQuestion,  // 16 (type 17)
+  genLegendaryItemQuestion, // 17 (type 18)
+  genItemCarrierQuestion,   // 18 (type 19)
 ]
 
 type TriviaCategory = 'items' | 'heroes' | 'monsters'
 
 const CATEGORY_GENERATORS: Record<TriviaCategory, number[]> = {
-  items: [1, 2, 4, 5, 7, 11, 12, 13, 15],  // tag, tooltip, hero+size, hero+tag, mechanic, size, tier, enchant, fill-blank
-  heroes: [0, 8],                            // hero-from-item, hero-from-skill
-  monsters: [3, 6, 9, 10, 14],               // board item, day, monster skill, health, hp-compare
+  items: [1, 2, 4, 5, 7, 11, 12, 13, 15, 17],  // tag, tooltip, hero+size, hero+tag, mechanic, size, tier, enchant, fill-blank, legendary
+  heroes: [0, 8],                              // hero-from-item, hero-from-skill
+  monsters: [3, 6, 9, 10, 14, 16, 18],         // board, day, monster-skill, health, hp-compare, monster-by-day, item-carrier
 }
 
 // weak first-stage hint: shape/count only (no letters revealed), so the round
@@ -590,26 +676,31 @@ function editDistance(a: string, b: string): number {
   return dp[m][n]
 }
 
-function isCloseMiss(cleaned: string, accepted: string[]): boolean {
+// 0 = not a close miss; else the smallest edit distance to an accepted answer (1 or 2).
+function closeMissDistance(cleaned: string, accepted: string[]): number {
   const threshold = cleaned.length <= 5 ? 1 : 2
-  return accepted.some((a) => {
+  let best = 0
+  for (const a of accepted) {
     const d = editDistance(cleaned, a)
-    return d > 0 && d <= threshold
-  })
+    if (d > 0 && d <= threshold && (best === 0 || d < best)) best = d
+  }
+  return best
 }
 
-// difficulty currency: smaller answer-space = harder = more base points (1..5).
-// closed-enum types use their true enum size; multi-answer pools use accepted count.
-// base = 5 - clamp(floor(log2(ansCount)),0,4): 1->5, 2-3->4, 4-7->3, 8-15->2, 16+->1.
+// difficulty currency: the number encodes GUESSABILITY (not raw enum size) — a small
+// enum like size is a coin-flip you can win blind, so it must pay LESS, not more. a
+// bigger number => more guessable => fewer points. base = 5 - clamp(floor(log2(n)),0,4).
+// recall types (no entry) fall through to acceptedLen: naming the ONE item that matches
+// a tooltip (accepted~1) pays 5; naming any-of-40 from a pool (accepted~40) pays 1.
 const ENUM_ANSWER_SPACE: Record<number, number> = {
-  1: 7, 9: 7, // hero (7 heroes)
-  12: 3,      // size (small/medium/large)
-  13: 5,      // base tier
-  7: 10,      // monster day
-  11: 4,      // monster HP (±10% band softens it)
-  14: 8,      // enchant keyword
-  15: 8,      // hp compare (binary but guessable — keep cheap)
-  16: 1,      // fill-the-blank number
+  1: 7, 9: 7, // hero — must recall the right hero from 7 (base 3)
+  14: 8,      // enchant — must know the exact enchant (base 2)
+  11: 8,      // monster HP — ±10% band softens exact recall (base 2)
+  13: 12,     // base tier — binary-ish, fairly guessable (base 2)
+  7: 16,      // monster day — guessable range (base 1)
+  12: 24,     // size — 1-in-3 coin flip, cheap (base 1)
+  15: 24,     // hp compare — binary guess, cheap (base 1)
+  16: 24,     // fill-the-blank — guess the modal number, cheap (base 1)
 }
 function difficultyBase(type: number, acceptedLen: number): number {
   const ansCount = ENUM_ANSWER_SPACE[type] ?? Math.max(1, acceptedLen)
@@ -744,7 +835,7 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
     say: globalSay,
   })
 
-  return `Trivia! ${q.question} (30s to answer)`
+  return `Trivia! ${q.question} — just type your answer (30s)`
 }
 
 function endTrivia(channel: string, expectedGameId?: number): string | null {
@@ -811,8 +902,10 @@ export function checkAnswer(
     // points = difficulty base × speed multiplier + streak bonus (min 1). this is the
     // real leaderboard currency — knowing a hard answer fast beats spamming easy wins.
     const streak = db.getTriviaStreak(userId) + 1 // recordTriviaWin will set this value
+    const firstWin = db.getTriviaWins(userId) === 0 // before recordTriviaWin increments it
     const base = difficultyBase(game.questionType, game.acceptedAnswers.length)
-    const speedMult = secs < 3 ? 1.5 : secs < 5 ? 1.25 : secs < 10 ? 1 : 0.75
+    // continuous speed decay (no 3s/5s/10s cliffs): 0s -> 1.5x, full round -> 0.5x.
+    const speedMult = Math.max(0.5, Math.min(1.5, 1.5 - answerTimeMs / ROUND_DURATION))
     const streakBonus = streak >= 5 ? 2 : streak >= 3 ? 1 : 0
     const points = Math.max(1, Math.round(base * speedMult) + streakBonus)
 
@@ -830,19 +923,18 @@ export function checkAnswer(
       : secs < 5 || streak >= 3
         ? pickEmoteByMood(channel, 'celebration', 'hype')
         : pickEmoteByMood(channel, 'happy', 'celebration')
-    say(channel, `${username} got it in ${timeStr}s!${speedTag}${streakTag} +${points}pt Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`)
+    const firstTag = firstWin ? ' first win!' : ''
+    say(channel, `${username} got it in ${timeStr}s!${speedTag}${streakTag} +${points}pt${firstTag} Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`)
   } else {
     db.resetTriviaStreak(userId)
     // close-miss taunt — capped per round so 10 chatters guessing close
     // don't produce 10 bot lines.
-    if (
-      cleaned.length >= 4 &&
-      game.closeMissCount < MAX_CLOSE_MISS_PER_ROUND &&
-      isCloseMiss(cleaned, game.acceptedAnswers)
-    ) {
+    const missDist = cleaned.length >= 4 ? closeMissDistance(cleaned, game.acceptedAnswers) : 0
+    if (missDist > 0 && game.closeMissCount < MAX_CLOSE_MISS_PER_ROUND) {
       game.closeMissCount++
       const emote = pickEmoteByMood(channel, 'sarcasm', 'thinking')
-      say(channel, `${username} so close!${emote ? ` ${emote}` : ''}`)
+      const phrase = missDist === 1 ? `${username} — 1 letter off!` : `${username} so close!`
+      say(channel, `${phrase}${emote ? ` ${emote}` : ''}`)
     }
   }
 }

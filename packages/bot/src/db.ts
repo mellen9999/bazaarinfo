@@ -902,6 +902,11 @@ export function getTriviaStreak(userId: number): number {
   return row?.trivia_streak ?? 0
 }
 
+export function getTriviaWins(userId: number): number {
+  const row = db.query('SELECT trivia_wins FROM users WHERE id = ?').get(userId) as { trivia_wins: number } | undefined
+  return row?.trivia_wins ?? 0
+}
+
 // per-question-type solve stats for adaptive difficulty weighting.
 // returns rows for question types seen in this channel in the last 30 days.
 export function getTriviaTypeStats(channel: string): { question_type: number; games: number; wins: number }[] {
