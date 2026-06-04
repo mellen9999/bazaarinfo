@@ -21,6 +21,7 @@ import { loadDescriptionCache } from './emote-describe'
 import { preloadStyles } from './style'
 import { writeAtomic } from './fs-util'
 import { log } from './log'
+import { readJson } from './http'
 import * as raid from './raid'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
@@ -389,8 +390,9 @@ async function pollStreams(initial = false) {
       headers: { Authorization: `Bearer ${getAccessToken()}`, 'Client-Id': CLIENT_ID! },
       signal: AbortSignal.timeout(10_000),
     })
-    if (!res.ok) return
-    const data = await res.json() as { data: { user_login: string; game_name: string }[] }
+    const parsed = await readJson<{ data: { user_login: string; game_name: string }[] }>(res)
+    if (!parsed.ok || !parsed.data) return
+    const data = parsed.data
     const seen = new Set<string>()
     for (const s of data.data) {
       const ch = s.user_login.toLowerCase()

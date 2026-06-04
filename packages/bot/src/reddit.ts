@@ -1,4 +1,5 @@
 import { log } from './log'
+import { readJson } from './http'
 
 const SUBREDDIT_URL = 'https://www.reddit.com/r/PlayTheBazaar/hot.json?limit=25'
 const USER_AGENT = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
@@ -115,10 +116,9 @@ Be specific with names. Lowercase, terse, no headers. Raw posts:\n\n${context}`,
 
   if (!res.ok) throw new Error(`Haiku API ${res.status}`)
 
-  const data = await res.json() as {
-    content: { type: string; text?: string }[]
-  }
-  const text = data.content?.find((b) => b.type === 'text')?.text ?? ''
+  const parsed = await readJson<{ content: { type: string; text?: string }[] }>(res)
+  if (!parsed.data) return '' // empty/truncated body — skip this digest, don't throw
+  const text = parsed.data.content?.find((b) => b.type === 'text')?.text ?? ''
   return text.slice(0, 600)
 }
 

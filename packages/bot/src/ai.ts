@@ -2,6 +2,7 @@ import * as db from './db'
 import { getRecent } from './chatbuf'
 import { refreshVoice } from './style'
 import { log } from './log'
+import { readJson } from './http'
 
 // --- re-exports (preserve public API) ---
 
@@ -137,7 +138,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
 
   const messages: unknown[] = [{ role: 'user', content: userMessage }]
   const start = Date.now()
-  const REQUEST_DEADLINE = 45_000
+  // in a busy chat a reply older than this has scrolled off-screen and is just
+  // holding a concurrency slot hostage (esp. during 429 backoff sleeps), starving
+  // everyone else's request. fail fast so the queue drains instead of clogging.
+  const REQUEST_DEADLINE = 18_000
 
   type ApiData = {
     content: { type: string; text?: string }[]
@@ -165,8 +169,15 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         if (errBody) log(`ai: API ${res.status} ${errBody}`)
         return { status: res.status }
       }
-      const data = await res.json() as ApiData
-      return { status: 200, data }
+      const parsed = await readJson<ApiData>(res)
+      // 200 with an empty/truncated body — upstream dropped mid-stream. surface as
+      // a synthetic 503 so the retry loop treats it like a transient error instead
+      // of throwing "Unexpected end of JSON input" and silently dropping the reply.
+      if (parsed.empty || !parsed.data) {
+        log('ai: empty/malformed 200 body — retrying as transient')
+        return { status: 503 }
+      }
+      return { status: 200, data: parsed.data }
     } catch (e) {
       clearTimeout(timer)
       throw e
@@ -187,9 +198,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       }
 
       const single = await fetchOnce(body)
-      if (single.status === 429 && attempt < MAX_RETRIES - 1) {
-        const delay = 3_000 * (attempt + 1)
-        log(`ai: 429, retrying in ${delay / 1000}s (attempt ${attempt + 1})`)
+      // 429 (rate limited) and 503 (empty/truncated body) are both transient — retry.
+      if ((single.status === 429 || single.status === 503) && attempt < MAX_RETRIES - 1) {
+        const delay = (single.status === 503 ? 1_000 : 3_000) * (attempt + 1)
+        log(`ai: ${single.status}, retrying in ${delay / 1000}s (attempt ${attempt + 1})`)
         await new Promise((r) => setTimeout(r, delay))
         continue
       }

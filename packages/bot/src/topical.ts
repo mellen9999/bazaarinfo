@@ -1,4 +1,5 @@
 import { log } from './log'
+import { readJson } from './http'
 
 const HN_TOP = 'https://hacker-news.firebaseio.com/v0/topstories.json'
 const HN_ITEM = (id: number) => `https://hacker-news.firebaseio.com/v0/item/${id}.json`
@@ -21,7 +22,9 @@ async function fetchJson<T>(url: string): Promise<T> {
     signal: AbortSignal.timeout(FETCH_TIMEOUT),
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return await res.json() as T
+  const parsed = await readJson<T>(res)
+  if (!parsed.data) throw new Error('HTTP empty/malformed body')
+  return parsed.data
 }
 
 async function fetchHnTitles(): Promise<string[]> {
