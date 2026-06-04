@@ -693,6 +693,335 @@
       ],
       "difficulty": "medium",
       "category": "reynad-games"
+    },
+    {
+      "question": "kripp's first hearthstone team (liquid value) won season 1 of which early online hs show run by the now-defunct esgn network?",
+      "answer": "fight night",
+      "accept": [
+        "fight night",
+        "esgn fight night",
+        "fight night hearthstone",
+        "esgn"
+      ],
+      "difficulty": "hard",
+      "category": "hs-career"
+    },
+    {
+      "question": "which tsm founder/ceo publicly welcomed kripp on signing, citing his passion for the game?",
+      "answer": "andy dinh",
+      "accept": [
+        "andy dinh",
+        "andy",
+        "reginald",
+        "regi",
+        "dinh"
+      ],
+      "difficulty": "hard",
+      "category": "hs-career"
+    },
+    {
+      "question": "kripp hosted the first challengestone in 2015 rather than playing — which dragon-loving deck-builder actually won it?",
+      "answer": "kibler",
+      "accept": [
+        "kibler",
+        "brian kibler"
+      ],
+      "difficulty": "hard",
+      "category": "hs-career"
+    },
+    {
+      "question": "kripp cast the 2015 blizzcon hs world championship alongside frodan and which other big-name caster?",
+      "answer": "amaz",
+      "accept": [
+        "amaz",
+        "amazhs",
+        "jason chan"
+      ],
+      "difficulty": "hard",
+      "category": "hs-career"
+    },
+    {
+      "question": "kripp's signature constructed hs deck didn't kill you fast — it decked you out and outlasted you to 0 cards. what's the archetype called?",
+      "answer": "fatigue warrior",
+      "accept": [
+        "fatigue warrior",
+        "fatigue",
+        "control warrior",
+        "fatigue control warrior",
+        "fat warrior",
+        "control fatigue warrior"
+      ],
+      "difficulty": "medium",
+      "category": "hs-fatigue"
+    },
+    {
+      "question": "kripp's fatigue warrior ran the healing one-of legendary that only works if every card in your deck is unique. name it.",
+      "answer": "reno jackson",
+      "accept": [
+        "reno jackson",
+        "reno",
+        "reno jacksen"
+      ],
+      "difficulty": "medium",
+      "category": "hs-fatigue"
+    },
+    {
+      "question": "the staple legendary in kripp's fatigue warrior that doubled his hero power — 4 armor a turn instead of 2 — was?",
+      "answer": "justicar trueheart",
+      "accept": [
+        "justicar trueheart",
+        "justicar",
+        "trueheart"
+      ],
+      "difficulty": "hard",
+      "category": "hs-fatigue"
+    },
+    {
+      "question": "kripp's fatigue warrior used a league of explorers legend as alternate win-con — she shuffles a map that turns your deck into legendaries. who?",
+      "answer": "elise starseeker",
+      "accept": [
+        "elise starseeker",
+        "elise",
+        "elise the trailblazer",
+        "starseeker"
+      ],
+      "difficulty": "hard",
+      "category": "hs-fatigue"
+    },
+    {
+      "question": "elise's card that transforms your hand and deck into random legendaries — kripp's second fatigue win-con — is the map to the ___?",
+      "answer": "golden monkey",
+      "accept": [
+        "golden monkey",
+        "map to the golden monkey",
+        "the golden monkey",
+        "golden monkey card"
+      ],
+      "difficulty": "hard",
+      "category": "hs-fatigue"
+    },
+    {
+      "question": "kripp's 'fat mage' fatigue deck capped fatigue at 1 damage a turn with a tech card that sets all damage you take to 1. name it.",
+      "answer": "animated armor",
+      "accept": [
+        "animated armor"
+      ],
+      "difficulty": "hard",
+      "category": "hs-fatigue"
+    },
+    {
+      "question": "in what romanian city was kripp born?",
+      "answer": "suceava",
+      "accept": [
+        "suceava",
+        "suceava romania"
+      ],
+      "difficulty": "hard",
+      "category": "wow-and-pre"
+    },
+    {
+      "question": "kripp dropped out of college where he studied physics and what other subject?",
+      "answer": "mathematics",
+      "accept": [
+        "mathematics",
+        "math",
+        "maths"
+      ],
+      "difficulty": "hard",
+      "category": "wow-and-pre"
+    },
+    {
+      "question": "what was kripp's day job before gaming became his career?",
+      "answer": "computer technician",
+      "accept": [
+        "computer technician",
+        "pc technician",
+        "computer repair technician",
+        "technician",
+        "computer repair"
+      ],
+      "difficulty": "hard",
+      "category": "wow-and-pre"
+    },
+    {
+      "question": "which tempest keep boss did kripp famously solo as a hunter in a 2011 video?",
+      "answer": "kael'thas",
+      "accept": [
+        "kael'thas",
+        "kaelthas",
+        "kael thas",
+        "kael'thas sunstrider",
+        "kaelthas sunstrider"
+      ],
+      "difficulty": "hard",
+      "category": "wow-and-pre"
+    },
+    {
+      "question": "when the auto-battler craze hit in 2019 kripp got hooked on valve's version and even skipped riot's tft to keep streaming it — name it.",
+      "answer": "dota underlords",
+      "accept": [
+        "dota underlords",
+        "underlords"
+      ],
+      "difficulty": "hard",
+      "category": "other-games"
+    },
+    {
+      "question": "riot personally invited kripp into the closed alpha of which league of legends auto-battler in mid-2019?",
+      "answer": "teamfight tactics",
+      "accept": [
+        "teamfight tactics",
+        "tft"
+      ],
+      "difficulty": "hard",
+      "category": "other-games"
+    },
+    {
+      "question": "the auto-battler genre kripp jumped into in 2019 spawned from a single dota 2 custom mod by drodo studio — what was that mod called?",
+      "answer": "dota auto chess",
+      "accept": [
+        "dota auto chess",
+        "auto chess",
+        "dota 2 auto chess"
+      ],
+      "difficulty": "hard",
+      "category": "other-games"
+    },
+    {
+      "question": "kripp was a regular streamer of which roguelike deckbuilder during its 2017-2018 early access, back in his tsm days?",
+      "answer": "slay the spire",
+      "accept": [
+        "slay the spire",
+        "slaythespire",
+        "sts",
+        "spire"
+      ],
+      "difficulty": "medium",
+      "category": "other-games"
+    },
+    {
+      "question": "what's the name of the original '-erino' joke account that started the whole trend, posted by a guy on kripp's hs friends list?",
+      "answer": "skipperino kripperino",
+      "accept": [
+        "skipperino kripperino",
+        "skipperino",
+        "skipperino the kripperino",
+        "skipperinokripperino"
+      ],
+      "difficulty": "hard",
+      "category": "persona-memes"
+    },
+    {
+      "question": "fans flooded kripp's youtube comments with joke accounts by sticking which one-word suffix on things (skipperino, watcherino, sniperino...)?",
+      "answer": "-erino",
+      "accept": [
+        "erino",
+        "-erino",
+        "ino",
+        "-ino",
+        "kripperino",
+        "erino kripperino",
+        "the kripperinos",
+        "kripperinos"
+      ],
+      "difficulty": "medium",
+      "category": "persona-memes"
+    },
+    {
+      "question": "kripp and his wife rania co-created which recurring hearthstone deckbuilding tournament with weird crafting restrictions?",
+      "answer": "challengestone",
+      "accept": [
+        "challengestone",
+        "challenge stone"
+      ],
+      "difficulty": "hard",
+      "category": "persona-memes"
+    },
+    {
+      "question": "kripp's editor runs a secondary youtube channel for his clips and lighter highlights, named with 'casual' plus his nickname. what's it called?",
+      "answer": "casual kripp",
+      "accept": [
+        "casual kripp",
+        "casualkripp",
+        "casual krip"
+      ],
+      "difficulty": "hard",
+      "category": "persona-memes"
+    },
+    {
+      "question": "the bazaar's gold-hoarding merchant hero is named after which greek myth figure, a sculptor-king who fell for his own statue?",
+      "answer": "pygmalion",
+      "accept": [
+        "pygmalion",
+        "pygmalien"
+      ],
+      "difficulty": "hard",
+      "category": "reynad-bazaar"
+    },
+    {
+      "question": "stelle, the bazaar's engineer/pilot hero, is built around what keyword mechanic that puts her items in the air?",
+      "answer": "flying",
+      "accept": [
+        "flying",
+        "fly"
+      ],
+      "difficulty": "hard",
+      "category": "reynad-bazaar"
+    },
+    {
+      "question": "in the bazaar you don't fight live opponents — you battle async copies of other players' boards, called what?",
+      "answer": "ghosts",
+      "accept": [
+        "ghosts",
+        "ghost",
+        "ghost data"
+      ],
+      "difficulty": "hard",
+      "category": "reynad-bazaar"
+    },
+    {
+      "question": "the bazaar's merchant hero pygmalien hails from which fictional empire in the game's world?",
+      "answer": "jaballian",
+      "accept": [
+        "jaballian",
+        "jaballa",
+        "jaballa empire",
+        "the jaballa empire"
+      ],
+      "difficulty": "hard",
+      "category": "reynad-bazaar"
+    },
+    {
+      "question": "kripp hoarded duplicate cards for years, refusing to disenchant. which hearthstone game director said hitting that button before tgt 'would have brought down hearthstone'?",
+      "answer": "ben brode",
+      "accept": [
+        "ben brode",
+        "brode",
+        "benbrode",
+        "ben"
+      ],
+      "difficulty": "hard",
+      "category": "twitch-moment"
+    },
+    {
+      "question": "during the rise of shadows reveal stream at blizzard hq, kripp laughed that he'd 'found a card that shouldn't be here' — one banned from arena showing up in his draft. name the card.",
+      "answer": "naturalize",
+      "accept": [
+        "naturalize"
+      ],
+      "difficulty": "hard",
+      "category": "twitch-moment"
+    },
+    {
+      "question": "for years kripp's chat spammed copypastas begging him to run one specific gimmick weasel card in his arena decks. name it.",
+      "answer": "weasel tunneler",
+      "accept": [
+        "weasel tunneler",
+        "weasel tunneller",
+        "weasel"
+      ],
+      "difficulty": "hard",
+      "category": "twitch-moment"
     }
   ]
 }
