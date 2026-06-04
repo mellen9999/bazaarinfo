@@ -122,6 +122,32 @@ describe('db', () => {
     expect(leaders[0].trivia_wins).toBe(2)
   })
 
+  it('trivia points: accumulate on user, sum per-channel, order the leaderboard', () => {
+    const u1 = db.getOrCreateUser('ptlow')
+    const u2 = db.getOrCreateUser('pthigh')
+    // u1 wins twice cheaply (3pts total); u2 wins once big (10pts) — u2 leads on POINTS
+    // despite fewer wins, proving points (not win-count) is the currency.
+    db.recordTriviaWin(db.createTriviaGame('pc', 1, 'q', 'a'), u1, 1000, 1, 2)
+    db.recordTriviaWin(db.createTriviaGame('pc', 1, 'q', 'a'), u1, 1000, 1, 1)
+    db.recordTriviaWin(db.createTriviaGame('pc', 1, 'q', 'a'), u2, 1000, 1, 10)
+
+    expect(db.getUserStats('ptlow')!.trivia_points).toBe(3)
+    expect(db.getUserStats('pthigh')!.trivia_points).toBe(10)
+
+    const board = db.getTriviaLeaderboard('pc', 5)
+    expect(board[0].username).toBe('pthigh') // 10pts beats 3pts despite 1 win vs 2
+    expect(board[0].points).toBe(10)
+    expect(board[1].points).toBe(3)
+  })
+
+  it('migrations are idempotent — re-running initDb is a no-op', () => {
+    // schema already at v19; running again must not throw or duplicate columns
+    expect(() => db.initDb(dbPath)).not.toThrow()
+    const u = db.getOrCreateUser('migsafe')
+    db.recordTriviaWin(db.createTriviaGame('mc', 1, 'q', 'a'), u, 1000, 1, 5)
+    expect(db.getUserStats('migsafe')!.trivia_points).toBe(5)
+  })
+
   // --- chat summaries ---
 
   it('logs and retrieves summaries', () => {

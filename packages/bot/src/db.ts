@@ -110,11 +110,12 @@ function prepareStatements() {
       'INSERT INTO trivia_answers (game_id, user_id, answer_text, is_correct, answer_time_ms) VALUES (?, ?, ?, ?, ?)',
     ),
     updateTriviaWin: db.prepare(
-      'UPDATE trivia_games SET winner_id = ?, answer_time_ms = ?, participant_count = ? WHERE id = ?',
+      'UPDATE trivia_games SET winner_id = ?, answer_time_ms = ?, participant_count = ?, points = ? WHERE id = ?',
     ),
     updateTriviaUserWin: db.prepare(
       `UPDATE users SET
         trivia_wins = trivia_wins + 1,
+        trivia_points = trivia_points + ?,
         trivia_streak = trivia_streak + 1,
         trivia_best_streak = MAX(trivia_best_streak, trivia_streak + 1),
         trivia_fastest_ms = CASE
@@ -127,10 +128,10 @@ function prepareStatements() {
     incrTriviaAttempt: db.prepare('UPDATE users SET trivia_attempts = trivia_attempts + 1 WHERE id = ?'),
     resetTriviaStreak: db.prepare('UPDATE users SET trivia_streak = 0 WHERE id = ?'),
     triviaLeaderboard: db.prepare(
-      `SELECT u.username, COUNT(*) as trivia_wins FROM users u
+      `SELECT u.username, COALESCE(SUM(tg.points), 0) as points, COUNT(*) as trivia_wins FROM users u
        JOIN trivia_games tg ON tg.winner_id = u.id
        WHERE tg.channel = ?
-       GROUP BY u.id ORDER BY trivia_wins DESC LIMIT ?`,
+       GROUP BY u.id ORDER BY points DESC, trivia_wins DESC LIMIT ?`,
     ),
     channelMessages: db.prepare(
       'SELECT message FROM chat_messages WHERE channel = ? ORDER BY created_at DESC LIMIT ?',
@@ -674,6 +675,13 @@ const migrations: (() => void)[] = [
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`)
   },
+  // migration 19: difficulty+speed-weighted trivia points — the leaderboard currency.
+  // points are stored per winning game (for per-channel SUM leaderboards) and
+  // accumulated on the user (for global !stats).
+  () => {
+    db.run(`ALTER TABLE users ADD COLUMN trivia_points INTEGER NOT NULL DEFAULT 0`)
+    db.run(`ALTER TABLE trivia_games ADD COLUMN points INTEGER NOT NULL DEFAULT 0`)
+  },
 ]
 
 function runMigrations() {
@@ -789,6 +797,7 @@ export interface UserStats {
   total_commands: number
   ask_count: number
   trivia_wins: number
+  trivia_points: number
   trivia_attempts: number
   trivia_streak: number
   trivia_best_streak: number
@@ -822,6 +831,7 @@ export function getUserStats(username: string, channel?: string): UserStats | nu
     total_commands: user.total_commands,
     ask_count: user.ask_count ?? 0,
     trivia_wins: user.trivia_wins,
+    trivia_points: user.trivia_points ?? 0,
     trivia_attempts: user.trivia_attempts,
     trivia_streak: user.trivia_streak,
     trivia_best_streak: user.trivia_best_streak,
@@ -870,9 +880,9 @@ export function recordTriviaAnswer(
   stmts.insertTriviaAnswer.run(gameId, userId, answerText, isCorrect ? 1 : 0, answerTimeMs)
 }
 
-export function recordTriviaWin(gameId: number, userId: number, answerTimeMs: number, participantCount: number) {
-  stmts.updateTriviaWin.run(userId, answerTimeMs, participantCount, gameId)
-  stmts.updateTriviaUserWin.run(answerTimeMs, answerTimeMs, answerTimeMs, userId)
+export function recordTriviaWin(gameId: number, userId: number, answerTimeMs: number, participantCount: number, points = 0) {
+  stmts.updateTriviaWin.run(userId, answerTimeMs, participantCount, points, gameId)
+  stmts.updateTriviaUserWin.run(points, answerTimeMs, answerTimeMs, answerTimeMs, userId)
 }
 
 export function recordTriviaAttempt(userId: number) {
@@ -883,8 +893,8 @@ export function resetTriviaStreak(userId: number) {
   stmts.resetTriviaStreak.run(userId)
 }
 
-export function getTriviaLeaderboard(channel: string, limit = 5): { username: string; trivia_wins: number }[] {
-  return stmts.triviaLeaderboard.all(channel, limit) as { username: string; trivia_wins: number }[]
+export function getTriviaLeaderboard(channel: string, limit = 5): { username: string; points: number; trivia_wins: number }[] {
+  return stmts.triviaLeaderboard.all(channel, limit) as { username: string; points: number; trivia_wins: number }[]
 }
 
 export function getTriviaStreak(userId: number): number {

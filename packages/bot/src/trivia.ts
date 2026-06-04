@@ -1,10 +1,26 @@
 import * as store from './store'
-import { ALIASES } from './store'
+import { ALIASES, HERO_ALIASES } from './store'
 import * as db from './db'
 import { log } from './log'
 import { resolveTooltip } from '@bazaarinfo/shared'
 import type { Monster } from '@bazaarinfo/shared'
 import { pickEmoteByMood } from './emotes'
+
+// canonical answer normalizer — THE single source of truth for comparing a guess
+// to an accepted answer. applied symmetrically to both sides so punctuation in item
+// names ("Philosopher's Stone", "Mortar & Pestle", "Dr. Vortex", "Z-Sword") can never
+// make a correct answer unwinnable. & -> "and", drop punctuation, hyphen -> space,
+// strip a leading "the ", collapse whitespace.
+export function norm(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^\w\s-]/g, '')
+    .replace(/-/g, ' ')
+    .replace(/^the\s+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 let reverseAliasCache: Map<string, string[]> | null = null
 
@@ -41,8 +57,13 @@ export function rebuildTriviaMaps() {
     }
 
     for (const t of item.Tooltips) {
+      const resolved = resolveTooltip(t.text, item.TooltipReplacements, item.Tiers[0])
+      // skip negations/references so the bucket stays factually true: "immune to Freeze",
+      // "Cleanse", "If you have another item with ... Burn" do NOT make the item a Freezer/Burner.
+      if (/immune to|cleanse|if you have another item with/i.test(resolved)) continue
       for (const keyword of Object.keys(MECHANIC_VERBS)) {
-        if (t.text.includes(keyword)) {
+        // word-boundary match on resolved text — "Heal" must not fire on "Max Health".
+        if (new RegExp(`\\b${keyword}(s|es|ing)?\\b`, 'i').test(resolved)) {
           const arr = mMap.get(keyword)
           if (!arr || !arr.includes(lower)) pushToMap(mMap, keyword, lower)
         }
@@ -80,6 +101,22 @@ function buildReverseAliases(): Map<string, string[]> {
   return map
 }
 
+// reverse hero-alias map: "Mak" -> ["mark","mac"], "Pygmalien" -> ["pig","pyg"].
+// built once from store's HERO_ALIASES so a player typing the documented alias for a
+// hero-answer question (type 1, 9) isn't marked wrong.
+let heroAliasCache: Map<string, string[]> | null = null
+function heroAliasesFor(hero: string): string[] {
+  if (!heroAliasCache) {
+    heroAliasCache = new Map()
+    for (const [alias, canonical] of Object.entries(HERO_ALIASES)) {
+      const arr = heroAliasCache.get(canonical) ?? []
+      arr.push(alias)
+      heroAliasCache.set(canonical, arr)
+    }
+  }
+  return heroAliasCache.get(hero) ?? []
+}
+
 function addNicknames(accepted: string[]): string[] {
   const reverseAliases = buildReverseAliases()
   const extra: string[] = []
@@ -91,7 +128,8 @@ function addNicknames(accepted: string[]): string[] {
 }
 
 const ROUND_DURATION = 30_000
-const HINT_DELAY = 15_000
+const HINT1_DELAY = 10_000 // weak hint: shape/count only
+const HINT2_DELAY = 20_000 // strong hint: first-letter skeleton
 const COOLDOWN = 0
 const RECENT_BUFFER_SIZE = 10
 const RECENT_QUESTIONS_SIZE = 10
@@ -100,7 +138,7 @@ const MAX_CLOSE_MISS_PER_ROUND = 2
 
 // question types whose answer is from a tiny closed enum (hero, size, tier).
 // first-letter+length hint would uniquely identify, so we skip the hint entirely.
-const NO_HINT_TYPES = new Set([1, 9, 12, 13])
+const NO_HINT_TYPES = new Set([1, 9, 12, 13, 14])
 
 type SayFn = (channel: string, text: string) => void
 
@@ -113,10 +151,16 @@ interface TriviaState {
   startedAt: number
   participants: Set<string>
   timeout: Timer
-  hintTimeout: Timer | null
-  hintText: string
+  hintTimers: Timer[]
   closeMissCount: number
   say: SayFn
+}
+
+// clear all pending hint timers for a round — single chokepoint so no timer can leak
+// on win/skip/timeout/cleanup.
+function clearHints(game: TriviaState) {
+  for (const t of game.hintTimers) clearTimeout(t)
+  game.hintTimers = []
 }
 
 const activeGames = new Map<string, TriviaState>()
@@ -151,7 +195,7 @@ function genHeroQuestion(): ReturnType<QuestionGen> {
   return {
     question: `What hero uses ${item.Title}?`,
     answer: hero,
-    accepted: [hero.toLowerCase()],
+    accepted: [hero.toLowerCase(), ...heroAliasesFor(hero)],
     type: 1,
   }
 }
@@ -180,6 +224,13 @@ function genTooltipQuestion(): ReturnType<QuestionGen> {
     .join(' | ')
   // skip if too long for chat or still has unresolved placeholders
   if (abilities.length > 200 || abilities.includes('{')) return null
+  // skip if the tooltip leaks the item's own name (e.g. Virus "for each Virus...",
+  // Spiky Shield "equal to your Shield") — that's a free, skill-less win. ~18 items,
+  // 896 valid candidates remain, so dropping them costs nothing.
+  const leaks = item.Title.toLowerCase().split(/\s+/).some((w) =>
+    w.length > 3 && new RegExp(`\\b${w.replace(/[^\w]/g, '')}\\b`, 'i').test(abilities),
+  )
+  if (leaks) return null
   return {
     question: `Which item does this: ${abilities}`,
     answer: item.Title,
@@ -230,7 +281,9 @@ function genHeroTagQuestion(): ReturnType<QuestionGen> {
 
 // type 7: what day do you fight [Monster]?
 function genMonsterDayQuestion(): ReturnType<QuestionGen> {
-  const valid = store.getMonsters().filter((m) => m.MonsterMetadata.day !== null)
+  // != null (loose) rejects both null AND undefined — 13 monsters carry an undefined
+  // day and otherwise produce an unwinnable "What day...? Day undefined" round.
+  const valid = store.getMonsters().filter((m) => m.MonsterMetadata.day != null)
   if (valid.length === 0) return null
   const monster = pickRandom(valid)
   const day = String(monster.MonsterMetadata.day)
@@ -284,7 +337,7 @@ function genHeroSkillQuestion(): ReturnType<QuestionGen> {
   return {
     question: `Which hero has the skill: ${desc}`,
     answer: hero,
-    accepted: [hero.toLowerCase()],
+    accepted: [hero.toLowerCase(), ...heroAliasesFor(hero)],
     type: 9,
   }
 }
@@ -356,6 +409,65 @@ function genBaseTierQuestion(): ReturnType<QuestionGen> {
   }
 }
 
+// type 14: which enchantment grants a keyword effect? closed 8-pair game rule (not
+// per-round data), tiny enum → no hint. Shiny (wildcard) deliberately excluded.
+const ENCHANT_BY_KEYWORD: [string, string][] = [
+  ['Freeze', 'Icy'], ['Burn', 'Fiery'], ['Poison', 'Toxic'], ['Shield', 'Shielded'],
+  ['Heal', 'Restorative'], ['Slow', 'Heavy'], ['Haste', 'Turbo'], ['Crit', 'Deadly'],
+]
+function genEnchantKeywordQuestion(): ReturnType<QuestionGen> {
+  const [keyword, enchant] = pickRandom(ENCHANT_BY_KEYWORD)
+  return {
+    question: `Which enchantment makes an item ${keyword}?`,
+    answer: enchant,
+    accepted: [enchant.toLowerCase()],
+    type: 14,
+  }
+}
+
+// type 15: which monster has more health, A or B? reroll on equal HP so there's
+// always exactly one correct answer.
+function genHpCompareQuestion(): ReturnType<QuestionGen> {
+  const valid = store.getMonsters().filter((m) => m.MonsterMetadata.health > 0)
+  if (valid.length < 2) return null
+  const a = pickRandom(valid)
+  let b = pickRandom(valid)
+  let tries = 0
+  while ((b.Title === a.Title || b.MonsterMetadata.health === a.MonsterMetadata.health) && tries < 25) {
+    b = pickRandom(valid); tries++
+  }
+  if (b.Title === a.Title || b.MonsterMetadata.health === a.MonsterMetadata.health) return null
+  const winner = a.MonsterMetadata.health > b.MonsterMetadata.health ? a : b
+  return {
+    question: `Which has more health, ${a.Title} or ${b.Title}?`,
+    answer: winner.Title,
+    accepted: addNicknames([winner.Title.toLowerCase()]),
+    type: 15,
+  }
+}
+
+// type 16: fill the blank in an item's tooltip. require EXACTLY one number in the
+// resolved text so the blank is unambiguous.
+function genFillBlankQuestion(): ReturnType<QuestionGen> {
+  const items = store.getItems().filter((c) =>
+    c.Tooltips.length > 0 && c.Heroes.length > 0 && !FAKE_HEROES.has(c.Heroes[0]),
+  )
+  if (items.length === 0) return null
+  const item = pickRandom(items)
+  const resolved = resolveTooltip(item.Tooltips[0].text, item.TooltipReplacements, item.Tiers[0])
+  if (resolved.includes('{') || resolved.length > 90) return null
+  const nums = resolved.match(/\d+/g)
+  if (!nums || nums.length !== 1) return null
+  const answer = nums[0]
+  const blanked = resolved.replace(answer, '___')
+  return {
+    question: `Fill the blank — ${item.Title}: "${blanked}"`,
+    answer,
+    accepted: [answer],
+    type: 16,
+  }
+}
+
 const generators: QuestionGen[] = [
   genHeroQuestion,          // 0
   genTagQuestion,           // 1
@@ -370,20 +482,39 @@ const generators: QuestionGen[] = [
   genMonsterHealthQuestion, // 10
   genItemSizeQuestion,      // 11
   genBaseTierQuestion,      // 12
+  genEnchantKeywordQuestion,// 13 (type 14)
+  genHpCompareQuestion,     // 14 (type 15)
+  genFillBlankQuestion,     // 15 (type 16)
 ]
 
 type TriviaCategory = 'items' | 'heroes' | 'monsters'
 
 const CATEGORY_GENERATORS: Record<TriviaCategory, number[]> = {
-  items: [1, 2, 4, 5, 7, 11, 12],  // tag, tooltip, hero+size, hero+tag, mechanic, size, tier
-  heroes: [0, 8],                    // hero-from-item, hero-from-skill
-  monsters: [3, 6, 9, 10],          // board item, day, monster skill, health
+  items: [1, 2, 4, 5, 7, 11, 12, 13, 15],  // tag, tooltip, hero+size, hero+tag, mechanic, size, tier, enchant, fill-blank
+  heroes: [0, 8],                            // hero-from-item, hero-from-skill
+  monsters: [3, 6, 9, 10, 14],               // board item, day, monster skill, health, hp-compare
+}
+
+// weak first-stage hint: shape/count only (no letters revealed), so the round
+// escalates count(10s) -> skeleton(20s) instead of dumping everything at once.
+function generateWeakHint(answer: string): string {
+  if (/^\d+$/.test(answer)) {
+    const n = parseInt(answer)
+    if (n < 10) return `Hint: single digit` // log10(0) is -Infinity → guard tiny values
+    const magnitude = Math.pow(10, Math.floor(Math.log10(n)))
+    const low = Math.floor(n / magnitude) * magnitude
+    return `Hint: between ${low} and ${low + magnitude}`
+  }
+  const words = answer.split(/\s+/)
+  if (words.length > 1) return `Hint: ${words.length} words, ${answer.replace(/\s+/g, '').length} letters`
+  return `Hint: ${answer.length} letters`
 }
 
 function generateHint(answer: string): string {
   // for numeric answers, give a range
   if (/^\d+$/.test(answer)) {
     const n = parseInt(answer)
+    if (n < 10) return `Hint: single digit` // guard log10(0) = -Infinity (NaN range)
     const magnitude = Math.pow(10, Math.floor(Math.log10(n)))
     const low = Math.floor(n / magnitude) * magnitude
     const high = low + magnitude
@@ -467,10 +598,33 @@ function isCloseMiss(cleaned: string, accepted: string[]): boolean {
   })
 }
 
-// answer matching: exact, then startsWith, then includes for long names
-function matchAnswer(cleaned: string, accepted: string[]): boolean {
+// difficulty currency: smaller answer-space = harder = more base points (1..5).
+// closed-enum types use their true enum size; multi-answer pools use accepted count.
+// base = 5 - clamp(floor(log2(ansCount)),0,4): 1->5, 2-3->4, 4-7->3, 8-15->2, 16+->1.
+const ENUM_ANSWER_SPACE: Record<number, number> = {
+  1: 7, 9: 7, // hero (7 heroes)
+  12: 3,      // size (small/medium/large)
+  13: 5,      // base tier
+  7: 10,      // monster day
+  11: 4,      // monster HP (±10% band softens it)
+  14: 8,      // enchant keyword
+  15: 8,      // hp compare (binary but guessable — keep cheap)
+  16: 1,      // fill-the-blank number
+}
+function difficultyBase(type: number, acceptedLen: number): number {
+  const ansCount = ENUM_ANSWER_SPACE[type] ?? Math.max(1, acceptedLen)
+  return 5 - Math.min(4, Math.max(0, Math.floor(Math.log2(ansCount))))
+}
+
+// answer matching: exact, then startsWith, then includes for long names.
+// fuzzy (startsWith/includes) is ONLY safe for single-title questions — on a
+// multi-answer pool (e.g. "name any Weapon", 60+ titles) a 5-char prefix like
+// "dragon" would falsely win on "Dragonscale" without naming a real answer, so
+// the caller passes allowFuzzy=false for "any ..." questions (exact+alias only).
+function matchAnswer(cleaned: string, accepted: string[], allowFuzzy = true): boolean {
   // exact match first
   if (accepted.some((a) => cleaned === a)) return true
+  if (!allowFuzzy) return false
   // for answers 5+ chars, allow startsWith (helps with stylized names)
   if (cleaned.length >= 5 && accepted.some((a) => a.startsWith(cleaned))) return true
   // for answers 8+ chars, allow includes (catches partial matches on long names)
@@ -535,6 +689,10 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
   }
   if (!q) return `couldn't generate a question, try again`
 
+  // normalize every accepted answer through the canonical normalizer so the guess
+  // (also normed) compares symmetrically — no punctuation/hyphen/"the" false-negatives.
+  q.accepted = [...new Set(q.accepted.map(norm).filter(Boolean))]
+
   recentQ.push(q.question)
   if (recentQ.length > RECENT_QUESTIONS_SIZE) recentQ.shift()
   recentQuestions.set(channel, recentQ)
@@ -559,15 +717,18 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
   const hintAnswer = q.answer.startsWith('any')
     ? pickRandom(q.accepted)
     : q.answer
-  const hintText = generateHint(hintAnswer)
-  // skip hint when: answer is from tiny enum (would uniquely id), or chat
-  // isn't actually playing (announcing to dead chat is just noise).
-  const hintTimeout = NO_HINT_TYPES.has(q.type) ? null : setTimeout(() => {
-    const game = activeGames.get(channel)
-    if (game && game.gameId === gameId && game.participants.size > 0) {
-      globalSay(channel, hintText)
+  // progressive hints: weak shape/count @10s, then first-letter skeleton @20s. each
+  // gated on participants.size>0 so we never announce hints to dead chat. skipped
+  // entirely for tiny-enum types where any hint uniquely identifies the answer.
+  const hintTimers: Timer[] = []
+  if (!NO_HINT_TYPES.has(q.type)) {
+    const fire = (text: string) => () => {
+      const game = activeGames.get(channel)
+      if (game && game.gameId === gameId && game.participants.size > 0) globalSay(channel, text)
     }
-  }, HINT_DELAY)
+    hintTimers.push(setTimeout(fire(generateWeakHint(hintAnswer)), HINT1_DELAY))
+    hintTimers.push(setTimeout(fire(generateHint(hintAnswer)), HINT2_DELAY))
+  }
 
   activeGames.set(channel, {
     gameId,
@@ -578,8 +739,7 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
     startedAt: Date.now(),
     participants: new Set(),
     timeout,
-    hintTimeout,
-    hintText,
+    hintTimers,
     closeMissCount: 0,
     say: globalSay,
   })
@@ -594,7 +754,7 @@ function endTrivia(channel: string, expectedGameId?: number): string | null {
   if (expectedGameId !== undefined && game.gameId !== expectedGameId) return null
 
   clearTimeout(game.timeout)
-  if (game.hintTimeout) clearTimeout(game.hintTimeout)
+  clearHints(game)
   activeGames.delete(channel)
   lastGameEnd.set(channel, Date.now())
 
@@ -621,14 +781,25 @@ export function checkAnswer(
   // filter non-answers before cleaning/counting as attempt
   if (!looksLikeAnswer(trimmed, game)) return
 
-  const cleaned = trimmed.toLowerCase().replace(/[^\w\s-]/g, '')
+  const cleaned = norm(trimmed)
   if (!cleaned) return
 
   const userId = db.getOrCreateUser(username)
   game.participants.add(username)
   db.recordTriviaAttempt(userId)
 
-  const isCorrect = matchAnswer(cleaned, game.acceptedAnswers)
+  // "any ..." questions are multi-answer pools — exact+alias only (no fuzzy false-wins).
+  const allowFuzzy = !game.correctAnswer.startsWith('any')
+  let isCorrect = matchAnswer(cleaned, game.acceptedAnswers, allowFuzzy)
+  // type 11 (exact monster HP) is brutal — accept a guess within ±10% of the true value
+  // so "4400" wins for a 4700 HP monster instead of enraging a close, knowledgeable guess.
+  if (!isCorrect && game.questionType === 11 && game.acceptedAnswers.length === 1) {
+    const truth = parseInt(game.acceptedAnswers[0])
+    const guess = parseInt(cleaned)
+    if (!isNaN(truth) && !isNaN(guess) && truth > 0 && Math.abs(guess - truth) <= truth * 0.1) {
+      isCorrect = true
+    }
+  }
 
   const answerTimeMs = Date.now() - game.startedAt
   db.recordTriviaAnswer(game.gameId, userId, text, isCorrect, answerTimeMs)
@@ -636,23 +807,30 @@ export function checkAnswer(
   if (isCorrect) {
     // re-check game is still active (another correct answer could have won in same tick)
     if (!activeGames.has(channel)) return
-    db.recordTriviaWin(game.gameId, userId, answerTimeMs, game.participants.size)
+    const secs = answerTimeMs / 1000
+    // points = difficulty base × speed multiplier + streak bonus (min 1). this is the
+    // real leaderboard currency — knowing a hard answer fast beats spamming easy wins.
+    const streak = db.getTriviaStreak(userId) + 1 // recordTriviaWin will set this value
+    const base = difficultyBase(game.questionType, game.acceptedAnswers.length)
+    const speedMult = secs < 3 ? 1.5 : secs < 5 ? 1.25 : secs < 10 ? 1 : 0.75
+    const streakBonus = streak >= 5 ? 2 : streak >= 3 ? 1 : 0
+    const points = Math.max(1, Math.round(base * speedMult) + streakBonus)
+
+    db.recordTriviaWin(game.gameId, userId, answerTimeMs, game.participants.size, points)
     clearTimeout(game.timeout)
-    if (game.hintTimeout) clearTimeout(game.hintTimeout)
+    clearHints(game)
     activeGames.delete(channel)
     lastGameEnd.set(channel, Date.now())
 
-    const secs = answerTimeMs / 1000
     const timeStr = secs.toFixed(1)
     const speedTag = secs < 3 ? ' LEGENDARY' : secs < 5 ? ' FAST' : secs < 10 ? ' nice' : ''
-    const streak = db.getTriviaStreak(userId)
     const streakTag = streak >= 5 ? ` (${streak} STREAK!!)` : streak >= 3 ? ` (${streak} streak)` : ''
     const emote = secs < 3 || streak >= 5
       ? pickEmoteByMood(channel, 'hype', 'celebration')
       : secs < 5 || streak >= 3
         ? pickEmoteByMood(channel, 'celebration', 'hype')
         : pickEmoteByMood(channel, 'happy', 'celebration')
-    say(channel, `${username} got it in ${timeStr}s!${speedTag}${streakTag} Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`)
+    say(channel, `${username} got it in ${timeStr}s!${speedTag}${streakTag} +${points}pt Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`)
   } else {
     db.resetTriviaStreak(userId)
     // close-miss taunt — capped per round so 10 chatters guessing close
@@ -673,7 +851,7 @@ export function skipTrivia(channel: string, username?: string): string | null {
   const game = activeGames.get(channel)
   if (!game) return null
   clearTimeout(game.timeout)
-  if (game.hintTimeout) clearTimeout(game.hintTimeout)
+  clearHints(game)
   activeGames.delete(channel)
   lastGameEnd.set(channel, Date.now())
   const emote = pickEmoteByMood(channel, 'sad', 'thinking')
@@ -685,7 +863,7 @@ export function cleanupChannel(channel: string) {
   const game = activeGames.get(channel)
   if (game) {
     clearTimeout(game.timeout)
-    if (game.hintTimeout) clearTimeout(game.hintTimeout)
+    clearHints(game)
   }
   activeGames.delete(channel)
   lastGameEnd.delete(channel)
@@ -700,7 +878,7 @@ export function isGameActive(channel: string): boolean {
 export function getTriviaScore(channel: string): string {
   const leaders = db.getTriviaLeaderboard(channel, 5)
   if (leaders.length === 0) return 'no trivia scores yet'
-  const lines = leaders.map((l, i) => `${i + 1}. ${l.username} (${l.trivia_wins} wins)`)
+  const lines = leaders.map((l, i) => `${i + 1}. ${l.username} (${l.points}pts)`)
   return `Trivia top 5: ${lines.join(' | ')}`
 }
 
@@ -717,6 +895,7 @@ export function formatStats(username: string, channel?: string): string {
       ? Math.round((stats.trivia_wins / stats.trivia_attempts) * 100)
       : 0
     parts.push(`trivia:${stats.trivia_wins}W/${stats.trivia_attempts}A (${rate}%)`)
+    if (stats.trivia_points > 0) parts.push(`${stats.trivia_points}pts`)
     if (stats.trivia_best_streak > 0) parts.push(`streak:${stats.trivia_best_streak}`)
     if (stats.trivia_fastest_ms) parts.push(`fastest:${(stats.trivia_fastest_ms / 1000).toFixed(1)}s`)
   }
@@ -733,7 +912,7 @@ export function formatTop(channel: string): string {
 }
 
 // exported for testing
-export { matchAnswer, looksLikeAnswer }
+export { matchAnswer, looksLikeAnswer, difficultyBase, generateHint, generateWeakHint }
 
 export function resetForTest() {
   activeGames.clear()
