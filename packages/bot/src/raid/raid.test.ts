@@ -584,6 +584,18 @@ describe('commands', () => {
     expect(full).toMatch(/full/i) // higher-value signal survives the prior join ack
   })
 
+  it('submitPick persists onto raid_slots so a pick survives a mid-run restart', async () => {
+    const raidState = await import('./state')
+    raidState.getOrCreateRaid('persistchan')
+    raidState.claimSlot('persistchan', 'picker')
+    raidState.submitPick('persistchan', 'picker', 3)
+    const raid = raidState.getRaid('persistchan')!
+    const row = cmdDb.query(
+      'SELECT submitted_this_day FROM raid_slots WHERE raid_id = ? AND username = ?',
+    ).get(raid.raidId, 'picker') as { submitted_this_day: number }
+    expect(row.submitted_this_day).toBe(3) // was 0/NULL before the fix → pick silently dropped on restore
+  })
+
   it('claimSlot reports full once every slot is taken', async () => {
     const raidState = await import('./state')
     raidState.getOrCreateRaid('claimfull')
