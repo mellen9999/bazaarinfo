@@ -41,7 +41,7 @@ const CHAT_MODEL = 'claude-sonnet-4-6'
 const MAX_TOKENS_GAME = 100
 const MAX_TOKENS_CHAT = 80
 const MAX_TOKENS_PASTA = 200
-const TIMEOUT = 15_000
+const TIMEOUT = 7_000
 const MAX_RETRIES = 3
 
 // --- hallucination detection ---
@@ -148,7 +148,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // in a busy chat a reply older than this has scrolled off-screen and is just
   // holding a concurrency slot hostage (esp. during 429 backoff sleeps), starving
   // everyone else's request. fail fast so the queue drains instead of clogging.
-  const REQUEST_DEADLINE = 18_000
+  const REQUEST_DEADLINE = 12_000
 
   type ApiData = {
     content: { type: string; text?: string }[]
@@ -187,6 +187,13 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       return { status: 200, data: parsed.data }
     } catch (e) {
       clearTimeout(timer)
+      // a stalled/aborted attempt is transient — surface as 503 so the retry loop
+      // tries again fast instead of bailing to the outer catch and returning null
+      // (which leaves the user with no answer after a full timeout wait).
+      if ((e as Error)?.name === 'AbortError') {
+        log('ai: attempt timed out — retrying as transient')
+        return { status: 503 }
+      }
       throw e
     }
   }
