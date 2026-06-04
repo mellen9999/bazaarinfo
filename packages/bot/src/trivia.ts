@@ -5,6 +5,30 @@ import { log } from './log'
 import { resolveTooltip } from '@bazaarinfo/shared'
 import type { Monster } from '@bazaarinfo/shared'
 import { pickEmoteByMood } from './emotes'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+
+// --- channel-scoped streamer trivia packs (e.g. Kripp lore in nl_kripp) ---
+// these are curated, adversarially fact-checked real-world facts about the streamer,
+// only ever mixed into THAT streamer's channel. accuracy is non-negotiable (they show
+// in his own chat), so the pack is human-vetted before a channel is switched on.
+interface PackQ { question: string; answer: string; accept: string[]; difficulty?: string }
+// channels that get the kripp pack mixed in. add a channel here only after vetting.
+const KRIPP_CHANNELS = new Set<string>(['mellen']) // nl_kripp added after mellen vets the set
+const KRIPP_MIX = 0.3 // ~30% of un-categorized rounds in a kripp channel are kripp questions
+
+let krippPack: PackQ[] = []
+try {
+  const raw = readFileSync(join(import.meta.dir, '../../../cache/kripp-trivia.json'), 'utf-8')
+  const parsed = JSON.parse(raw) as { questions?: PackQ[] }
+  krippPack = (parsed.questions ?? []).filter((q) => q.question && q.answer)
+} catch { krippPack = [] }
+
+// test seam
+export function setKrippPackForTest(pack: PackQ[]) { krippPack = pack }
+function isKrippChannel(channel: string): boolean {
+  return KRIPP_CHANNELS.has(channel.toLowerCase().replace(/^#/, ''))
+}
 
 // canonical answer normalizer — THE single source of truth for comparing a guess
 // to an accepted answer. applied symmetrically to both sides so punctuation in item
@@ -551,6 +575,19 @@ function genItemCarrierQuestion(): ReturnType<QuestionGen> {
   }
 }
 
+// type 20: channel-scoped streamer trivia (kripp pack). only reachable in KRIPP_CHANNELS
+// via pickQuestionType — never fires elsewhere. answer matching reuses norm() + accept[].
+function genKrippQuestion(): ReturnType<QuestionGen> {
+  if (krippPack.length === 0) return null
+  const q = pickRandom(krippPack)
+  return {
+    question: q.question,
+    answer: q.answer,
+    accepted: [q.answer.toLowerCase(), ...q.accept],
+    type: 20,
+  }
+}
+
 const generators: QuestionGen[] = [
   genHeroQuestion,          // 0
   genTagQuestion,           // 1
@@ -571,15 +608,23 @@ const generators: QuestionGen[] = [
   genMonsterByDayQuestion,  // 16 (type 17)
   genLegendaryItemQuestion, // 17 (type 18)
   genItemCarrierQuestion,   // 18 (type 19)
+  genKrippQuestion,         // 19 (type 20) — channel-scoped, gated in pickQuestionType
 ]
 
-type TriviaCategory = 'items' | 'heroes' | 'monsters'
+const KRIPP_GEN_INDEX = generators.length - 1
+
+type TriviaCategory = 'items' | 'heroes' | 'monsters' | 'kripp'
 
 const CATEGORY_GENERATORS: Record<TriviaCategory, number[]> = {
   items: [1, 2, 4, 5, 7, 11, 12, 13, 15, 17],  // tag, tooltip, hero+size, hero+tag, mechanic, size, tier, enchant, fill-blank, legendary
   heroes: [0, 8],                              // hero-from-item, hero-from-skill
   monsters: [3, 6, 9, 10, 14, 16, 18],         // board, day, monster-skill, health, hp-compare, monster-by-day, item-carrier
+  kripp: [KRIPP_GEN_INDEX],                    // channel-scoped streamer pack
 }
+
+// the default (un-categorized) Bazaar pool — NEVER includes the channel-scoped kripp
+// generator; that is mixed in only for kripp channels via pickQuestionType.
+const BAZAAR_INDICES = generators.map((_, i) => i).filter((i) => i !== KRIPP_GEN_INDEX)
 
 // weak first-stage hint: shape/count only (no letters revealed), so the round
 // escalates count(10s) -> skeleton(20s) instead of dumping everything at once.
@@ -651,7 +696,14 @@ function weightedPick<T>(items: T[], weights: number[]): T {
 
 function pickQuestionType(channel: string, category?: TriviaCategory): number {
   const recent = recentTypes.get(channel) ?? []
-  const allowedIndices = category ? CATEGORY_GENERATORS[category] : generators.map((_, i) => i)
+  // kripp pack is channel-scoped and only when the vetted pack is non-empty.
+  if (isKrippChannel(channel) && krippPack.length > 0) {
+    if (category === 'kripp') return KRIPP_GEN_INDEX
+    if (!category && Math.random() < KRIPP_MIX) return KRIPP_GEN_INDEX // mix in ~KRIPP_MIX of rounds
+  } else if (category === 'kripp') {
+    category = undefined // not a kripp channel (or empty pack) → fall back to the Bazaar pool
+  }
+  const allowedIndices = category ? CATEGORY_GENERATORS[category] : BAZAAR_INDICES
   const available = allowedIndices.filter((i) => recent.filter((t) => t === i).length < 2)
   const pool = available.length > 0 ? available : allowedIndices
   return weightedPick(pool, typeWeights(channel, pool))
@@ -701,6 +753,7 @@ const ENUM_ANSWER_SPACE: Record<number, number> = {
   12: 24,     // size — 1-in-3 coin flip, cheap (base 1)
   15: 24,     // hp compare — binary guess, cheap (base 1)
   16: 24,     // fill-the-blank — guess the modal number, cheap (base 1)
+  20: 6,      // kripp lore — real recall, moderate pay (base 3)
 }
 function difficultyBase(type: number, acceptedLen: number): number {
   const ansCount = ENUM_ANSWER_SPACE[type] ?? Math.max(1, acceptedLen)

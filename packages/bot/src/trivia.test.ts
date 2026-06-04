@@ -1,4 +1,4 @@
-import { describe, expect, it, mock, beforeEach } from 'bun:test'
+import { describe, expect, it, mock, beforeEach, afterEach } from 'bun:test'
 import type { BazaarCard, Monster } from '@bazaarinfo/shared'
 
 // --- fixtures ---
@@ -180,6 +180,7 @@ const {
   difficultyBase,
   generateHint,
   generateWeakHint,
+  setKrippPackForTest,
 } = await import('./trivia')
 
 rebuildTriviaMaps()
@@ -1059,4 +1060,54 @@ describe('hint generation guards', () => {
     expect(generateHint('4700')).toMatch(/between \d+ and \d+/)
     expect(generateHint('4700')).not.toContain('NaN')
   })
+})
+
+describe('kripp channel-scoped pack', () => {
+  const pack = [
+    { question: 'Kripp got famous in which card game?', answer: 'Hearthstone', accept: ['hearthstone', 'hs'], difficulty: 'easy' },
+    { question: "what does the 'nl' in nl_Kripp stand for?", answer: 'no life', accept: ['no life', 'nolife'], difficulty: 'medium' },
+  ]
+
+  it('serves kripp questions in a kripp channel via the kripp category', () => {
+    setKrippPackForTest(pack)
+    let got = false
+    for (let i = 0; i < 30 && !got; i++) {
+      resetForTest()
+      const r = startTrivia('mellen', 'kripp') // 'mellen' is a KRIPP_CHANNEL
+      const g = getActiveGameForTest('mellen')!
+      if (g.questionType === 20) { got = true; expect(g.question.toLowerCase()).toContain('kripp') }
+    }
+    expect(got).toBe(true)
+  })
+
+  it('accepts a kripp answer via norm + accept variants', () => {
+    setKrippPackForTest([pack[0]])
+    resetForTest()
+    startTrivia('mellen', 'kripp')
+    const g = getActiveGameForTest('mellen')!
+    expect(g.acceptedAnswers).toContain('hearthstone')
+    expect(g.acceptedAnswers).toContain('hs')
+    checkAnswer('mellen', 'someviewer', 'HS', mockSay) // case-insensitive via norm
+    expect(getActiveGameForTest('mellen')).toBeUndefined() // won → round ended
+  })
+
+  it('NEVER leaks kripp questions into a non-kripp channel (even with a pack loaded)', () => {
+    setKrippPackForTest(pack)
+    for (let i = 0; i < 200; i++) {
+      resetForTest()
+      startTrivia('#somechannel') // not a kripp channel
+      const g = getActiveGameForTest('#somechannel')
+      if (g) expect(g.questionType).not.toBe(20)
+    }
+  })
+
+  it('kripp category in a non-kripp channel falls back to a normal question', () => {
+    setKrippPackForTest(pack)
+    resetForTest()
+    startTrivia('#somechannel', 'kripp')
+    const g = getActiveGameForTest('#somechannel')!
+    expect(g.questionType).not.toBe(20) // fell back to Bazaar pool
+  })
+
+  afterEach(() => setKrippPackForTest([]))
 })
