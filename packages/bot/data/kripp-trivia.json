@@ -13,52 +13,6 @@
       "category": "identity"
     },
     {
-      "question": "what country was kripp born in?",
-      "answer": "Romania",
-      "accept": [
-        "romania",
-        "romanian"
-      ],
-      "difficulty": "easy",
-      "category": "identity"
-    },
-    {
-      "question": "kripp is romanian-_____ (his other nationality)?",
-      "answer": "Canadian",
-      "accept": [
-        "canadian",
-        "canada",
-        "romanian-canadian",
-        "romanian canadian"
-      ],
-      "difficulty": "easy",
-      "category": "identity"
-    },
-    {
-      "question": "what platform does kripp stream on?",
-      "answer": "Twitch",
-      "accept": [
-        "twitch",
-        "twitch.tv",
-        "twitch tv"
-      ],
-      "difficulty": "easy",
-      "category": "identity"
-    },
-    {
-      "question": "kripp's full twitch handle (with the prefix)?",
-      "answer": "nl_Kripp",
-      "accept": [
-        "nl_kripp",
-        "nlkripp",
-        "nl kripp",
-        "nl-kripp",
-        "kripp"
-      ],
-      "difficulty": "easy",
-      "category": "identity"
-    },
-    {
       "question": "what does the 'nl' in nl_kripp stand for?",
       "answer": "no life",
       "accept": [
@@ -80,28 +34,6 @@
       ],
       "difficulty": "medium",
       "category": "identity"
-    },
-    {
-      "question": "which card game made kripp famous as an arena god?",
-      "answer": "Hearthstone",
-      "accept": [
-        "hearthstone",
-        "hs",
-        "hearth stone"
-      ],
-      "difficulty": "easy",
-      "category": "hearthstone"
-    },
-    {
-      "question": "what hearthstone mode is kripp a legendary master of (draft from scratch)?",
-      "answer": "Arena",
-      "accept": [
-        "arena",
-        "the arena",
-        "hearthstone arena"
-      ],
-      "difficulty": "medium",
-      "category": "hearthstone"
     },
     {
       "question": "which region's #1 hearthstone arena leaderboard did kripp top?",
@@ -212,18 +144,6 @@
       "category": "wow"
     },
     {
-      "question": "which class did kripp main in wow?",
-      "answer": "Hunter",
-      "accept": [
-        "hunter",
-        "hunters",
-        "huntard",
-        "troll hunter"
-      ],
-      "difficulty": "medium",
-      "category": "wow"
-    },
-    {
       "question": "kripp was world-first to complete which brutal permadeath wow challenge?",
       "answer": "the Ironman Challenge",
       "accept": [
@@ -248,32 +168,6 @@
       "category": "poe"
     },
     {
-      "question": "what diet is kripp famously (and memeably) known for?",
-      "answer": "vegan",
-      "accept": [
-        "vegan",
-        "veganism",
-        "plant-based",
-        "plant based",
-        "plantbased"
-      ],
-      "difficulty": "easy",
-      "category": "memes"
-    },
-    {
-      "question": "one word: kripp's legendary reaction to bad rng that chat spams (PJSalt)?",
-      "answer": "salt",
-      "accept": [
-        "salt",
-        "salty",
-        "saltiness",
-        "pjsalt",
-        "pj salt"
-      ],
-      "difficulty": "easy",
-      "category": "memes"
-    },
-    {
       "question": "the rng deity kripp's chat prays to — '___, our lord and savior'?",
       "answer": "RNGesus",
       "accept": [
@@ -295,42 +189,6 @@
       ],
       "difficulty": "medium",
       "category": "persona"
-    },
-    {
-      "question": "kripp's dexter and fey — cats or dogs?",
-      "answer": "dogs",
-      "accept": [
-        "dogs",
-        "dog",
-        "doggos",
-        "doggo"
-      ],
-      "difficulty": "easy",
-      "category": "persona"
-    },
-    {
-      "question": "what breed is kripp's dog fey?",
-      "answer": "corgi",
-      "accept": [
-        "corgi",
-        "pembroke welsh corgi",
-        "welsh corgi",
-        "pembroke corgi"
-      ],
-      "difficulty": "medium",
-      "category": "persona"
-    },
-    {
-      "question": "who made the bazaar? (streamer name of the creator)",
-      "answer": "Reynad",
-      "accept": [
-        "reynad",
-        "reynad27",
-        "andrey yanyuk",
-        "tempo reynad"
-      ],
-      "difficulty": "easy",
-      "category": "bazaar"
     },
     {
       "question": "reynad's real first name?",
@@ -398,21 +256,6 @@
       "category": "d3-worldfirst"
     },
     {
-      "question": "kripp's d3 world-first run was which two classes?",
-      "answer": "barbarian and wizard",
-      "accept": [
-        "barbarian and wizard",
-        "barbarian, wizard",
-        "barb and wiz",
-        "wizard and barbarian",
-        "barbarian + wizard",
-        "barb wiz",
-        "wiz and barb"
-      ],
-      "difficulty": "hard",
-      "category": "d3-worldfirst"
-    },
-    {
       "question": "what year did kripp get the d3 hardcore inferno world first?",
       "answer": "2012",
       "accept": [
@@ -451,16 +294,6 @@
       ],
       "difficulty": "medium",
       "category": "d3-worldfirst"
-    },
-    {
-      "question": "the guinness record for most hs 12-win arena runs (152) belongs to which player, not kripp?",
-      "answer": "ggcnm",
-      "accept": [
-        "ggcnm",
-        "ggc nm"
-      ],
-      "difficulty": "hard",
-      "category": "hs-arena"
     },
     {
       "question": "kripp lost the 2013 blizzcon innkeeper's invitational final to which player?",
@@ -625,19 +458,6 @@
       "accept": [
         "first aid",
         "firstaid"
-      ],
-      "difficulty": "hard",
-      "category": "wow"
-    },
-    {
-      "question": "who created the wow ironman challenge?",
-      "answer": "vrykerion and psynister",
-      "accept": [
-        "vrykerion and psynister",
-        "vrykerion & psynister",
-        "psynister and vrykerion",
-        "vrykerion, psynister",
-        "psynister and vrykerion"
       ],
       "difficulty": "hard",
       "category": "wow"
