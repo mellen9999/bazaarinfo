@@ -1,0 +1,4 @@
+{
+  "_comment": "Curated, adversarially fact-checked Kripp trivia for nl_kripp. Each entry: question, answer (canonical), accept (lowercase variants), difficulty, category. Populated by the kripp-trivia workflow + human-vetted before nl_kripp rollout.",
+  "questions": []
+}
