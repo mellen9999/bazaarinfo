@@ -315,7 +315,6 @@ describe('startTrivia', () => {
   it('starts and returns question', () => {
     const result = startTrivia('#test')
     expect(result).toStartWith('Trivia!')
-    expect(result).toContain('just type your answer')
     expect(result).toContain('(30s)')
     expect(isGameActive('#test')).toBe(true)
   })

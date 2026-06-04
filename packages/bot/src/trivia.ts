@@ -888,7 +888,7 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
     say: globalSay,
   })
 
-  return `Trivia! ${q.question} — just type your answer (30s)`
+  return `Trivia! ${q.question} (30s)`
 }
 
 function endTrivia(channel: string, expectedGameId?: number): string | null {
