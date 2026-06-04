@@ -1,39 +1,1082 @@
 {
-  "_comment": "Curated, adversarially fact-checked Kripp/Bazaar trivia for nl_kripp. Vetted in #mellen before nl_kripp rollout. Each: question, answer (canonical), accept (lowercase variants), difficulty, category.",
+  "_comment": "Curated, adversarially fact-checked Kripp/Bazaar trivia for nl_kripp (surface + deep cuts). Vetted in #mellen before nl_kripp rollout. Each: question, answer, accept (lowercase variants), difficulty, category.",
   "questions": [
-    { "question": "kripp's real name?", "answer": "Octavian Morosan", "accept": ["octavian morosan", "octavian", "morosan"], "difficulty": "easy", "category": "identity" },
-    { "question": "what country was kripp born in?", "answer": "Romania", "accept": ["romania", "romanian"], "difficulty": "easy", "category": "identity" },
-    { "question": "kripp is romanian-_____ (his other nationality)?", "answer": "Canadian", "accept": ["canadian", "canada", "romanian-canadian", "romanian canadian"], "difficulty": "easy", "category": "identity" },
-    { "question": "what platform does kripp stream on?", "answer": "Twitch", "accept": ["twitch", "twitch.tv", "twitch tv"], "difficulty": "easy", "category": "identity" },
-    { "question": "kripp's full twitch handle (with the prefix)?", "answer": "nl_Kripp", "accept": ["nl_kripp", "nlkripp", "nl kripp", "nl-kripp", "kripp"], "difficulty": "easy", "category": "identity" },
-    { "question": "what does the 'nl' in nl_kripp stand for?", "answer": "no life", "accept": ["no life", "nolife", "no-life", "team no life", "team nolife"], "difficulty": "medium", "category": "identity" },
-    { "question": "what year did kripp start streaming on twitch?", "answer": "2012", "accept": ["2012", "'12"], "difficulty": "medium", "category": "identity" },
-    { "question": "which card game made kripp famous as an arena god?", "answer": "Hearthstone", "accept": ["hearthstone", "hs", "hearth stone"], "difficulty": "easy", "category": "hearthstone" },
-    { "question": "what hearthstone mode is kripp a legendary master of (draft from scratch)?", "answer": "Arena", "accept": ["arena", "the arena", "hearthstone arena"], "difficulty": "medium", "category": "hearthstone" },
-    { "question": "which region's #1 hearthstone arena leaderboard did kripp top?", "answer": "North America", "accept": ["north america", "na", "america", "americas", "us", "north american"], "difficulty": "medium", "category": "hearthstone" },
-    { "question": "kripp's old hearthstone podcast (with trump + chanmanv) — also his signature catchphrase, two words?", "answer": "Value Town", "accept": ["value town", "valuetown"], "difficulty": "medium", "category": "hearthstone" },
-    { "question": "kripp placed 2nd at which 2013 blizzcon hearthstone tournament?", "answer": "the Innkeeper's Invitational", "accept": ["innkeeper's invitational", "innkeepers invitational", "innkeeper invitational", "innkeeper's", "innkeepers"], "difficulty": "hard", "category": "hearthstone" },
-    { "question": "kripp's auto-battler obsession before the bazaar — which hearthstone mode?", "answer": "Battlegrounds", "accept": ["battlegrounds", "hearthstone battlegrounds", "bgs", "bg", "hs battlegrounds"], "difficulty": "medium", "category": "hearthstone" },
-    { "question": "which game did kripp & krippi get the WORLD FIRST hardcore inferno clear in?", "answer": "Diablo 3", "accept": ["diablo 3", "diablo iii", "diablo", "d3", "diablo three"], "difficulty": "medium", "category": "diablo" },
-    { "question": "who was kripp's partner for the world-first diablo 3 hardcore inferno kill?", "answer": "Krippi", "accept": ["krippi"], "difficulty": "hard", "category": "diablo" },
-    { "question": "kripp's world-first diablo 3 inferno clear was on which permadeath mode?", "answer": "hardcore", "accept": ["hardcore", "hardcore mode", "hc", "hardcore inferno"], "difficulty": "medium", "category": "diablo" },
-    { "question": "which org recognizes kripp's diablo 3 hardcore inferno clear as a world record?", "answer": "Guinness World Records", "accept": ["guinness world records", "guinness", "gwr", "guinness book", "guinness world record"], "difficulty": "hard", "category": "diablo" },
-    { "question": "what mmo made kripp famous as a top hunter before hearthstone?", "answer": "World of Warcraft", "accept": ["world of warcraft", "wow", "warcraft"], "difficulty": "medium", "category": "wow" },
-    { "question": "which class did kripp main in wow?", "answer": "Hunter", "accept": ["hunter", "hunters", "huntard", "troll hunter"], "difficulty": "medium", "category": "wow" },
-    { "question": "kripp was world-first to complete which brutal permadeath wow challenge?", "answer": "the Ironman Challenge", "accept": ["ironman challenge", "ironman", "iron man", "iron man challenge", "the ironman challenge", "wow ironman"], "difficulty": "hard", "category": "wow" },
-    { "question": "kripp was season 1 hardcore race champion in which arpg?", "answer": "Path of Exile", "accept": ["path of exile", "poe"], "difficulty": "hard", "category": "poe" },
-    { "question": "what diet is kripp famously (and memeably) known for?", "answer": "vegan", "accept": ["vegan", "veganism", "plant-based", "plant based", "plantbased"], "difficulty": "easy", "category": "memes" },
-    { "question": "one word: kripp's legendary reaction to bad rng that chat spams (PJSalt)?", "answer": "salt", "accept": ["salt", "salty", "saltiness", "pjsalt", "pj salt"], "difficulty": "easy", "category": "memes" },
-    { "question": "the rng deity kripp's chat prays to — '___, our lord and savior'?", "answer": "RNGesus", "accept": ["rngesus", "rnjesus", "rng jesus", "rngsus", "rng-jesus"], "difficulty": "medium", "category": "memes" },
-    { "question": "kripp's wife who runs his channel — first name?", "answer": "Rania", "accept": ["rania", "underflowr"], "difficulty": "medium", "category": "persona" },
-    { "question": "kripp's dexter and fey — cats or dogs?", "answer": "dogs", "accept": ["dogs", "dog", "doggos", "doggo"], "difficulty": "easy", "category": "persona" },
-    { "question": "what breed is kripp's dog fey?", "answer": "corgi", "accept": ["corgi", "pembroke welsh corgi", "welsh corgi", "pembroke corgi"], "difficulty": "medium", "category": "persona" },
-    { "question": "who made the bazaar? (streamer name of the creator)", "answer": "Reynad", "accept": ["reynad", "reynad27", "andrey yanyuk", "tempo reynad"], "difficulty": "easy", "category": "bazaar" },
-    { "question": "reynad's real first name?", "answer": "Andrey", "accept": ["andrey", "andrei", "andrey yanyuk"], "difficulty": "medium", "category": "bazaar" },
-    { "question": "the bazaar is made by reynad's org — name it (also an old hearthstone team)?", "answer": "Tempo Storm", "accept": ["tempo storm", "tempostorm", "tempo"], "difficulty": "medium", "category": "bazaar" },
-    { "question": "before hearthstone, which card game did reynad compete in?", "answer": "Magic: The Gathering", "accept": ["magic the gathering", "magic", "mtg", "magic: the gathering"], "difficulty": "medium", "category": "bazaar" },
-    { "question": "the bazaar started as a crowdfunding campaign on which platform?", "answer": "Indiegogo", "accept": ["indiegogo", "indie gogo", "indigogo"], "difficulty": "medium", "category": "bazaar" },
-    { "question": "the bazaar's free starting hero — pure aggression?", "answer": "Vanessa", "accept": ["vanessa"], "difficulty": "medium", "category": "bazaar" },
-    { "question": "name the bazaar's cute robot hero (builds around a Core)?", "answer": "Dooley", "accept": ["dooley", "dooly"], "difficulty": "medium", "category": "bazaar" }
+    {
+      "question": "kripp's real name?",
+      "answer": "Octavian Morosan",
+      "accept": [
+        "octavian morosan",
+        "octavian",
+        "morosan"
+      ],
+      "difficulty": "easy",
+      "category": "identity"
+    },
+    {
+      "question": "what country was kripp born in?",
+      "answer": "Romania",
+      "accept": [
+        "romania",
+        "romanian"
+      ],
+      "difficulty": "easy",
+      "category": "identity"
+    },
+    {
+      "question": "kripp is romanian-_____ (his other nationality)?",
+      "answer": "Canadian",
+      "accept": [
+        "canadian",
+        "canada",
+        "romanian-canadian",
+        "romanian canadian"
+      ],
+      "difficulty": "easy",
+      "category": "identity"
+    },
+    {
+      "question": "what platform does kripp stream on?",
+      "answer": "Twitch",
+      "accept": [
+        "twitch",
+        "twitch.tv",
+        "twitch tv"
+      ],
+      "difficulty": "easy",
+      "category": "identity"
+    },
+    {
+      "question": "kripp's full twitch handle (with the prefix)?",
+      "answer": "nl_Kripp",
+      "accept": [
+        "nl_kripp",
+        "nlkripp",
+        "nl kripp",
+        "nl-kripp",
+        "kripp"
+      ],
+      "difficulty": "easy",
+      "category": "identity"
+    },
+    {
+      "question": "what does the 'nl' in nl_kripp stand for?",
+      "answer": "no life",
+      "accept": [
+        "no life",
+        "nolife",
+        "no-life",
+        "team no life",
+        "team nolife"
+      ],
+      "difficulty": "medium",
+      "category": "identity"
+    },
+    {
+      "question": "what year did kripp start streaming on twitch?",
+      "answer": "2012",
+      "accept": [
+        "2012",
+        "'12"
+      ],
+      "difficulty": "medium",
+      "category": "identity"
+    },
+    {
+      "question": "which card game made kripp famous as an arena god?",
+      "answer": "Hearthstone",
+      "accept": [
+        "hearthstone",
+        "hs",
+        "hearth stone"
+      ],
+      "difficulty": "easy",
+      "category": "hearthstone"
+    },
+    {
+      "question": "what hearthstone mode is kripp a legendary master of (draft from scratch)?",
+      "answer": "Arena",
+      "accept": [
+        "arena",
+        "the arena",
+        "hearthstone arena"
+      ],
+      "difficulty": "medium",
+      "category": "hearthstone"
+    },
+    {
+      "question": "which region's #1 hearthstone arena leaderboard did kripp top?",
+      "answer": "North America",
+      "accept": [
+        "north america",
+        "na",
+        "america",
+        "americas",
+        "us",
+        "north american"
+      ],
+      "difficulty": "medium",
+      "category": "hearthstone"
+    },
+    {
+      "question": "kripp's old hearthstone podcast (with trump + chanmanv) — also his signature catchphrase, two words?",
+      "answer": "Value Town",
+      "accept": [
+        "value town",
+        "valuetown"
+      ],
+      "difficulty": "medium",
+      "category": "hearthstone"
+    },
+    {
+      "question": "kripp placed 2nd at which 2013 blizzcon hearthstone tournament?",
+      "answer": "the Innkeeper's Invitational",
+      "accept": [
+        "innkeeper's invitational",
+        "innkeepers invitational",
+        "innkeeper invitational",
+        "innkeeper's",
+        "innkeepers"
+      ],
+      "difficulty": "hard",
+      "category": "hearthstone"
+    },
+    {
+      "question": "kripp's auto-battler obsession before the bazaar — which hearthstone mode?",
+      "answer": "Battlegrounds",
+      "accept": [
+        "battlegrounds",
+        "hearthstone battlegrounds",
+        "bgs",
+        "bg",
+        "hs battlegrounds"
+      ],
+      "difficulty": "medium",
+      "category": "hearthstone"
+    },
+    {
+      "question": "which game did kripp & krippi get the WORLD FIRST hardcore inferno clear in?",
+      "answer": "Diablo 3",
+      "accept": [
+        "diablo 3",
+        "diablo iii",
+        "diablo",
+        "d3",
+        "diablo three"
+      ],
+      "difficulty": "medium",
+      "category": "diablo"
+    },
+    {
+      "question": "who was kripp's partner for the world-first diablo 3 hardcore inferno kill?",
+      "answer": "Krippi",
+      "accept": [
+        "krippi"
+      ],
+      "difficulty": "hard",
+      "category": "diablo"
+    },
+    {
+      "question": "kripp's world-first diablo 3 inferno clear was on which permadeath mode?",
+      "answer": "hardcore",
+      "accept": [
+        "hardcore",
+        "hardcore mode",
+        "hc",
+        "hardcore inferno"
+      ],
+      "difficulty": "medium",
+      "category": "diablo"
+    },
+    {
+      "question": "which org recognizes kripp's diablo 3 hardcore inferno clear as a world record?",
+      "answer": "Guinness World Records",
+      "accept": [
+        "guinness world records",
+        "guinness",
+        "gwr",
+        "guinness book",
+        "guinness world record"
+      ],
+      "difficulty": "hard",
+      "category": "diablo"
+    },
+    {
+      "question": "what mmo made kripp famous as a top hunter before hearthstone?",
+      "answer": "World of Warcraft",
+      "accept": [
+        "world of warcraft",
+        "wow",
+        "warcraft"
+      ],
+      "difficulty": "medium",
+      "category": "wow"
+    },
+    {
+      "question": "which class did kripp main in wow?",
+      "answer": "Hunter",
+      "accept": [
+        "hunter",
+        "hunters",
+        "huntard",
+        "troll hunter"
+      ],
+      "difficulty": "medium",
+      "category": "wow"
+    },
+    {
+      "question": "kripp was world-first to complete which brutal permadeath wow challenge?",
+      "answer": "the Ironman Challenge",
+      "accept": [
+        "ironman challenge",
+        "ironman",
+        "iron man",
+        "iron man challenge",
+        "the ironman challenge",
+        "wow ironman"
+      ],
+      "difficulty": "hard",
+      "category": "wow"
+    },
+    {
+      "question": "kripp was season 1 hardcore race champion in which arpg?",
+      "answer": "Path of Exile",
+      "accept": [
+        "path of exile",
+        "poe"
+      ],
+      "difficulty": "hard",
+      "category": "poe"
+    },
+    {
+      "question": "what diet is kripp famously (and memeably) known for?",
+      "answer": "vegan",
+      "accept": [
+        "vegan",
+        "veganism",
+        "plant-based",
+        "plant based",
+        "plantbased"
+      ],
+      "difficulty": "easy",
+      "category": "memes"
+    },
+    {
+      "question": "one word: kripp's legendary reaction to bad rng that chat spams (PJSalt)?",
+      "answer": "salt",
+      "accept": [
+        "salt",
+        "salty",
+        "saltiness",
+        "pjsalt",
+        "pj salt"
+      ],
+      "difficulty": "easy",
+      "category": "memes"
+    },
+    {
+      "question": "the rng deity kripp's chat prays to — '___, our lord and savior'?",
+      "answer": "RNGesus",
+      "accept": [
+        "rngesus",
+        "rnjesus",
+        "rng jesus",
+        "rngsus",
+        "rng-jesus"
+      ],
+      "difficulty": "medium",
+      "category": "memes"
+    },
+    {
+      "question": "kripp's wife who runs his channel — first name?",
+      "answer": "Rania",
+      "accept": [
+        "rania",
+        "underflowr"
+      ],
+      "difficulty": "medium",
+      "category": "persona"
+    },
+    {
+      "question": "kripp's dexter and fey — cats or dogs?",
+      "answer": "dogs",
+      "accept": [
+        "dogs",
+        "dog",
+        "doggos",
+        "doggo"
+      ],
+      "difficulty": "easy",
+      "category": "persona"
+    },
+    {
+      "question": "what breed is kripp's dog fey?",
+      "answer": "corgi",
+      "accept": [
+        "corgi",
+        "pembroke welsh corgi",
+        "welsh corgi",
+        "pembroke corgi"
+      ],
+      "difficulty": "medium",
+      "category": "persona"
+    },
+    {
+      "question": "who made the bazaar? (streamer name of the creator)",
+      "answer": "Reynad",
+      "accept": [
+        "reynad",
+        "reynad27",
+        "andrey yanyuk",
+        "tempo reynad"
+      ],
+      "difficulty": "easy",
+      "category": "bazaar"
+    },
+    {
+      "question": "reynad's real first name?",
+      "answer": "Andrey",
+      "accept": [
+        "andrey",
+        "andrei",
+        "andrey yanyuk"
+      ],
+      "difficulty": "medium",
+      "category": "bazaar"
+    },
+    {
+      "question": "the bazaar is made by reynad's org — name it (also an old hearthstone team)?",
+      "answer": "Tempo Storm",
+      "accept": [
+        "tempo storm",
+        "tempostorm",
+        "tempo"
+      ],
+      "difficulty": "medium",
+      "category": "bazaar"
+    },
+    {
+      "question": "before hearthstone, which card game did reynad compete in?",
+      "answer": "Magic: The Gathering",
+      "accept": [
+        "magic the gathering",
+        "magic",
+        "mtg",
+        "magic: the gathering"
+      ],
+      "difficulty": "medium",
+      "category": "bazaar"
+    },
+    {
+      "question": "the bazaar started as a crowdfunding campaign on which platform?",
+      "answer": "Indiegogo",
+      "accept": [
+        "indiegogo",
+        "indie gogo",
+        "indigogo"
+      ],
+      "difficulty": "medium",
+      "category": "bazaar"
+    },
+    {
+      "question": "the bazaar's free starting hero — pure aggression?",
+      "answer": "Vanessa",
+      "accept": [
+        "vanessa"
+      ],
+      "difficulty": "medium",
+      "category": "bazaar"
+    },
+    {
+      "question": "name the bazaar's cute robot hero (builds around a Core)?",
+      "answer": "Dooley",
+      "accept": [
+        "dooley",
+        "dooly"
+      ],
+      "difficulty": "medium",
+      "category": "bazaar"
+    },
+    {
+      "question": "in kripp's d3 hardcore inferno world-first, which class did HE play?",
+      "answer": "barbarian",
+      "accept": [
+        "barbarian",
+        "barb"
+      ],
+      "difficulty": "medium",
+      "category": "d3-worldfirst"
+    },
+    {
+      "question": "kripp's partner krippi played which class in the d3 hc inferno world-first?",
+      "answer": "wizard",
+      "accept": [
+        "wizard",
+        "wiz"
+      ],
+      "difficulty": "hard",
+      "category": "d3-worldfirst"
+    },
+    {
+      "question": "kripp's d3 world-first run was which two classes?",
+      "answer": "barbarian and wizard",
+      "accept": [
+        "barbarian and wizard",
+        "barbarian, wizard",
+        "barb and wiz",
+        "wizard and barbarian",
+        "barbarian + wizard",
+        "barb wiz",
+        "wiz and barb"
+      ],
+      "difficulty": "hard",
+      "category": "d3-worldfirst"
+    },
+    {
+      "question": "what year did kripp get the d3 hardcore inferno world first?",
+      "answer": "2012",
+      "accept": [
+        "2012"
+      ],
+      "difficulty": "easy",
+      "category": "d3-worldfirst"
+    },
+    {
+      "question": "which month of 2012 did kripp clear d3 hardcore inferno first?",
+      "answer": "june",
+      "accept": [
+        "june",
+        "jun"
+      ],
+      "difficulty": "medium",
+      "category": "d3-worldfirst"
+    },
+    {
+      "question": "per guinness, kripp's d3 hc inferno world first came how many days after launch?",
+      "answer": "37 days",
+      "accept": [
+        "37",
+        "37 days",
+        "thirty-seven",
+        "thirty seven"
+      ],
+      "difficulty": "hard",
+      "category": "d3-worldfirst"
+    },
+    {
+      "question": "which blizzard community manager confirmed kripp's hc inferno world first on twitter?",
+      "answer": "bashiok",
+      "accept": [
+        "bashiok",
+        "micah whipple",
+        "micah 'bashiok' whipple",
+        "micah whipple bashiok"
+      ],
+      "difficulty": "hard",
+      "category": "d3-worldfirst"
+    },
+    {
+      "question": "which d3 patch nerfed inferno difficulty right after kripp's hc world-first?",
+      "answer": "patch 1.0.3",
+      "accept": [
+        "1.0.3",
+        "patch 1.0.3",
+        "1.03",
+        "patch 1.03"
+      ],
+      "difficulty": "hard",
+      "category": "d3-worldfirst"
+    },
+    {
+      "question": "the d3 patch that nerfed inferno after kripp's world first cut difficulty on which acts?",
+      "answer": "acts ii-iv",
+      "accept": [
+        "acts 2-4",
+        "acts ii-iv",
+        "act 2 3 4",
+        "2 through 4",
+        "acts two through four",
+        "acts 2 3 4",
+        "2-4",
+        "acts 2 through 4"
+      ],
+      "difficulty": "hard",
+      "category": "d3-worldfirst"
+    },
+    {
+      "question": "in kripp's hc inferno world-first, what was the final boss he and krippi killed?",
+      "answer": "diablo",
+      "accept": [
+        "diablo"
+      ],
+      "difficulty": "medium",
+      "category": "d3-worldfirst"
+    },
+    {
+      "question": "blizzard's first jan-2017 arena top-100 required a minimum how many runs to qualify?",
+      "answer": "30 runs",
+      "accept": [
+        "30",
+        "30 runs",
+        "thirty",
+        "minimum 30",
+        "minimum of 30"
+      ],
+      "difficulty": "hard",
+      "category": "hs-arena"
+    },
+    {
+      "question": "kripp's #1 jan-2017 arena average was set over how many runs?",
+      "answer": "37 runs",
+      "accept": [
+        "37",
+        "37 runs",
+        "thirty-seven",
+        "thirty seven"
+      ],
+      "difficulty": "hard",
+      "category": "hs-arena"
+    },
+    {
+      "question": "in blizzard's 9-month arena stats, kripp led NA with how many 12-win runs?",
+      "answer": "95",
+      "accept": [
+        "95",
+        "95 runs",
+        "ninety-five",
+        "ninety five"
+      ],
+      "difficulty": "hard",
+      "category": "hs-arena"
+    },
+    {
+      "question": "the guinness record for most hs 12-win arena runs (152) belongs to which player, not kripp?",
+      "answer": "ggcnm",
+      "accept": [
+        "ggcnm",
+        "ggc nm"
+      ],
+      "difficulty": "hard",
+      "category": "hs-arena"
+    },
+    {
+      "question": "on may 26 2016 kripp racked up how many total wins across 10 arena runs?",
+      "answer": "106 wins",
+      "accept": [
+        "106",
+        "106 wins",
+        "one hundred six"
+      ],
+      "difficulty": "hard",
+      "category": "hs-arena"
+    },
+    {
+      "question": "kripp's 106-win arena binge didn't count as the official '100 in 10' challenge — why?",
+      "answer": "he only used 6 classes (challenge needs a new class each run)",
+      "accept": [
+        "used only 6 classes",
+        "6 classes",
+        "only six classes",
+        "didn't use a different class each run",
+        "repeated classes",
+        "didn't pick a new class each run",
+        "reused classes",
+        "only 6 classes"
+      ],
+      "difficulty": "hard",
+      "category": "hs-arena"
+    },
+    {
+      "question": "kripp lost the 2013 blizzcon innkeeper's invitational final to which player?",
+      "answer": "artosis",
+      "accept": [
+        "artosis",
+        "dan stemkoski",
+        "dan artosis stemkoski"
+      ],
+      "difficulty": "medium",
+      "category": "hs-competitive"
+    },
+    {
+      "question": "what was the score in kripp's losing 2013 innkeeper's invitational final vs artosis?",
+      "answer": "2-3",
+      "accept": [
+        "2-3",
+        "3-2",
+        "2 to 3",
+        "lost 2-3",
+        "3 to 2",
+        "2:3",
+        "3:2"
+      ],
+      "difficulty": "hard",
+      "category": "hs-competitive"
+    },
+    {
+      "question": "kripp's first hearthstone team (dec 2013), run by the tl.net writers — name it",
+      "answer": "liquid value",
+      "accept": [
+        "liquid value",
+        "tl value",
+        "team liquid value"
+      ],
+      "difficulty": "hard",
+      "category": "hs-competitive"
+    },
+    {
+      "question": "kripp quit competing on liquid value in feb 2014 to do what instead?",
+      "answer": "casting",
+      "accept": [
+        "casting",
+        "caster",
+        "became a caster",
+        "commentary",
+        "commentating",
+        "to cast"
+      ],
+      "difficulty": "hard",
+      "category": "hs-competitive"
+    },
+    {
+      "question": "which esports org did kripp sign with in january 2015?",
+      "answer": "team solomid (tsm)",
+      "accept": [
+        "tsm",
+        "team solomid",
+        "team solo mid",
+        "solomid"
+      ],
+      "difficulty": "medium",
+      "category": "hs-competitive"
+    },
+    {
+      "question": "value town's three original hosts were kripp, chanmanv and who else?",
+      "answer": "trump",
+      "accept": [
+        "trump",
+        "trumpsc",
+        "jeffrey shih",
+        "jeffrey trump shih"
+      ],
+      "difficulty": "medium",
+      "category": "hs-competitive"
+    },
+    {
+      "question": "at the 2020 outland inn-vitational, which class did kripp play on the winning team?",
+      "answer": "warlock",
+      "accept": [
+        "warlock"
+      ],
+      "difficulty": "hard",
+      "category": "hs-competitive"
+    },
+    {
+      "question": "kripp's team won the 2020 outland inn-vitational — what was it called?",
+      "answer": "feisty fiends",
+      "accept": [
+        "feisty fiends",
+        "the feisty fiends"
+      ],
+      "difficulty": "hard",
+      "category": "hs-competitive"
+    },
+    {
+      "question": "trump finished 3rd-4th at the 2013 innkeeper's invitational alongside which wow streamer?",
+      "answer": "reckful",
+      "accept": [
+        "reckful",
+        "byron bernstein",
+        "byron reckful bernstein"
+      ],
+      "difficulty": "hard",
+      "category": "hs-competitive"
+    },
+    {
+      "question": "kripp's wow character was what race and class?",
+      "answer": "troll hunter",
+      "accept": [
+        "troll hunter",
+        "a troll hunter",
+        "troll, hunter",
+        "hunter troll"
+      ],
+      "difficulty": "medium",
+      "category": "wow"
+    },
+    {
+      "question": "what wow realm/server was kripp's ironman hunter on?",
+      "answer": "turalyon",
+      "accept": [
+        "turalyon",
+        "us-turalyon",
+        "turalyon (us)",
+        "us turalyon"
+      ],
+      "difficulty": "hard",
+      "category": "wow"
+    },
+    {
+      "question": "to what level did kripp take his ironman hunter for the world first?",
+      "answer": "85",
+      "accept": [
+        "85",
+        "level 85",
+        "lvl 85"
+      ],
+      "difficulty": "medium",
+      "category": "wow"
+    },
+    {
+      "question": "ironman rules cap your gear at what item quality?",
+      "answer": "white and grey only",
+      "accept": [
+        "white and grey",
+        "grey and white",
+        "white/grey",
+        "common and poor",
+        "grey or white",
+        "white",
+        "white only",
+        "gray and white",
+        "white and gray"
+      ],
+      "difficulty": "medium",
+      "category": "wow"
+    },
+    {
+      "question": "the one profession/secondary skill allowed in the ironman challenge is?",
+      "answer": "first aid",
+      "accept": [
+        "first aid",
+        "firstaid"
+      ],
+      "difficulty": "hard",
+      "category": "wow"
+    },
+    {
+      "question": "who created the wow ironman challenge?",
+      "answer": "vrykerion and psynister",
+      "accept": [
+        "vrykerion and psynister",
+        "vrykerion & psynister",
+        "psynister and vrykerion",
+        "vrykerion, psynister",
+        "psynister and vrykerion"
+      ],
+      "difficulty": "hard",
+      "category": "wow"
+    },
+    {
+      "question": "before streaming, kripp raided in which top US wow guild?",
+      "answer": "exodus",
+      "accept": [
+        "exodus",
+        "guild exodus"
+      ],
+      "difficulty": "medium",
+      "category": "wow"
+    },
+    {
+      "question": "which path of exile race season did kripp win the championship of?",
+      "answer": "season 1",
+      "accept": [
+        "season 1",
+        "season one",
+        "race season 1",
+        "s1",
+        "1",
+        "the first season",
+        "first"
+      ],
+      "difficulty": "medium",
+      "category": "poe"
+    },
+    {
+      "question": "poe season 1 — what was kripp's in-game account name on the race ladder?",
+      "answer": "krippers",
+      "accept": [
+        "krippers",
+        "krippers#4771"
+      ],
+      "difficulty": "medium",
+      "category": "poe"
+    },
+    {
+      "question": "in what year did kripp win poe race season 1?",
+      "answer": "2013",
+      "accept": [
+        "2013"
+      ],
+      "difficulty": "medium",
+      "category": "poe"
+    },
+    {
+      "question": "kripp's beneficial poe presence earned him a 'special thanks' in what part of the game?",
+      "answer": "the credits",
+      "accept": [
+        "the credits",
+        "credits",
+        "end credits",
+        "game credits",
+        "the end credits"
+      ],
+      "difficulty": "medium",
+      "category": "poe"
+    },
+    {
+      "question": "kripp's signature templar discharge build used CI — what does CI stand for in poe?",
+      "answer": "chaos inoculation",
+      "accept": [
+        "chaos inoculation",
+        "chaos innoculation"
+      ],
+      "difficulty": "hard",
+      "category": "poe"
+    },
+    {
+      "question": "the name 'kripparrian' mashes 'krippie' with what other word?",
+      "answer": "barbarian",
+      "accept": [
+        "barbarian",
+        "a barbarian"
+      ],
+      "difficulty": "hard",
+      "category": "kripp-persona"
+    },
+    {
+      "question": "what year did kripp go vegan?",
+      "answer": "2012",
+      "accept": [
+        "2012",
+        "january 2012",
+        "jan 2012"
+      ],
+      "difficulty": "medium",
+      "category": "kripp-persona"
+    },
+    {
+      "question": "what year was octavian 'kripp' morosan born?",
+      "answer": "1987",
+      "accept": [
+        "1987",
+        "june 30 1987",
+        "june 30, 1987",
+        "30 june 1987"
+      ],
+      "difficulty": "medium",
+      "category": "kripp-persona"
+    },
+    {
+      "question": "kripp's wife rania streams/edits under what handle?",
+      "answer": "underflowr",
+      "accept": [
+        "underflowr",
+        "underflow r",
+        "@underflowr"
+      ],
+      "difficulty": "medium",
+      "category": "kripp-persona"
+    },
+    {
+      "question": "kripp's two dogs are dexter and fey — what breeds are they (in order)?",
+      "answer": "german shepherd (dexter) and corgi (fey)",
+      "accept": [
+        "german shepherd and corgi",
+        "german shepherd, corgi",
+        "shepherd and corgi",
+        "german shepherd & corgi",
+        "german shepherd and pembroke welsh corgi",
+        "shepherd corgi"
+      ],
+      "difficulty": "hard",
+      "category": "kripp-persona"
+    },
+    {
+      "question": "kripp jokes he'll spend donations on discounted falafel and what drink?",
+      "answer": "orange juice",
+      "accept": [
+        "orange juice",
+        "oj",
+        "o.j."
+      ],
+      "difficulty": "medium",
+      "category": "kripp-persona"
+    },
+    {
+      "question": "kripp married rania on what date (memorable for the holiday)?",
+      "answer": "october 31, 2014 (halloween)",
+      "accept": [
+        "october 31 2014",
+        "oct 31 2014",
+        "october 31, 2014",
+        "halloween 2014",
+        "31 october 2014",
+        "31/10/2014",
+        "oct 31, 2014"
+      ],
+      "difficulty": "hard",
+      "category": "kripp-persona"
+    },
+    {
+      "question": "what year did reynad first announce the bazaar?",
+      "answer": "2018",
+      "accept": [
+        "2018",
+        "april 2018",
+        "april 6 2018",
+        "april 6, 2018"
+      ],
+      "difficulty": "medium",
+      "category": "bazaar-dev"
+    },
+    {
+      "question": "the bazaar's indiegogo campaign raised over how much (usd)?",
+      "answer": "$115,000",
+      "accept": [
+        "115000",
+        "$115000",
+        "$115k",
+        "115k",
+        "over 115k",
+        "115,000",
+        "$115,000",
+        "over $115,000"
+      ],
+      "difficulty": "hard",
+      "category": "bazaar-dev"
+    },
+    {
+      "question": "in 2020 tempo storm raised how much in funding to build the bazaar?",
+      "answer": "$3.3 million",
+      "accept": [
+        "3.3 million",
+        "$3.3m",
+        "3.3m",
+        "$3.3 million",
+        "3.3 million dollars",
+        "3.3",
+        "3,300,000"
+      ],
+      "difficulty": "hard",
+      "category": "bazaar-dev"
+    },
+    {
+      "question": "the bazaar's closed beta started on what date?",
+      "answer": "october 30, 2024",
+      "accept": [
+        "october 30 2024",
+        "oct 30 2024",
+        "october 30, 2024",
+        "30 october 2024",
+        "oct 30, 2024"
+      ],
+      "difficulty": "hard",
+      "category": "bazaar-dev"
+    },
+    {
+      "question": "the bazaar launched on steam on what date in 2025?",
+      "answer": "august 13, 2025",
+      "accept": [
+        "august 13 2025",
+        "aug 13 2025",
+        "august 13, 2025",
+        "8/13/2025",
+        "aug 13, 2025"
+      ],
+      "difficulty": "hard",
+      "category": "bazaar-dev"
+    },
+    {
+      "question": "which three heroes were the bazaar's original/launch roster?",
+      "answer": "vanessa, pygmalien, dooley",
+      "accept": [
+        "vanessa pygmalien dooley",
+        "vanessa, pygmalien, dooley",
+        "vanessa pygmalien and dooley",
+        "vanessa, pygmalien, and dooley",
+        "vanessa dooley pygmalien",
+        "dooley vanessa pygmalien"
+      ],
+      "difficulty": "medium",
+      "category": "bazaar-dev"
+    },
+    {
+      "question": "in the bazaar, which hero is the multi-armed chef?",
+      "answer": "jules",
+      "accept": [
+        "jules"
+      ],
+      "difficulty": "medium",
+      "category": "bazaar-dev"
+    },
+    {
+      "question": "reynad cited which two deckbuilders as inspirations for the bazaar?",
+      "answer": "ascension and star realms",
+      "accept": [
+        "ascension and star realms",
+        "ascension, star realms",
+        "ascension star realms",
+        "star realms and ascension"
+      ],
+      "difficulty": "hard",
+      "category": "bazaar-dev"
+    },
+    {
+      "question": "reynad was born in which country before moving to minnesota at age 6?",
+      "answer": "ukraine",
+      "accept": [
+        "ukraine",
+        "ukrainian",
+        "the ukraine"
+      ],
+      "difficulty": "hard",
+      "category": "reynad-games"
+    },
+    {
+      "question": "what year did reynad found tempo storm?",
+      "answer": "2014",
+      "accept": [
+        "2014",
+        "may 2014"
+      ],
+      "difficulty": "medium",
+      "category": "reynad-games"
+    },
+    {
+      "question": "reynad won the first streamed hearthstone arena tournament (may 2013) — name it",
+      "answer": "lord of the arena",
+      "accept": [
+        "lord of the arena",
+        "lord of arena",
+        "the lord of the arena"
+      ],
+      "difficulty": "hard",
+      "category": "reynad-games"
+    },
+    {
+      "question": "reynad self-funded the prize pool for his lord of the arena tournament — how much was first place?",
+      "answer": "$2,000",
+      "accept": [
+        "$2000",
+        "2000",
+        "2,000",
+        "$2,000",
+        "2k"
+      ],
+      "difficulty": "hard",
+      "category": "reynad-games"
+    },
+    {
+      "question": "which forbes list did reynad make in 2017 as tempo storm's founder?",
+      "answer": "30 under 30",
+      "accept": [
+        "30 under 30",
+        "forbes 30 under 30",
+        "30under30",
+        "games",
+        "gaming"
+      ],
+      "difficulty": "medium",
+      "category": "reynad-games"
+    }
   ]
 }
