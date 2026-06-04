@@ -474,10 +474,12 @@ describe('command routing with real data', () => {
     expect(result).toBeNull()
   })
 
-  it('greetings route to AI — !b hello returns null without API key', async () => {
+  it('greetings route to AI but never go silent — !b hello falls back to a busy line', async () => {
     const result = await handleCommand('!b hello', ctx)
-    // greetings go to AI, which returns null without API key — expected
-    expect(result).toBeNull()
+    // conversational path: AI returns null without a key, but the "answer every !b"
+    // contract means we emit a retryable fallback rather than staying silent.
+    expect(result).not.toBeNull()
+    expect(typeof result).toBe('string')
   })
 
   it('emote names are never silently ignored — !b KEKW gets a response', async () => {
