@@ -528,6 +528,68 @@ describe('commands', () => {
     handleJoin('', { user: 'grace', channel: 'introchan', isMod: false })
     expect(captured.length).toBe(1)  // no second intro
   })
+
+  // --- join feedback (the "2 accounts" scenarios, simulated in-process) ---
+
+  it('joining an existing raid returns a terse ack with how-to-play', async () => {
+    const { handleJoin } = await import('./commands')
+    const raidState = await import('./state')
+    raidState.getOrCreateRaid('ackchan') // raid already exists → join is the non-intro path
+    const r = handleJoin('', { user: 'ackuser1', channel: 'ackchan', isMod: false })
+    expect(typeof r).toBe('string')
+    expect(r).toMatch(/joined the raid/i)
+    expect(r).toMatch(/!b pick/i)
+    expect((r as string).length).toBeLessThanOrEqual(480)
+  })
+
+  it('a burst of joiners is throttled — second join inside the window is silent', async () => {
+    const { handleJoin } = await import('./commands')
+    const raidState = await import('./state')
+    raidState.getOrCreateRaid('burstchan')
+    const first = handleJoin('', { user: 'burst1', channel: 'burstchan', isMod: false })
+    const second = handleJoin('', { user: 'burst2', channel: 'burstchan', isMod: false })
+    expect(typeof first).toBe('string') // first joiner acked
+    expect(second).toBeNull()           // second within 12s → throttled to silence
+  })
+
+  it('a user already in a slot gets silence (no nag)', async () => {
+    const { handleJoin } = await import('./commands')
+    const raidState = await import('./state')
+    raidState.getOrCreateRaid('alreadychan')
+    raidState.claimSlot('alreadychan', 'dup') // dup already holds a slot
+    const r = handleJoin('', { user: 'dup', channel: 'alreadychan', isMod: false })
+    expect(r).toBeNull()
+  })
+
+  it('a full raid (10/10) tells the next joiner instead of failing silently', async () => {
+    const { handleJoin } = await import('./commands')
+    const raidState = await import('./state')
+    raidState.getOrCreateRaid('fullchan')
+    for (let i = 0; i < 10; i++) raidState.claimSlot('fullchan', `filler${i}`)
+    const r = handleJoin('', { user: 'latecomer', channel: 'fullchan', isMod: false })
+    expect(typeof r).toBe('string')
+    expect(r).toMatch(/full/i)
+    expect(r).toMatch(/10\/10/)
+  })
+
+  it('full-raid notice is NOT suppressed by a recent join ack (independent throttle)', async () => {
+    const { handleJoin } = await import('./commands')
+    const raidState = await import('./state')
+    const ch = 'indepchan'
+    raidState.getOrCreateRaid(ch)
+    const ack = handleJoin('', { user: 'j1', channel: ch, isMod: false })
+    expect(ack).toMatch(/joined the raid/i) // consumes the 'join' throttle window
+    for (let i = 0; i < 10; i++) raidState.claimSlot(ch, `g${i}`) // fill every slot
+    const full = handleJoin('', { user: 'late', channel: ch, isMod: false })
+    expect(full).toMatch(/full/i) // higher-value signal survives the prior join ack
+  })
+
+  it('claimSlot reports full once every slot is taken', async () => {
+    const raidState = await import('./state')
+    raidState.getOrCreateRaid('claimfull')
+    for (let i = 0; i < 10; i++) raidState.claimSlot('claimfull', `f${i}`)
+    expect(raidState.claimSlot('claimfull', 'overflow')).toBe('full')
+  })
 })
 
 // --- 90s floor test ---
