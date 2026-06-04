@@ -56,7 +56,7 @@ export const ALIASES: Record<string, string> = {
 }
 
 // hero name aliases (misspellings, alternate names)
-const HERO_ALIASES: Record<string, string> = {
+export const HERO_ALIASES: Record<string, string> = {
   mark: 'Mak',
   mac: 'Mak',
   pig: 'Pygmalien',

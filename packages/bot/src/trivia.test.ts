@@ -113,6 +113,7 @@ const allMonsters = [spider, dragon]
 // --- mocks ---
 mock.module('./store', () => ({
   ALIASES: { beetle: 'BLU-B33TL3', spider: 'BLK-SP1D3R' },
+  HERO_ALIASES: { mark: 'Mak', mac: 'Mak', pig: 'Pygmalien', pyg: 'Pygmalien', nessa: 'Vanessa', van: 'Vanessa' },
   getItems: mock(() => allItems),
   getMonsters: mock(() => allMonsters),
   getHeroNames: mock(() => ['Vanessa', 'Dooley', 'Pygmalien', 'Stelle', 'Jules']),
@@ -138,7 +139,7 @@ const mockRecordTriviaWin = mock(() => {})
 const mockRecordTriviaAttempt = mock(() => {})
 const mockResetTriviaStreak = mock(() => {})
 const mockGetOrCreateUser = mock(() => 1)
-const mockGetTriviaLeaderboard = mock<() => { username: string; trivia_wins: number }[]>(() => [])
+const mockGetTriviaLeaderboard = mock<() => { username: string; points: number; trivia_wins: number }[]>(() => [])
 const mockGetUserStats = mock<() => any>(() => null)
 const mockGetChannelLeaderboard = mock<() => { username: string; total_commands: number }[]>(() => [])
 
@@ -174,6 +175,10 @@ const {
   resetForTest,
   getActiveGameForTest,
   rebuildTriviaMaps,
+  norm,
+  difficultyBase,
+  generateHint,
+  generateWeakHint,
 } = await import('./trivia')
 
 rebuildTriviaMaps()
@@ -359,7 +364,7 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([2, 3, 5, 6, 8, 12, 13]).toContain(t)
+      expect([2, 3, 5, 6, 8, 12, 13, 14, 16]).toContain(t)
     }
   })
 
@@ -387,7 +392,7 @@ describe('startTrivia', () => {
       if (game) types.add(game.questionType)
     }
     for (const t of types) {
-      expect([4, 7, 10, 11]).toContain(t)
+      expect([4, 7, 10, 11, 15]).toContain(t)
     }
   })
 
@@ -884,12 +889,12 @@ describe('getTriviaScore', () => {
 
   it('formats leaderboard', () => {
     mockGetTriviaLeaderboard.mockImplementation(() => [
-      { username: 'alice', trivia_wins: 10 },
-      { username: 'bob', trivia_wins: 5 },
+      { username: 'alice', points: 142, trivia_wins: 10 },
+      { username: 'bob', points: 88, trivia_wins: 5 },
     ])
     const result = getTriviaScore('#test')
-    expect(result).toContain('1. alice (10 wins)')
-    expect(result).toContain('2. bob (5 wins)')
+    expect(result).toContain('1. alice (142pts)')
+    expect(result).toContain('2. bob (88pts)')
   })
 })
 
@@ -966,5 +971,90 @@ describe('question variety', () => {
       if (game) types.push(game.questionType)
     }
     expect(new Set(types).size).toBeGreaterThanOrEqual(5)
+  })
+})
+
+// --- god-tier overhaul: normalization, fuzzy-gating, scoring, hero aliases ---
+
+describe('norm (canonical answer normalizer)', () => {
+  it('makes punctuation/apostrophe items winnable — both sides normalize equal', () => {
+    expect(norm("Philosopher's Stone")).toBe(norm('philosophers stone'))
+    expect(norm('Dr. Vortex')).toBe(norm('dr vortex'))
+    expect(norm('Mortar & Pestle')).toBe(norm('mortar and pestle'))
+  })
+  it('collapses hyphen to space (Z-Sword <-> z sword)', () => {
+    expect(norm('Z-Sword')).toBe('z sword')
+    expect(norm('z sword')).toBe('z sword')
+  })
+  it('strips a leading "the"', () => {
+    expect(norm('The Boulder')).toBe('boulder')
+    expect(norm('boulder')).toBe('boulder')
+  })
+  it('never returns leading/trailing space or empty noise', () => {
+    expect(norm('  Sword!!  ')).toBe('sword')
+    expect(norm('!!!')).toBe('')
+  })
+})
+
+describe('matchAnswer fuzzy gating', () => {
+  it('exact match always wins', () => {
+    expect(matchAnswer('dragonscale', ['dragonscale'])).toBe(true)
+  })
+  it('single-answer questions allow startsWith/includes (stylized names)', () => {
+    expect(matchAnswer('magnifying', ['magnifying glass'], true)).toBe(true)
+  })
+  it('multi-answer pools reject fuzzy prefixes (no luck-wins)', () => {
+    // "dragon" must NOT win a pool that merely contains "dragonscale"
+    expect(matchAnswer('dragon', ['dragonscale', 'fang', 'shield'], false)).toBe(false)
+    // but the exact pooled answer still wins
+    expect(matchAnswer('dragonscale', ['dragonscale', 'fang', 'shield'], false)).toBe(true)
+  })
+})
+
+describe('difficultyBase (scoring currency)', () => {
+  it('a single-answer question outscores a 3-option size question', () => {
+    expect(difficultyBase(3, 1)).toBeGreaterThan(difficultyBase(12, 1)) // tooltip > size
+  })
+  it('a big multi-answer pool is worth the least', () => {
+    expect(difficultyBase(2, 40)).toBe(1) // 40 valid answers -> base 1
+  })
+  it('always returns 1..5', () => {
+    for (const [type, len] of [[1, 1], [3, 1], [7, 1], [16, 1], [2, 100], [2, 1]] as const) {
+      const b = difficultyBase(type, len)
+      expect(b).toBeGreaterThanOrEqual(1)
+      expect(b).toBeLessThanOrEqual(5)
+    }
+  })
+})
+
+describe('hero alias acceptance (type 1)', () => {
+  it('a hero-from-item question accepts documented aliases', () => {
+    // force type 1 (hero-from-item); fixtures include Pygmalien items, mock HERO_ALIASES maps pig/pyg->Pygmalien
+    let found = false
+    for (let i = 0; i < 80 && !found; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', 'heroes')
+      const g = getActiveGameForTest('#test')
+      if (g && g.questionType === 1 && g.correctAnswer === 'Pygmalien') {
+        found = true
+        expect(g.acceptedAnswers).toContain('pig')
+      }
+    }
+    expect(found).toBe(true)
+  })
+})
+
+describe('hint generation guards', () => {
+  it('never emits NaN for tiny numeric answers (Satchel "Reload 0 items")', () => {
+    for (const n of ['0', '1', '9']) {
+      expect(generateWeakHint(n)).not.toContain('NaN')
+      expect(generateHint(n)).not.toContain('NaN')
+      expect(generateWeakHint(n)).toBe('Hint: single digit')
+    }
+  })
+  it('still gives a range for real multi-digit numbers', () => {
+    expect(generateHint('4700')).toMatch(/between \d+ and \d+/)
+    expect(generateHint('4700')).not.toContain('NaN')
   })
 })
