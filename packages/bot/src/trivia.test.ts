@@ -327,6 +327,23 @@ describe('startTrivia', () => {
     expect(result).toContain('Trivia!')
   })
 
+  it('no cooldown — five rounds back-to-back all start (never "on cooldown")', () => {
+    for (let i = 0; i < 5; i++) {
+      const start = startTrivia('#test')
+      expect(start).toContain('Trivia!')
+      expect(start).not.toContain('cooldown')
+      const game = getActiveGameForTest('#test')!
+      checkAnswer('#test', `winner${i}`, game.acceptedAnswers[0], mockSay)
+      expect(getActiveGameForTest('#test')).toBeUndefined() // round ended on win
+    }
+  })
+
+  it('still blocks a second round while one is active', () => {
+    startTrivia('#test')
+    const result = startTrivia('#test')
+    expect(result).toContain('already active')
+  })
+
   it('creates db game record', () => {
     startTrivia('#test')
     expect(mockCreateTriviaGame).toHaveBeenCalledTimes(1)

@@ -150,7 +150,7 @@ export function buildBareBQuery(channel?: string): string {
     }
   }
   const nudge = BARE_B_NUDGES[Math.floor(Math.random() * BARE_B_NUDGES.length)]
-  let body = nudge
+  let body: string = nudge
   if (channel) {
     const recent = recentEligible(channel).slice(-3)
     if (recent.length > 0) {
