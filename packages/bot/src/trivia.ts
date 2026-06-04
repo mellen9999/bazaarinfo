@@ -14,7 +14,7 @@ import { join } from 'path'
 // in his own chat), so the pack is human-vetted before a channel is switched on.
 interface PackQ { question: string; answer: string; accept: string[]; difficulty?: string }
 // channels that get the kripp pack mixed in. add a channel here only after vetting.
-const KRIPP_CHANNELS = new Set<string>(['mellen']) // nl_kripp added after mellen vets the set
+const KRIPP_CHANNELS = new Set<string>(['mellen', 'nl_kripp']) // vetted + shipped
 const KRIPP_MIX = 0.3 // ~30% of un-categorized rounds in a kripp channel are kripp questions
 
 let krippPack: PackQ[] = []
