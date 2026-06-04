@@ -17,6 +17,7 @@ import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal } from './ai-
 import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, GAME_TERMS } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
+import { detectFancyStyle, toFancy } from './fancy'
 
 // strip orphan UTF-16 surrogate halves — twitch chat / 7TV emote names occasionally
 // inject lone D800-DBFF or DC00-DFFF code units. anthropic's JSON parser rejects them
@@ -130,13 +131,19 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   const baseMaxTokens = isCreative ? MAX_TOKENS_PASTA : hasGameData ? MAX_TOKENS_GAME : MAX_TOKENS_CHAT
   // extended thinking + best-of-2 dropped — added ~2-3s of latency for marginal quality gain.
   // sonnet 4.6 is strong enough creative-cold; if quality regresses, reintroduce selectively.
-  // fancy unicode (math alphanum, fullwidth, circled, enclosed) costs 3-5 tokens/char vs 0.25
-  // for ASCII — without compensation the model truncates mid-word ("Dearly beloved" bug).
-  const wantsFancyOutput = /[\u{1D400}-\u{1D7FF}\u{2460}-\u{24FF}\u{1F100}-\u{1F1FF}\u{FF00}-\u{FFEF}]/u.test(query)
-    || /\b(fraktur|cursive|fancy font|stylized text)\b/i.test(query)
-  const effectiveMaxTokens = wantsFancyOutput ? baseMaxTokens * 4 : baseMaxTokens
+  // fancy fonts: the model writes PLAIN ASCII (cheap, ~1s) and we transcode to the
+  // requested unicode font in code (see fancy.ts). hand-typed fancy glyphs are
+  // 3-5 tokens each — generating them directly cost ~800 tokens and 10-12s, and
+  // truncated mid-word ("Dearly beloved" bug). transcoding is instant and exact.
+  const fancyStyle = isCreative ? detectFancyStyle(query) : null
+  const effectiveMaxTokens = baseMaxTokens
 
-  const messages: unknown[] = [{ role: 'user', content: userMessage }]
+  // when a fancy font is requested, force ascii output so transcoding has clean
+  // input — otherwise the model emits its own (expensive, inconsistent) glyphs.
+  const fancyDirective = fancyStyle
+    ? `${userMessage}\n\n[Write the reply in PLAIN ASCII letters and digits only — no unicode, fancy, or special characters. A fancy font is applied automatically afterward, so do not stylize it yourself.]`
+    : userMessage
+  const messages: unknown[] = [{ role: 'user', content: fancyDirective }]
   const start = Date.now()
   // in a busy chat a reply older than this has scrolled off-screen and is just
   // holding a concurrency slot hostage (esp. during 429 backoff sleeps), starving
@@ -291,6 +298,9 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           messages.push({ role: 'user', content: 'Don\'t dodge with diplomacy — pick actual names, give real opinions. Stay within your rules.' })
           continue
         }
+        // apply the requested fancy font in code — runs after all ascii-based guards
+        // (refusal/hallucination/length) so they see clean text, never fancy glyphs.
+        if (fancyStyle) result.text = toFancy(result.text, fancyStyle)
         cbRecordSuccess()
         try {
           const inT = data.usage?.input_tokens ?? 0

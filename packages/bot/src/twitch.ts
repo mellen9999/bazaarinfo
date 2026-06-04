@@ -818,13 +818,11 @@ export class TwitchClient {
     const now = Date.now()
     const cutoff = now - this.SEND_WINDOW
     while (this.sendTimes.length > 0 && this.sendTimes[0] < cutoff) this.sendTimes.shift()
-    if (text.length > 490) {
-      let cut = text.slice(0, 487)
-      // if slice landed mid surrogate pair, drop the orphan high half
-      const last = cut.charCodeAt(cut.length - 1)
-      if (last >= 0xD800 && last <= 0xDBFF) cut = cut.slice(0, -1)
-      text = cut + '...'
-    }
+    // count by code points, not utf-16 units: twitch's ~500-char limit counts each
+    // supplementary-plane glyph (fancy font, emoji) as one char. slicing the codepoint
+    // array can never split a surrogate pair, so this is orphan-safe by construction.
+    const cps = [...text]
+    if (cps.length > 490) text = cps.slice(0, 487).join('') + '...'
     if (!this.canSend()) {
       if (this.ircQueue.length >= MAX_QUEUE) {
         log('queue full, dropping oldest')

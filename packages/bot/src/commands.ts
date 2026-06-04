@@ -30,6 +30,19 @@ function noMatchMsg(query: string): string {
   return msg
 }
 
+// transient-AI-miss fallback for creative/conversational asks — keeps the "answer
+// every !b" contract when the model times out or exhausts retries. on-vibe, retryable.
+const AI_BUSY_LINES = [
+  'brain glitched on that one — hit me again',
+  'lost my train of thought, run it back',
+  'that one broke me for a sec, try once more',
+  'merchant fumbled the scroll — ask again',
+]
+let aiBusyIdx = 0
+function aiBusyLine(): string {
+  return AI_BUSY_LINES[aiBusyIdx++ % AI_BUSY_LINES.length]
+}
+
 /** shared AI call + post-processing (dedup emotes/mentions, append missing @mentions) */
 async function tryAiRespond(query: string, ctx: CommandContext, mentions: string[] = []): Promise<string | null> {
   let result: Awaited<ReturnType<typeof aiRespond>> = null
@@ -164,13 +177,15 @@ export function buildBareBQuery(channel?: string): string {
 
 function withSuffix(text: string, suffix: string): string {
   const combined = text + suffix
-  if (combined.length <= MAX_LEN) return combined
+  // measure by code points — fancy-font glyphs are surrogate pairs (2 utf-16 units
+  // but 1 twitch char), so .length would over-count and truncate them at half length.
+  if ([...combined].length <= MAX_LEN) return combined
   // trim text to make room for suffix
-  const budget = MAX_LEN - suffix.length
-  if (budget <= 0) return text.slice(0, MAX_LEN)
-  const cut = text.slice(0, budget)
+  const budget = MAX_LEN - [...suffix].length
+  if (budget <= 0) return [...text].slice(0, MAX_LEN).join('')
+  const cut = [...text].slice(0, budget).join('')
   const lastBreak = Math.max(cut.lastIndexOf(' | '), cut.lastIndexOf(' '))
-  const trimmed = lastBreak > budget * 0.5 ? cut.slice(0, lastBreak) + '...' : cut.slice(0, budget - 3) + '...'
+  const trimmed = lastBreak > budget * 0.5 ? cut.slice(0, lastBreak) + '...' : [...cut].slice(0, budget - 3).join('') + '...'
   return trimmed + suffix
 }
 
@@ -783,8 +798,11 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     const response = await tryAiRespond(aiQuery, ctx, mentions)
     if (response) {
       try { db.logCommand(ctx, 'ai', cleanArgs, 'fallback') } catch {}
+      return response
     }
-    return response
+    // never go silent on a creative/conversational ask — a transient AI miss
+    // (timeout, retry-exhaustion) still gets an answer. every !b is answered.
+    return withSuffix(aiBusyLine(), suffix)
   }
 
   const lookupResult = await itemLookup(cleanArgs, ctx, suffix)
