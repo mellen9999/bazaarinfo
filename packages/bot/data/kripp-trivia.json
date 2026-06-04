@@ -451,18 +451,6 @@
       "category": "d3-worldfirst"
     },
     {
-      "question": "per guinness, kripp's d3 hc inferno world first came how many days after launch?",
-      "answer": "37 days",
-      "accept": [
-        "37",
-        "37 days",
-        "thirty-seven",
-        "thirty seven"
-      ],
-      "difficulty": "hard",
-      "category": "d3-worldfirst"
-    },
-    {
       "question": "which blizzard community manager confirmed kripp's hc inferno world first on twitter?",
       "answer": "bashiok",
       "accept": [
@@ -470,34 +458,6 @@
         "micah whipple",
         "micah 'bashiok' whipple",
         "micah whipple bashiok"
-      ],
-      "difficulty": "hard",
-      "category": "d3-worldfirst"
-    },
-    {
-      "question": "which d3 patch nerfed inferno difficulty right after kripp's hc world-first?",
-      "answer": "patch 1.0.3",
-      "accept": [
-        "1.0.3",
-        "patch 1.0.3",
-        "1.03",
-        "patch 1.03"
-      ],
-      "difficulty": "hard",
-      "category": "d3-worldfirst"
-    },
-    {
-      "question": "the d3 patch that nerfed inferno after kripp's world first cut difficulty on which acts?",
-      "answer": "acts ii-iv",
-      "accept": [
-        "acts 2-4",
-        "acts ii-iv",
-        "act 2 3 4",
-        "2 through 4",
-        "acts two through four",
-        "acts 2 3 4",
-        "2-4",
-        "acts 2 through 4"
       ],
       "difficulty": "hard",
       "category": "d3-worldfirst"
@@ -512,75 +472,11 @@
       "category": "d3-worldfirst"
     },
     {
-      "question": "blizzard's first jan-2017 arena top-100 required a minimum how many runs to qualify?",
-      "answer": "30 runs",
-      "accept": [
-        "30",
-        "30 runs",
-        "thirty",
-        "minimum 30",
-        "minimum of 30"
-      ],
-      "difficulty": "hard",
-      "category": "hs-arena"
-    },
-    {
-      "question": "kripp's #1 jan-2017 arena average was set over how many runs?",
-      "answer": "37 runs",
-      "accept": [
-        "37",
-        "37 runs",
-        "thirty-seven",
-        "thirty seven"
-      ],
-      "difficulty": "hard",
-      "category": "hs-arena"
-    },
-    {
-      "question": "in blizzard's 9-month arena stats, kripp led NA with how many 12-win runs?",
-      "answer": "95",
-      "accept": [
-        "95",
-        "95 runs",
-        "ninety-five",
-        "ninety five"
-      ],
-      "difficulty": "hard",
-      "category": "hs-arena"
-    },
-    {
       "question": "the guinness record for most hs 12-win arena runs (152) belongs to which player, not kripp?",
       "answer": "ggcnm",
       "accept": [
         "ggcnm",
         "ggc nm"
-      ],
-      "difficulty": "hard",
-      "category": "hs-arena"
-    },
-    {
-      "question": "on may 26 2016 kripp racked up how many total wins across 10 arena runs?",
-      "answer": "106 wins",
-      "accept": [
-        "106",
-        "106 wins",
-        "one hundred six"
-      ],
-      "difficulty": "hard",
-      "category": "hs-arena"
-    },
-    {
-      "question": "kripp's 106-win arena binge didn't count as the official '100 in 10' challenge — why?",
-      "answer": "he only used 6 classes (challenge needs a new class each run)",
-      "accept": [
-        "used only 6 classes",
-        "6 classes",
-        "only six classes",
-        "didn't use a different class each run",
-        "repeated classes",
-        "didn't pick a new class each run",
-        "reused classes",
-        "only 6 classes"
       ],
       "difficulty": "hard",
       "category": "hs-arena"
@@ -902,18 +798,16 @@
       "category": "kripp-persona"
     },
     {
-      "question": "kripp married rania on what date (memorable for the holiday)?",
-      "answer": "october 31, 2014 (halloween)",
+      "question": "kripp & rania got married on which holiday?",
+      "answer": "Halloween",
       "accept": [
-        "october 31 2014",
-        "oct 31 2014",
-        "october 31, 2014",
-        "halloween 2014",
-        "31 october 2014",
-        "31/10/2014",
-        "oct 31, 2014"
+        "halloween",
+        "oct 31",
+        "october 31",
+        "31 october",
+        "hallowe'en"
       ],
-      "difficulty": "hard",
+      "difficulty": "medium",
       "category": "kripp-persona"
     },
     {
@@ -926,63 +820,6 @@
         "april 6, 2018"
       ],
       "difficulty": "medium",
-      "category": "bazaar-dev"
-    },
-    {
-      "question": "the bazaar's indiegogo campaign raised over how much (usd)?",
-      "answer": "$115,000",
-      "accept": [
-        "115000",
-        "$115000",
-        "$115k",
-        "115k",
-        "over 115k",
-        "115,000",
-        "$115,000",
-        "over $115,000"
-      ],
-      "difficulty": "hard",
-      "category": "bazaar-dev"
-    },
-    {
-      "question": "in 2020 tempo storm raised how much in funding to build the bazaar?",
-      "answer": "$3.3 million",
-      "accept": [
-        "3.3 million",
-        "$3.3m",
-        "3.3m",
-        "$3.3 million",
-        "3.3 million dollars",
-        "3.3",
-        "3,300,000"
-      ],
-      "difficulty": "hard",
-      "category": "bazaar-dev"
-    },
-    {
-      "question": "the bazaar's closed beta started on what date?",
-      "answer": "october 30, 2024",
-      "accept": [
-        "october 30 2024",
-        "oct 30 2024",
-        "october 30, 2024",
-        "30 october 2024",
-        "oct 30, 2024"
-      ],
-      "difficulty": "hard",
-      "category": "bazaar-dev"
-    },
-    {
-      "question": "the bazaar launched on steam on what date in 2025?",
-      "answer": "august 13, 2025",
-      "accept": [
-        "august 13 2025",
-        "aug 13 2025",
-        "august 13, 2025",
-        "8/13/2025",
-        "aug 13, 2025"
-      ],
-      "difficulty": "hard",
       "category": "bazaar-dev"
     },
     {
@@ -1048,19 +885,6 @@
         "lord of the arena",
         "lord of arena",
         "the lord of the arena"
-      ],
-      "difficulty": "hard",
-      "category": "reynad-games"
-    },
-    {
-      "question": "reynad self-funded the prize pool for his lord of the arena tournament — how much was first place?",
-      "answer": "$2,000",
-      "accept": [
-        "$2000",
-        "2000",
-        "2,000",
-        "$2,000",
-        "2k"
       ],
       "difficulty": "hard",
       "category": "reynad-games"
