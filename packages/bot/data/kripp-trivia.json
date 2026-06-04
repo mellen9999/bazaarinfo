@@ -1106,6 +1106,19 @@
       ],
       "difficulty": "medium",
       "category": "twitch-moment"
+    },
+    {
+      "question": "kripp's cat shares his '-arrian' suffix — what's the cat's name?",
+      "answer": "Catarrian",
+      "accept": [
+        "catarrian",
+        "cattarrian",
+        "cattarian",
+        "catarian",
+        "cattarrion"
+      ],
+      "difficulty": "medium",
+      "category": "persona"
     }
   ]
 }
