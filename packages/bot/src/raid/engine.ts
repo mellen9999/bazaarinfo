@@ -155,7 +155,23 @@ function shouldResolve(channel: string, manual = false): boolean {
   return false
 }
 
+// channels currently mid-resolve. tick(), triggerCheck() and !b resolve can all fire
+// resolveChannel; this guard stops a re-entrant/overlapping resolve from double-applying
+// damage and double-advancing the day (the function is async — a future await would
+// otherwise let two interleave).
+const resolving = new Set<string>()
+
 async function resolveChannel(channel: string) {
+  if (resolving.has(channel)) return
+  resolving.add(channel)
+  try {
+    await resolveChannelInner(channel)
+  } finally {
+    resolving.delete(channel)
+  }
+}
+
+async function resolveChannelInner(channel: string) {
   const raid = state.getRaid(channel)
   if (!raid) return
 

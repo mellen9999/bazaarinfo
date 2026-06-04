@@ -207,6 +207,13 @@ export function submitPick(channel: string, username: string, shopSlot: number):
   if (!slot) return false
   if (shopSlot < 0 || shopSlot > 7) return false
   slot.submittedThisDay = shopSlot
+  // persist onto the slot row too — buildState restores submitted_this_day from
+  // raid_slots, so without this a mid-day deploy wipes every human's pick and NPC
+  // autofill silently picks for them. (deploys happen mid-run by design.)
+  db.run(
+    `UPDATE raid_slots SET submitted_this_day = ? WHERE raid_id = ? AND position = ?`,
+    [shopSlot, state.raidId, slot.position],
+  )
   // last-write-wins via REPLACE
   const userId = getUserId(lower)
   if (userId !== null) {
