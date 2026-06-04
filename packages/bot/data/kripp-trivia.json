@@ -378,25 +378,6 @@
       "category": "bazaar"
     },
     {
-      "question": "the bazaar's free starting hero — pure aggression?",
-      "answer": "Vanessa",
-      "accept": [
-        "vanessa"
-      ],
-      "difficulty": "medium",
-      "category": "bazaar"
-    },
-    {
-      "question": "name the bazaar's cute robot hero (builds around a Core)?",
-      "answer": "Dooley",
-      "accept": [
-        "dooley",
-        "dooly"
-      ],
-      "difficulty": "medium",
-      "category": "bazaar"
-    },
-    {
       "question": "in kripp's d3 hardcore inferno world-first, which class did HE play?",
       "answer": "barbarian",
       "accept": [
@@ -832,15 +813,6 @@
         "vanessa, pygmalien, and dooley",
         "vanessa dooley pygmalien",
         "dooley vanessa pygmalien"
-      ],
-      "difficulty": "medium",
-      "category": "bazaar-dev"
-    },
-    {
-      "question": "in the bazaar, which hero is the multi-armed chef?",
-      "answer": "jules",
-      "accept": [
-        "jules"
       ],
       "difficulty": "medium",
       "category": "bazaar-dev"
