@@ -186,7 +186,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
 
   try {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      if (Date.now() - start > REQUEST_DEADLINE) { log('ai: request deadline exceeded'); break }
+      // deadline hit = upstream is slow/stuck. count it toward the circuit breaker
+      // (the lower 18s deadline makes this path more reachable during an outage, and
+      // a silently-uncounted slow failure would keep the breaker from tripping).
+      if (Date.now() - start > REQUEST_DEADLINE) { log('ai: request deadline exceeded'); cbRecordFailure(); break }
       const model = CHAT_MODEL
       const baseTemp = isCreative ? 0.95 : hasGameData ? 0.5 : 0.75
       const body = {
