@@ -17,6 +17,7 @@ import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal } from './ai-
 import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, GAME_TERMS } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
+import { hedged } from './ai-hedge'
 import { detectFancyStyle, toFancy } from './fancy'
 
 // strip orphan UTF-16 surrogate halves — twitch chat / 7TV emote names occasionally
@@ -43,6 +44,14 @@ const MAX_TOKENS_CHAT = 80
 const MAX_TOKENS_PASTA = 200
 const TIMEOUT = 7_000
 const MAX_RETRIES = 3
+// hedged request: prod p90 is ~3.8s, so a call still pending at 4s is in the slow tail.
+// fire one identical backup and take whichever returns first — collapses the stall /
+// empty-body / slow-backend tail (~10% of calls) into ~p50 at the cost of one extra small
+// request on just that slow path. requests are identical + idempotent, so racing is safe.
+const HEDGE_AFTER = 4_000
+// don't start an attempt without at least this much of the request deadline left — a
+// sub-2s window can't complete a real generation, it just burns the budget on a sure abort.
+const MIN_ATTEMPT_BUDGET = 2_000
 
 // --- hallucination detection ---
 
@@ -156,9 +165,17 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     usage?: { input_tokens: number; output_tokens: number }
   }
 
-  async function fetchOnce(body: unknown): Promise<{ status: number; data?: ApiData }> {
+  type ApiResult = { status: number; data?: ApiData }
+  const isUsable = (r: ApiResult) => r.status === 200 && !!r.data
+
+  async function fetchOnce(body: unknown, timeoutMs: number, extSignal?: AbortSignal): Promise<ApiResult> {
+    // caller (hedge) can abort the loser via extSignal; distinguish that from a real
+    // timeout so a cancelled-but-fine attempt doesn't log a spurious "timed out".
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), TIMEOUT)
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
+    const onExt = () => controller.abort()
+    extSignal?.addEventListener('abort', onExt)
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -170,7 +187,6 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         body: safeStringify(body),
         signal: controller.signal,
       })
-      clearTimeout(timer)
       if (!res.ok) {
         const errBody = res.status === 429 ? '' : await res.text().catch(() => '')
         if (errBody) log(`ai: API ${res.status} ${errBody}`)
@@ -186,8 +202,9 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       }
       return { status: 200, data: parsed.data }
     } catch (e) {
-      clearTimeout(timer)
-      // a stalled/aborted attempt is transient — surface as 503 so the retry loop
+      // externally aborted (hedge winner already returned) — silently drop, not a failure.
+      if ((e as Error)?.name === 'AbortError' && !timedOut) return { status: 0 }
+      // a stalled/timed-out attempt is transient — surface as 503 so the retry loop
       // tries again fast instead of bailing to the outer catch and returning null
       // (which leaves the user with no answer after a full timeout wait).
       if ((e as Error)?.name === 'AbortError') {
@@ -195,15 +212,30 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         return { status: 503 }
       }
       throw e
+    } finally {
+      clearTimeout(timer)
+      extSignal?.removeEventListener('abort', onExt)
     }
   }
+
+  const fetchHedged = (body: unknown, timeoutMs: number): Promise<ApiResult> =>
+    hedged((signal) => fetchOnce(body, timeoutMs, signal), {
+      hedgeAfterMs: HEDGE_AFTER,
+      // need a head start + a meaningful backup window, else just run one attempt
+      enabled: timeoutMs > HEDGE_AFTER + MIN_ATTEMPT_BUDGET,
+      usable: isUsable,
+      fallback: { status: 0 },
+    })
 
   try {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       // deadline hit = upstream is slow/stuck. count it toward the circuit breaker
-      // (the lower 18s deadline makes this path more reachable during an outage, and
-      // a silently-uncounted slow failure would keep the breaker from tripping).
-      if (Date.now() - start > REQUEST_DEADLINE) { log('ai: request deadline exceeded'); cbRecordFailure(); break }
+      // (a silently-uncounted slow failure would keep the breaker from tripping).
+      // budget the per-attempt timeout to what's LEFT of the deadline so a late attempt
+      // can't overrun it (previously only checked at attempt start → 7s attempts started
+      // near the line ran to ~18s; now the whole request stays within REQUEST_DEADLINE).
+      const remaining = REQUEST_DEADLINE - (Date.now() - start)
+      if (remaining < MIN_ATTEMPT_BUDGET) { log('ai: request deadline exceeded'); cbRecordFailure(); break }
       const model = CHAT_MODEL
       const baseTemp = isCreative ? 0.95 : hasGameData ? 0.5 : 0.75
       const body = {
@@ -214,7 +246,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         messages,
       }
 
-      const single = await fetchOnce(body)
+      const single = await fetchHedged(body, Math.min(TIMEOUT, remaining))
       // 429 (rate limited) and 503 (empty/truncated body) are both transient — retry.
       if ((single.status === 429 || single.status === 503) && attempt < MAX_RETRIES - 1) {
         const delay = (single.status === 503 ? 1_000 : 3_000) * (attempt + 1)
@@ -234,7 +266,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       for (const entry of getRecent(ctx.channel, 30)) knownUsers.add(entry.user.toLowerCase())
       knownUsers.add(ctx.user.toLowerCase())
 
-      const result = sanitize(textBlock.text, ctx.user, ctx.isMod, knownUsers)
+      const result = sanitize(textBlock.text, ctx.user, ctx.isMod, knownUsers, data.stop_reason === 'max_tokens')
       // strip injection echo (model parroting user's injected instructions)
       result.text = stripInputEcho(result.text, query)
       // strip per-user signature emote repetition
