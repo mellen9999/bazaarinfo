@@ -338,9 +338,9 @@ const client = new TwitchClient(
       const isMod = badges.some((b) => b === 'moderator' || b === 'broadcaster')
       const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId, threadId })
       if (response) {
-        // outbound pacing is handled solely by the twitch client's 90/30s send window
-        // + queue (see twitch.ts say/flushQueue). no second throttle here — a ready
-        // reply goes out immediately so busy chats use the full send allowance.
+        // outbound pacing is handled solely by the twitch client's send buckets + FIFO
+        // pacer (see twitch.ts say/kickPacer). no second throttle here — the first reply
+        // goes out immediately and the rest are spaced ~400ms so chat never gets a burst.
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
         // always reply-thread UNLESS the response is a !command (proxy for Streamlabs)
         const responseIsCommand = /^!/.test(response)
