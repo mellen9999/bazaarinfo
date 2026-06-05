@@ -199,7 +199,6 @@ setPartHandler(async (target, _requester) => {
   removeChannelEmotes(target)
   chatbuf.cleanupChannel(target)
   raid.cleanupChannel(target)
-  lastResponseTime.delete(target)
   await channelStore.remove(target)
   return `left #${target}`
 })
@@ -270,10 +269,6 @@ for (const ch of channelNames) {
   }
 }
 
-// --- per-channel response debounce (2s) ---
-const DEBOUNCE_MS = 2_000
-const lastResponseTime = new Map<string, number>()
-
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
   async (channel, userId, username, text, badges, messageId, threadId) => {
@@ -333,7 +328,6 @@ const client = new TwitchClient(
           emoteEvents.unsubscribeChannel(target)
           removeChannelEmotes(target)
           chatbuf.cleanupChannel(target)
-          lastResponseTime.delete(target)
           await channelStore.remove(target)
           client.say(channel, `@${username} left #${target}`, messageId)
           return
@@ -344,16 +338,9 @@ const client = new TwitchClient(
       const isMod = badges.some((b) => b === 'moderator' || b === 'broadcaster')
       const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId, threadId })
       if (response) {
-        // debounce: delay if another response was sent to this channel recently
-        const now = Date.now()
-        const lastSent = lastResponseTime.get(channel) ?? 0
-        const gap = now - lastSent
-        if (gap < DEBOUNCE_MS) {
-          const delay = DEBOUNCE_MS - gap
-          log(`[#${channel}] delaying ${delay}ms: ${text.slice(0, 40)}`)
-          await new Promise((r) => setTimeout(r, delay))
-        }
-        lastResponseTime.set(channel, Date.now())
+        // outbound pacing is handled solely by the twitch client's 90/30s send window
+        // + queue (see twitch.ts say/flushQueue). no second throttle here — a ready
+        // reply goes out immediately so busy chats use the full send allowance.
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
         // always reply-thread UNLESS the response is a !command (proxy for Streamlabs)
         const responseIsCommand = /^!/.test(response)
