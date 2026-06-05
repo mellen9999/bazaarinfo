@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test'
-import { parseIrcLine } from './twitch'
+import { parseIrcLine, TwitchClient } from './twitch'
 
 // USERSTATE drives per-channel send-rate privilege (vip/mod/broadcaster -> 100/30s
 // mod bucket; everyone else -> 20/30s user bucket). getting this parse wrong either
@@ -38,5 +38,39 @@ describe('parseIrcLine USERSTATE privilege detection', () => {
   test('still parses a normal PRIVMSG', () => {
     const m = parseIrcLine('@badges=vip/1;id=abc;user-id=42 :viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #nl_kripp :hello world')
     expect(m).toMatchObject({ type: 'privmsg', channel: 'nl_kripp', login: 'viewer', text: 'hello world' })
+  })
+})
+
+// regression for the slow-then-spammy burst: several replies finishing at once must
+// trickle out one-per-gap, never fire in the same tick (which reads as spam + risks lockout).
+describe('outgoing send pacer', () => {
+  test('spaces simultaneous replies instead of bursting', async () => {
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [] },
+      () => {},
+    )
+    const c = client as unknown as {
+      ircReady: boolean; SEND_GAP: number; ircOnlyChannels: Set<string>; ircSend: (l: string) => void
+    }
+    c.ircReady = true
+    c.SEND_GAP = 30                        // shrink for a fast test
+    c.ircOnlyChannels = new Set(['chan'])  // force the IRC path — no network
+    const sent: number[] = []
+    const t0 = performance.now()
+    c.ircSend = () => { sent.push(performance.now() - t0) }
+
+    // four replies land in the same instant
+    client.say('chan', 'a'); client.say('chan', 'b')
+    client.say('chan', 'c'); client.say('chan', 'd')
+
+    // pacer defers even the first send — nothing fires synchronously
+    expect(sent.length).toBe(0)
+
+    await new Promise((r) => setTimeout(r, 30 * 7))
+    expect(sent.length).toBe(4)
+    // consecutive sends are spaced ~SEND_GAP apart (allow scheduler jitter)
+    for (let i = 1; i < sent.length; i++) {
+      expect(sent[i] - sent[i - 1]).toBeGreaterThanOrEqual(20)
+    }
   })
 })
