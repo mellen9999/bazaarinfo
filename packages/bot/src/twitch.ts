@@ -109,6 +109,7 @@ type IrcMessage =
   | { type: 'join'; channel: string }
   | { type: 'auth_failure' }
   | { type: 'notice' }
+  | { type: 'userstate'; channel: string; privileged: boolean }
   | IrcPrivmsg
   | { type: 'other' }
 
@@ -138,6 +139,16 @@ function parseIrcLine(line: string): IrcMessage {
     if (space < 0) return { type: 'other' }
     const tags = parseIrcTags(line.slice(1, space))
     const rest = line.slice(space + 1)
+    // USERSTATE: twitch's per-channel statement of OUR badges in that channel.
+    // sent on join + after each privmsg we send. tells us if we're vip/mod/broadcaster
+    // there, which decides whether sends draw from the 100/30s mod bucket or are also
+    // capped by the 20/30s user bucket.
+    const usMatch = rest.match(/^:tmi\.twitch\.tv USERSTATE #(\S+)/)
+    if (usMatch) {
+      const badges = (tags['badges'] || '').split(',').map((b) => b.split('/')[0])
+      const privileged = tags['mod'] === '1' || badges.includes('vip') || badges.includes('moderator') || badges.includes('broadcaster')
+      return { type: 'userstate', channel: usMatch[1], privileged }
+    }
     const pmMatch = rest.match(/^:([^!]+)![^ ]+ PRIVMSG #(\S+) :(.*)$/)
     if (!pmMatch) return { type: 'other' }
     const [, login, channel, text] = pmMatch
@@ -172,9 +183,23 @@ export class TwitchClient {
   private ircWatchdog: Timer | null = null
   private ircReconnecting = false
   private ircQueue: { channel: string; text: string; replyTo?: string }[] = []
-  private sendTimes: number[] = []
-  private readonly SEND_LIMIT = 90
+  // twitch chat rate limiting uses TWO account-wide buckets, each refilling over 30s
+  // (per https://dev.twitch.tv/docs/chat + pajbot/tmi-rate-limits):
+  //   moderator-bucket: 100/30s — EVERY send debits this.
+  //   user-bucket:       20/30s — only sends to channels where we're NOT
+  //                               vip/mod/broadcaster also debit this.
+  // a send to a channel where we're privileged (vip counts!) draws from the mod
+  // bucket only, so it's effectively capped at 100/30s; everywhere else the 20/30s
+  // user bucket binds. exceeding either = messages dropped + a 30min spam lockout,
+  // so we keep a safety margin under both ceilings.
+  private modSendTimes: number[] = []
+  private userSendTimes: number[] = []
+  private readonly MOD_LIMIT = 95
+  private readonly USER_LIMIT = 18
   private readonly SEND_WINDOW = 30_000
+  // channels where we're vip/mod/broadcaster — learned live from USERSTATE. default
+  // (unknown) = non-privileged, so we never assume a firehose we weren't granted.
+  private privilegedChannels = new Set<string>()
   private eventsubBackoff = BACKOFF_BASE
   private eventsubConsecutiveFailures = 0
   eventsubEverConnected = false
@@ -612,6 +637,15 @@ export class TwitchClient {
           case 'notice':
             log('irc notice:', line)
             break
+          case 'userstate': {
+            const was = this.privilegedChannels.has(msg.channel)
+            if (msg.privileged) this.privilegedChannels.add(msg.channel)
+            else this.privilegedChannels.delete(msg.channel)
+            if (was !== msg.privileged) {
+              log(`irc #${msg.channel}: ${msg.privileged ? 'privileged (vip/mod) — 100/30s send bucket' : 'non-privileged — 20/30s send bucket'}`)
+            }
+            break
+          }
           case 'privmsg':
             this.dispatchPrivmsg(msg)
             break
@@ -709,9 +743,9 @@ export class TwitchClient {
   }
 
   private async flushQueue() {
-    while (this.ircQueue.length > 0 && this.canSend()) {
+    while (this.ircQueue.length > 0 && this.canSend(this.ircQueue[0].channel)) {
       const { channel, text, replyTo } = this.ircQueue.shift()!
-      this.sendTimes.push(Date.now())
+      this.recordSend(channel)
       const prefix = replyTo ? `@reply-parent-msg-id=${replyTo} ` : ''
       if (this.ircOnlyChannels.has(channel)) {
         this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
@@ -729,14 +763,30 @@ export class TwitchClient {
     }
   }
 
-  private canSend(): boolean {
+  // privileged = we're vip/mod/broadcaster in this channel (our own channel = broadcaster).
+  private isPrivileged(channel: string): boolean {
+    return channel === this.config.botUsername.toLowerCase() || this.privilegedChannels.has(channel)
+  }
+
+  private trimBuckets() {
+    const cutoff = Date.now() - this.SEND_WINDOW
+    while (this.modSendTimes.length > 0 && this.modSendTimes[0] < cutoff) this.modSendTimes.shift()
+    while (this.userSendTimes.length > 0 && this.userSendTimes[0] < cutoff) this.userSendTimes.shift()
+  }
+
+  private canSend(channel: string): boolean {
+    this.trimBuckets()
+    if (this.modSendTimes.length >= this.MOD_LIMIT) return false
+    // non-privileged channels are additionally bound by the smaller user bucket
+    if (!this.isPrivileged(channel) && this.userSendTimes.length >= this.USER_LIMIT) return false
+    return true
+  }
+
+  // record a send against the buckets it consumes from.
+  private recordSend(channel: string) {
     const now = Date.now()
-    const cutoff = now - this.SEND_WINDOW
-    // trim expired entries from the front (oldest first)
-    while (this.sendTimes.length > 0 && this.sendTimes[0] < cutoff) {
-      this.sendTimes.shift()
-    }
-    return this.sendTimes.length < this.SEND_LIMIT
+    this.modSendTimes.push(now)
+    if (!this.isPrivileged(channel)) this.userSendTimes.push(now)
   }
 
   hasChannel(name: string): boolean {
@@ -814,16 +864,12 @@ export class TwitchClient {
   async say(channel: string, text: string, replyTo?: string) {
     // strip leading command prefixes (/ . ! \) to prevent the bot timing itself out
     text = stripOutgoingCommands(text)
-    // proactively trim stale sendTimes entries
-    const now = Date.now()
-    const cutoff = now - this.SEND_WINDOW
-    while (this.sendTimes.length > 0 && this.sendTimes[0] < cutoff) this.sendTimes.shift()
     // count by code points, not utf-16 units: twitch's ~500-char limit counts each
     // supplementary-plane glyph (fancy font, emoji) as one char. slicing the codepoint
     // array can never split a surrogate pair, so this is orphan-safe by construction.
     const cps = [...text]
     if (cps.length > 490) text = cps.slice(0, 487).join('') + '...'
-    if (!this.canSend()) {
+    if (!this.canSend(channel)) {
       if (this.ircQueue.length >= MAX_QUEUE) {
         log('queue full, dropping oldest')
         this.ircQueue.shift()
@@ -832,7 +878,7 @@ export class TwitchClient {
       if (this.ircReady) setTimeout(() => this.flushQueue(), 1000)
       return
     }
-    this.sendTimes.push(Date.now())
+    this.recordSend(channel)
     if (this.ircOnlyChannels.has(channel)) {
       const prefix = replyTo ? `@reply-parent-msg-id=${replyTo} ` : ''
       this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
