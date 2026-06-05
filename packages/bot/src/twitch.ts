@@ -11,6 +11,11 @@ const MAX_QUEUE = 50
 const BACKOFF_BASE = 3_000
 const BACKOFF_MAX = 60_000 // 1min cap
 const BACKOFF_WAF_BLOCKED = 30 * 60_000 // 30min when CloudFront WAF blocks us
+// after this many consecutive WAF blocks the edge is clearly rejecting our egress IP
+// permanently (datacenter/VPN range CloudFront blocks by policy). retrying every 30min
+// forever just churns + spams logs — drop to a quiet 6h self-healing retry instead.
+const WAF_PERSISTENT_THRESHOLD = 4
+const BACKOFF_WAF_PERSISTENT = 6 * 60 * 60_000 // 6h once the WAF block is clearly permanent
 const MAX_CONSECUTIVE_FAILURES = 10
 const STATE_FILE = 'cache/eventsub-state.json'
 // if N+ failures in last 30min recorded across processes, sleep before first connect
@@ -204,6 +209,8 @@ export class TwitchClient {
   private eventsubConsecutiveFailures = 0
   eventsubEverConnected = false
   private eventsubLastWafBlockReason = ''
+  // one-shot guard so the persistent-WAF state logs once on entry, not every 6h retry
+  private eventsubWafPersistentLogged = false
   private ircBackoff = BACKOFF_BASE
   private _channelIdMap: Record<string, string> = {}
   private ircOnlyChannels = new Set<string>()
@@ -338,6 +345,7 @@ export class TwitchClient {
       this.eventsubConsecutiveFailures = 0
       this.eventsubEverConnected = true
       this.eventsubLastWafBlockReason = ''
+      this.eventsubWafPersistentLogged = false
       saveEventsubState({ consecutiveFailures: 0, lastFailureAt: 0, firstFailureAt: 0, lastWafBlockAt: 0 })
       // subscribe new session FIRST so messages can flow before we tear anything down.
       // cleanup of stale (old-session) subs runs in background — no race since each
@@ -497,16 +505,25 @@ export class TwitchClient {
     }
     saveEventsubState(nextState)
 
-    // WAF block = HTTP upgrade rejected. exponential won't help — back off hard
+    // WAF block = HTTP upgrade rejected at the edge. exponential won't help. once it's
+    // clearly permanent (egress IP on a datacenter/VPN range CloudFront blocks), stop the
+    // 30min churn and drop to a quiet 6h self-healing retry — auto-recovers if the IP ever
+    // becomes residential, without spamming logs or burning reconnects in the meantime.
     if (isWafBlock) {
-      log(`eventsub WAF/403 blocked — sleeping ${BACKOFF_WAF_BLOCKED / 60_000}min before retry (in-process)`)
-      this.eventsubBackoff = BACKOFF_WAF_BLOCKED
-    }
-
-    if (this.eventsubConsecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-      // don't exit — exit + systemd restart resets in-memory state, defeats backoff
-      // sleep within process so we keep ratcheting backoff up rather than spamming
-      const sleep = isWafBlock ? BACKOFF_WAF_BLOCKED : Math.min(BACKOFF_MAX * 5, 5 * 60_000)
+      const persistent = nextState.consecutiveFailures >= WAF_PERSISTENT_THRESHOLD
+      this.eventsubBackoff = persistent ? BACKOFF_WAF_PERSISTENT : BACKOFF_WAF_BLOCKED
+      if (persistent) {
+        if (!this.eventsubWafPersistentLogged) {
+          log(`eventsub edge WAF-blocked ${nextState.consecutiveFailures}x — egress IP is a datacenter/VPN range CloudFront rejects. IRC is primary transport; quiet retry every ${BACKOFF_WAF_PERSISTENT / 3_600_000}h (auto-recovers on a residential IP)`)
+          this.eventsubWafPersistentLogged = true
+        }
+      } else {
+        log(`eventsub WAF/403 blocked — sleeping ${BACKOFF_WAF_BLOCKED / 60_000}min before retry (in-process)`)
+      }
+    } else if (this.eventsubConsecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      // non-WAF failures: don't exit — exit + systemd restart resets in-memory state and
+      // defeats backoff. sleep within process so we keep ratcheting backoff up not spamming.
+      const sleep = Math.min(BACKOFF_MAX * 5, 5 * 60_000)
       log(`eventsub failed ${this.eventsubConsecutiveFailures}x — long sleep ${Math.round(sleep / 60_000)}min instead of process.exit`)
       this.eventsubBackoff = sleep
     }
