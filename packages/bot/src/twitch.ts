@@ -188,6 +188,12 @@ export class TwitchClient {
   private ircWatchdog: Timer | null = null
   private ircReconnecting = false
   private ircQueue: { channel: string; text: string; replyTo?: string }[] = []
+  // single paced drain — at most one outgoing message per SEND_GAP, so simultaneous
+  // reply completions go out spaced like human typing instead of a burst (which reads
+  // as spam and risks the 30min lockout). first message after idle still goes immediately.
+  private pacerTimer: Timer | null = null
+  private lastSendAt = 0
+  private readonly SEND_GAP = 400
   // twitch chat rate limiting uses TWO account-wide buckets, each refilling over 30s
   // (per https://dev.twitch.tv/docs/chat + pajbot/tmi-rate-limits):
   //   moderator-bucket: 100/30s — EVERY send debits this.
@@ -645,7 +651,7 @@ export class TwitchClient {
           case 'join':
             log(`irc joined #${msg.channel}`)
             this.ircJoinedChannels.add(msg.channel)
-            if (!this.ircReady) { this.ircReady = true; this.startIrcPing(); this.flushQueue() }
+            if (!this.ircReady) { this.ircReady = true; this.startIrcPing(); this.kickPacer() }
             break
           case 'auth_failure':
             log('irc auth failed — refreshing token and reconnecting')
@@ -759,25 +765,38 @@ export class TwitchClient {
     this.reconnectWithBackoff('irc', () => this.ircBackoff, (n) => { this.ircBackoff = n }, () => this.connectIrc())
   }
 
-  private async flushQueue() {
-    while (this.ircQueue.length > 0 && this.canSend(this.ircQueue[0].channel)) {
-      const { channel, text, replyTo } = this.ircQueue.shift()!
-      this.recordSend(channel)
-      const prefix = replyTo ? `@reply-parent-msg-id=${replyTo} ` : ''
-      if (this.ircOnlyChannels.has(channel)) {
-        this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
-        continue
-      }
-      const sent = await this.helixSend(channel, text, false, replyTo)
-      if (!sent) {
-        log(`queued helix failed for #${channel}, falling back to IRC${replyTo ? ' (threaded)' : ''}`)
-        this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
-      }
+  // dispatch one message now (helix with IRC fallback), debiting the rate buckets.
+  private async sendOne(channel: string, text: string, replyTo?: string) {
+    this.recordSend(channel)
+    this.lastSendAt = Date.now()
+    const prefix = replyTo ? `@reply-parent-msg-id=${replyTo} ` : ''
+    if (this.ircOnlyChannels.has(channel)) {
+      this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
+      return
     }
-    if (this.ircQueue.length > 0) {
-      log(`${this.ircQueue.length} queued messages waiting for rate limit`)
-      setTimeout(() => this.flushQueue(), 1000)
+    const sent = await this.helixSend(channel, text, false, replyTo)
+    if (!sent) {
+      log(`helix failed for #${channel}, falling back to IRC PRIVMSG${replyTo ? ' (threaded)' : ''}`)
+      this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
     }
+  }
+
+  // drain the queue one message at a time, paced by SEND_GAP and the rate buckets.
+  // re-arms itself while messages remain; only one timer is ever in flight.
+  private kickPacer() {
+    if (this.pacerTimer || !this.ircReady || this.ircQueue.length === 0) return
+    const head = this.ircQueue[0]
+    // wait for whichever binds: the rate bucket (poll in 1s) or the inter-message gap.
+    const wait = this.canSend(head.channel) ? Math.max(0, this.SEND_GAP - (Date.now() - this.lastSendAt)) : 1000
+    this.pacerTimer = setTimeout(async () => {
+      this.pacerTimer = null
+      const next = this.ircQueue[0]
+      if (!next) return
+      if (!this.canSend(next.channel)) { this.kickPacer(); return }
+      this.ircQueue.shift()
+      await this.sendOne(next.channel, next.text, next.replyTo)
+      this.kickPacer()
+    }, wait)
   }
 
   // privileged = we're vip/mod/broadcaster in this channel (our own channel = broadcaster).
@@ -886,27 +905,14 @@ export class TwitchClient {
     // array can never split a surrogate pair, so this is orphan-safe by construction.
     const cps = [...text]
     if (cps.length > 490) text = cps.slice(0, 487).join('') + '...'
-    if (!this.canSend(channel)) {
-      if (this.ircQueue.length >= MAX_QUEUE) {
-        log('queue full, dropping oldest')
-        this.ircQueue.shift()
-      }
-      this.ircQueue.push({ channel, text, replyTo })
-      if (this.ircReady) setTimeout(() => this.flushQueue(), 1000)
-      return
+    // every send goes through the single FIFO pacer — preserves order and guarantees
+    // spacing, so no two replies can ever land in the same instant.
+    if (this.ircQueue.length >= MAX_QUEUE) {
+      log('queue full, dropping oldest')
+      this.ircQueue.shift()
     }
-    this.recordSend(channel)
-    if (this.ircOnlyChannels.has(channel)) {
-      const prefix = replyTo ? `@reply-parent-msg-id=${replyTo} ` : ''
-      this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
-      return
-    }
-    const sent = await this.helixSend(channel, text, false, replyTo)
-    if (!sent) {
-      log(`helix failed for #${channel}, falling back to IRC PRIVMSG${replyTo ? ' (threaded)' : ''}`)
-      const prefix = replyTo ? `@reply-parent-msg-id=${replyTo} ` : ''
-      this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
-    }
+    this.ircQueue.push({ channel, text, replyTo })
+    this.kickPacer()
   }
 }
 
