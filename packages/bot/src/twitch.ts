@@ -125,7 +125,7 @@ function parseIrcTags(raw: string): Record<string, string> {
   return out
 }
 
-function parseIrcLine(line: string): IrcMessage {
+export function parseIrcLine(line: string): IrcMessage {
   if (line.startsWith('PING')) return { type: 'ping', payload: line.slice(5) }
   if (/ 001 /.test(line)) return { type: 'welcome' }
   const joinMatch = line.match(/ JOIN #(\S+)/)
