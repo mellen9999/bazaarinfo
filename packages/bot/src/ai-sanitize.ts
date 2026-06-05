@@ -88,7 +88,12 @@ function askerNameRe(asker: string): RegExp {
 
 // --- sanitize ---
 
-export function sanitize(text: string, asker?: string, privileged?: boolean, knownUsers?: Set<string>): { text: string; mentions: string[] } {
+// trailing function words that read as a dangling fragment when a response is cut
+// mid-clause (only stripped when we KNOW the generation hit max_tokens — never on a
+// complete short answer like "only if the meta calls for it")
+const DANGLING_TAIL = /[\s,]+(?:a|an|the|and|or|but|so|because|that|that's|to|of|with|for|in|on|at|by|as|from|into|is|are|was|were|his|her|its)$/i
+
+export function sanitize(text: string, asker?: string, privileged?: boolean, knownUsers?: Set<string>, truncated?: boolean): { text: string; mentions: string[] } {
   // strip invisibles + fold smart-quote/homoglyph lookalikes -> ascii (shared with the
   // outgoing-message guard in twitch.say, so neither layer can drift on what it folds)
   let s = normalizeText(text.trim())
@@ -179,6 +184,11 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
       const lastClause = Math.max(s.lastIndexOf(', '), s.lastIndexOf('—'))
       if (lastClause > s.length * 0.4) {
         s = s.slice(0, lastClause)
+      } else if (truncated) {
+        // run-on with no internal boundary (e.g. "...neither does he and that's the"):
+        // peel dangling function words so it ends on a content word, while it stays > 15 chars
+        let prev
+        do { prev = s; s = s.replace(DANGLING_TAIL, '').trim() } while (s !== prev && s.length > 15)
       }
     }
   }

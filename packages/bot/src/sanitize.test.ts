@@ -302,6 +302,19 @@ describe('sanitize', () => {
     expect(sanitize('solid take,').text).toBe('solid take')
   })
 
+  it('peels dangling function-word tail when generation hit max_tokens', () => {
+    // run-on with no internal punctuation, cut mid-clause — only trimmed when truncated=true
+    const cut = "a guy goes into dreams inside dreams inside dreams and by the end you genuinely don't know if anything was real and neither does he and that's the"
+    expect(sanitize(cut, undefined, undefined, undefined, true).text)
+      .toBe("a guy goes into dreams inside dreams inside dreams and by the end you genuinely don't know if anything was real and neither does he")
+  })
+
+  it('does NOT peel a complete short answer ending in a stopword', () => {
+    // not truncated → leave it; "it" is a valid sentence ending here
+    expect(sanitize('only if the meta calls for it', undefined, undefined, undefined, false).text)
+      .toBe('only if the meta calls for it')
+  })
+
   it('does not truncate at exactly 150 chars', () => {
     const exact = 'a'.repeat(150)
     const r = sanitize(exact)
