@@ -102,8 +102,12 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
     log(`ai: daily cap hit for ${ctx.channel}, dropping`)
     return null
   }
-  // repeat-query abuse — silent drop (VIP exempt)
-  if (!isVip && isRepeatAbuse(ctx.user, query)) {
+  // repeat-query abuse — silent drop (VIP exempt). continuation asks ("continue",
+  // "keep going", "more"…) are LEGITIMATELY repeated — each one extends the story with
+  // new content — so they're exempt; otherwise the 3rd "continue" reads as spam and the
+  // bot bails on an active bit.
+  const isContinue = /^(continue|keep going|go on|carry on|more\b|next\b|finish( it)?|expand|extend|again\b|and then|then what)/i.test(query.trim())
+  if (!isVip && !isContinue && isRepeatAbuse(ctx.user, query)) {
     log(`ai: repeat abuse from ${ctx.user}, dropping`)
     return null
   }
