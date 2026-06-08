@@ -6,6 +6,22 @@ describe('sanitize', () => {
     expect(sanitize('**hello** world').text).toBe('hello world')
   })
 
+  // regression: model echoed its own invocation "!b" and nothing else. the outgoing
+  // guard peels the "!" leaving a bare "b @user" fragment. must be rejected (empty)
+  // so the caller retries / falls back instead of emitting garbage.
+  it('rejects a bare command-echo fragment', () => {
+    expect(sanitize('!b').text).toBe('')
+    expect(sanitize('!b @earl', 'earl').text).toBe('')
+    expect(sanitize('/b @user').text).toBe('')
+    expect(sanitize('  !b  ').text).toBe('')
+  })
+
+  it('keeps real answers that merely start with or contain a command token', () => {
+    expect(sanitize('!b reads the whole chat for context').text).toContain('reads the whole chat')
+    expect(sanitize('gg').text).toBe('gg')
+    expect(sanitize('5 HP').text).toBe('5 HP')
+  })
+
   it('strips markdown italic', () => {
     expect(sanitize('*hello* world').text).toBe('hello world')
   })
