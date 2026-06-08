@@ -6,7 +6,7 @@ import type { CmdType } from './db'
 import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia } from './trivia'
 import { generateCustomTrivia } from './ai-trivia'
 import { parseDirective } from './ai-directive'
-import { addDirective, listDirectives, clearDirectives } from './directives'
+import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam } from './ai'
 import { isEmote, findEmote } from './emotes'
 import { getThread, getRecent } from './chatbuf'
@@ -666,6 +666,10 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {
+  // muted by a chat-planted directive → stay silent for the TTL. mods/broadcaster can
+  // never be muted (so a viewer can't silence the streamer or staff).
+  if (ctx.channel && ctx.user && !ctx.isMod && !ctx.privileged && isMuted(ctx.channel, ctx.user)) return null
+
   // extract @mentions to tag at end of response
   const mentions = args.match(/@\w+/g) ?? []
   // keep usernames in AI query (strip @ only), strip fully for item lookup
@@ -935,10 +939,17 @@ async function runTrivia(ctx: CommandContext, rawArg: string, suffix: string): P
 const triviaCommand: CommandHandler = (args, ctx) => runTrivia(ctx, args, '')
 
 // --- chat-planted steering directives ("vibes") ---
-// cheap prefilter for "plant a directive" intent — narrow to the conditional-steering
-// shape so normal questions don't trigger an AI classify call. the AI gate is the real
-// validator (and rejects false positives), this just decides when to ask it.
-const DIRECTIVE_INTENT = /\b(any\s?time|every\s?time|each\s?time|whenever|when(?:ever)?|from now on|going forward)\b[\s\S]{0,60}\b(someone|anyone|some ?one|every ?one|people|ppl|they|chat|a|an)\b[\s\S]{0,50}\b(asks?|asking|mentions?|says?|brings? up|talks? about|posts?)\b/i
+// cheap prefilter for "plant a directive" intent — the AI gate is the real validator
+// (and rejects false positives), this just decides when to spend a classify call. covers
+// topic/per-user STEER ("anytime <who> asks ...") and MUTE ("don't respond to X").
+const DIRECTIVE_INTENT = new RegExp([
+  // steer: "anytime/whenever/when <who> asks/mentions/says ..."
+  /(any\s?time|every\s?time|each\s?time|whenever|when(?:ever)?|from now on|going forward)\b[\s\S]{0,70}\b(asks?|asking|mentions?|says?|brings? up|talks? about|posts?|messages?)\b/.source,
+  // mute: "don't/stop/never respond|reply|answer|talk to ..."
+  /\b(do\s?n'?t|do not|stop|never|quit|no longer)\s+(respond(?:ing)?|repl(?:y|ies|ying)|answer(?:ing)?|talk(?:ing)?|engag\w*)\b/.source,
+  // mute: "ignore <name>"
+  /\bignore\s+@?\w+/.source,
+].join('|'), 'i')
 
 const DIRECTIVE_PLANT_CD = 60_000
 const directivePlantCooldown = new Map<string, number>()
@@ -952,13 +963,16 @@ async function handlePlantDirective(text: string, ctx: CommandContext, suffix: s
   const parsed = await parseDirective(text, channel)
   if (!parsed) return null // not a directive, AI-rejected, AI off, or cap hit → caller falls through to a normal answer
 
-  addDirective(channel, ctx.user, parsed.trigger, parsed.instruction)
+  addDirective(channel, ctx.user, parsed)
   directivePlantCooldown.set(ctx.user.toLowerCase(), Date.now())
   if (directivePlantCooldown.size > 500) {
     const now = Date.now()
     for (const [k, t] of directivePlantCooldown) if (now - t > DIRECTIVE_PLANT_CD) directivePlantCooldown.delete(k)
   }
-  const scope = parsed.trigger.length ? `${parsed.trigger.join('/')} answers` : 'every answer'
+  if (parsed.mute) {
+    return withSuffix(`got it — ignoring ${parsed.targetUser} for 20m (mods can undo with !b vibes clear)`, suffix)
+  }
+  const scope = parsed.targetUser ? `@${parsed.targetUser}'s answers` : parsed.trigger.length ? `${parsed.trigger.join('/')} answers` : 'every answer'
   return withSuffix(`got it — ${scope} get a twist for 20m: ${parsed.instruction} (mods can wipe with !b vibes clear)`, suffix)
 }
 
@@ -974,7 +988,8 @@ function handleVibes(arg: string, ctx: CommandContext, suffix: string): string |
   const now = Date.now()
   const lines = list.map((d) => {
     const mins = Math.max(1, Math.round((d.expiresAt - now) / 60_000))
-    const scope = d.trigger.length ? d.trigger.join('/') : 'all'
+    if (d.mute) return `[mute @${d.targetUser}] (${mins}m, by ${d.planter})`
+    const scope = d.targetUser ? `@${d.targetUser}` : d.trigger.length ? d.trigger.join('/') : 'all'
     return `[${scope}] ${d.instruction} (${mins}m, by ${d.planter})`
   })
   return withSuffix(`active vibes: ${lines.join(' · ')}`, suffix)

@@ -699,7 +699,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
       : '',
     // chat-planted flavor directives that match this query (kept in the required tail so
     // a tight context budget can't evict them). empty when none are active/matching.
-    directiveHint(ctx.channel, query),
+    directiveHint(ctx.channel, query, ctx.user),
     `\n[USER] = ${ctx.user}`,
   ].filter(Boolean).join('')
 
