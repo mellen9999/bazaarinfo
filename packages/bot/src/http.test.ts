@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'bun:test'
-import { readJson } from './http'
+import { readJson, extractFirstJson } from './http'
+
+describe('extractFirstJson', () => {
+  it('extracts a bare object', () => {
+    expect(extractFirstJson('{"ok":true,"x":1}')).toBe('{"ok":true,"x":1}')
+  })
+  it('ignores trailing prose / a second corrected object (the live regression)', () => {
+    const out = 'Here: {"ok":true,"trigger":["topology"]}\n\nWait, let me fix that:\n{"ok":false}'
+    expect(extractFirstJson(out)).toBe('{"ok":true,"trigger":["topology"]}')
+  })
+  it('handles nested objects and braces inside strings', () => {
+    expect(extractFirstJson('noise {"a":{"b":2},"s":"}{"} tail')).toBe('{"a":{"b":2},"s":"}{"}')
+  })
+  it('returns null when there is no object', () => {
+    expect(extractFirstJson('sorry I cannot')).toBeNull()
+  })
+})
 
 // the bug this guards against: a 200 response with an empty or truncated body made
 // res.json() throw "Unexpected end of JSON input", silently dropping the in-flight

@@ -10,6 +10,29 @@ export interface JsonResult<T> {
   data: T | null
 }
 
+// Extract the FIRST complete, balanced JSON object from a string — robust to a model
+// that wraps its JSON in prose, code fences, or emits a second corrected object after
+// it. A greedy /\{[\s\S]*\}/ would span from the first { to the LAST } and swallow any
+// in-between prose, breaking JSON.parse; this brace-counts (string/escape aware) and
+// stops at the matching close brace.
+export function extractFirstJson(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start < 0) return null
+  let depth = 0
+  let inStr = false
+  let esc = false
+  for (let i = start; i < text.length; i++) {
+    const c = text[i]
+    if (esc) { esc = false; continue }
+    if (c === '\\') { esc = true; continue }
+    if (c === '"') { inStr = !inStr; continue }
+    if (inStr) continue
+    if (c === '{') depth++
+    else if (c === '}' && --depth === 0) return text.slice(start, i + 1)
+  }
+  return null
+}
+
 export async function readJson<T>(res: Response): Promise<JsonResult<T>> {
   const text = await res.text().catch(() => '')
   if (!text.trim()) {
