@@ -111,8 +111,10 @@ mock.module('./ai-trivia', () => ({
 
 // directive-plant AI gate — mocked so tests never hit the API. default returns a valid
 // parsed directive; tests override (e.g. null to simulate an AI rejection).
-const mockParseDirective = mock(async (_text: string, _channel: string) => ({
+const mockParseDirective = mock(async (_text: string, _channel: string): Promise<any> => ({
   trigger: ['topology'],
+  targetUser: undefined,
+  mute: false,
   instruction: 'work in GachiBlacksmith',
 }))
 mock.module('./ai-directive', () => ({
@@ -2047,7 +2049,7 @@ describe('chat-planted steering directives (vibes)', () => {
   beforeEach(() => {
     directives.resetForTest()
     mockParseDirective.mockClear()
-    mockParseDirective.mockImplementation(async () => ({ trigger: ['topology'], instruction: 'work in GachiBlacksmith' }))
+    mockParseDirective.mockImplementation(async () => ({ trigger: ['topology'], targetUser: undefined, mute: false, instruction: 'work in GachiBlacksmith' }))
     mockAiRespond.mockImplementation(() => null)
   })
 
@@ -2102,6 +2104,36 @@ describe('chat-planted steering directives (vibes)', () => {
     const res = await handleCommand('!b what is the best item for vanessa', { user: 'u', channel: 'vibe-6' })
     expect(mockParseDirective).not.toHaveBeenCalled()
     expect(res).toBe('normal answer')
+  })
+
+  it('mute: a planted mute silences the target, but not mods/broadcaster', async () => {
+    mockParseDirective.mockImplementation(async () => ({ trigger: [], targetUser: 'victim', mute: true, instruction: '' }))
+    mockAiRespond.mockImplementation(() => ({ text: 'normal answer', mentions: [] }))
+    const plant = await handleCommand("!b don't respond to victim", { user: 'planter9', channel: 'vibe-7' })
+    expect(plant).toContain('ignoring victim')
+
+    // muted viewer → silence (null), no AI call
+    mockAiRespond.mockClear()
+    const muted = await handleCommand('!b henlo', { user: 'victim', channel: 'vibe-7' })
+    expect(muted).toBeNull()
+    expect(mockAiRespond).not.toHaveBeenCalled()
+
+    // a mod with the same name is exempt → still answered
+    const modAnswered = await handleCommand('!b henlo', { user: 'victim', channel: 'vibe-7', isMod: true })
+    expect(modAnswered).toBe('normal answer')
+
+    // other users unaffected
+    const other = await handleCommand('!b henlo', { user: 'bystander', channel: 'vibe-7' })
+    expect(other).toBe('normal answer')
+  })
+
+  it('per-user steer: confirmation names the targeted user', async () => {
+    mockParseDirective.mockImplementation(async () => ({ trigger: [], targetUser: 'kripp', mute: false, instruction: 'answer in pirate speak' }))
+    const res = await handleCommand('!b anytime kripp asks anything answer in pirate speak', { user: 'planter10', channel: 'vibe-8' })
+    expect(res).toContain('@kripp')
+    expect(res).toContain('pirate speak')
+    expect(directives.directiveHint('vibe-8', 'whatever', 'kripp').length).toBeGreaterThan(0)
+    expect(directives.directiveHint('vibe-8', 'whatever', 'someoneelse')).toBe('')
   })
 })
 
