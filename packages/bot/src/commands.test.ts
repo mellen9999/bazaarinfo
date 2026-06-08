@@ -95,6 +95,18 @@ mock.module('./trivia', () => ({
   resetForTest: mock(() => {}),
   getActiveGameForTest: mock(() => undefined),
   skipTrivia: mock(() => null),
+  startCustomTrivia: mock(() => 'Trivia! custom question (30s)'),
+}))
+
+// custom-topic trivia generator — mocked so tests never hit the API. default returns
+// a valid question; individual tests can override via the exported mock.
+const mockGenerateCustomTrivia = mock(async (_topic: string) => ({
+  question: 'custom q?',
+  answer: 'ans',
+  accept: ['ans', 'answer'],
+}))
+mock.module('./ai-trivia', () => ({
+  generateCustomTrivia: mockGenerateCustomTrivia,
 }))
 
 // --- mock emotes ---
@@ -1963,6 +1975,60 @@ describe('bare !b: regression guardrails — usage string is dead', () => {
     expect(code).not.toMatch(/!b <item> \[tier\]/)
     expect(code).not.toMatch(/hero\/mob\/skill\/tag\/day/)
     expect(code).not.toMatch(/type !join in/)
+  })
+})
+
+describe('custom-topic trivia: !trivia <topic>', () => {
+  beforeEach(() => {
+    mockIsGameActive.mockImplementation(() => false)
+    mockGenerateCustomTrivia.mockClear()
+    mockGenerateCustomTrivia.mockImplementation(async () => ({ question: 'custom q?', answer: 'ans', accept: ['ans', 'answer'] }))
+  })
+
+  it('routes an arbitrary topic to the AI generator then launches a custom round', async () => {
+    const res = await handleCommand('!b trivia roman history', { user: 'u', channel: 'ct-1' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('roman history', 'ct-1')
+    expect(res).toBe('Trivia! custom question (30s)')
+  })
+
+  it('works via the top-level !trivia command too', async () => {
+    const res = await handleCommand('!trivia the deep sea', { user: 'u', channel: 'ct-2' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('the deep sea', 'ct-2')
+    expect(res).toBe('Trivia! custom question (30s)')
+  })
+
+  it('returns a friendly miss line when generation fails/refuses', async () => {
+    mockGenerateCustomTrivia.mockImplementation(async () => null)
+    const res = await handleCommand('!b trivia asdfqwer nonsense', { user: 'u', channel: 'ct-3' })
+    expect(res).toContain("couldn't make a trivia")
+  })
+
+  it('does not generate when a round is already running', async () => {
+    mockIsGameActive.mockImplementation(() => true)
+    const res = await handleCommand('!b trivia anything', { user: 'u', channel: 'ct-4' })
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+    expect(res).toContain('already running')
+  })
+
+  it('built-in categories never hit the AI generator', async () => {
+    for (const cat of ['items', 'heroes', 'monsters', 'kripp']) {
+      await handleCommand(`!b trivia ${cat}`, { user: 'u', channel: `ct-cat-${cat}` })
+    }
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+  })
+
+  it('bare !trivia and !b trivia start a normal random round, not a custom one', async () => {
+    const a = await handleCommand('!trivia', { user: 'u', channel: 'ct-5' })
+    const b = await handleCommand('!b trivia', { user: 'u', channel: 'ct-6' })
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+    expect(a).toBe('Trivia! test question (30s to answer)')
+    expect(b).toBe('Trivia! test question (30s to answer)')
+  })
+
+  it('ignores empty/symbol-only topics without an API call', async () => {
+    const res = await handleCommand('!b trivia ???', { user: 'u', channel: 'ct-7' })
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+    expect(res).toBeNull()
   })
 })
 

@@ -3,7 +3,8 @@ import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
-import { startTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia } from './trivia'
+import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia } from './trivia'
+import { generateCustomTrivia } from './ai-trivia'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam } from './ai'
 import { isEmote, findEmote } from './emotes'
 import { getThread, getRecent } from './chatbuf'
@@ -551,12 +552,7 @@ const subcommands: [RegExp, SubHandler][] = [
     logHit('skill', query, skill.Title, ctx)
     return withSuffix(formatItem(skill), suffix)
   }],
-  [/^trivia(?:\s+(items|heroes|monsters|kripp))?$/i, (query, ctx, suffix) => {
-    if (!ctx.channel) return null
-    const validCategories = new Set(['items', 'heroes', 'monsters', 'kripp'])
-    const category = validCategories.has(query?.toLowerCase()) ? query.toLowerCase() as 'items' | 'heroes' | 'monsters' | 'kripp' : undefined
-    return withSuffix(startTrivia(ctx.channel, category), suffix)
-  }],
+  [/^trivia(?:\s+([\s\S]+))?$/i, (query, ctx, suffix) => runTrivia(ctx, query ?? '', suffix)],
   [/^skip$/i, (_query, ctx, suffix) => {
     if (!ctx.channel) return null
     const msg = skipTrivia(ctx.channel, ctx.user)
@@ -862,19 +858,70 @@ async function aiOrQuip(query: string, ctx: CommandContext, suffix: string): Pro
   return withSuffix(noMatchMsg(query), suffix)
 }
 
-const triviaCommand: CommandHandler = (args, ctx) => {
-  if (!ctx.channel) return null
-  const validCategories = new Set(['items', 'heroes', 'monsters'])
-  const trimmed = args.trim().toLowerCase()
-  if (trimmed === 'score') return getTriviaScore(ctx.channel)
-  if (trimmed.startsWith('stats')) {
-    const target = trimmed.replace(/^stats\s*@?/, '').trim() || ctx.user
-    if (!target) return null
-    return formatStats(target, ctx.channel)
+const TRIVIA_CATEGORIES = new Set(['items', 'heroes', 'monsters', 'kripp'])
+
+// custom-topic generation is async + costs an API call — guard against concurrent
+// builds (one per channel) and a fast-fire loop that would burn calls without ever
+// starting a round (e.g. repeatedly feeding a topic the model refuses).
+const CUSTOM_GEN_CD = 8_000
+const customPending = new Set<string>()
+const customGenCooldown = new Map<string, number>()
+
+async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: string): Promise<string | null> {
+  const channel = ctx.channel
+  if (!channel) return null
+  const t = topic.trim()
+  // need a real topic with at least one alphanumeric char; cap length before the API call.
+  if (t.length < 2 || !/[a-z0-9]/i.test(t)) return null
+  if (isGameActive(channel)) {
+    return withSuffix(`a trivia round is already running — wait for it`, suffix)
   }
-  const category = validCategories.has(trimmed) ? trimmed as 'items' | 'heroes' | 'monsters' : undefined
-  return startTrivia(ctx.channel, category)
+  if (customPending.has(channel)) return null
+  const last = customGenCooldown.get(channel) ?? 0
+  if (Date.now() - last < CUSTOM_GEN_CD) return null
+
+  customPending.add(channel)
+  try {
+    const q = await generateCustomTrivia(t, channel)
+    if (!q) return withSuffix(`couldn't make a trivia about "${t.slice(0, 40)}" — try a clearer topic`, suffix)
+    return withSuffix(startCustomTrivia(channel, q), suffix)
+  } finally {
+    customPending.delete(channel)
+    const now = Date.now()
+    customGenCooldown.set(channel, now)
+    if (customGenCooldown.size > 200) {
+      for (const [k, v] of customGenCooldown) if (now - v > CUSTOM_GEN_CD) customGenCooldown.delete(k)
+    }
+  }
 }
+
+// single trivia router shared by `!trivia ...` and `!b trivia ...`. handles the
+// built-in subcommands (score/skip/stats/category), then treats anything else as a
+// custom AI topic.
+async function runTrivia(ctx: CommandContext, rawArg: string, suffix: string): Promise<string | null> {
+  if (!ctx.channel) return null
+  const arg = rawArg.trim()
+  const lower = arg.toLowerCase()
+  // bare `!b trivia` arrives as the literal "trivia" (subcommand dispatcher falls back
+  // to cleanArgs when no group captured) — treat it, like an empty arg, as a random round.
+  if (!arg || lower === 'trivia') return withSuffix(startTrivia(ctx.channel), suffix)
+  if (lower === 'score') return withSuffix(getTriviaScore(ctx.channel), suffix)
+  if (lower === 'skip') {
+    const msg = skipTrivia(ctx.channel, ctx.user)
+    return msg ? withSuffix(msg, suffix) : null
+  }
+  if (lower === 'stats' || lower.startsWith('stats ')) {
+    const target = lower.replace(/^stats\s*@?/, '').trim() || ctx.user
+    if (!target) return null
+    return withSuffix(formatStats(target, ctx.channel), suffix)
+  }
+  if (TRIVIA_CATEGORIES.has(lower)) {
+    return withSuffix(startTrivia(ctx.channel, lower as 'items' | 'heroes' | 'monsters' | 'kripp'), suffix)
+  }
+  return await handleCustomTrivia(ctx, arg, suffix)
+}
+
+const triviaCommand: CommandHandler = (args, ctx) => runTrivia(ctx, args, '')
 
 const commands: Record<string, CommandHandler> = {
   b: bazaarinfo,
