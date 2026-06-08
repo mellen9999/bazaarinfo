@@ -51,14 +51,21 @@ export const MOD_ONLY = new Set([
   'endme', 'kms', 'sudoku', 'seppuku', 'die', 'kill', 'killme', 'rip',
 ])
 
+// fold diacritics so accented command lookalikes ("!\u00E9ndme", "!\u00FCnban") can't slip past
+// the command checks \u2014 the model output then maps to the plain ascii command we block.
+// applied ONLY for detection; never mutates the delivered text (legit "caf\u00E9" is untouched).
+function deaccent(text: string): string {
+  return text.normalize('NFD').replace(/[\u0300-\u036F]/g, '')
+}
+
 export function hasDangerousCommand(text: string): boolean {
-  for (const m of text.matchAll(/[!\\/.][\s\u200B]*(\w+)/gi))
+  for (const m of deaccent(text).matchAll(/[!\\/.][\s\u200B]*(\w+)/giu))
     if (ALWAYS_BLOCKED.has(m[1].toLowerCase())) return true
   return false
 }
 
 export function hasModCommand(text: string): boolean {
-  for (const m of text.matchAll(/[!\\/.](\w+)/gi))
+  for (const m of deaccent(text).matchAll(/[!\\/.](\w+)/giu))
     if (MOD_ONLY.has(m[1].toLowerCase())) return true
   return false
 }
