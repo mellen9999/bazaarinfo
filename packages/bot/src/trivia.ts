@@ -754,6 +754,7 @@ const ENUM_ANSWER_SPACE: Record<number, number> = {
   15: 24,     // hp compare — binary guess, cheap (base 1)
   16: 24,     // fill-the-blank — guess the modal number, cheap (base 1)
   20: 6,      // kripp lore — real recall, moderate pay (base 3)
+  21: 3,      // custom AI topic — hard open-ended recall (base 4)
 }
 function difficultyBase(type: number, acceptedLen: number): number {
   const ansCount = ENUM_ANSWER_SPACE[type] ?? Math.max(1, acceptedLen)
@@ -833,10 +834,6 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
   }
   if (!q) return `couldn't generate a question, try again`
 
-  // normalize every accepted answer through the canonical normalizer so the guess
-  // (also normed) compares symmetrically — no punctuation/hyphen/"the" false-negatives.
-  q.accepted = [...new Set(q.accepted.map(norm).filter(Boolean))]
-
   recentQ.push(q.question)
   if (recentQ.length > RECENT_QUESTIONS_SIZE) recentQ.shift()
   recentQuestions.set(channel, recentQ)
@@ -846,6 +843,21 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
   recent.push(lastTypeIdx)
   if (recent.length > RECENT_BUFFER_SIZE) recent.shift()
   recentTypes.set(channel, recent)
+
+  return launchRound(channel, q)
+}
+
+// 1-indexed type id for AI-generated custom-topic rounds. never produced by a
+// generator, so it never enters the adaptive type picker / recent-type buffer.
+const CUSTOM_TYPE = 21
+
+// launch a round from a ready question object — shared by built-in (startTrivia)
+// and custom AI (startCustomTrivia) paths. assumes the channel has no active game
+// (callers guard); purely creates the DB row, timers, hint schedule, and state.
+function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>): string {
+  // normalize every accepted answer through the canonical normalizer so the guess
+  // (also normed) compares symmetrically — no punctuation/hyphen/"the" false-negatives.
+  q.accepted = [...new Set(q.accepted.map(norm).filter(Boolean))]
 
   const gameId = db.createTriviaGame(channel, q.type, q.question, q.answer)
 
@@ -889,6 +901,30 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
   })
 
   return `Trivia! ${q.question} (30s)`
+}
+
+// start a round from an AI-generated question on a user-supplied topic. the active
+// check here is the single race guard: the caller awaits an async API call before
+// this runs, so a built-in round (or another custom round) could have started in the
+// gap — JS is single-threaded, so checking immediately before the synchronous
+// launchRound is sufficient to prevent clobbering a live round.
+export function startCustomTrivia(
+  channel: string,
+  raw: { question: string; answer: string; accept: string[] },
+): string {
+  if (activeGames.has(channel)) {
+    const game = activeGames.get(channel)!
+    const remaining = Math.ceil((ROUND_DURATION - (Date.now() - game.startedAt)) / 1000)
+    return `trivia already active (${remaining}s left): ${game.question}`
+  }
+  // canonical answer always counts as accepted; norm/dedupe happens in launchRound.
+  const accepted = [raw.answer, ...raw.accept]
+  return launchRound(channel, {
+    question: raw.question,
+    answer: raw.answer,
+    accepted,
+    type: CUSTOM_TYPE,
+  })
 }
 
 function endTrivia(channel: string, expectedGameId?: number): string | null {
