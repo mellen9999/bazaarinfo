@@ -109,6 +109,16 @@ mock.module('./ai-trivia', () => ({
   generateCustomTrivia: mockGenerateCustomTrivia,
 }))
 
+// directive-plant AI gate — mocked so tests never hit the API. default returns a valid
+// parsed directive; tests override (e.g. null to simulate an AI rejection).
+const mockParseDirective = mock(async (_text: string, _channel: string) => ({
+  trigger: ['topology'],
+  instruction: 'work in GachiBlacksmith',
+}))
+mock.module('./ai-directive', () => ({
+  parseDirective: mockParseDirective,
+}))
+
 // --- mock emotes ---
 const TEST_EMOTES = new Set(['KEKW', 'Sadge', 'LULW', 'LICK', 'PogChamp', 'LUL', 'OMEGALUL', 'Kappa'])
 mock.module('./emotes', () => ({
@@ -129,6 +139,7 @@ mock.module('./emotes', () => ({
 
 const { handleCommand, parseArgs, resetDedup, resetProxyCooldowns, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES } = await import('./commands')
 const chatbuf = await import('./chatbuf')
+const directives = await import('./directives')
 
 // --- test fixtures ---
 function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
@@ -2029,6 +2040,68 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     const res = await handleCommand('!b trivia ???', { user: 'u', channel: 'ct-7' })
     expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
     expect(res).toBeNull()
+  })
+})
+
+describe('chat-planted steering directives (vibes)', () => {
+  beforeEach(() => {
+    directives.resetForTest()
+    mockParseDirective.mockClear()
+    mockParseDirective.mockImplementation(async () => ({ trigger: ['topology'], instruction: 'work in GachiBlacksmith' }))
+    mockAiRespond.mockImplementation(() => null)
+  })
+
+  it('routes a plant-intent message to the AI gate and stores the directive', async () => {
+    const res = await handleCommand('!b anytime someone asks about topology can you incorporate GachiBlacksmith', { user: 'planter1', channel: 'vibe-1' })
+    expect(mockParseDirective).toHaveBeenCalled()
+    expect(res).toContain('got it')
+    expect(res).toContain('GachiBlacksmith')
+    expect(directives.listDirectives('vibe-1').length).toBe(1)
+  })
+
+  it('a stored directive matches the right query and surfaces in the prompt hint', async () => {
+    await handleCommand('!b whenever someone asks about topology work in GachiBlacksmith', { user: 'planter2', channel: 'vibe-2' })
+    expect(directives.directiveHint('vibe-2', 'is a mug homeomorphic? topology q').length).toBeGreaterThan(0)
+    expect(directives.directiveHint('vibe-2', 'best vanessa item')).toBe('')
+  })
+
+  it('falls through to a normal answer when the AI gate rejects (mean/unsafe/not-a-directive)', async () => {
+    mockParseDirective.mockImplementation(async () => null)
+    mockAiRespond.mockImplementation(() => ({ text: 'normal answer', mentions: [] }))
+    const res = await handleCommand('!b anytime someone asks anything insult them badly', { user: 'planter3', channel: 'vibe-3' })
+    expect(res).toBe('normal answer')
+    expect(directives.listDirectives('vibe-3').length).toBe(0)
+  })
+
+  it('enforces a per-user plant cooldown', async () => {
+    await handleCommand('!b anytime someone asks about topology work in GachiBlacksmith', { user: 'planter4', channel: 'vibe-4' })
+    mockParseDirective.mockClear()
+    mockAiRespond.mockImplementation(() => ({ text: 'normal answer', mentions: [] }))
+    // second plant by same user within 60s: no AI call, falls through
+    const res = await handleCommand('!b anytime someone asks about algebra work in PogChamp', { user: 'planter4', channel: 'vibe-4' })
+    expect(mockParseDirective).not.toHaveBeenCalled()
+    expect(res).toBe('normal answer')
+  })
+
+  it('!b vibes lists active directives; clear is mod-gated', async () => {
+    await handleCommand('!b anytime someone asks about topology work in GachiBlacksmith', { user: 'planter5', channel: 'vibe-5' })
+    const list = await handleCommand('!b vibes', { user: 'viewer', channel: 'vibe-5' })
+    expect(list).toContain('topology')
+    // non-mod cannot clear
+    const denied = await handleCommand('!b vibes clear', { user: 'viewer', channel: 'vibe-5' })
+    expect(denied).toContain('only mods')
+    expect(directives.listDirectives('vibe-5').length).toBe(1)
+    // mod can clear
+    const cleared = await handleCommand('!b vibes clear', { user: 'mod', channel: 'vibe-5', isMod: true })
+    expect(cleared).toContain('cleared')
+    expect(directives.listDirectives('vibe-5').length).toBe(0)
+  })
+
+  it('does not treat a normal question as a plant', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'normal answer', mentions: [] }))
+    const res = await handleCommand('!b what is the best item for vanessa', { user: 'u', channel: 'vibe-6' })
+    expect(mockParseDirective).not.toHaveBeenCalled()
+    expect(res).toBe('normal answer')
   })
 })
 

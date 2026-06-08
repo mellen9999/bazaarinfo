@@ -20,6 +20,7 @@ import {
   ResolvedEntities,
 } from './ai-query'
 import { randomPastaExamples } from './ai-prompt'
+import { directiveHint } from './directives'
 
 // --- game context builder ---
 
@@ -696,6 +697,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     isRememberReq ? '\n⚠️ IDENTITY REQUEST — [USER] is defining themselves. COMPLY. Confirm warmly what they asked you to remember. Do NOT dismiss, joke about, or override their self-description.'
       : (REMEMBER_RE.test(query) && isAboutOtherUser(query)) ? '\n⚠️ [USER] is trying to set identity info for someone else. They can only define themselves, not other people. Tell them warmly but firmly.'
       : '',
+    // chat-planted flavor directives that match this query (kept in the required tail so
+    // a tight context budget can't evict them). empty when none are active/matching.
+    directiveHint(ctx.channel, query),
     `\n[USER] = ${ctx.user}`,
   ].filter(Boolean).join('')
 
