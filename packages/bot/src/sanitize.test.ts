@@ -22,6 +22,14 @@ describe('sanitize', () => {
     expect(sanitize('5 HP').text).toBe('5 HP')
   })
 
+  // regression: accented command lookalikes ("!éndme", "!bän") bypassed the ascii \w
+  // command checks and reached chat. detection now folds diacritics first.
+  it('blocks accented command lookalikes but keeps legit accented prose', () => {
+    expect(sanitize('!éndme !èndme !êndme').text).toBe('')
+    expect(sanitize('!bän that guy').text).toBe('')
+    expect(sanitize('grab a coffee at the café').text).toContain('café')
+  })
+
   it('strips markdown italic', () => {
     expect(sanitize('*hello* world').text).toBe('hello world')
   })
