@@ -1,5 +1,5 @@
 import { log } from './log'
-import { readJson } from './http'
+import { readJson, extractFirstJson } from './http'
 import { AI_CHANNELS, isOverDailyCap } from './ai-cache'
 import { recordAiSpend } from './db'
 
@@ -103,11 +103,11 @@ export async function generateCustomTrivia(topic: string, channel: string): Prom
 // parse the model's JSON and enforce every constraint ourselves — never trust the
 // shape. a long answer, a multi-sentence answer, or a missing field all fail closed.
 function validate(text: string): CustomTrivia | null {
-  const match = text.match(/\{[\s\S]*\}/)
-  if (!match) return null
+  const json = extractFirstJson(text)
+  if (!json) return null
   let obj: unknown
   try {
-    obj = JSON.parse(match[0])
+    obj = JSON.parse(json)
   } catch {
     return null
   }
