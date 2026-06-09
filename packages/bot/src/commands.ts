@@ -51,7 +51,12 @@ async function tryAiRespond(query: string, ctx: CommandContext, mentions: string
   let result: Awaited<ReturnType<typeof aiRespond>> = null
   try { result = await aiRespond(query, { ...ctx, direct: true }) } catch (e) { log(`ai: call failed: ${e}`) }
   if (!result?.text) return null
-  let response = dedupeMention(capRepeatedSpam(capEmoteTotal(dedupeEmote(fixEmotePunctuation(fixEmoteCase(result.text, ctx.channel), ctx.channel), ctx.channel), ctx.channel)), ctx.channel, ctx.user)
+  // creative writing may use an emote as a recurring character/noun — skip channel-recent
+  // emote dedup there so we don't gut the prose ("Crowge watched" → "the watched"). the
+  // 5-emote total cap (capEmoteTotal) still applies.
+  const isCreativeQ = /\b(continue|extend|expand|write|make|create|story|pasta|copypasta|poem|rant|monologue|lore|saga|fanfic|narrative|haiku|sonnet|ballad|rap|song|roast|joke|bit|scene)\b/i.test(query)
+  const deduped = isCreativeQ ? result.text : dedupeEmote(result.text, ctx.channel)
+  let response = dedupeMention(capRepeatedSpam(capEmoteTotal(fixEmotePunctuation(fixEmoteCase(deduped, ctx.channel), ctx.channel), ctx.channel)), ctx.channel, ctx.user)
   if (mentions.length > 0) {
     const lower = response.toLowerCase()
     const missing = mentions.map((m) => m.toLowerCase()).filter((m) => !lower.includes(m))

@@ -178,8 +178,18 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   // strip trailing garbage from max_tokens cutoff (partial words, stray punctuation)
   s = s.replace(/\s+\S{0,3}[,.]{2,}\s*$/, '').replace(/[,;]\s*$/, '')
 
-  // trim incomplete numbered list items from token cutoff
-  s = s.replace(/\n\d+\.?\s*$/, '')
+  // trim an incomplete trailing numbered list item from a token cutoff — but ONLY when an
+  // earlier numbered item exists, so a legit sentence ending in a number ("...is 2.") is
+  // never mangled. handles "1. x\n2." and the newline-normalized "1. x 2." forms alike.
+  const dangling = s.match(/[\n ](\d+)[.)]?\s*$/)
+  if (dangling) {
+    const head = s.slice(0, s.length - dangling[0].length)
+    if (/(?:^|[\n ])\d+[.)]\s+\S/.test(head)) s = head.trim()
+  }
+  // trim a trailing structured label cut before its content ("Keystone:", "Node 1", "Step 2:").
+  // require a number or a colon after the label word so legit prose endings ("she's top
+  // tier", "your rank") — which have neither — are never touched.
+  s = s.replace(/[\n ](?:node|keystone|item|step|tip|option|part|tier|rank|level|phase|ascendancy|class|build|skill)(?:\s+\d+:?|:)\s*$/i, '').trim()
 
   // trim incomplete trailing sentence from token cutoff — but only for longer responses
   // short one-liners without punctuation are fine as-is (e.g. "she's mid")
