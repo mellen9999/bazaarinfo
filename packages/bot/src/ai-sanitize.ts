@@ -187,9 +187,11 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
     if (/(?:^|[\n ])\d+[.)]\s+\S/.test(head)) s = head.trim()
   }
   // trim a trailing structured label cut before its content ("Keystone:", "Node 1", "Step 2:").
-  // require a number or a colon after the label word so legit prose endings ("she's top
-  // tier", "your rank") — which have neither — are never touched.
-  s = s.replace(/[\n ](?:node|keystone|item|step|tip|option|part|tier|rank|level|phase|ascendancy|class|build|skill)(?:\s+\d+:?|:)\s*$/i, '').trim()
+  // ONLY when the generation actually hit max_tokens — otherwise legit advice endings like
+  // "go for tier 2" / "use it at level 5" would be mangled into "go for" / "use it at".
+  if (truncated) {
+    s = s.replace(/[\n ](?:node|keystone|item|step|tip|option|part|tier|rank|level|phase|ascendancy|class|build|skill)(?:\s+\d+:?|:)\s*$/i, '').trim()
+  }
 
   // trim incomplete trailing sentence from token cutoff — but only for longer responses
   // short one-liners without punctuation are fine as-is (e.g. "she's mid")

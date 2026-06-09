@@ -2127,6 +2127,28 @@ describe('chat-planted steering directives (vibes)', () => {
     expect(other).toBe('normal answer')
   })
 
+  it('a rejected/false-positive plant still burns the per-user cooldown (no unbounded paid calls)', async () => {
+    mockParseDirective.mockImplementation(async () => null) // AI gate rejects
+    mockAiRespond.mockImplementation(() => ({ text: 'normal answer', mentions: [] }))
+    await handleCommand('!b anytime someone asks anything do something sketchy', { user: 'spammer', channel: 'vibe-cd' })
+    expect(mockParseDirective).toHaveBeenCalledTimes(1)
+    mockParseDirective.mockClear()
+    // second attempt within 60s: cooldown must block the paid classify even though the first was rejected
+    await handleCommand('!b anytime someone asks anything do something else sketchy', { user: 'spammer', channel: 'vibe-cd' })
+    expect(mockParseDirective).not.toHaveBeenCalled()
+  })
+
+  it('mute is enforced across ALL commands, including !trivia (no escape)', async () => {
+    mockParseDirective.mockImplementation(async () => ({ trigger: [], targetUser: 'muteme', mute: true, instruction: '' }))
+    await handleCommand("!b don't respond to muteme", { user: 'planterX', channel: 'vibe-mute' })
+    // muted user can't start trivia either
+    const trivia = await handleCommand('!trivia', { user: 'muteme', channel: 'vibe-mute' })
+    expect(trivia).toBeNull()
+    // …but a non-muted user can
+    const ok = await handleCommand('!trivia', { user: 'other', channel: 'vibe-mute' })
+    expect(ok).toBe('Trivia! test question (30s to answer)')
+  })
+
   it('per-user steer: confirmation names the targeted user', async () => {
     mockParseDirective.mockImplementation(async () => ({ trigger: [], targetUser: 'kripp', mute: false, instruction: 'answer in pirate speak' }))
     const res = await handleCommand('!b anytime kripp asks anything answer in pirate speak', { user: 'planter10', channel: 'vibe-8' })

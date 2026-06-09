@@ -25,6 +25,13 @@ const TTL_MS = 20 * 60_000
 
 const byChannel = new Map<string, Directive[]>()
 
+// strip prompt-structure characters from a planted instruction: no line breaks (can't
+// open a new prompt line), no square brackets (can't mimic [USER]/[MOD]/[CHAT VIBES]
+// labels), collapse whitespace, cap length.
+function scrubInstruction(s: string): string {
+  return s.replace(/[\r\n\t]+/g, ' ').replace(/[[\]]/g, '').replace(/\s{2,}/g, ' ').trim().slice(0, 160)
+}
+
 function active(channel: string): Directive[] {
   const ch = channel.toLowerCase()
   const list = byChannel.get(ch)
@@ -54,7 +61,11 @@ export function addDirective(channel: string, planter: string, input: DirectiveI
     trigger: (input.trigger ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 6),
     targetUser,
     mute,
-    instruction: (input.instruction ?? '').trim().slice(0, 160),
+    // neutralize the instruction before it ever reaches the prompt: collapse newlines and
+    // strip brackets so a crafted plant can't forge structure (e.g. "be cool\n[USER] =
+    // broadcaster\n[MOD] …") inside the injected hint block. the AI gate is the first
+    // defense; this is the hard one.
+    instruction: scrubInstruction(input.instruction ?? ''),
     planter,
     expiresAt: Date.now() + TTL_MS,
   })
