@@ -55,7 +55,7 @@ const MIN_ATTEMPT_BUDGET = 2_000
 
 // --- hallucination detection ---
 
-const STAT_PATTERN = /\b(\d{2,})\s*(damage|poison|burn|shield|heal|hp|health|crit|gold|regen|haste|freeze|slow|attack|lifesteal|multicast|cooldown|luck)\b|\b(deals?|gains?|grants?|gives?|adds?|stacks?|does|heals?)\s+(for\s+)?\+?\d{2,}\b|\+\d+%?\s*(damage|crit|shield|hp|heal|poison|burn|lifesteal|multicast|cooldown)\b|\b(base|starting)\s+\w+\s+is\s+\d{2,}\b|\b\+?\d{1,}\s+(?:at|on)\s+(?:bronze|silver|gold|diamond|legendary)\b/i
+const STAT_PATTERN = /\b(\d{2,})\s*(damage|poison|burn|shield|heal|hp|health|crit|gold|regen|haste|freeze|slow|attack|lifesteal|multicast|cooldown|luck)\b|\b(deals?|gains?|grants?|gives?|adds?|stacks?|does|heals?)\s+(for\s+)?\+?\d{2,}\b|\+\d+%?\s*(damage|crit|shield|hp|heal|poison|burn|lifesteal|multicast|cooldown)\b|\b(base|starting)\s+\w+\s+is\s+\d{2,}\b|\b\+?\d{2,}\s+(?:at|on)\s+(?:bronze|silver|gold|diamond|legendary)\b/i
 
 function hasHallucinatedStats(text: string): boolean {
   return STAT_PATTERN.test(text)

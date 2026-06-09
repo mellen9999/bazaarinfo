@@ -671,10 +671,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 }
 
 async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | null> {
-  // muted by a chat-planted directive → stay silent for the TTL. mods/broadcaster can
-  // never be muted (so a viewer can't silence the streamer or staff).
-  if (ctx.channel && ctx.user && !ctx.isMod && !ctx.privileged && isMuted(ctx.channel, ctx.user)) return null
-
+  // (mute is enforced centrally in handleCommand, covering every command path)
   // extract @mentions to tag at end of response
   const mentions = args.match(/@\w+/g) ?? []
   // keep usernames in AI query (strip @ only), strip fully for item lookup
@@ -953,7 +950,8 @@ const DIRECTIVE_INTENT = new RegExp([
   // mute: "don't/stop/never respond|reply|answer|talk to ..."
   /\b(do\s?n'?t|do not|stop|never|quit|no longer)\s+(respond(?:ing)?|repl(?:y|ies|ying)|answer(?:ing)?|talk(?:ing)?|engag\w*)\b/.source,
   // mute: "ignore <name>"
-  /\bignore\s+@?\w+/.source,
+  // mute: "ignore <name>" — but not "ignore that/this/the/him/it/chat/…" (plain chat)
+  /\bignore\s+@?(?!(?:that|this|these|those|the|a|an|him|her|them|it|me|us|you|my|your|his|chat|everything|everyone|anyone|all|stuff|what|when|if|me\b)\b)\w{2,}/.source,
 ].join('|'), 'i')
 
 const DIRECTIVE_PLANT_CD = 60_000
@@ -965,15 +963,18 @@ async function handlePlantDirective(text: string, ctx: CommandContext, suffix: s
   const last = directivePlantCooldown.get(ctx.user.toLowerCase()) ?? 0
   if (Date.now() - last < DIRECTIVE_PLANT_CD) return null // anti-spam: 1 plant/user/60s
 
+  // burn the window BEFORE the paid classify call — a rejected plant or a DIRECTIVE_INTENT
+  // false-positive still costs a Sonnet call, so it must be throttled too, not just successes.
+  const now = Date.now()
+  directivePlantCooldown.set(ctx.user.toLowerCase(), now)
+  if (directivePlantCooldown.size > 500) {
+    for (const [k, t] of directivePlantCooldown) if (now - t > DIRECTIVE_PLANT_CD) directivePlantCooldown.delete(k)
+  }
+
   const parsed = await parseDirective(text, channel)
   if (!parsed) return null // not a directive, AI-rejected, AI off, or cap hit → caller falls through to a normal answer
 
   addDirective(channel, ctx.user, parsed)
-  directivePlantCooldown.set(ctx.user.toLowerCase(), Date.now())
-  if (directivePlantCooldown.size > 500) {
-    const now = Date.now()
-    for (const [k, t] of directivePlantCooldown) if (now - t > DIRECTIVE_PLANT_CD) directivePlantCooldown.delete(k)
-  }
   if (parsed.mute) {
     return withSuffix(`got it — ignoring ${parsed.targetUser} for 20m (mods can undo with !b vibes clear)`, suffix)
   }
@@ -1014,6 +1015,10 @@ export async function handleCommand(text: string, ctx: CommandContext = {}): Pro
   const [, cmd, args] = match
   const handler = commands[cmd.toLowerCase()]
   if (!handler) return null
+
+  // muted by a chat-planted directive → stay silent across ALL commands (!b, !trivia,
+  // !vibes…), so a mute can't be escaped via trivia. mods/broadcaster are never muteable.
+  if (ctx.channel && ctx.user && !ctx.isMod && !ctx.privileged && isMuted(ctx.channel, ctx.user)) return null
 
   return handler(args.trim(), ctx)
 }
