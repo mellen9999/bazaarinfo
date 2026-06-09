@@ -22,6 +22,19 @@ describe('sanitize', () => {
     expect(sanitize('5 HP').text).toBe('5 HP')
   })
 
+  // regression: token-cutoff left a dangling list item ("...1. foo\n2.") or a bare
+  // structured label ("Keystone:", "Node 1") as the final, broken chars in chat.
+  it('trims dangling list items / labels but keeps legit number & word endings', () => {
+    expect(sanitize('1. mobius bands glued at the boundary\n2.').text).toBe('1. mobius bands glued at the boundary')
+    expect(sanitize('top picks: 3. darteron the poe expert 4.').text).toBe('top picks: 3. darteron the poe expert')
+    expect(sanitize('go for the diamond keystone:').text).toBe('go for the diamond')
+    expect(sanitize('its deeply unhinged Node 1').text).toBe('its deeply unhinged')
+    // legit endings must survive
+    expect(sanitize('the final answer is 2.').text).toContain('2')
+    expect(sanitize('honestly she is top tier').text).toBe('honestly she is top tier')
+    expect(sanitize('what is your rank').text).toBe('what is your rank')
+  })
+
   // regression: accented command lookalikes ("!éndme", "!bän") bypassed the ascii \w
   // command checks and reached chat. detection now folds diacritics first.
   it('blocks accented command lookalikes but keeps legit accented prose', () => {
