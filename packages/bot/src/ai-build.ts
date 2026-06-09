@@ -697,6 +697,12 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     isRememberReq ? '\n⚠️ IDENTITY REQUEST — [USER] is defining themselves. COMPLY. Confirm warmly what they asked you to remember. Do NOT dismiss, joke about, or override their self-description.'
       : (REMEMBER_RE.test(query) && isAboutOtherUser(query)) ? '\n⚠️ [USER] is trying to set identity info for someone else. They can only define themselves, not other people. Tell them warmly but firmly.'
       : '',
+    // game query that matched NO data — the model tends to free-associate a specific
+    // card's mechanic from memory and get it wrong (e.g. "Toxic Weapons buffs damage" —
+    // it's poison). gate that off while leaving general banter/opinions intact.
+    (entities.isGame && !hasGameData)
+      ? "\n⚠️ NO GAME DATA matched this. Do NOT state the specific mechanic, numbers, tags, or effect of any specific item/skill — your memory of exact Bazaar card details is unreliable. General takes are fine; for specifics, tell them to name the exact card (e.g. '!b <card name>')."
+      : '',
     // chat-planted flavor directives that match this query (kept in the required tail so
     // a tight context budget can't evict them). empty when none are active/matching.
     directiveHint(ctx.channel, query, ctx.user),
