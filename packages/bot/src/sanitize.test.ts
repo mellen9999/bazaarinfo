@@ -22,6 +22,24 @@ describe('sanitize', () => {
     expect(sanitize('5 HP').text).toBe('5 HP')
   })
 
+  // regression: bare-name strip turned legit user references into plain text. an @mention
+  // survives if the name is a recent chatter (knownUsers) OR a confirmed chatter via the
+  // isRealUser predicate (DB-backed, catches users older than the recent-chat window or
+  // referenced from game data). model-invented mentions (@you, @everyone) still get peeled.
+  it('keeps @mentions of real users, strips invented ones', () => {
+    const known = new Set(['earl'])
+    // known recent chatter — kept
+    expect(sanitize('gl @earl', undefined, false, known).text).toBe('gl @earl')
+    // invented filler — @ peeled
+    expect(sanitize('nice one @you', undefined, false, known).text).toBe('nice one you')
+    // outside the recent window but a real chatter per the predicate — kept
+    const isReal = (n: string) => n === 'kraizeboi' || n === 'brezitrex'
+    expect(sanitize('the union of @kraizeboi and @brezitrex', undefined, false, known, false, isReal).text)
+      .toBe('the union of @kraizeboi and @brezitrex')
+    // predicate says not a user — peeled even though strip is active
+    expect(sanitize('grab the @diamond', undefined, false, known, false, isReal).text).toBe('grab the diamond')
+  })
+
   // regression: token-cutoff left a dangling list item ("...1. foo\n2.") or a bare
   // structured label ("Keystone:", "Node 1") as the final, broken chars in chat.
   it('trims dangling list items / labels but keeps legit number & word endings', () => {

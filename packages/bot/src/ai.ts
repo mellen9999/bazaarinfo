@@ -269,8 +269,11 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const knownUsers = new Set<string>()
       for (const entry of getRecent(ctx.channel, 30)) knownUsers.add(entry.user.toLowerCase())
       knownUsers.add(ctx.user.toLowerCase())
+      // names the asker explicitly @'d in their request are real references — keep them
+      for (const m of query.matchAll(/@(\w+)/g)) knownUsers.add(m[1].toLowerCase())
 
-      const result = sanitize(textBlock.text, ctx.user, ctx.isMod, knownUsers, data.stop_reason === 'max_tokens')
+      // isRealUser falls back to the channel chat log for anyone outside the recent window
+      const result = sanitize(textBlock.text, ctx.user, ctx.isMod, knownUsers, data.stop_reason === 'max_tokens', (n) => db.userHasChatted(n, ctx.channel))
       // strip injection echo (model parroting user's injected instructions)
       result.text = stripInputEcho(result.text, query)
       // strip per-user signature emote repetition — but NOT for creative writing, where an

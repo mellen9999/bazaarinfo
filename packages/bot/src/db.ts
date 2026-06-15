@@ -18,6 +18,7 @@ let stmts: {
   insertCommand: Statement
   incrUserCommands: Statement
   insertChat: Statement
+  hasChatted: Statement
   insertAsk: Statement
   incrUserAsks: Statement
   selectUser: Statement
@@ -86,6 +87,7 @@ function prepareStatements() {
     insertChat: db.prepare(
       'INSERT INTO chat_messages (channel, username, message) VALUES (?, ?, ?)',
     ),
+    hasChatted: db.prepare('SELECT 1 FROM chat_messages WHERE username = ? AND channel = ? LIMIT 1'),
     insertAsk: db.prepare(
       'INSERT INTO ask_queries (user_id, channel, query, response, tokens_used, latency_ms) VALUES (?, ?, ?, ?, ?, ?)',
     ),
@@ -790,6 +792,21 @@ export function logCommand(
 export function logChat(channel: string, username: string, message: string) {
   writeQueue.push({ type: 'chat', channel, username: username.toLowerCase(), message })
   scheduleFlush()
+}
+
+// Has this name ever chatted in this channel? Source of truth for "real user"
+// when anchoring @mentions the model emits — covers chatters older than the
+// recent-chat window the model sees. Positive-only cache: a real user stays
+// real, so we never re-query confirmed names; misses re-query (cheap, indexed).
+const chattedCache = new Set<string>()
+export function userHasChatted(username: string, channel: string): boolean {
+  const lc = username.toLowerCase()
+  const key = `${channel} ${lc}`
+  if (chattedCache.has(key)) return true
+  if (!stmts.hasChatted.get(lc, channel)) return false
+  if (chattedCache.size > 5000) chattedCache.clear()
+  chattedCache.add(key)
+  return true
 }
 
 export interface UserStats {
