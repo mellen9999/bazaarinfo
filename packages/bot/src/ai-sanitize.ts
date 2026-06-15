@@ -100,7 +100,7 @@ function askerNameRe(asker: string): RegExp {
 // complete short answer like "only if the meta calls for it")
 const DANGLING_TAIL = /[\s,]+(?:a|an|the|and|or|but|so|because|that|that's|to|of|with|for|in|on|at|by|as|from|into|is|are|was|were|his|her|its)$/i
 
-export function sanitize(text: string, asker?: string, privileged?: boolean, knownUsers?: Set<string>, truncated?: boolean): { text: string; mentions: string[] } {
+export function sanitize(text: string, asker?: string, privileged?: boolean, knownUsers?: Set<string>, truncated?: boolean, isRealUser?: (name: string) => boolean): { text: string; mentions: string[] } {
   // strip invisibles + fold smart-quote/homoglyph lookalikes -> ascii (shared with the
   // outgoing-message guard in twitch.say, so neither layer can drift on what it folds)
   let s = normalizeText(text.trim())
@@ -164,9 +164,16 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
     s = s.replace(/,\s*\./g, '.').replace(/\s{2,}/g, ' ')
   }
 
-  // strip fake @mentions (model invents @you, @asking, etc.) — keep only real usernames
-  if (knownUsers && knownUsers.size > 0) {
-    s = s.replace(/@(\w+)/g, (match, name) => knownUsers.has(name.toLowerCase()) ? match : name)
+  // strip fake @mentions (model invents @you, @asking, etc.) — keep only real usernames.
+  // "real" = recent chat / the asker (knownUsers), or a confirmed chatter in this channel
+  // (isRealUser, DB-backed). The latter catches users the model references from game data,
+  // the asker's request, or chat older than the recent-window — so their @ survives and
+  // the client renders them as a clickable, colored mention instead of plain text.
+  if ((knownUsers && knownUsers.size > 0) || isRealUser) {
+    s = s.replace(/@(\w+)/g, (match, name) => {
+      const lc = name.toLowerCase()
+      return (knownUsers?.has(lc) || isRealUser?.(lc)) ? match : name
+    })
   }
 
   // extract @mentions for caller (tracking) but leave them in the text naturally
