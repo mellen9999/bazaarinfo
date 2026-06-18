@@ -884,10 +884,20 @@ const CUSTOM_GEN_CD = 8_000
 const customPending = new Set<string>()
 const customGenCooldown = new Map<string, number>()
 
+// chatters pepper topics with emotes ("birds Birdge", "Crowge the rookery") — those
+// are participation noise, not part of the topic, and they tank generation. drop any
+// whitespace token that resolves to a known emote. if the topic is ALL emotes, keep it
+// as-is so a lone emote name can still be its own topic rather than a dead miss.
+function stripEmotesFromTopic(topic: string): string {
+  const tokens = topic.split(/\s+/).filter(Boolean)
+  const kept = tokens.filter((tok) => !findEmote(tok))
+  return kept.length ? kept.join(' ') : topic.trim()
+}
+
 async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: string): Promise<string | null> {
   const channel = ctx.channel
   if (!channel) return null
-  const t = topic.trim()
+  const t = stripEmotesFromTopic(topic.trim())
   // need a real topic with at least one alphanumeric char; cap length before the API call.
   if (t.length < 2 || !/[a-z0-9]/i.test(t)) return null
   if (isGameActive(channel)) {

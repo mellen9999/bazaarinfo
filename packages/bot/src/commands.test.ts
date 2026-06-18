@@ -2043,6 +2043,21 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
     expect(res).toBeNull()
   })
+
+  it('strips emote spam from the topic before generating', async () => {
+    await handleCommand('!b trivia birds KEKW Sadge', { user: 'u', channel: 'ct-8' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('birds', 'ct-8')
+  })
+
+  it('strips emotes interleaved through the topic', async () => {
+    await handleCommand('!b trivia LULW roman LUL history Kappa', { user: 'u', channel: 'ct-9' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('roman history', 'ct-9')
+  })
+
+  it('keeps an all-emote topic as-is rather than emptying it', async () => {
+    await handleCommand('!b trivia OMEGALUL', { user: 'u', channel: 'ct-10' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('OMEGALUL', 'ct-10')
+  })
 })
 
 describe('chat-planted steering directives (vibes)', () => {
