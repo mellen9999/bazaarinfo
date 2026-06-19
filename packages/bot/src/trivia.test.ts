@@ -165,6 +165,7 @@ mock.module('./log', () => ({
 
 const {
   startTrivia,
+  startCustomTrivia,
   checkAnswer,
   isGameActive,
   getTriviaScore,
@@ -495,6 +496,30 @@ describe('checkAnswer', () => {
     const game = getActiveGameForTest('#test')!
     checkAnswer('#test', 'player1', `${game.acceptedAnswers[0]}!!!`, mockSay)
     expect(isGameActive('#test')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// custom AI topic (type 21) — typo-forgiving matching
+// ---------------------------------------------------------------------------
+describe('custom AI topic answer matching', () => {
+  it('accepts a single-character typo on an obscure answer', () => {
+    startCustomTrivia('#ct', { question: 'what is X?', answer: 'archaeopteryx', accept: [] })
+    checkAnswer('#ct', 'player1', 'archaeoptryx', mockSay) // dropped one letter
+    expect(isGameActive('#ct')).toBe(false)
+    expect(mockRecordTriviaWin).toHaveBeenCalledTimes(1)
+  })
+
+  it('still rejects a clearly wrong answer', () => {
+    startCustomTrivia('#ct2', { question: 'what is X?', answer: 'archaeopteryx', accept: [] })
+    checkAnswer('#ct2', 'player1', 'velociraptor here', mockSay)
+    expect(isGameActive('#ct2')).toBe(true)
+  })
+
+  it('does not typo-forgive short answers (1-edit neighbor is a different word)', () => {
+    startCustomTrivia('#ct3', { question: 'what is X?', answer: 'cat', accept: [] })
+    checkAnswer('#ct3', 'player1', 'bat', mockSay)
+    expect(isGameActive('#ct3')).toBe(true)
   })
 })
 

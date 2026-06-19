@@ -980,6 +980,16 @@ export function checkAnswer(
       isCorrect = true
     }
   }
+  // custom AI topics yield obscure answers ("rete mirabile", "archaeopteryx") that are
+  // easy to fat-finger. accept a single-character typo on a real attempt so a player who
+  // clearly knows it isn't denied by one slipped letter. gated to answers >=5 chars (a
+  // 1-edit neighbor of a short word is too often a different valid word) and to non-numeric
+  // answers (a 1-digit slip is a different number, not a typo).
+  if (!isCorrect && game.questionType === CUSTOM_TYPE) {
+    isCorrect = game.acceptedAnswers.some(
+      (a) => a.length >= 5 && !/^\d+$/.test(a) && editDistance(cleaned, a) === 1,
+    )
+  }
 
   const answerTimeMs = Date.now() - game.startedAt
   db.recordTriviaAnswer(game.gameId, userId, text, isCorrect, answerTimeMs)
