@@ -765,8 +765,13 @@ export function stopEngine(): void {
 }
 
 export function restoreFromDb(): void {
-  // world state is already in DB — nothing to restore in memory
-  // respawn timers for dead players
+  const pending = db.getPendingRespawns()
+  const now = Date.now()
+  for (const { username, channel, respawnAt } of pending) {
+    const delay = Math.max(0, respawnAt - now)
+    scheduleRespawn(username, channel, delay)
+  }
+  if (pending.length > 0) log(`dnd: restored ${pending.length} respawn timer(s)`)
   log('dnd: state ready')
 }
 

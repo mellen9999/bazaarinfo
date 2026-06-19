@@ -58,6 +58,35 @@ mock.module('./db', () => ({
   recordTriviaWin: mock(() => {}),
   recordTriviaAttempt: mock(() => {}),
   resetTriviaStreak: mock(() => {}),
+  getDb: mock(() => null),
+}))
+
+// --- mock dnd ---
+mock.module('./dnd', () => ({
+  handleJoin: mock(() => null),
+  handleAttack: mock(() => null),
+  handleDefend: mock(() => null),
+  handleSpell: mock(() => null),
+  handleUse: mock(() => null),
+  handleFlee: mock(() => null),
+  handleBuy: mock(() => null),
+  handleFloor: mock(() => null),
+  handleMove: mock(() => null),
+  handleExplore: mock(() => null),
+  handleStats: mock(() => null),
+  handleParty: mock(() => null),
+  handleRecap: mock(() => null),
+  handleLeaderboard: mock(() => null),
+  handleDndToggle: mock(() => null),
+  handleDndReset: mock(() => null),
+  handleDndSeason: mock(() => null),
+  initDndDb: mock(() => {}),
+  initEngine: mock(() => {}),
+  setIsLive: mock(() => {}),
+  restoreFromDb: mock(() => {}),
+  onStreamOnline: mock(() => {}),
+  onStreamOffline: mock(() => {}),
+  createWorld: mock(() => null),
 }))
 
 

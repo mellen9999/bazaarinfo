@@ -1403,3 +1403,5 @@ export function pruneOldTriviaGames(days = 180) {
     log(`trivia prune error: ${e}`)
   }
 }
+
+export function getDb(): Database { return db }

@@ -1,18 +1,29 @@
-import Anthropic from '@anthropic-ai/sdk'
 import type { EncounterType } from './types'
 import { log } from '../log'
 
-const client = new Anthropic()
+const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
 
 async function ask(prompt: string, maxTokens = 60): Promise<string> {
+  if (!API_KEY) return ''
   try {
-    const msg = await client.messages.create({
-      model: MODEL,
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+      signal: AbortSignal.timeout(8_000),
     })
-    const text = msg.content[0]?.type === 'text' ? msg.content[0].text.trim() : ''
+    if (!res.ok) { log(`dnd: ai-dm ${res.status}`); return '' }
+    const data = await res.json() as { content?: { type: string; text: string }[] }
+    const text = data.content?.[0]?.type === 'text' ? (data.content[0] as { text: string }).text.trim() : ''
     return text.slice(0, 200)
   } catch (e) {
     log(`dnd: ai-dm error: ${e}`)
