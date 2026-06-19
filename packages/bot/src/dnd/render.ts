@@ -1,4 +1,5 @@
-import type { Character, WorldState, ShopItem, CombatResult, DndClass } from './types'
+import type { Character, WorldState, ShopItem, CombatResult } from './types'
+import { CLASS_DESC, getCharAC } from './types'
 
 const MAX_LEN = 480
 
@@ -26,7 +27,7 @@ export function renderFloor(world: WorldState, players: Character[]): string {
   }
 
   if (world.encounterType === 'event') {
-    line += ` | Event floor — !b explore to interact`
+    line += ` | Event floor — !b explore to investigate`
     return trunc(line)
   }
 
@@ -39,63 +40,71 @@ export function renderFloor(world: WorldState, players: Character[]): string {
   if (livingEnemies.length > 0) {
     for (const e of livingEnemies) {
       const bar = hpBar(e.hp, e.maxHp)
-      line += ` | ${e.name} ${e.hp}/${e.maxHp}HP [${bar}]`
-      if (e.statusEffects.length > 0) line += ` (${e.statusEffects.join(',')})`
+      line += ` | ${e.name} [AC${e.ac}] ${e.hp}/${e.maxHp}HP [${bar}]`
+      if (e.statusEffect) line += ` (${e.statusEffect})`
     }
   }
 
-  const alive = players.filter((p) => p.hp > 0)
+  const alive = players.filter((p) => p.hp > 0 && !p.isDying)
+  const dying = players.filter((p) => p.isDying)
   if (alive.length > 0) {
     const partyStr = alive.slice(0, 4).map((p) => {
       let s = `${p.username}(${p.class[0]} ${p.hp}/${p.maxHp})`
-      if (p.statusEffects.length > 0) s += `[${p.statusEffects.slice(0,2).join(',')}]`
+      if (p.statusEffects.length > 0) s += `[${p.statusEffects.slice(0, 2).join(',')}]`
       return s
     }).join(' ')
     line += ` | Party: ${partyStr}`
   }
+  if (dying.length > 0) {
+    line += ` | DYING: ${dying.map((p) => `${p.username}(${p.deathSuccesses}✓${p.deathFailures}✗)`).join(' ')}`
+  }
 
-  line += ` | !b a [target] · !b d · !b use <item> · !b spell`
+  line += ` | !b a [target] · !b d · !b spell · !b rest`
   return trunc(line)
 }
 
-export function renderCombatResult(result: CombatResult, enemyMaxHp: number): string {
+export function renderCombatResult(result: CombatResult): string {
   let line = `@${result.attacker} `
 
-  if (result.krippCursed) {
-    line += `suffers Kripp's Curse! The ${result.targetEnemy} heals 10HP and laughs. Classic.`
+  if (result.fumble) {
+    line += `rolls d20: 1 — CRITICAL FUMBLE! ${result.weaponName} slips. ${result.targetEnemy} grins.`
     return trunc(line)
   }
-  if (result.miss) {
-    line += `rolls a nat 1 — misses ${result.targetEnemy}. RNG gods look away.`
+  if (!result.hit) {
+    line += `rolls d20: ${result.d20Roll} + ${result.attackTotal - result.d20Roll} = ${result.attackTotal} vs ${result.targetEnemy} AC ${result.targetAC} — MISS!`
     return trunc(line)
   }
 
-  line += `attacks ${result.targetEnemy} for ${result.damage}dmg`
-  if (result.crit) line += ' [CRIT! nat 20]'
-  if (result.actuallySick) line += ' — ACTUALLY SICK!'
+  line += `rolls d20: ${result.d20Roll}`
+  if (result.crit) line += ' [NAT 20!]'
+  line += ` + ${result.attackTotal - result.d20Roll} = ${result.attackTotal} vs AC ${result.targetAC} — HIT!`
+  line += ` ${result.weaponName}: ${result.damageDiceStr} = ${result.damage} dmg.`
+  if (result.actuallySick) line += ' ACTUALLY SICK!'
 
   if (result.enemyKilled) {
-    line += `. ${result.targetEnemy} DEFEATED.`
+    line += ` ${result.targetEnemy}: DEFEATED!`
   } else {
-    line += `. ${result.targetEnemy}: ${result.enemyHpAfter}/${enemyMaxHp}HP [${hpBar(result.enemyHpAfter, enemyMaxHp)}]`
+    line += ` ${result.targetEnemy}: ${result.enemyHpAfter}/${result.enemyMaxHp}HP [${hpBar(result.enemyHpAfter, result.enemyMaxHp)}]`
   }
 
-  if (result.statusApplied) {
-    line += ` (${result.statusApplied} applied)`
-  }
+  if (result.statusApplied) line += ` (${result.statusApplied})`
 
   return trunc(line)
 }
 
 export function renderEnemyAttacks(
-  attacks: Array<{ enemy: string; target: string; damage: number; defended: boolean; killed: boolean; targetHp: number; targetMaxHp: number }>
+  attacks: Array<{ enemy: string; target: string; d20Roll?: number; attackTotal?: number; targetAC?: number; damage: number; defended: boolean; killed: boolean; targetHp: number; targetMaxHp: number; isDying?: boolean }>
 ): string {
   if (attacks.length === 0) return ''
   const parts = attacks.map((a) => {
     if (a.damage === 0) return `${a.enemy} misses @${a.target}`
-    let s = `${a.enemy}→@${a.target}: -${a.damage}HP`
+    let s = `${a.enemy}→@${a.target}`
+    if (a.d20Roll) s += ` [d20:${a.d20Roll}+${(a.attackTotal ?? 0) - a.d20Roll}]`
+    s += `: -${a.damage}HP`
     if (a.defended) s += '(defended)'
-    if (a.killed) {
+    if (a.isDying) {
+      s += ' DYING! (make death saves)'
+    } else if (a.killed) {
       s += ' DEAD'
     } else {
       s += ` (${a.targetHp}/${a.targetMaxHp})`
@@ -132,29 +141,40 @@ const ACH_LABELS: Record<string, string> = {
 }
 
 export function renderCharacter(char: Character): string {
-  const xpNeeded = [0, 0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700]
-  const nextXp = char.level < 10 ? (xpNeeded[char.level + 1] ?? '—') : 'MAX'
-  const spell = char.spellReady ? '✓' : 'spent'
+  const xpTable = [0, 0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000]
+  const nextXp = char.level < 10 ? (xpTable[char.level + 1] ?? '—') : 'MAX'
   const stars = char.prestige > 0 ? '★'.repeat(Math.min(char.prestige, 5)) : ''
   const achs = (char.achievements ?? []).length > 0
     ? ` [${char.achievements.map((a) => ACH_LABELS[a] ?? a).join('][')}]`
     : ''
-  let line = `${char.username}${stars}${achs} | Lv${char.level} ${char.class} | ${char.hp}/${char.maxHp}HP | ${char.gold}g`
+
+  // class-specific resource display
+  let resources = ''
+  if (char.spellSlots > 0 || char.maxSpellSlots > 0) resources += ` slots:${char.spellSlots}/${char.maxSpellSlots}`
+  if (char.class === 'Monk' && char.maxKiPoints > 0) resources += ` ki:${char.kiPoints}/${char.maxKiPoints}`
+  if (char.class === 'Barbarian' && char.maxSpellSlots === 0) resources += ` rage:${char.rageCharges}`
+  if (char.class === 'Fighter') resources += char.actionSurgeUsed ? ` surge:spent` : ` surge:ready`
+  resources += ` hd:${char.hitDice}/${char.maxHitDice}`
+
+  const ac = getCharAC(char.class, char.stats)
+  let line = `${char.username}${stars}${achs} | Lv${char.level} ${char.class} | ${char.hp}/${char.maxHp}HP AC${ac} | ${char.gold}g`
   if (char.inventory.length > 0) line += ` | ${char.inventory.join(', ')}`
-  line += ` | XP: ${char.xp}/${nextXp} | spell:${spell} | deaths:${char.deaths}`
+  line += ` | XP:${char.xp}/${nextXp}${resources} | deaths:${char.deaths}`
   if (char.statusEffects.length > 0) line += ` | ${char.statusEffects.join(',')}`
-  if (char.respawnAt !== null) {
+  if (char.isDying) {
+    line += ` | DYING — saves:${char.deathSuccesses}✓${char.deathFailures}✗`
+  } else if (char.respawnAt !== null) {
     const secs = Math.max(0, Math.ceil((char.respawnAt - Date.now()) / 1000))
-    line += ` | DEAD — respawning ${secs}s or on next floor clear`
+    line += ` | DEAD — respawning ${secs}s`
   }
   return trunc(line)
 }
 
 export function renderParty(players: Character[], world: WorldState): string {
-  if (players.length === 0) return `No adventurers in the Depths. !b join <class> to enter.`
+  if (players.length === 0) return `No adventurers in the dungeon. !b join <class> to enter.`
   let line = `Floor ${world.floor} S${world.season} | `
   const parts = players.slice(0, 6).map((p) => {
-    const status = p.respawnAt !== null ? 'DEAD' : `${p.hp}/${p.maxHp}HP`
+    const status = p.isDying ? 'DYING' : p.respawnAt !== null ? 'DEAD' : `${p.hp}/${p.maxHp}HP`
     const stars = (p.prestige ?? 0) > 0 ? '★'.repeat(Math.min(p.prestige, 3)) : ''
     return `${p.username}${stars}(Lv${p.level} ${p.class[0]} ${status})`
   })
@@ -168,51 +188,79 @@ export function renderShop(items: ShopItem[], playerGold: number, floor: number)
   return trunc(`SHOP (Floor ${floor}) | ${itemList} | You have ${playerGold}g | !b buy 1-4 | !b move to skip`)
 }
 
-const KRIPP_DEATH_LINES = [
-  'arena bracket: eliminated.',
-  'classic Kripp moment.',
-  'RNG gods send their regards.',
-  'not as sick as expected.',
-  'the NL curse claims another.',
+const DEATH_QUIPS = [
+  'the dungeon claims another soul.',
+  'fortune was not on their side.',
+  'the dice gods are merciless.',
+  'a valiant effort, cut short.',
+  'even heroes fall.',
 ]
 
-export function renderDeath(username: string, killer: string, krippCursed: boolean): string {
-  const quip = krippCursed
-    ? "Kripp's Curse strikes again."
-    : KRIPP_DEATH_LINES[Math.floor((username.charCodeAt(0) + killer.charCodeAt(0)) % KRIPP_DEATH_LINES.length)]
+export function renderDeath(username: string, killer: string): string {
+  const quip = DEATH_QUIPS[(username.charCodeAt(0) + killer.charCodeAt(0)) % DEATH_QUIPS.length]
   return trunc(`@${username} has been slain by ${killer}. ${quip} Respawning in 1min — !b floor to spectate.`)
 }
 
+export function renderDeathSave(username: string, roll: number, successes: number, failures: number, stable: boolean, revived: boolean): string {
+  if (revived) return `@${username} rolls death save: NAT 20 — REVIVED at 1HP! Back from the brink!`
+  if (stable) return `@${username} rolls death save: ${roll} — stable. Holding on. An ally can !b stabilize @${username} to confirm.`
+  const outcome = roll >= 10 ? `SUCCESS (${successes}/3)` : `FAILURE (${failures}/3)`
+  const hint = failures >= 2 ? ' — one more failure means death!' : failures >= 1 ? '' : ''
+  return trunc(`@${username} rolls death save: d20 → ${roll} — ${outcome}${hint}. !b stabilize @${username} to help.`)
+}
+
 export function renderLevelUp(char: Character, newLevel: number): string {
-  const CLASS_UPGRADE: Record<DndClass, string> = {
-    Merchant: 'passive gold +2/floor',
-    Rogue: 'poison threshold lowered to 35%',
-    Tinkerer: 'overclock bonus raised to +75%',
-    Brawler: 'charge stun lasts 2 batches',
-    Pyromancer: 'burn ticks for 12 dmg',
-    Veteran: 'adapt copies 2 effects',
-  }
-  return trunc(`${char.username} leveled up! Lv${newLevel} ${char.class} — +${10}HP max. ${CLASS_UPGRADE[char.class]}`)
+  const bonus = (() => {
+    switch (char.class) {
+      case 'Barbarian': return 'Rage damage +1'
+      case 'Fighter':   return 'Action Surge refreshed'
+      case 'Paladin':   return '+1 spell slot'
+      case 'Rogue':     return `Sneak Attack now ${Math.ceil(newLevel / 2)}d6`
+      case 'Wizard':    return '+1 spell slot, Fireball grows'
+      case 'Cleric':    return '+1 spell slot, Healing Word +2'
+      case 'Sorcerer':  return '+1 spell slot, Wild Magic surge chance +5%'
+      case 'Monk':      return '+1 ki point'
+      case 'Warlock':   return '+1 spell slot'
+      default:          return '+HP'
+    }
+  })()
+  return trunc(`${char.username} levels up! Lv${newLevel} ${char.class} — +HP max. ${bonus}`)
 }
 
 export function renderJoin(char: Character): string {
-  return trunc(`@${char.username} enters the Depths as a Lv1 ${char.class} (${char.maxHp}HP, 10g). !b floor to see what awaits.`)
+  const cls = char.class
+  const desc = CLASS_DESC[cls] ?? cls
+  const action = (() => {
+    switch (cls) {
+      case 'Barbarian': return '!b spell to enter Rage'
+      case 'Fighter':   return '!b spell for Action Surge'
+      case 'Paladin':   return '!b spell for Divine Smite'
+      case 'Rogue':     return 'Sneak Attack is automatic on !b a'
+      case 'Wizard':    return '!b spell for Fireball'
+      case 'Cleric':    return '!b spell to cast Healing Word'
+      case 'Sorcerer':  return '!b spell for Wild Magic'
+      case 'Monk':      return '!b spell for Flurry of Blows'
+      case 'Warlock':   return '!b spell for Hex + Eldritch Blast'
+      default:          return '!b spell for class ability'
+    }
+  })()
+  return trunc(`@${char.username} enters as Lv1 ${cls} (${char.maxHp}HP, AC${getCharAC(cls, char.stats)}, 10g). ${action}. !b floor to see what awaits.`)
 }
 
 export function renderClassList(): string {
-  return 'classes: merchant(gold/economy) · rogue(poison/speed) · tinkerer(items/craft) · brawler(strength/charge) · pyromancer(fire/burn) · veteran(balanced) — !b join <class>'
+  return 'classes: barbarian · fighter · paladin · rogue · wizard · cleric · sorcerer · monk · warlock — !b join <class>'
 }
 
 export function renderSeasonComplete(season: number, floor: number): string {
-  return trunc(`THE DEPTHS ARE CONQUERED! Season ${season} complete — floor ${floor} boss slain. Survivors earn Prestige ★ (+2% dmg, permanent). Season ${season + 1} begins. !b join to descend.`)
+  return trunc(`THE DUNGEON IS CONQUERED! Season ${season} complete — floor ${floor} boss slain. Survivors earn Prestige ★ (+2% dmg, permanent). Season ${season + 1} begins. !b join to descend.`)
 }
 
 export function renderOfflineAnnouncement(floor: number): string {
-  return `Kripp went to sleep. The Bazaar closes. The Depths open. !b join <class> to descend into floor ${floor}.`
+  return `Stream offline. The dungeon stirs. !b join <class> to descend into floor ${floor}.`
 }
 
 export function renderOnlineAnnouncement(floor: number, survivors: number): string {
-  return `Kripp is live! The Depths seal. Progress saved — floor ${floor} awaits ${survivors} survivor${survivors !== 1 ? 's' : ''}.`
+  return `Stream is live! The dungeon holds — floor ${floor} awaits ${survivors} survivor${survivors !== 1 ? 's' : ''}.`
 }
 
 export function renderRecap(
@@ -229,7 +277,7 @@ export function renderRecap(
     if (l.action === 'death') deaths.push(l.username)
   }
   const topKiller = [...kills.entries()].sort((a, b) => b[1] - a[1])[0]
-  let line = `Depths S${season} F${floor} recap: `
+  let line = `Dungeon S${season} F${floor} recap: `
   if (topKiller) line += `${topKiller[0]} led with ${topKiller[1]} kills. `
   if (deaths.length > 0) line += `Deaths: ${[...new Set(deaths)].slice(0, 3).join(', ')}. `
   if (chars.length > 0) {

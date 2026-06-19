@@ -1,5 +1,8 @@
 import * as store from '../store'
-import type { DndClass, StatusEffect, Character, Enemy } from './types'
+import {
+  getModifier, getProfBonus, CLASS_ATK_STAT, CLASS_WEAPON, sneakAttackDice, getCharAC,
+  type Character, type Enemy, type AbilityScores,
+} from './types'
 
 // mulberry32 — deterministic seeded RNG (same impl as raid/sim.ts)
 function mulberry32(seed: number): () => number {
@@ -12,34 +15,19 @@ function mulberry32(seed: number): () => number {
   }
 }
 
-const NL_PENALTY = 0.05
-
-// Two rolls per call: hit roll and secondary (status/variance) roll
-export function diceRolls(sequence: number, nlLifted: boolean): { hit: number; secondary: number } {
-  const rng = mulberry32(((sequence * 2654435761) >>> 0))
+// Roll a d20 seeded on sequence — deterministic per combat action
+export function d20Roll(seed: number): number {
+  const rng = mulberry32(seed >>> 0)
   rng(); rng() // warm up
-  const raw1 = rng()
-  const raw2 = rng()
-  const adj = nlLifted ? 0 : NL_PENALTY
-  return {
-    hit: Math.max(0, Math.min(1, raw1 - adj)),
-    secondary: Math.max(0, Math.min(1, raw2)),
-  }
+  return Math.floor(rng() * 20) + 1
 }
 
-export const CLASS_BASE_DMG: Record<DndClass, number> = {
-  Merchant: 8, Rogue: 14, Tinkerer: 11, Brawler: 20, Pyromancer: 16, Veteran: 13,
+// Roll Nd(die) seeded on a secondary seed
+function rollDice(count: number, die: number, seed: number): number[] {
+  const rng = mulberry32((seed + 1337) >>> 0)
+  rng(); rng()
+  return Array.from({ length: count }, () => Math.floor(rng() * die) + 1)
 }
-
-export const CLASS_BASE_HP: Record<DndClass, number> = {
-  Merchant: 80, Rogue: 70, Tinkerer: 75, Brawler: 120, Pyromancer: 65, Veteran: 90,
-}
-
-export const CLASS_XP_PER_KILL: Record<DndClass, number> = {
-  Merchant: 10, Rogue: 12, Tinkerer: 11, Brawler: 8, Pyromancer: 13, Veteran: 10,
-}
-
-export const HP_PER_LEVEL = 10
 
 const TIER_DMG: Record<string, number> = {
   Bronze: 3, Silver: 6, Gold: 10, Diamond: 15, Legendary: 22,
@@ -57,148 +45,195 @@ export interface ItemBonus {
   damage: number
   armor: number
   onUseHeal: number
-  onHitStatus: StatusEffect | null
+  onHitStatus: string | null
 }
 
+// D&D named item bonuses take priority; fall back to Bazaar card lookup for legacy items
 export function getItemBonus(itemName: string): ItemBonus {
+  const n = itemName.toLowerCase()
+  if (n.startsWith('+2')) return { damage: 2, armor: 0, onUseHeal: 0, onHitStatus: null }
+  if (n.startsWith('+1')) return { damage: 1, armor: 0, onUseHeal: 0, onHitStatus: null }
+  if (n === 'ring of protection' || n === 'cloak of protection' || n === 'cloak of displacement') return { damage: 0, armor: 1, onUseHeal: 0, onHitStatus: null }
+  if (n === 'scroll of protection') return { damage: 0, armor: 2, onUseHeal: 0, onHitStatus: null }
+  if (n === 'potion of healing') return { damage: 0, armor: 0, onUseHeal: 8, onHitStatus: null }
+  if (n === 'potion of greater healing') return { damage: 0, armor: 0, onUseHeal: 18, onHitStatus: null }
+  if (n === 'potion of superior healing') return { damage: 0, armor: 0, onUseHeal: 38, onHitStatus: null }
+
+  // legacy Bazaar card lookup for old inventory items
   const card = store.findCard(itemName)
   if (!card) return { damage: 0, armor: 0, onUseHeal: 0, onHitStatus: null }
-
   const tags = (card.Tags ?? []).map((t: string) => t.toLowerCase())
-  let damage = 0
-  let armor = 0
-  let onUseHeal = 0
-  let onHitStatus: StatusEffect | null = null
-
-  if (tags.some((t: string) => t === 'weapon')) {
-    damage += TIER_DMG[card.BaseTier] ?? 3
-  }
-  if (tags.some((t: string) => t === 'armor' || t === 'shield')) {
-    armor += 5
-  }
-  if (tags.some((t: string) => t === 'heal' || t === 'regeneration')) {
-    onUseHeal = 30
-  }
-
-  if (!onHitStatus && tags.some((t: string) => t === 'poison')) onHitStatus = 'poison'
-  if (!onHitStatus && tags.some((t: string) => t === 'freeze' || t === 'slow')) onHitStatus = 'freeze'
-  if (!onHitStatus && tags.some((t: string) => t === 'burn' || t === 'fire')) onHitStatus = 'burn'
-  if (!onHitStatus && tags.some((t: string) => t === 'haste')) onHitStatus = 'haste'
-
+  let damage = 0, armor = 0, onUseHeal = 0
+  let onHitStatus: string | null = null
+  if (tags.some((t: string) => t === 'weapon')) damage = TIER_DMG[card.BaseTier] ?? 3
+  if (tags.some((t: string) => t === 'armor' || t === 'shield')) armor = 5
+  if (tags.some((t: string) => t === 'heal' || t === 'regeneration')) onUseHeal = 30
+  if (!onHitStatus && tags.some((t: string) => t === 'poison')) onHitStatus = 'poisoned'
+  if (!onHitStatus && tags.some((t: string) => t === 'freeze' || t === 'slow')) onHitStatus = 'restrained'
+  if (!onHitStatus && tags.some((t: string) => t === 'burn' || t === 'fire')) onHitStatus = 'burning'
   return { damage, armor, onUseHeal, onHitStatus }
 }
 
-export function playerTotalDamage(char: Character): number {
-  let dmg = CLASS_BASE_DMG[char.class] + (char.level - 1) * 2
-  for (const item of char.inventory) {
-    dmg += getItemBonus(item).damage
-  }
-  if (char.statusEffects.includes('blessed')) dmg = Math.floor(dmg * 1.2)
-  return dmg
+function inventoryAcBonus(inventory: string[]): number {
+  return inventory.reduce((sum, item) => sum + getItemBonus(item).armor, 0)
 }
 
-export function playerArmor(char: Character): number {
-  let armor = 0
-  for (const item of char.inventory) {
-    armor += getItemBonus(item).armor
-  }
-  if (char.defending) armor += 10
-  return armor
+function inventoryDamageBonus(inventory: string[]): number {
+  return inventory.reduce((sum, item) => sum + getItemBonus(item).damage, 0)
 }
 
 export interface AttackOutcome {
-  damage: number
+  d20Roll: number
+  attackTotal: number
+  targetAC: number
+  hit: boolean
   crit: boolean
-  miss: boolean
-  krippCursed: boolean
-  actuallySick: boolean
-  statusApplied: StatusEffect | null
+  fumble: boolean
+  damage: number
+  damageDiceStr: string
+  weaponName: string
+  statusApplied?: string
+  sneakAttackDice?: number
+  actuallySick?: boolean
 }
 
 export function resolvePlayerAttack(
   char: Character,
   enemy: Enemy,
   sequence: number,
-  nlLifted: boolean,
-  spellActive?: 'shadowstrike' | 'charge' | 'overclock' | 'inferno' | 'liquidate' | 'adapt',
-  damageMult = 1,
+  hasAdvantage: boolean,
+  hasDisadvantage: boolean,
+  damageMult = 1.0,
 ): AttackOutcome {
-  const { hit, secondary } = diceRolls(sequence, nlLifted)
+  const atkStat = CLASS_ATK_STAT[char.class] ?? 'str'
+  const atkMod = getModifier(char.stats[atkStat as keyof AbilityScores] ?? 10)
+  const prof = getProfBonus(char.level)
+  const weapon = CLASS_WEAPON[char.class] ?? { name: 'Weapon', die: 8, count: 1 }
+  const acBonus = inventoryAcBonus(char.inventory)
+  const charAC = getCharAC(char.class, char.stats, acBonus)
 
-  const krippCursed = hit < 0.03
-  const miss = hit < 0.05 && !spellActive
-  const crit = hit > 0.90 || spellActive === 'shadowstrike' || spellActive === 'charge'
+  // roll d20 (advantage = roll twice take higher, disadvantage = take lower)
+  let roll = d20Roll(sequence)
+  if (hasAdvantage && !hasDisadvantage) {
+    const roll2 = d20Roll(sequence + 50000)
+    roll = Math.max(roll, roll2)
+  } else if (hasDisadvantage && !hasAdvantage) {
+    const roll2 = d20Roll(sequence + 50000)
+    roll = Math.min(roll, roll2)
+  }
 
-  let baseDmg = Math.floor(playerTotalDamage(char) * damageMult)
-  if (spellActive === 'overclock') baseDmg = Math.floor(baseDmg * 1.5)
-  if (spellActive === 'charge') baseDmg = baseDmg * 3
+  const isCrit = roll === 20
+  const isFumble = roll === 1
+  const attackTotal = roll + atkMod + prof
+  const hit = isCrit || (!isFumble && attackTotal >= enemy.ac)
 
-  let damage = miss || krippCursed ? 0 : (crit ? baseDmg * 2 : baseDmg)
-
-  // actuallySick: crit on boss kill shot
-  const actuallySick = crit && enemy.isBoss && !miss && !krippCursed && (enemy.hp - damage) <= 0
-
-  // status application
-  let statusApplied: StatusEffect | null = null
-  if (!miss && !krippCursed) {
-    if (char.class === 'Pyromancer') {
-      statusApplied = 'burn'
-    } else if (char.class === 'Rogue' && secondary > 0.4) {
-      statusApplied = 'poison'
-    } else if (spellActive === 'shadowstrike') {
-      statusApplied = 'poison'
-    } else {
-      // check inventory items for status
-      for (const item of char.inventory) {
-        const bonus = getItemBonus(item)
-        if (bonus.onHitStatus && secondary > 0.5) {
-          statusApplied = bonus.onHitStatus
-          break
-        }
-      }
+  if (!hit) {
+    return {
+      d20Roll: roll, attackTotal, targetAC: enemy.ac,
+      hit: false, crit: false, fumble: isFumble,
+      damage: 0, damageDiceStr: '',
+      weaponName: weapon.name,
     }
   }
 
-  return { damage, crit, miss, krippCursed, actuallySick, statusApplied }
+  // damage roll: on crit, double the dice
+  const diceCount = isCrit ? weapon.count * 2 : weapon.count
+  const rolls = rollDice(diceCount, weapon.die, sequence)
+  const dmgBonus = inventoryDamageBonus(char.inventory)
+  const rageDmg = char.class === 'Barbarian' && char.rageTurnsLeft > 0 ? 2 : 0
+  let totalDmg = rolls.reduce((s, r) => s + r, 0) + atkMod + dmgBonus + rageDmg
+  let diceStr = `${diceCount}d${weapon.die}+${atkMod + dmgBonus + rageDmg}`
+
+  // Rogue: Sneak Attack (if advantage or ally adjacent)
+  let saCount = 0
+  if (char.class === 'Rogue' && (hasAdvantage || true)) { // auto if combat has active enemies
+    saCount = sneakAttackDice(char.level)
+    const saDice = isCrit ? saCount * 2 : saCount
+    const saRolls = rollDice(saDice, 6, sequence + 99999)
+    const saDmg = saRolls.reduce((s, r) => s + r, 0)
+    totalDmg += saDmg
+    diceStr += `+${saDice}d6(sneak)`
+  }
+
+  totalDmg = Math.max(1, Math.floor(totalDmg * damageMult))
+
+  // actuallySick: natural 20 kills a boss
+  const actuallySick = isCrit && enemy.isBoss && totalDmg >= enemy.hp
+
+  // status application on hit
+  let statusApplied: string | undefined
+  if (char.class === 'Wizard') statusApplied = 'burning'
+  else if (char.class === 'Rogue' && roll >= 15) statusApplied = 'poisoned'
+  else {
+    for (const item of char.inventory) {
+      const bonus = getItemBonus(item)
+      if (bonus.onHitStatus && roll >= 15) { statusApplied = bonus.onHitStatus; break }
+    }
+  }
+
+  return {
+    d20Roll: roll, attackTotal, targetAC: enemy.ac,
+    hit: true, crit: isCrit, fumble: false,
+    damage: totalDmg, damageDiceStr: diceStr,
+    weaponName: weapon.name,
+    statusApplied,
+    sneakAttackDice: saCount > 0 ? saCount : undefined,
+    actuallySick: actuallySick || undefined,
+  }
+}
+
+export interface EnemyAttackResult {
+  d20Roll: number
+  attackTotal: number
+  targetAC: number
+  hit: boolean
+  crit: boolean
+  damage: number
+  damageDiceStr: string
 }
 
 export function resolveEnemyAttack(
   enemy: Enemy,
   target: Character,
-  floor: number,
   sequence: number,
-  nlLifted: boolean,
   damageScale = 1.0,
-): { damage: number; miss: boolean } {
-  if (enemy.stunned) return { damage: 0, miss: true }
+): EnemyAttackResult {
+  const acBonus = inventoryAcBonus(target.inventory)
+  const targetAC = getCharAC(target.class, target.stats, acBonus) + (target.defending ? 2 : 0)
 
-  const { hit } = diceRolls(sequence + 500, nlLifted)
-  if (hit < 0.05) return { damage: 0, miss: true }
+  const roll = d20Roll(sequence + 500)
+  const isCrit = roll === 20
+  const isFumble = roll === 1
+  const attackTotal = roll + enemy.hitBonus
 
-  let baseDmg = 8 + floor * 3
-  for (const itemName of enemy.items) {
-    const card = store.findCard(itemName)
-    if (card) {
-      const tags = (card.Tags ?? []).map((t: string) => t.toLowerCase())
-      if (tags.includes('weapon')) baseDmg += 5
-    }
+  if (isFumble || (!isCrit && attackTotal < targetAC)) {
+    return { d20Roll: roll, attackTotal, targetAC, hit: false, crit: false, damage: 0, damageDiceStr: '' }
   }
-  if (enemy.isBoss) baseDmg = Math.floor(baseDmg * 1.5)
 
-  const armor = playerArmor(target)
-  const damage = Math.max(1, Math.floor((baseDmg - armor) * damageScale))
-  return { damage, miss: false }
+  const diceCount = isCrit ? enemy.damageCount * 2 : enemy.damageCount
+  const rolls = rollDice(diceCount, enemy.damageDie, sequence + 500)
+  let dmg = Math.max(1, Math.floor((rolls.reduce((s, r) => s + r, 0) + enemy.damageMod) * damageScale))
+  const diceStr = `${diceCount}d${enemy.damageDie}+${enemy.damageMod}`
+  return { d20Roll: roll, attackTotal, targetAC, hit: true, crit: isCrit, damage: dmg, damageDiceStr: diceStr }
 }
 
-export function statusTickDamage(effects: StatusEffect[]): number {
+// status tick damage for players (array of effects)
+export function statusTickDamage(effects: string[]): number {
   let dmg = 0
-  const poisonCount = effects.filter((e) => e === 'poison').length
+  const poisonCount = effects.filter((e) => e === 'poisoned' || e === 'poison').length
   if (poisonCount > 0) dmg += poisonCount * 6
-  if (effects.includes('burn')) dmg += 8
+  if (effects.includes('burning') || effects.includes('burn')) dmg += 8
   return dmg
 }
 
-const MEAT_KEYWORDS = ['glutton', 'feast', 'flesh', 'meat', 'carnivore', 'blood', 'bone']
+// single-effect tick for enemies
+export function singleStatusTick(effect: string): number {
+  if (effect === 'burning' || effect === 'burn') return 8
+  if (effect === 'poisoned' || effect === 'poison') return 6
+  return 0
+}
+
+const MEAT_KEYWORDS = ['glutton', 'feast', 'flesh', 'meat', 'carnivore', 'blood', 'bone', 'ration']
 
 export function hasMeatItems(inventory: string[]): boolean {
   return inventory.some((item) => {

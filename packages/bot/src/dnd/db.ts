@@ -1,7 +1,8 @@
 import type { Statement } from 'bun:sqlite'
 import { getDb } from '../db'
 import { log } from '../log'
-import type { Character, WorldState, DndClass, StatusEffect, EncounterType, ShopItem, Enemy } from './types'
+import { CLASS_HIT_DIE, CLASS_BASE_STATS, calcMaxHp, calcMaxSpellSlots, getModifier } from './types'
+import type { Character, WorldState, EncounterType, ShopItem, Enemy, AbilityScores } from './types'
 
 let stmts: {
   getChar: Statement
@@ -16,6 +17,9 @@ let stmts: {
   healChar: Statement
   killChar: Statement
   respawnChar: Statement
+  setDying: Statement
+  setDeathSaves: Statement
+  stabilizeChar: Statement
   getXpLevel: Statement
   setXpLevel: Statement
   logAction: Statement
@@ -74,41 +78,92 @@ export function initDndDb(): void {
 
   db.run(`CREATE INDEX IF NOT EXISTS idx_dnd_log_channel ON dnd_log(channel, created_at)`)
 
-  // inline migrations — safe to re-run, fails silently if column already exists
-  for (const sql of [
+  // inline migrations — safe to re-run, fail silently if column exists
+  const CHAR_MIGRATIONS = [
     `ALTER TABLE dnd_characters ADD COLUMN prestige INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE dnd_characters ADD COLUMN achievements TEXT NOT NULL DEFAULT '[]'`,
-  ]) {
+    `ALTER TABLE dnd_characters ADD COLUMN stats TEXT NOT NULL DEFAULT '{"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10}'`,
+    `ALTER TABLE dnd_characters ADD COLUMN spell_slots INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE dnd_characters ADD COLUMN max_spell_slots INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE dnd_characters ADD COLUMN hit_dice INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE dnd_characters ADD COLUMN max_hit_dice INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE dnd_characters ADD COLUMN ki_points INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE dnd_characters ADD COLUMN max_ki_points INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE dnd_characters ADD COLUMN rage_charges INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE dnd_characters ADD COLUMN rage_turns_left INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE dnd_characters ADD COLUMN action_surge_used INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE dnd_characters ADD COLUMN is_dying INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE dnd_characters ADD COLUMN death_successes INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE dnd_characters ADD COLUMN death_failures INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE dnd_world ADD COLUMN long_rest_counter INTEGER NOT NULL DEFAULT 0`,
+  ]
+  for (const sql of CHAR_MIGRATIONS) {
     try { db.run(sql) } catch { /* already exists */ }
   }
+
+  // class rename migration: old Bazaar classes → D&D names
+  const CLASS_RENAMES: Record<string, string> = {
+    Merchant: 'Warlock', Tinkerer: 'Fighter', Brawler: 'Barbarian',
+    Pyromancer: 'Sorcerer', Veteran: 'Paladin',
+  }
+  for (const [old, newCls] of Object.entries(CLASS_RENAMES)) {
+    try {
+      db.run(`UPDATE dnd_characters SET class = '${newCls}' WHERE class = '${old}'`)
+    } catch { /* ignore */ }
+  }
+
+  // populate stats + max_hp for characters that still have defaults
+  try {
+    const rows = db.query(`SELECT username, channel, class, level FROM dnd_characters WHERE stats = '{"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10}'`).all() as { username: string; channel: string; class: string; level: number }[]
+    for (const row of rows) {
+      const baseStats = CLASS_BASE_STATS[row.class] ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }
+      const newMaxHp = calcMaxHp(row.class, row.level, baseStats.con)
+      const slots = calcMaxSpellSlots(row.class, row.level)
+      db.run(
+        `UPDATE dnd_characters SET stats = ?, max_hp = ?, hp = MIN(hp, ?), max_spell_slots = ?, spell_slots = ? WHERE username = ? AND channel = ?`,
+        [JSON.stringify(baseStats), newMaxHp, newMaxHp, slots, slots, row.username, row.channel]
+      )
+    }
+  } catch { /* ignore on fresh DB */ }
 
   stmts = {
     getChar: db.prepare('SELECT * FROM dnd_characters WHERE username = ? AND channel = ?'),
     upsertChar: db.prepare(`INSERT INTO dnd_characters
       (username, channel, class, level, xp, hp, max_hp, gold, inventory, status_effects,
-       deaths, total_kills, spell_ready, defending, last_action_at, respawn_at,
-       prestige, achievements)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       deaths, total_kills, defending, last_action_at, respawn_at, prestige, achievements,
+       stats, spell_slots, max_spell_slots, hit_dice, max_hit_dice,
+       ki_points, max_ki_points, rage_charges, rage_turns_left, action_surge_used,
+       is_dying, death_successes, death_failures)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(username, channel) DO UPDATE SET
         class=excluded.class, level=excluded.level, xp=excluded.xp,
         hp=excluded.hp, max_hp=excluded.max_hp, gold=excluded.gold,
         inventory=excluded.inventory, status_effects=excluded.status_effects,
         deaths=excluded.deaths, total_kills=excluded.total_kills,
-        spell_ready=excluded.spell_ready, defending=excluded.defending,
+        defending=excluded.defending,
         last_action_at=excluded.last_action_at, respawn_at=excluded.respawn_at,
-        prestige=excluded.prestige, achievements=excluded.achievements`),
+        prestige=excluded.prestige, achievements=excluded.achievements,
+        stats=excluded.stats,
+        spell_slots=excluded.spell_slots, max_spell_slots=excluded.max_spell_slots,
+        hit_dice=excluded.hit_dice, max_hit_dice=excluded.max_hit_dice,
+        ki_points=excluded.ki_points, max_ki_points=excluded.max_ki_points,
+        rage_charges=excluded.rage_charges, rage_turns_left=excluded.rage_turns_left,
+        action_surge_used=excluded.action_surge_used,
+        is_dying=excluded.is_dying, death_successes=excluded.death_successes,
+        death_failures=excluded.death_failures`),
     getWorld: db.prepare('SELECT * FROM dnd_world WHERE channel = ?'),
     upsertWorld: db.prepare(`INSERT INTO dnd_world
       (channel, floor, action_sequence, encounter_type, enemies, floor_cleared,
-       scene, season, enabled, nl_lifted, shop_inventory, vegan_shrine_visited)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       scene, season, enabled, nl_lifted, shop_inventory, vegan_shrine_visited, long_rest_counter)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(channel) DO UPDATE SET
         floor=excluded.floor, action_sequence=excluded.action_sequence,
         encounter_type=excluded.encounter_type, enemies=excluded.enemies,
         floor_cleared=excluded.floor_cleared, scene=excluded.scene,
         season=excluded.season, enabled=excluded.enabled,
         nl_lifted=excluded.nl_lifted, shop_inventory=excluded.shop_inventory,
-        vegan_shrine_visited=excluded.vegan_shrine_visited`),
+        vegan_shrine_visited=excluded.vegan_shrine_visited,
+        long_rest_counter=excluded.long_rest_counter`),
     getActivePlayers: db.prepare(
       `SELECT * FROM dnd_characters WHERE channel = ? AND last_action_at > ?`
     ),
@@ -121,16 +176,25 @@ export function initDndDb(): void {
       `UPDATE dnd_characters SET hp = MAX(0, hp - ?) WHERE username = ? AND channel = ? RETURNING hp`
     ),
     healChar: db.prepare(
-      `UPDATE dnd_characters SET hp = MIN(max_hp, hp + ?) WHERE username = ? AND channel = ? RETURNING hp, max_hp`
+      `UPDATE dnd_characters SET hp = MIN(max_hp, hp + ?), is_dying = 0, death_successes = 0, death_failures = 0 WHERE username = ? AND channel = ? RETURNING hp, max_hp`
     ),
     killChar: db.prepare(
-      `UPDATE dnd_characters SET hp = 0, deaths = deaths + 1, respawn_at = ? WHERE username = ? AND channel = ?`
+      `UPDATE dnd_characters SET hp = 0, deaths = deaths + 1, respawn_at = ?, is_dying = 0, death_successes = 0, death_failures = 0 WHERE username = ? AND channel = ?`
     ),
     respawnChar: db.prepare(
-      `UPDATE dnd_characters SET respawn_at = NULL, hp = MAX(1, max_hp / 2), defending = 0, status_effects = '[]'
+      `UPDATE dnd_characters SET respawn_at = NULL, hp = MAX(1, max_hp / 2), defending = 0, status_effects = '[]', is_dying = 0, death_successes = 0, death_failures = 0
        WHERE username = ? AND channel = ?`
     ),
-    getXpLevel: db.prepare('SELECT xp, level, max_hp FROM dnd_characters WHERE username = ? AND channel = ?'),
+    setDying: db.prepare(
+      `UPDATE dnd_characters SET is_dying = ?, death_successes = 0, death_failures = 0 WHERE username = ? AND channel = ?`
+    ),
+    setDeathSaves: db.prepare(
+      `UPDATE dnd_characters SET death_successes = ?, death_failures = ? WHERE username = ? AND channel = ?`
+    ),
+    stabilizeChar: db.prepare(
+      `UPDATE dnd_characters SET is_dying = 0, death_successes = 0, death_failures = 0 WHERE username = ? AND channel = ?`
+    ),
+    getXpLevel: db.prepare('SELECT xp, level, max_hp, class, stats FROM dnd_characters WHERE username = ? AND channel = ?'),
     setXpLevel: db.prepare(
       `UPDATE dnd_characters SET xp = ?, level = ?, max_hp = ?, hp = MIN(hp + ?, max_hp + ?)
        WHERE username = ? AND channel = ?`
@@ -153,25 +217,38 @@ export function initDndDb(): void {
 }
 
 function rowToChar(row: Record<string, unknown>): Character {
+  const defaultStats = { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }
   return {
     username: row.username as string,
     channel: row.channel as string,
-    class: row.class as DndClass,
+    class: row.class as string,
     level: row.level as number,
     xp: row.xp as number,
     hp: row.hp as number,
     maxHp: row.max_hp as number,
     gold: row.gold as number,
     inventory: JSON.parse(row.inventory as string) as string[],
-    statusEffects: JSON.parse(row.status_effects as string) as StatusEffect[],
+    statusEffects: JSON.parse(row.status_effects as string) as string[],
     deaths: row.deaths as number,
     totalKills: row.total_kills as number,
-    spellReady: (row.spell_ready as number) === 1,
     defending: (row.defending as number) === 1,
     lastActionAt: row.last_action_at as number,
     respawnAt: row.respawn_at as number | null,
     prestige: (row.prestige as number) ?? 0,
     achievements: JSON.parse((row.achievements as string) ?? '[]') as string[],
+    stats: JSON.parse((row.stats as string) ?? JSON.stringify(defaultStats)) as AbilityScores,
+    spellSlots: (row.spell_slots as number) ?? 0,
+    maxSpellSlots: (row.max_spell_slots as number) ?? 0,
+    hitDice: (row.hit_dice as number) ?? 1,
+    maxHitDice: (row.max_hit_dice as number) ?? 1,
+    kiPoints: (row.ki_points as number) ?? 0,
+    maxKiPoints: (row.max_ki_points as number) ?? 0,
+    rageCharges: (row.rage_charges as number) ?? 0,
+    rageTurnsLeft: (row.rage_turns_left as number) ?? 0,
+    actionSurgeUsed: (row.action_surge_used as number) === 1,
+    isDying: (row.is_dying as number) === 1,
+    deathSuccesses: (row.death_successes as number) ?? 0,
+    deathFailures: (row.death_failures as number) ?? 0,
   }
 }
 
@@ -189,6 +266,7 @@ function rowToWorld(row: Record<string, unknown>): WorldState {
     nlLifted: (row.nl_lifted as number) === 1,
     shopInventory: JSON.parse(row.shop_inventory as string) as ShopItem[],
     veganShrineVisited: (row.vegan_shrine_visited as number) === 1,
+    longRestCounter: (row.long_rest_counter as number) ?? 0,
   }
 }
 
@@ -209,9 +287,17 @@ export function upsertCharacter(char: Character): void {
       char.class, char.level, char.xp, char.hp, char.maxHp, char.gold,
       JSON.stringify(char.inventory), JSON.stringify(char.statusEffects),
       char.deaths, char.totalKills,
-      char.spellReady ? 1 : 0, char.defending ? 1 : 0,
+      char.defending ? 1 : 0,
       char.lastActionAt, char.respawnAt ?? null,
       char.prestige ?? 0, JSON.stringify(char.achievements ?? []),
+      JSON.stringify(char.stats),
+      char.spellSlots, char.maxSpellSlots,
+      char.hitDice, char.maxHitDice,
+      char.kiPoints, char.maxKiPoints,
+      char.rageCharges, char.rageTurnsLeft,
+      char.actionSurgeUsed ? 1 : 0,
+      char.isDying ? 1 : 0,
+      char.deathSuccesses, char.deathFailures,
     )
   } catch (e) {
     log(`dnd: upsertCharacter error: ${e}`)
@@ -238,6 +324,7 @@ export function upsertWorld(world: WorldState): void {
       world.nlLifted ? 1 : 0,
       JSON.stringify(world.shopInventory),
       world.veganShrineVisited ? 1 : 0,
+      world.longRestCounter ?? 0,
     )
   } catch (e) {
     log(`dnd: upsertWorld error: ${e}`)
@@ -313,20 +400,52 @@ export function respawnCharacter(username: string, channel: string): void {
   }
 }
 
-const XP_PER_LEVEL = [0, 0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700]
+export function setDying(username: string, channel: string, isDying: boolean): void {
+  try {
+    stmts.setDying.run(isDying ? 1 : 0, username.toLowerCase(), channel.toLowerCase())
+  } catch (e) {
+    log(`dnd: setDying error: ${e}`)
+  }
+}
+
+export function updateDeathSaves(username: string, channel: string, successes: number, failures: number): void {
+  try {
+    stmts.setDeathSaves.run(successes, failures, username.toLowerCase(), channel.toLowerCase())
+  } catch (e) {
+    log(`dnd: updateDeathSaves error: ${e}`)
+  }
+}
+
+export function stabilizeCharacter(username: string, channel: string): void {
+  try {
+    stmts.stabilizeChar.run(username.toLowerCase(), channel.toLowerCase())
+  } catch (e) {
+    log(`dnd: stabilizeCharacter error: ${e}`)
+  }
+}
+
+const XP_PER_LEVEL = [0, 0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000]
 
 export function addCharacterXp(username: string, channel: string, xp: number): { newLevel: number; leveledUp: boolean } {
   try {
-    const row = stmts.getXpLevel.get(username.toLowerCase(), channel.toLowerCase()) as { xp: number; level: number; max_hp: number } | null
+    const row = stmts.getXpLevel.get(username.toLowerCase(), channel.toLowerCase()) as { xp: number; level: number; max_hp: number; class: string; stats: string } | null
     if (!row) return { newLevel: 1, leveledUp: false }
 
     const newXp = row.xp + xp
     let newLevel = row.level
-    while (newLevel < 10 && newXp >= (XP_PER_LEVEL[newLevel + 1] ?? 99999)) {
+    while (newLevel < 10 && newXp >= (XP_PER_LEVEL[newLevel + 1] ?? 999999)) {
       newLevel++
     }
     const leveledUp = newLevel > row.level
-    const hpGain = leveledUp ? (newLevel - row.level) * 10 : 0
+    let hpGain = 0
+    if (leveledUp) {
+      const cls = row.class
+      const stats = JSON.parse(row.stats ?? '{"con":10}') as AbilityScores
+      const conMod = getModifier(stats.con)
+      const hitDie = CLASS_HIT_DIE[cls] ?? 8
+      const hpPerLevel = Math.floor(hitDie / 2) + 1 + conMod
+      hpGain = (newLevel - row.level) * hpPerLevel
+    }
     const newMaxHp = row.max_hp + hpGain
 
     stmts.setXpLevel.run(newXp, newLevel, newMaxHp, hpGain, hpGain, username.toLowerCase(), channel.toLowerCase())
@@ -338,7 +457,7 @@ export function addCharacterXp(username: string, channel: string, xp: number): {
 }
 
 export function xpForLevel(level: number): number {
-  return XP_PER_LEVEL[Math.min(level, 10)] ?? 2700
+  return XP_PER_LEVEL[Math.min(level, 10)] ?? 64000
 }
 
 export function logDndAction(channel: string, username: string, action: string, target?: string, result?: string): void {

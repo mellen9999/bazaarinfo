@@ -2,9 +2,8 @@ import * as db from './db'
 import * as engine from './engine'
 import * as render from './render'
 import * as floorMod from './floor'
-import { CLASS_BASE_HP } from './combat'
 import type { Character } from './types'
-import { ALL_CLASSES } from './types'
+import { ALL_CLASSES, CLASS_BASE_STATS, calcMaxHp, calcMaxSpellSlots } from './types'
 import type { CommandContext } from '../commands'
 
 function dndActive(channel: string): boolean {
@@ -54,7 +53,9 @@ export function handleJoin(arg: string, ctx: CommandContext): string | null {
     return `@${username} already in the Depths as Lv${existing.level} ${existing.class}. !b floor to see the action.`
   }
 
-  const maxHp = CLASS_BASE_HP[matched]
+  const stats = CLASS_BASE_STATS[matched] ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }
+  const maxHp = calcMaxHp(matched, 1, stats.con)
+  const maxSpellSlots = calcMaxSpellSlots(matched, 1)
   const newChar: Character = {
     username, channel,
     class: matched,
@@ -62,8 +63,17 @@ export function handleJoin(arg: string, ctx: CommandContext): string | null {
     hp: maxHp, maxHp,
     gold: 10,
     inventory: [], statusEffects: [],
+    stats,
+    spellSlots: maxSpellSlots, maxSpellSlots,
+    hitDice: 1, maxHitDice: 1,
+    kiPoints: matched === 'Monk' ? 1 : 0,
+    maxKiPoints: matched === 'Monk' ? 1 : 0,
+    rageCharges: matched === 'Barbarian' ? 2 : 0,
+    rageTurnsLeft: 0,
+    actionSurgeUsed: false,
+    isDying: false, deathSuccesses: 0, deathFailures: 0,
     deaths: 0, totalKills: 0,
-    spellReady: true, defending: false,
+    defending: false,
     lastActionAt: Date.now(),
     respawnAt: null,
     prestige: 0, achievements: [],
@@ -197,6 +207,21 @@ export function handleDndSeason(arg: string, ctx: CommandContext): string | null
     nlLifted: false,
     shopInventory: [],
     veganShrineVisited: false,
+    longRestCounter: 0,
   })
   return `new season ${newSeason} started — floor 1, characters carry over`
+}
+
+export function handleStabilize(arg: string, ctx: CommandContext): string | null {
+  if (!ctx.channel || !ctx.user) return null
+  if (!dndActive(ctx.channel)) return null
+  const target = arg.trim().replace(/^@/, '')
+  if (!target) return `!b stabilize @<username>`
+  return engine.resolveStabilize(ctx.user.toLowerCase(), target.toLowerCase(), ctx.channel.toLowerCase())
+}
+
+export function handleRest(arg: string, ctx: CommandContext): string | null {
+  if (!ctx.channel || !ctx.user) return null
+  if (!dndActive(ctx.channel)) return null
+  return engine.resolveShortRest(ctx.user.toLowerCase(), ctx.channel.toLowerCase())
 }
