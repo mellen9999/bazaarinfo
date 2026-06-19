@@ -168,6 +168,7 @@ export function resolveEnemyAttack(
   floor: number,
   sequence: number,
   nlLifted: boolean,
+  damageScale = 1.0,
 ): { damage: number; miss: boolean } {
   if (enemy.stunned) return { damage: 0, miss: true }
 
@@ -185,7 +186,7 @@ export function resolveEnemyAttack(
   if (enemy.isBoss) baseDmg = Math.floor(baseDmg * 1.5)
 
   const armor = playerArmor(target)
-  const damage = Math.max(1, baseDmg - armor)
+  const damage = Math.max(1, Math.floor((baseDmg - armor) * damageScale))
   return { damage, miss: false }
 }
 
