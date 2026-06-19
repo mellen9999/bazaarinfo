@@ -30,6 +30,7 @@ function checkCooldown(username: string, channel: string): boolean {
 
 // how long a player must be AFK before enemies ignore them in combat
 const COMBAT_ACTIVE_MS = 5 * 60 * 1000
+const RESPAWN_MS = 60_000
 
 // --- action queue + debounce ---
 interface QueuedAction {
@@ -222,6 +223,10 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
   )
   if (targets.length === 0) return // all AFK — enemies wait
 
+  // scale enemy damage by party size
+  const partySize = Math.max(1, targets.length)
+  const damageScale = partySize === 1 ? 0.75 : partySize === 2 ? 0.90 : 1.0
+
   const attacks: Array<{ enemy: string; target: string; damage: number; defended: boolean; killed: boolean; targetHp: number; targetMaxHp: number }> = []
 
   for (const enemy of livingEnemies) {
@@ -234,7 +239,7 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
     if (!target) continue
 
     const seq = db.nextSequence(channel)
-    const { damage, miss } = combat.resolveEnemyAttack(enemy, target, freshWorld.floor, seq, freshWorld.nlLifted)
+    const { damage, miss } = combat.resolveEnemyAttack(enemy, target, freshWorld.floor, seq, freshWorld.nlLifted, damageScale)
 
     if (miss || damage === 0) {
       attacks.push({ enemy: enemy.name, target: target.username, damage: 0, defended: false, killed: false, targetHp: target.hp, targetMaxHp: target.maxHp })
@@ -255,7 +260,6 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
     })
 
     if (killed) {
-      const RESPAWN_MS = 2 * 60 * 1000
       db.killCharacter(target.username, channel, Date.now() + RESPAWN_MS)
       scheduleRespawn(target.username, channel, RESPAWN_MS)
       db.logDndAction(channel, target.username, 'death', enemy.name)
@@ -283,11 +287,15 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
   const attackLine = render.renderEnemyAttacks(attacks)
   if (attackLine) say(channel, attackLine)
 
-  // combat hint: tell players what to do next
+  // combat hint: enemies + party HP snapshot, then action prompt
   const stillAlive = freshWorld.enemies.filter((e) => e.hp > 0)
   if (stillAlive.length > 0) {
-    const names = stillAlive.map((e) => `${e.name} ${e.hp}/${e.maxHp}HP`).join(', ')
-    say(channel, `${names} · !b a to attack · !b d to defend · !b spell for your ability`)
+    const freshParty = db.getActivePlayers(channel).filter((p) => p.hp > 0 && p.respawnAt === null)
+    const partyHp = freshParty.reduce((s, p) => s + p.hp, 0)
+    const partyMaxHp = freshParty.reduce((s, p) => s + p.maxHp, 0)
+    const enemyStr = stillAlive.map((e) => `${e.name} ${e.hp}/${e.maxHp}HP`).join(', ')
+    const partyStr = partyMaxHp > 0 ? ` | party ${partyHp}/${partyMaxHp}HP` : ''
+    say(channel, `${enemyStr}${partyStr} | !b a · !b d · !b spell`)
   }
 
   // status ticks on players
@@ -299,7 +307,6 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
       const newHp = db.damageCharacter(target.username, channel, tick)
       say(channel, `@${fresh.username} takes ${tick} status dmg (${newHp}/${fresh.maxHp}HP)`)
       if (newHp <= 0) {
-        const RESPAWN_MS = 2 * 60 * 1000
         db.killCharacter(target.username, channel, Date.now() + RESPAWN_MS)
         scheduleRespawn(target.username, channel, RESPAWN_MS)
       }
@@ -538,6 +545,21 @@ export function scheduleRespawn(username: string, channel: string, delayMs: numb
   const timer = setTimeout(() => {
     respawnTimers.delete(key)
     db.respawnCharacter(username, channel)
+    // solo floor reset: if player returns to an empty party, refresh enemies to solo scale
+    const world = db.getWorld(channel)
+    if (world && !world.floorCleared && (world.encounterType === 'combat' || world.encounterType === 'boss')) {
+      const active = db.getActivePlayers(channel).filter((p) => p.hp > 0 && p.respawnAt === null)
+      if (active.length <= 1) {
+        world.enemies = floor.generateEnemies(world.season, world.floor)
+        for (const e of world.enemies) {
+          e.hp = Math.max(10, Math.floor(e.hp * 0.65))
+          e.maxHp = e.hp
+        }
+        db.upsertWorld(world)
+        say(channel, `@${username} rises from the grave — enemies reset for solo. → !b floor to descend.`)
+        return
+      }
+    }
     say(channel, `@${username} respawns at the floor entrance with half HP. !b floor to rejoin.`)
   }, delayMs)
   respawnTimers.set(key, timer)
@@ -646,9 +668,9 @@ export function resolveFlee(username: string, channel: string): string | null {
     const dmg = 8 + world.floor * 3
     const newHp = db.damageCharacter(username, channel, dmg)
     if (newHp <= 0) {
-      db.killCharacter(username, channel, Date.now() + 120_000)
-      scheduleRespawn(username, channel, 120_000)
-      return `@${username} tries to flee but ${enemy.name} strikes first for ${dmg}dmg! SLAIN. Respawning in 2min.`
+      db.killCharacter(username, channel, Date.now() + RESPAWN_MS)
+      scheduleRespawn(username, channel, RESPAWN_MS)
+      return `@${username} tries to flee but ${enemy.name} strikes first for ${dmg}dmg! SLAIN. Respawning in 1min.`
     }
     return `@${username} fails to flee — ${enemy.name} hits for ${dmg}dmg (${newHp}/${char.maxHp}HP). Classic.`
   }
@@ -700,6 +722,17 @@ export async function resolveMove(username: string, channel: string): Promise<st
     : []
   const newShop = newEncounterType === 'shop' ? floor.generateShop(world.season, nextFloor) : []
 
+  // scale enemy HP by live party size
+  const players = db.getActivePlayers(channel)
+  const aliveCount = Math.max(1, players.filter((p) => p.hp > 0 && p.respawnAt === null).length)
+  const hpScale = aliveCount === 1 ? 0.65 : aliveCount === 2 ? 0.85 : 1.0
+  if (hpScale < 1.0) {
+    for (const e of newEnemies) {
+      e.hp = Math.max(10, Math.floor(e.hp * hpScale))
+      e.maxHp = e.hp
+    }
+  }
+
   const newWorld: WorldState = {
     ...world,
     floor: nextFloor,
@@ -716,7 +749,6 @@ export async function resolveMove(username: string, channel: string): Promise<st
   }
 
   const aliveEnemies = newEnemies.filter((e) => e.hp > 0)
-  const players = db.getActivePlayers(channel)
   const narration = await aiDm.narrateFloor(
     nextFloor, newEncounterType,
     aliveEnemies.map((e) => ({ name: e.name, hp: e.hp, maxHp: e.maxHp })),

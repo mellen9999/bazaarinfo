@@ -66,12 +66,12 @@ export function renderCombatResult(result: CombatResult, enemyMaxHp: number): st
     return trunc(line)
   }
   if (result.miss) {
-    line += `misses ${result.targetEnemy}. RNG gods look away.`
+    line += `rolls a nat 1 — misses ${result.targetEnemy}. RNG gods look away.`
     return trunc(line)
   }
 
   line += `attacks ${result.targetEnemy} for ${result.damage}dmg`
-  if (result.crit) line += ' [CRIT!]'
+  if (result.crit) line += ' [CRIT! nat 20]'
   if (result.actuallySick) line += ' — ACTUALLY SICK!'
 
   if (result.enemyKilled) {
@@ -180,7 +180,7 @@ export function renderDeath(username: string, killer: string, krippCursed: boole
   const quip = krippCursed
     ? "Kripp's Curse strikes again."
     : KRIPP_DEATH_LINES[Math.floor((username.charCodeAt(0) + killer.charCodeAt(0)) % KRIPP_DEATH_LINES.length)]
-  return trunc(`@${username} has been slain by ${killer}. ${quip} Respawning in 2min — !b floor to spectate.`)
+  return trunc(`@${username} has been slain by ${killer}. ${quip} Respawning in 1min — !b floor to spectate.`)
 }
 
 export function renderLevelUp(char: Character, newLevel: number): string {

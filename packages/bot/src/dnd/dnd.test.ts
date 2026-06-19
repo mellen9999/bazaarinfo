@@ -592,9 +592,9 @@ describe('renderCharacter', () => {
 })
 
 describe('renderCombatResult', () => {
-  it('crit shows [CRIT!]', () => {
+  it('crit shows nat 20', () => {
     const result = renderCombatResult(makeCombatResult({ crit: true }), 80)
-    expect(result).toContain('[CRIT!]')
+    expect(result).toContain('nat 20')
   })
 
   it('miss contains "misses"', () => {
@@ -626,7 +626,7 @@ describe('renderCombatResult', () => {
 describe('renderDeath', () => {
   it('contains respawn info', () => {
     const result = renderDeath('alice', 'Glutton', false)
-    expect(result).toContain('Respawning in 2min')
+    expect(result).toContain('Respawning in 1min')
   })
 
   it('output ≤480 chars', () => {

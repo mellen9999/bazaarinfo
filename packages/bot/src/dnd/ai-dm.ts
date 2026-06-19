@@ -59,8 +59,9 @@ export async function narrateFloor(
   }
   const enemyStr = alive.map((e) => `${e.name} (${e.hp}/${e.maxHp}HP)`).join(', ')
   const nlNote = nlLifted ? ' NL curse lifted — luck restored.' : ''
-  const prompt = `Twitch chat D&D, Kripp's Bazaar Depths floor ${floor}.${nlNote} ${playerCount} adventurer(s) face: ${enemyStr}.
-Write ONE tactical situation line (170 chars max, lowercase, dry RPG tone) that describes the threat and ends naturally with: → !b a to attack · !b d to defend · !b spell for your class ability. No emojis.`
+  const soloNote = playerCount <= 1 ? ' Solo run — one brave adventurer faces this alone.' : ''
+  const prompt = `Twitch chat D&D, Kripp's Bazaar Depths floor ${floor}.${nlNote}${soloNote} ${playerCount} adventurer(s) face: ${enemyStr}.
+Write ONE tactical situation line (170 chars max, lowercase, dry RPG tone${playerCount <= 1 ? ', acknowledge the solo challenge briefly' : ''}). End with: → !b a to attack · !b d to defend · !b spell for your class ability. No emojis.`
   const result = await ask(prompt, 72)
   if (!result) return `floor ${floor}: ${enemyStr}. → !b a to attack · !b d to defend · !b spell for your class ability`
   return result
