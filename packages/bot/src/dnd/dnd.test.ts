@@ -46,6 +46,8 @@ function makeChar(overrides: Partial<Character> = {}): Character {
     defending: false,
     lastActionAt: 0,
     respawnAt: null,
+    prestige: 0,
+    achievements: [],
     ...overrides,
   }
 }

@@ -21,6 +21,7 @@ let stmts: {
   logAction: Statement
   getLog: Statement
   getDeadChars: Statement
+  getAllDeadChars: Statement
 }
 
 export function initDndDb(): void {
@@ -73,19 +74,29 @@ export function initDndDb(): void {
 
   db.run(`CREATE INDEX IF NOT EXISTS idx_dnd_log_channel ON dnd_log(channel, created_at)`)
 
+  // inline migrations — safe to re-run, fails silently if column already exists
+  for (const sql of [
+    `ALTER TABLE dnd_characters ADD COLUMN prestige INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE dnd_characters ADD COLUMN achievements TEXT NOT NULL DEFAULT '[]'`,
+  ]) {
+    try { db.run(sql) } catch { /* already exists */ }
+  }
+
   stmts = {
     getChar: db.prepare('SELECT * FROM dnd_characters WHERE username = ? AND channel = ?'),
     upsertChar: db.prepare(`INSERT INTO dnd_characters
       (username, channel, class, level, xp, hp, max_hp, gold, inventory, status_effects,
-       deaths, total_kills, spell_ready, defending, last_action_at, respawn_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       deaths, total_kills, spell_ready, defending, last_action_at, respawn_at,
+       prestige, achievements)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(username, channel) DO UPDATE SET
         class=excluded.class, level=excluded.level, xp=excluded.xp,
         hp=excluded.hp, max_hp=excluded.max_hp, gold=excluded.gold,
         inventory=excluded.inventory, status_effects=excluded.status_effects,
         deaths=excluded.deaths, total_kills=excluded.total_kills,
         spell_ready=excluded.spell_ready, defending=excluded.defending,
-        last_action_at=excluded.last_action_at, respawn_at=excluded.respawn_at`),
+        last_action_at=excluded.last_action_at, respawn_at=excluded.respawn_at,
+        prestige=excluded.prestige, achievements=excluded.achievements`),
     getWorld: db.prepare('SELECT * FROM dnd_world WHERE channel = ?'),
     upsertWorld: db.prepare(`INSERT INTO dnd_world
       (channel, floor, action_sequence, encounter_type, enemies, floor_cleared,
@@ -133,6 +144,9 @@ export function initDndDb(): void {
     getDeadChars: db.prepare(
       `SELECT username, channel, respawn_at FROM dnd_characters WHERE respawn_at IS NOT NULL AND respawn_at > ?`
     ),
+    getAllDeadChars: db.prepare(
+      `SELECT * FROM dnd_characters WHERE channel = ? AND respawn_at IS NOT NULL`
+    ),
   }
 
   log('dnd: db initialized')
@@ -156,6 +170,8 @@ function rowToChar(row: Record<string, unknown>): Character {
     defending: (row.defending as number) === 1,
     lastActionAt: row.last_action_at as number,
     respawnAt: row.respawn_at as number | null,
+    prestige: (row.prestige as number) ?? 0,
+    achievements: JSON.parse((row.achievements as string) ?? '[]') as string[],
   }
 }
 
@@ -195,6 +211,7 @@ export function upsertCharacter(char: Character): void {
       char.deaths, char.totalKills,
       char.spellReady ? 1 : 0, char.defending ? 1 : 0,
       char.lastActionAt, char.respawnAt ?? null,
+      char.prestige ?? 0, JSON.stringify(char.achievements ?? []),
     )
   } catch (e) {
     log(`dnd: upsertCharacter error: ${e}`)
@@ -348,5 +365,37 @@ export function getPendingRespawns(): { username: string; channel: string; respa
   } catch (e) {
     log(`dnd: getPendingRespawns error: ${e}`)
     return []
+  }
+}
+
+export function getAllDeadCharacters(channel: string): Character[] {
+  try {
+    const rows = stmts.getAllDeadChars.all(channel.toLowerCase()) as Record<string, unknown>[]
+    return rows.map(rowToChar)
+  } catch (e) {
+    log(`dnd: getAllDeadCharacters error: ${e}`)
+    return []
+  }
+}
+
+export function grantAchievement(username: string, channel: string, achievement: string): void {
+  try {
+    const char = getCharacter(username, channel)
+    if (!char || char.achievements.includes(achievement)) return
+    char.achievements.push(achievement)
+    upsertCharacter(char)
+  } catch (e) {
+    log(`dnd: grantAchievement error: ${e}`)
+  }
+}
+
+export function addPrestige(username: string, channel: string): void {
+  try {
+    const char = getCharacter(username, channel)
+    if (!char) return
+    char.prestige = (char.prestige ?? 0) + 1
+    upsertCharacter(char)
+  } catch (e) {
+    log(`dnd: addPrestige error: ${e}`)
   }
 }

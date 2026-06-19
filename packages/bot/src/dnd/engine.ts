@@ -28,6 +28,9 @@ function checkCooldown(username: string, channel: string): boolean {
   return true
 }
 
+// how long a player must be AFK before enemies ignore them in combat
+const COMBAT_ACTIVE_MS = 5 * 60 * 1000
+
 // --- action queue + debounce ---
 interface QueuedAction {
   username: string
@@ -101,7 +104,9 @@ async function processQueue(channel: string) {
       if (!targetEnemy) continue
 
       const seq = db.nextSequence(channel)
-      const outcome = combat.resolvePlayerAttack(char, targetEnemy, seq, world.nlLifted, action.spellOverride)
+      // prestige bonus: +2% damage per prestige level
+      const prestigeBonus = 1 + (char.prestige ?? 0) * 0.02
+      const outcome = combat.resolvePlayerAttack(char, targetEnemy, seq, world.nlLifted, action.spellOverride, prestigeBonus)
 
       let damage = outcome.damage
       if (outcome.krippCursed) {
@@ -139,6 +144,8 @@ async function processQueue(channel: string) {
         if (char.class === 'Rogue') char.gold += Math.floor(reward.gold * 0.5)
         // Merchant: passive +2g per kill
         if (char.class === 'Merchant') char.gold += 2
+        // boss achievement
+        if (targetEnemy.isBoss) db.grantAchievement(action.username, channel, 'boss')
 
         char.lastActionAt = Date.now()
         db.upsertCharacter(char)
@@ -208,8 +215,12 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
   const livingEnemies = freshWorld.enemies.filter((e) => e.hp > 0)
   if (livingEnemies.length === 0) return
 
-  const targets = db.getActivePlayers(channel).filter((p) => p.hp > 0 && p.respawnAt === null)
-  if (targets.length === 0) return
+  // only target players who acted in the last 5 min — AFK players are ignored by enemies
+  const now = Date.now()
+  const targets = db.getActivePlayers(channel).filter((p) =>
+    p.hp > 0 && p.respawnAt === null && (now - p.lastActionAt) < COMBAT_ACTIVE_MS
+  )
+  if (targets.length === 0) return // all AFK — enemies wait
 
   const attacks: Array<{ enemy: string; target: string; damage: number; defended: boolean; killed: boolean; targetHp: number; targetMaxHp: number }> = []
 
@@ -292,11 +303,28 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
 async function handleFloorClear(channel: string, world: WorldState) {
   world.floorCleared = true
 
+  // floor-transition respawn: anyone dead comes back on floor clear
+  const deadChars = db.getAllDeadCharacters(channel)
+  if (deadChars.length > 0) {
+    const respawnedNames: string[] = []
+    for (const dead of deadChars) {
+      // give ghost XP for spectating
+      db.addCharacterXp(dead.username, channel, 3)
+      // cancel respawn timer and revive
+      const key = `${dead.username.toLowerCase()}:${channel.toLowerCase()}`
+      const timer = respawnTimers.get(key)
+      if (timer) { clearTimeout(timer); respawnTimers.delete(key) }
+      db.respawnCharacter(dead.username, channel)
+      respawnedNames.push(dead.username)
+    }
+    say(channel, `${respawnedNames.map((u) => `@${u}`).join(' ')} rise from the grave — floor clear respawn! !b floor to see what's next.`)
+  }
+
   const activePlayers = db.getActivePlayers(channel)
   const loot: Array<{ username: string; item?: string; gold: number }> = []
   const levelUps: Array<{ username: string; level: number }> = []
 
-  // distribute gold to living players
+  // distribute gold to living players who participated (acted within last 10min)
   for (const p of activePlayers) {
     if (p.hp <= 0 || p.respawnAt !== null) continue
     const goldReward = 5 + world.floor * 2
@@ -319,9 +347,18 @@ async function handleFloorClear(channel: string, world: WorldState) {
 
   // check season complete (floor 10 boss)
   if (world.floor === 10 && world.encounterType === 'boss') {
+    // prestige + veteran achievement for survivors
+    const survivors = db.getAllCharacters(channel).filter((p) => p.hp > 0 && p.respawnAt === null)
+    for (const p of survivors) {
+      db.addPrestige(p.username, channel)
+      db.grantAchievement(p.username, channel, 'veteran')
+    }
+    if (survivors.length > 0) {
+      const names = survivors.map((p) => `@${p.username}★`).join(' ')
+      setTimeout(() => say(channel, `${names} earned Prestige ★ for conquering the season! +2% dmg per star, permanently.`), 600)
+    }
     say(channel, render.renderSeasonComplete(world.season, world.floor))
-    // start new season
-    setTimeout(() => startNewSeason(channel), 3000)
+    setTimeout(() => startNewSeason(channel), 3500)
   }
 }
 
@@ -444,6 +481,32 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
     default:
       return { message: '' }
   }
+}
+
+// --- join announcement (debounced per channel, one floor ping per burst of joins) ---
+const joinAnnounceTimers = new Map<string, Timer>()
+
+export function announceJoin(channel: string): void {
+  if (joinAnnounceTimers.has(channel)) return // already scheduled
+  const timer = setTimeout(async () => {
+    joinAnnounceTimers.delete(channel)
+    const world = db.getWorld(channel)
+    if (!world || !world.enabled) return
+    const players = db.getActivePlayers(channel)
+    if (!world.scene && (world.encounterType === 'combat' || world.encounterType === 'boss')) {
+      const enemyNames = world.enemies.filter((e) => e.hp > 0).map((e) => e.name)
+      const scene = await aiDm.describeFloor(world.floor, world.encounterType, enemyNames)
+      if (scene) {
+        world.scene = scene
+        db.upsertWorld(world)
+        say(channel, `[Floor ${world.floor}] ${scene}`)
+      }
+    } else if (world.scene) {
+      say(channel, `[Floor ${world.floor}] ${world.scene}`)
+    }
+    say(channel, render.renderFloor(world, players))
+  }, 400)
+  joinAnnounceTimers.set(channel, timer)
 }
 
 // --- respawn timers ---
@@ -670,10 +733,11 @@ export async function resolveExplore(username: string, channel: string): Promise
 
     const hasMeat = combat.hasMeatItems(char.inventory)
     if (!hasMeat) {
-      // Full heal + blessed
+      // Full heal + blessed + vegan achievement
       db.healCharacter(username, channel, char.maxHp)
       if (!char.statusEffects.includes('blessed')) char.statusEffects.push('blessed')
       db.upsertCharacter(char)
+      db.grantAchievement(username, channel, 'vegan')
     }
 
     const flavor = await aiDm.narrateVeganShrine(!hasMeat, username)
@@ -762,6 +826,8 @@ export function stopEngine(): void {
   debounceTimers.clear()
   for (const timer of respawnTimers.values()) clearTimeout(timer)
   respawnTimers.clear()
+  for (const timer of joinAnnounceTimers.values()) clearTimeout(timer)
+  joinAnnounceTimers.clear()
 }
 
 export function restoreFromDb(): void {

@@ -120,7 +120,8 @@ export function resolvePlayerAttack(
   enemy: Enemy,
   sequence: number,
   nlLifted: boolean,
-  spellActive?: 'shadowstrike' | 'charge' | 'overclock',
+  spellActive?: 'shadowstrike' | 'charge' | 'overclock' | 'inferno' | 'liquidate' | 'adapt',
+  damageMult = 1,
 ): AttackOutcome {
   const { hit, secondary } = diceRolls(sequence, nlLifted)
 
@@ -128,7 +129,7 @@ export function resolvePlayerAttack(
   const miss = hit < 0.05 && !spellActive
   const crit = hit > 0.90 || spellActive === 'shadowstrike' || spellActive === 'charge'
 
-  let baseDmg = playerTotalDamage(char)
+  let baseDmg = Math.floor(playerTotalDamage(char) * damageMult)
   if (spellActive === 'overclock') baseDmg = Math.floor(baseDmg * 1.5)
   if (spellActive === 'charge') baseDmg = baseDmg * 3
 

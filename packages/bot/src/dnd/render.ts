@@ -127,17 +127,25 @@ export function renderFloorClear(
   return trunc(line)
 }
 
+const ACH_LABELS: Record<string, string> = {
+  boss: 'bossslayer', vegan: 'vegansaint', veteran: 'veteran',
+}
+
 export function renderCharacter(char: Character): string {
   const xpNeeded = [0, 0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700]
   const nextXp = char.level < 10 ? (xpNeeded[char.level + 1] ?? '—') : 'MAX'
   const spell = char.spellReady ? '✓' : 'spent'
-  let line = `${char.username} | Lv${char.level} ${char.class} | ${char.hp}/${char.maxHp}HP | ${char.gold}g`
+  const stars = char.prestige > 0 ? '★'.repeat(Math.min(char.prestige, 5)) : ''
+  const achs = (char.achievements ?? []).length > 0
+    ? ` [${char.achievements.map((a) => ACH_LABELS[a] ?? a).join('][')}]`
+    : ''
+  let line = `${char.username}${stars}${achs} | Lv${char.level} ${char.class} | ${char.hp}/${char.maxHp}HP | ${char.gold}g`
   if (char.inventory.length > 0) line += ` | ${char.inventory.join(', ')}`
   line += ` | XP: ${char.xp}/${nextXp} | spell:${spell} | deaths:${char.deaths}`
   if (char.statusEffects.length > 0) line += ` | ${char.statusEffects.join(',')}`
   if (char.respawnAt !== null) {
     const secs = Math.max(0, Math.ceil((char.respawnAt - Date.now()) / 1000))
-    line += ` | DEAD (respawn ${secs}s)`
+    line += ` | DEAD — respawning ${secs}s or on next floor clear`
   }
   return trunc(line)
 }
@@ -147,7 +155,8 @@ export function renderParty(players: Character[], world: WorldState): string {
   let line = `Floor ${world.floor} S${world.season} | `
   const parts = players.slice(0, 6).map((p) => {
     const status = p.respawnAt !== null ? 'DEAD' : `${p.hp}/${p.maxHp}HP`
-    return `${p.username}(Lv${p.level} ${p.class[0]} ${status})`
+    const stars = (p.prestige ?? 0) > 0 ? '★'.repeat(Math.min(p.prestige, 3)) : ''
+    return `${p.username}${stars}(Lv${p.level} ${p.class[0]} ${status})`
   })
   line += parts.join(' | ')
   if (players.length > 6) line += ` +${players.length - 6} more`
@@ -195,7 +204,7 @@ export function renderClassList(): string {
 }
 
 export function renderSeasonComplete(season: number, floor: number): string {
-  return trunc(`THE DEPTHS ARE CONQUERED! Season ${season} complete — floor ${floor} boss slain. Season ${season + 1} begins. Characters carry over. !b join to descend again.`)
+  return trunc(`THE DEPTHS ARE CONQUERED! Season ${season} complete — floor ${floor} boss slain. Survivors earn Prestige ★ (+2% dmg, permanent). Season ${season + 1} begins. !b join to descend.`)
 }
 
 export function renderOfflineAnnouncement(floor: number): string {

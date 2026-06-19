@@ -33,6 +33,7 @@ export function handleJoin(arg: string, ctx: CommandContext): string | null {
       if (existing.hp <= 0 || existing.respawnAt !== null) {
         db.respawnCharacter(username, channel)
         const fresh = db.getCharacter(username, channel)
+        engine.announceJoin(channel)
         return fresh ? render.renderCharacter(fresh) : null
       }
       return render.renderCharacter(existing)
@@ -65,8 +66,10 @@ export function handleJoin(arg: string, ctx: CommandContext): string | null {
     spellReady: true, defending: false,
     lastActionAt: Date.now(),
     respawnAt: null,
+    prestige: 0, achievements: [],
   }
   db.upsertCharacter(newChar)
+  engine.announceJoin(channel)
   return render.renderJoin(newChar)
 }
 
@@ -157,7 +160,10 @@ export function handleLeaderboard(arg: string, ctx: CommandContext): string | nu
   if (!ctx.channel) return null
   const chars = db.getAllCharacters(ctx.channel.toLowerCase())
   if (chars.length === 0) return `no adventurers yet — !b join <class> to enter the Depths`
-  const top = chars.slice(0, 5).map((c, i) => `${i + 1}.${c.username}(Lv${c.level} ${c.class} ${c.totalKills}kills)`)
+  const top = chars.slice(0, 5).map((c, i) => {
+    const stars = (c.prestige ?? 0) > 0 ? '★'.repeat(Math.min(c.prestige, 3)) : ''
+    return `${i + 1}.${c.username}${stars}(Lv${c.level} ${c.class[0]} ${c.totalKills}k)`
+  })
   return `Depths leaderboard: ${top.join(' | ')}`
 }
 
