@@ -26,6 +26,11 @@ const lastAction = new Map<string, number>()
 function checkCooldown(username: string, channel: string): boolean {
   const key = `${username.toLowerCase()}:${channel.toLowerCase()}`
   const now = Date.now()
+  // allow re-queuing during an open window (player can change attack/defend/spell decision)
+  if (debounceTimers.has(channel)) {
+    lastAction.set(key, now)
+    return true
+  }
   const last = lastAction.get(key) ?? 0
   if (now - last < ACTION_COOLDOWN) return false
   lastAction.set(key, now)
@@ -44,6 +49,7 @@ interface QueuedAction {
 
 const queues = new Map<string, QueuedAction[]>()
 const debounceTimers = new Map<string, Timer>()
+const windowStartTimes = new Map<string, number>()
 const processing = new Set<string>()
 const roundCounters = new Map<string, number>()
 
@@ -56,9 +62,15 @@ const RECENTLY_ACTIVE_MS = 45_000  // acted in last 45s = "waiting for this play
 
 function getWaitedForPlayers(channel: string) {
   const now = Date.now()
-  return db.getActivePlayers(channel).filter(
-    (p) => p.hp > 0 && p.respawnAt === null && !p.isDying && (now - p.lastActionAt) < RECENTLY_ACTIVE_MS,
-  )
+  // windowStart: 0 if no window open (open window: only wait for players active before it opened + 5s grace)
+  const windowStart = windowStartTimes.get(channel) ?? 0
+  return db.getActivePlayers(channel).filter((p) => {
+    if (p.hp <= 0 || p.respawnAt !== null || p.isDying) return false
+    if ((now - p.lastActionAt) >= RECENTLY_ACTIVE_MS) return false
+    // if a window is open, exclude players who joined after it started (prevents new joiners blocking early-close)
+    if (windowStart > 0 && p.lastActionAt > windowStart + 5_000) return false
+    return true
+  })
 }
 
 function enqueue(channel: string, action: QueuedAction) {
@@ -77,6 +89,7 @@ function enqueue(channel: string, action: QueuedAction) {
     const existing = debounceTimers.get(channel)
     if (existing) clearTimeout(existing)
     debounceTimers.delete(channel)
+    windowStartTimes.delete(channel)
     processQueue(channel).catch((e) => log(`dnd: processQueue error: ${e}`))
     return
   }
@@ -84,10 +97,14 @@ function enqueue(channel: string, action: QueuedAction) {
   // don't reset the window once it's open — let it run its full duration
   if (debounceTimers.has(channel)) return
 
+  // record when this window opened (used to exclude mid-window joiners from "waited-for" list)
+  windowStartTimes.set(channel, Date.now())
+
   // start window: solo = 3s, party = 20s
   const windowMs = waitedFor.length <= 1 ? SOLO_ROUND_MS : PARTY_ROUND_MS
   const timer = setTimeout(() => {
     debounceTimers.delete(channel)
+    windowStartTimes.delete(channel)
     processQueue(channel).catch((e) => log(`dnd: processQueue error: ${e}`))
   }, windowMs)
   debounceTimers.set(channel, timer)
@@ -393,7 +410,12 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
 
   const livingTargets = targets.filter((p) => p.hp > 0 && !p.isDying)
   const partySize = Math.max(1, livingTargets.length)
-  const damageScale = partySize === 1 ? 0.75 : partySize === 2 ? 0.90 : 1.0
+  const isBossEncounter = freshWorld.encounterType === 'boss'
+  const damageScale = partySize === 1
+    ? (isBossEncounter ? 0.60 : 0.75)
+    : partySize === 2
+      ? (isBossEncounter ? 0.80 : 0.90)
+      : 1.0
 
   const attacks: Array<{
     enemy: string; target: string; d20Roll?: number; attackTotal?: number; targetAC?: number
@@ -1109,10 +1131,15 @@ export async function resolveMove(username: string, channel: string): Promise<st
     : []
   const newShop = newEncounterType === 'shop' ? floor.generateShop(world.season, nextFloor) : []
 
-  // scale enemy HP by live party size
+  // scale enemy HP by live party size; bosses get extra solo/duo reduction
   const players = db.getActivePlayers(channel)
   const aliveCount = Math.max(1, players.filter((p) => p.hp > 0 && p.respawnAt === null && !p.isDying).length)
-  const hpScale = aliveCount === 1 ? 0.65 : aliveCount === 2 ? 0.85 : 1.0
+  const isBossFloor = newEncounterType === 'boss'
+  const hpScale = aliveCount === 1
+    ? (isBossFloor ? 0.50 : 0.65)
+    : aliveCount === 2
+      ? (isBossFloor ? 0.70 : 0.85)
+      : 1.0
   if (hpScale < 1.0) {
     for (const e of newEnemies) {
       e.hp = Math.max(10, Math.floor(e.hp * hpScale))
