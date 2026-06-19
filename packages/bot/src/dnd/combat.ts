@@ -144,9 +144,9 @@ export function resolvePlayerAttack(
   let totalDmg = rolls.reduce((s, r) => s + r, 0) + atkMod + dmgBonus + rageDmg
   let diceStr = `${diceCount}d${weapon.die}+${atkMod + dmgBonus + rageDmg}`
 
-  // Rogue: Sneak Attack (if advantage — needs an ally in melee or hidden)
+  // Rogue: Sneak Attack always fires on hit — rogues always find an angle
   let saCount = 0
-  if (char.class === 'Rogue' && hasAdvantage) {
+  if (char.class === 'Rogue') {
     saCount = sneakAttackDice(char.level)
     const saDice = isCrit ? saCount * 2 : saCount
     const saRolls = rollDice(saDice, 6, sequence + 99999)

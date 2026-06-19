@@ -104,11 +104,16 @@ export function generateEnemies(season: number, floor: number): Enemy[] {
     }]
   }
 
-  // combat floors: pick 2 enemies (with repeat possible for small pools)
+  // combat floors: pick 2 enemies, no duplicate special abilities (prevents Troll+Troll etc.)
   const enemies: Enemy[] = []
-  const count = 2
-  for (let i = 0; i < count; i++) {
-    const t = templates[Math.floor(rng() * templates.length)]
+  const usedSpecials = new Set<string>()
+  for (let i = 0; i < 2; i++) {
+    let t = templates[Math.floor(rng() * templates.length)]
+    // retry once to avoid stacking regeneration/fortitude/paralyze
+    if (t.specialAbility && usedSpecials.has(t.specialAbility) && templates.length > 1) {
+      t = templates[Math.floor(rng() * templates.length)]
+    }
+    if (t.specialAbility) usedSpecials.add(t.specialAbility)
     const hp = rollHp(rng, t.hpCount, t.hpDie, t.hpMod)
     enemies.push({
       name: t.name, hp, maxHp: hp,
