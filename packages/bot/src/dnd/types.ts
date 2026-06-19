@@ -30,6 +30,8 @@ export interface Character {
   defending: boolean
   lastActionAt: number
   respawnAt: number | null
+  prestige: number
+  achievements: string[]
 }
 
 export interface Enemy {
