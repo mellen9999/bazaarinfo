@@ -23,6 +23,7 @@ import { writeAtomic } from './fs-util'
 import { log } from './log'
 import { readJson } from './http'
 import * as raid from './raid'
+import * as dnd from './dnd'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
 const CLIENT_ID = process.env.TWITCH_CLIENT_ID
@@ -364,6 +365,10 @@ setSay((ch, msg) => client.say(ch, msg))
 raid.initEngine((ch, msg) => client.say(ch, msg))
 raid.setIsLive((ch) => getLiveChannels().includes(ch.toLowerCase()))
 raid.restoreFromDb()
+dnd.initDndDb()
+dnd.initEngine((ch, msg) => client.say(ch, msg))
+dnd.setIsLive((ch) => getLiveChannels().includes(ch.toLowerCase()))
+dnd.restoreFromDb()
 
 // poll /helix/streams to track live state + game per channel.
 // (replaces stream.online/offline/channel.update EventSub — those exceed per-ws cost cap.)
@@ -388,6 +393,7 @@ async function pollStreams(initial = false) {
       if (prev === undefined) {
         log(`stream online: #${ch}${s.game_name ? ` [${s.game_name}]` : ''}`)
         setChannelLive(ch, s.game_name)
+        dnd.onStreamOnline(ch)
       } else if (prev !== s.game_name) {
         log(`channel update: #${ch} → ${s.game_name || '(no game)'}`)
         setChannelGame(ch, s.game_name)
@@ -398,6 +404,7 @@ async function pollStreams(initial = false) {
       if (!seen.has(ch)) {
         log(`stream offline: #${ch}`)
         setChannelOffline(ch)
+        dnd.onStreamOffline(ch)
         liveState.delete(ch)
       }
     }
