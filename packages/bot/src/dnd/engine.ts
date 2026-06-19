@@ -35,7 +35,7 @@ function checkCooldown(username: string, channel: string): boolean {
 const COMBAT_ACTIVE_MS = 5 * 60 * 1000
 const RESPAWN_MS = 60_000
 
-// --- action queue + debounce ---
+// --- action queue + round window ---
 interface QueuedAction {
   username: string
   action: 'attack' | 'defend' | 'spell'
@@ -45,18 +45,51 @@ interface QueuedAction {
 const queues = new Map<string, QueuedAction[]>()
 const debounceTimers = new Map<string, Timer>()
 const processing = new Set<string>()
+const roundCounters = new Map<string, number>()
+
+// Solo: short window (player acts alone, fast feedback)
+// Party: 20s window from first action — everyone has time to decide
+// Early-close: all recently-active players have acted → fire immediately
+const SOLO_ROUND_MS = 3_000
+const PARTY_ROUND_MS = 20_000
+const RECENTLY_ACTIVE_MS = 45_000  // acted in last 45s = "waiting for this player"
+
+function getWaitedForPlayers(channel: string) {
+  const now = Date.now()
+  return db.getActivePlayers(channel).filter(
+    (p) => p.hp > 0 && p.respawnAt === null && !p.isDying && (now - p.lastActionAt) < RECENTLY_ACTIVE_MS,
+  )
+}
 
 function enqueue(channel: string, action: QueuedAction) {
   const q = queues.get(channel) ?? []
-  q.push(action)
+  // allow changing action during the window (replace, don't stack)
+  const idx = q.findIndex((a) => a.username.toLowerCase() === action.username.toLowerCase())
+  if (idx >= 0) q[idx] = action
+  else q.push(action)
   queues.set(channel, q)
 
-  const existing = debounceTimers.get(channel)
-  if (existing) clearTimeout(existing)
+  // early-close: all waited-for players have acted
+  const waitedFor = getWaitedForPlayers(channel)
+  const actedSet = new Set(q.map((a) => a.username.toLowerCase()))
+  const allActed = waitedFor.length > 0 && waitedFor.every((p) => actedSet.has(p.username.toLowerCase()))
+  if (allActed) {
+    const existing = debounceTimers.get(channel)
+    if (existing) clearTimeout(existing)
+    debounceTimers.delete(channel)
+    processQueue(channel).catch((e) => log(`dnd: processQueue error: ${e}`))
+    return
+  }
+
+  // don't reset the window once it's open — let it run its full duration
+  if (debounceTimers.has(channel)) return
+
+  // start window: solo = 3s, party = 20s
+  const windowMs = waitedFor.length <= 1 ? SOLO_ROUND_MS : PARTY_ROUND_MS
   const timer = setTimeout(() => {
     debounceTimers.delete(channel)
     processQueue(channel).catch((e) => log(`dnd: processQueue error: ${e}`))
-  }, 500)
+  }, windowMs)
   debounceTimers.set(channel, timer)
 }
 
@@ -470,15 +503,21 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
   const attackLine = render.renderEnemyAttacks(attacks)
   if (attackLine) say(channel, attackLine)
 
-  // combat hint
+  // combat hint with round counter and window duration
   const stillAlive = freshWorld.enemies.filter((e) => e.hp > 0)
   if (stillAlive.length > 0) {
     const freshParty = db.getActivePlayers(channel).filter((p) => p.hp > 0 && !p.isDying && p.respawnAt === null)
-    const partyHp = freshParty.reduce((s, p) => s + p.hp, 0)
-    const partyMaxHp = freshParty.reduce((s, p) => s + p.maxHp, 0)
-    const enemyStr = stillAlive.map((e) => `${e.name} ${e.hp}/${e.maxHp}HP AC${e.ac}`).join(', ')
-    const partyStr = partyMaxHp > 0 ? ` | party ${partyHp}/${partyMaxHp}HP` : ''
-    say(channel, `${enemyStr}${partyStr} | !b a · !b d · !b spell · !b rest`)
+    const waitingFor = getWaitedForPlayers(channel)
+    const round = (roundCounters.get(channel) ?? 0) + 1
+    roundCounters.set(channel, round)
+    const windowSec = waitingFor.length <= 1 ? SOLO_ROUND_MS / 1000 : PARTY_ROUND_MS / 1000
+    const enemyStr = stillAlive.map((e) => `${e.name} ${e.hp}/${e.maxHp}HP`).join(', ')
+    const partyStr = freshParty.length === 1
+      ? ` | you ${freshParty[0].hp}/${freshParty[0].maxHp}HP`
+      : freshParty.length > 1
+        ? ` | ${freshParty.slice(0, 3).map((p) => `@${p.username} ${p.hp}HP`).join(' ')}`
+        : ''
+    say(channel, `— Round ${round} — ${enemyStr}${partyStr} | !b a · !b d · !b spell [${windowSec}s]`)
   }
 
   // status ticks on players
@@ -499,6 +538,7 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
 async function handleFloorClear(channel: string, world: WorldState) {
   world.floorCleared = true
   world.longRestCounter = (world.longRestCounter ?? 0) + 1
+  roundCounters.delete(channel)
 
   // floor-transition respawn: anyone dead comes back on floor clear
   const deadChars = db.getAllDeadCharacters(channel)
@@ -1018,6 +1058,7 @@ export async function resolveMove(username: string, channel: string): Promise<st
 
   const char = db.getCharacter(username, channel)
   if (!char || (char.hp <= 0 && char.respawnAt !== null)) return null
+  roundCounters.delete(channel)
 
   if (!world.floorCleared && world.encounterType !== 'shop' && world.encounterType !== 'event') {
     const living = world.enemies.filter((e) => e.hp > 0)
@@ -1279,6 +1320,7 @@ export function resetFloor(channel: string): void {
   if (!world) return
   world.enemies = floor.generateEnemies(world.season, world.floor)
   world.floorCleared = false
+  roundCounters.delete(channel)
   world.scene = ''
   db.upsertWorld(world)
 }
