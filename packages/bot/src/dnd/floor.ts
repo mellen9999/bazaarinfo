@@ -64,6 +64,7 @@ const FLOOR_MONSTERS: Record<number, MonsterTemplate[]> = {
   7: [
     { name: 'Drow Warrior',  ac: 15, hpDie: 8, hpCount: 3, hpMod: 3,  hitBonus: 4, damageDie: 6, damageCount: 2, damageMod: 2, multiattack: 2, cr: 1, xpValue: 200 },
     { name: 'Gnoll',         ac: 15, hpDie: 8, hpCount: 5, hpMod: 5,  hitBonus: 4, damageDie: 6, damageCount: 1, damageMod: 2, multiattack: 1, cr: 0.5, xpValue: 100 },
+    { name: 'Troll',         ac: 15, hpDie: 10, hpCount: 8, hpMod: 16, hitBonus: 6, damageDie: 6, damageCount: 2, damageMod: 4, multiattack: 2, cr: 5, xpValue: 1800, specialAbility: 'regeneration' },
   ],
   8: [
     { name: 'Vampire Spawn', ac: 13, hpDie: 8, hpCount: 11, hpMod: 22, hitBonus: 6, damageDie: 6, damageCount: 2, damageMod: 3, multiattack: 2, cr: 5, xpValue: 1800, specialAbility: 'drain' },
