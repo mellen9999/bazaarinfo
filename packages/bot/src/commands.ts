@@ -491,7 +491,7 @@ const subcommands: [RegExp, SubHandler][] = [
     if (!isAdmin(ctx.user)) return null
     return onStatus?.() ?? 'status not available'
   }],
-  [/^join\s+#?(\S+)$/i, async (query, ctx) => {
+  [/^join\s+#(\S+)$/i, async (query, ctx) => {
     if (!isAdmin(ctx.user)) return null
     if (!onJoinChannel) return 'join not available'
     return onJoinChannel(query.toLowerCase(), ctx.user ?? '')
