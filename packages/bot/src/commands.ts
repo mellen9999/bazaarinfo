@@ -12,6 +12,7 @@ import { isEmote, findEmote } from './emotes'
 import { getThread, getRecent } from './chatbuf'
 import { log } from './log'
 import * as raidCmds from './raid/commands'
+import * as dndCmds from './dnd/commands'
 
 const MAX_LEN = 480
 
@@ -570,8 +571,24 @@ const subcommands: [RegExp, SubHandler][] = [
     if (!ctx.channel) return null
     return withSuffix(getTriviaScore(ctx.channel), suffix)
   }],
+  // --- dnd game commands (offline only) ---
+  [/^join(?:\s+(\S+))?$/i, (query, ctx) => dndCmds.handleJoin(query ?? '', ctx) ?? raidCmds.handleJoin('', ctx)],
+  [/^(?:a|attack)(?:\s+(.*))?$/i, (query, ctx) => dndCmds.handleAttack(query ?? '', ctx)],
+  [/^(?:d|defend)$/i, (_q, ctx) => dndCmds.handleDefend('', ctx)],
+  [/^spell$/i, (_q, ctx) => dndCmds.handleSpell('', ctx)],
+  [/^use\s+(.+)$/i, (query, ctx) => dndCmds.handleUse(query, ctx)],
+  [/^flee$/i, (_q, ctx) => dndCmds.handleFlee('', ctx)],
+  [/^buy(?:\s+(.+))?$/i, (query, ctx) => dndCmds.handleBuy(query ?? '', ctx)],
+  [/^(?:floor|look)$/i, (_q, ctx) => dndCmds.handleFloor('', ctx)],
+  [/^move$/i, (_q, ctx) => dndCmds.handleMove('', ctx)],
+  [/^explore$/i, (_q, ctx) => dndCmds.handleExplore('', ctx)],
+  [/^me$/i, (_q, ctx) => dndCmds.handleStats('', ctx)],
+  [/^recap$/i, (_q, ctx) => dndCmds.handleRecap('', ctx)],
+  [/^depths(?:board)?$/i, (_q, ctx) => dndCmds.handleLeaderboard('', ctx)],
+  [/^dnd\s+(on|off)$/i, (query, ctx) => dndCmds.handleDndToggle(query, ctx)],
+  [/^dnd\s+reset$/i, (_q, ctx) => dndCmds.handleDndReset('', ctx)],
+  [/^dnd\s+season$/i, (_q, ctx) => dndCmds.handleDndSeason('', ctx)],
   // --- raid game commands (silent) ---
-  [/^join$/i, (_q, ctx) => raidCmds.handleJoin('', ctx)],
   [/^leave$/i, (_q, ctx) => raidCmds.handleLeave('', ctx)],
   [/^pick\s+(.+)$/i, (query, ctx) => raidCmds.handlePick(query, ctx)],
   [/^vote\s+(.+)$/i, (query, ctx) => raidCmds.handleVote(query, ctx)],
