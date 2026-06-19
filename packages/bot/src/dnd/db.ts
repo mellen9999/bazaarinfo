@@ -20,6 +20,7 @@ let stmts: {
   setXpLevel: Statement
   logAction: Statement
   getLog: Statement
+  getDeadChars: Statement
 }
 
 export function initDndDb(): void {
@@ -128,6 +129,9 @@ export function initDndDb(): void {
     ),
     getLog: db.prepare(
       'SELECT username, action, target, result, created_at FROM dnd_log WHERE channel = ? ORDER BY created_at DESC LIMIT ?'
+    ),
+    getDeadChars: db.prepare(
+      `SELECT username, channel, respawn_at FROM dnd_characters WHERE respawn_at IS NOT NULL AND respawn_at > ?`
     ),
   }
 
@@ -333,6 +337,16 @@ export function getRecentLog(channel: string, limit: number): { username: string
     return stmts.getLog.all(channel.toLowerCase(), limit) as { username: string; action: string; target: string | null; result: string | null; created_at: number }[]
   } catch (e) {
     log(`dnd: getRecentLog error: ${e}`)
+    return []
+  }
+}
+
+export function getPendingRespawns(): { username: string; channel: string; respawnAt: number }[] {
+  try {
+    const rows = stmts.getDeadChars.all(Date.now()) as { username: string; channel: string; respawn_at: number }[]
+    return rows.map((r) => ({ username: r.username, channel: r.channel, respawnAt: r.respawn_at }))
+  } catch (e) {
+    log(`dnd: getPendingRespawns error: ${e}`)
     return []
   }
 }
