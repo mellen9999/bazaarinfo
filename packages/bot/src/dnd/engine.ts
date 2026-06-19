@@ -132,9 +132,11 @@ async function processQueue(channel: string) {
       }
 
       // --- attack ---
+      // auto-distribute: each player naturally targets a different enemy by username hash
+      const autoIdx = action.username.charCodeAt(0) % livingEnemies.length
       const targetEnemy = action.target
         ? world.enemies.find((e) => e.hp > 0 && e.name.toLowerCase().includes(action.target!.toLowerCase()))
-        : livingEnemies[0]
+        : livingEnemies[autoIdx]
       if (!targetEnemy) continue
 
       const seq = db.nextSequence(channel)
@@ -169,14 +171,20 @@ async function processQueue(channel: string) {
 
       targetEnemy.hp = Math.max(0, targetEnemy.hp - totalDmg)
       if (outcome.statusApplied && !targetEnemy.statusEffect) {
-        targetEnemy.statusEffect = outcome.statusApplied
-        targetEnemy.statusRoundsLeft = 3
+        const isFireStatus = outcome.statusApplied === 'burning'
+        const fireImmune = targetEnemy.specialAbility === 'fire_immunity'
+        if (!isFireStatus || !fireImmune) {
+          targetEnemy.statusEffect = outcome.statusApplied
+          targetEnemy.statusRoundsLeft = 3
+        } else {
+          resultLines.push(`${targetEnemy.name} is immune to fire!`)
+        }
       }
 
       const killed = targetEnemy.hp <= 0
 
       // Troll special: regenerate 10HP at end of round if not killed by fire/acid
-      if (killed && targetEnemy.specialAbility === 'regenerate') {
+      if (killed && targetEnemy.specialAbility === 'regeneration') {
         const killerClass = char.class
         if (killerClass !== 'Wizard' && killerClass !== 'Sorcerer') {
           // Troll doesn't die yet — regenerates next round
@@ -266,6 +274,12 @@ async function processQueue(channel: string) {
     // status ticks on enemies
     for (const enemy of world.enemies.filter((e) => e.hp > 0)) {
       if (!enemy.statusEffect) continue
+      // fire immunity: burning does nothing, clear the status
+      if (enemy.specialAbility === 'fire_immunity' && (enemy.statusEffect === 'burning' || enemy.statusEffect === 'burn')) {
+        delete enemy.statusEffect
+        delete enemy.statusRoundsLeft
+        continue
+      }
       const tick = combat.singleStatusTick(enemy.statusEffect)
       if (tick > 0) {
         enemy.hp = Math.max(0, enemy.hp - tick)
@@ -463,13 +477,19 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
         continue
       }
 
-      const newHp = db.damageCharacter(target.username, channel, result.damage)
+      // Barbarian rage resistance: half physical damage while raging
+      let finalDmg = result.damage
+      if (target.class === 'Barbarian' && target.rageTurnsLeft > 0) {
+        finalDmg = Math.max(1, Math.floor(finalDmg / 2))
+      }
+
+      const newHp = db.damageCharacter(target.username, channel, finalDmg)
       const died = newHp <= 0
 
       attacks.push({
         enemy: enemy.name, target: target.username,
         d20Roll: result.d20Roll, attackTotal: result.attackTotal, targetAC: result.targetAC,
-        damage: result.damage,
+        damage: finalDmg,
         defended: target.defending,
         killed: died, targetHp: newHp, targetMaxHp: target.maxHp,
         isDying: died,
@@ -478,11 +498,26 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
       if (died) {
         // Vampire drain: heal the vampire
         if (enemy.specialAbility === 'drain') {
-          enemy.hp = Math.min(enemy.maxHp, enemy.hp + Math.floor(result.damage / 2))
+          enemy.hp = Math.min(enemy.maxHp, enemy.hp + Math.floor(finalDmg / 2))
         }
         // Player drops to 0 → enter dying state (not dead yet)
         db.setDying(target.username, channel, true)
         db.logDndAction(channel, target.username, 'dying', enemy.name)
+      }
+    }
+
+    // Lich lair action: after regular attack, legendary bonus — Disrupt Life (2d6 necrotic to random target)
+    if (enemy.specialAbility === 'lair_actions' && livingTargets.length > 0) {
+      const lairTarget = livingTargets[Math.floor((db.nextSequence(channel) % 999983) % livingTargets.length)]
+      if (lairTarget) {
+        const lairDmg = Array.from({ length: 2 }, () => Math.floor(Math.random() * 6) + 1).reduce((a, b) => a + b, 0)
+        const lairHp = db.damageCharacter(lairTarget.username, channel, lairDmg)
+        if (lairHp <= 0) {
+          db.setDying(lairTarget.username, channel, true)
+          attacks.push({ enemy: 'Lich LAIR ACTION', target: lairTarget.username, damage: lairDmg, defended: false, killed: false, targetHp: 0, targetMaxHp: lairTarget.maxHp, isDying: true })
+        } else {
+          attacks.push({ enemy: 'Lich LAIR ACTION', target: lairTarget.username, damage: lairDmg, defended: false, killed: false, targetHp: lairHp, targetMaxHp: lairTarget.maxHp })
+        }
       }
     }
   }
