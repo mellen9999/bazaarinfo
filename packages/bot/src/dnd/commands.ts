@@ -69,7 +69,7 @@ export function handleJoin(arg: string, ctx: CommandContext): string | null {
     prestige: 0, achievements: [],
   }
   db.upsertCharacter(newChar)
-  engine.announceJoin(channel)
+  engine.announceJoin(channel, { username, cls: matched })
   return render.renderJoin(newChar)
 }
 

@@ -283,6 +283,13 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
   const attackLine = render.renderEnemyAttacks(attacks)
   if (attackLine) say(channel, attackLine)
 
+  // combat hint: tell players what to do next
+  const stillAlive = freshWorld.enemies.filter((e) => e.hp > 0)
+  if (stillAlive.length > 0) {
+    const names = stillAlive.map((e) => `${e.name} ${e.hp}/${e.maxHp}HP`).join(', ')
+    say(channel, `${names} · !b a to attack · !b d to defend · !b spell for your ability`)
+  }
+
   // status ticks on players
   for (const target of targets) {
     const fresh = db.getCharacter(target.username, channel)
@@ -485,26 +492,37 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
 
 // --- join announcement (debounced per channel, one floor ping per burst of joins) ---
 const joinAnnounceTimers = new Map<string, Timer>()
+// track the most recent joiner for personalized welcome
+const pendingJoiners = new Map<string, { username: string; cls: string }>()
 
-export function announceJoin(channel: string): void {
+export function announceJoin(channel: string, newPlayer?: { username: string; cls: string }): void {
+  if (newPlayer) pendingJoiners.set(channel, newPlayer)
   if (joinAnnounceTimers.has(channel)) return // already scheduled
   const timer = setTimeout(async () => {
     joinAnnounceTimers.delete(channel)
+    const joiner = pendingJoiners.get(channel)
+    pendingJoiners.delete(channel)
     const world = db.getWorld(channel)
     if (!world || !world.enabled) return
     const players = db.getActivePlayers(channel)
-    if (!world.scene && (world.encounterType === 'combat' || world.encounterType === 'boss')) {
-      const enemyNames = world.enemies.filter((e) => e.hp > 0).map((e) => e.name)
-      const scene = await aiDm.describeFloor(world.floor, world.encounterType, enemyNames)
-      if (scene) {
-        world.scene = scene
-        db.upsertWorld(world)
-        say(channel, `[Floor ${world.floor}] ${scene}`)
-      }
-    } else if (world.scene) {
-      say(channel, `[Floor ${world.floor}] ${world.scene}`)
+    const aliveEnemies = world.enemies.filter((e) => e.hp > 0)
+    if (joiner) {
+      // personal welcome for brand-new or returning player
+      const msg = await aiDm.welcomePlayer(
+        joiner.username, joiner.cls,
+        world.floor, world.encounterType,
+        aliveEnemies.map((e) => e.name),
+      )
+      if (msg) { say(channel, msg); return }
     }
-    say(channel, render.renderFloor(world, players))
+    // fallback: narrative floor state
+    const narration = await aiDm.narrateFloor(
+      world.floor, world.encounterType,
+      aliveEnemies.map((e) => ({ name: e.name, hp: e.hp, maxHp: e.maxHp })),
+      players.filter((p) => p.hp > 0).length,
+      world.nlLifted,
+    )
+    say(channel, narration || render.renderFloor(world, players))
   }, 400)
   joinAnnounceTimers.set(channel, timer)
 }
@@ -693,28 +711,19 @@ export async function resolveMove(username: string, channel: string): Promise<st
   }
   db.upsertWorld(newWorld)
 
-  // async scene description
-  const enemyNames = newEnemies.map((e) => e.name)
-  aiDm.describeFloor(nextFloor, newEncounterType, enemyNames).then((scene) => {
-    if (scene) {
-      const w = db.getWorld(channel)
-      if (w && w.floor === nextFloor) {
-        w.scene = scene
-        db.upsertWorld(w)
-        say(channel, `[Floor ${nextFloor}] ${scene}`)
-      }
-    }
-  }).catch(() => {})
-
   if (newEncounterType === 'shop') {
     return render.renderShop(newShop, char.gold, nextFloor)
   }
-  if (newEncounterType === 'event') {
-    return `Floor ${nextFloor} — Event. Something stirs in the dark. !b explore to investigate.`
-  }
 
-  const w = db.getWorld(channel)
-  return w ? render.renderFloor(w, db.getActivePlayers(channel)) : `Floor ${nextFloor} entered.`
+  const aliveEnemies = newEnemies.filter((e) => e.hp > 0)
+  const players = db.getActivePlayers(channel)
+  const narration = await aiDm.narrateFloor(
+    nextFloor, newEncounterType,
+    aliveEnemies.map((e) => ({ name: e.name, hp: e.hp, maxHp: e.maxHp })),
+    players.filter((p) => p.hp > 0).length,
+    newWorld.nlLifted,
+  )
+  return narration || render.renderFloor(newWorld, players)
 }
 
 export async function resolveExplore(username: string, channel: string): Promise<string | null> {
@@ -784,19 +793,14 @@ export async function resolveFloor(username: string, channel: string): Promise<s
     return render.renderShop(world.shopInventory, char?.gold ?? 0, world.floor)
   }
 
-  if (!world.scene) {
-    const enemyNames = world.enemies.filter((e) => e.hp > 0).map((e) => e.name)
-    const scene = await aiDm.describeFloor(world.floor, world.encounterType, enemyNames)
-    if (scene) {
-      world.scene = scene
-      db.upsertWorld(world)
-      say(channel, `[Floor ${world.floor}] ${scene}`)
-    }
-  } else {
-    say(channel, `[Floor ${world.floor}] ${world.scene}`)
-  }
-
-  return render.renderFloor(world, players)
+  const aliveEnemies = world.enemies.filter((e) => e.hp > 0)
+  const narration = await aiDm.narrateFloor(
+    world.floor, world.encounterType,
+    aliveEnemies.map((e) => ({ name: e.name, hp: e.hp, maxHp: e.maxHp })),
+    players.filter((p) => p.hp > 0).length,
+    world.nlLifted,
+  )
+  return narration || render.renderFloor(world, players)
 }
 
 // --- stream hooks ---
