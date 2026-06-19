@@ -884,12 +884,14 @@ const CUSTOM_GEN_CD = 8_000
 const customPending = new Set<string>()
 const customGenCooldown = new Map<string, number>()
 
-// chatters pepper topics with emotes ("birds Birdge", "Crowge the rookery") — those
-// are participation noise, not part of the topic, and they tank generation. drop any
-// whitespace token that resolves to a known emote. if the topic is ALL emotes, keep it
-// as-is so a lone emote name can still be its own topic rather than a dead miss.
+// chatters pepper topics with emotes ("birds Birdge 🐦", "Crowge the rookery") — those
+// are participation noise, not part of the topic, and they tank generation. strip unicode
+// emoji/pictographs first, then drop any whitespace token that resolves to a known 7tv/
+// twitch emote name. if nothing real survives, keep the original trimmed input so a lone
+// emote name can still be its own topic rather than a dead miss.
 function stripEmotesFromTopic(topic: string): string {
-  const tokens = topic.split(/\s+/).filter(Boolean)
+  const noEmoji = topic.replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}️‍]/gu, ' ')
+  const tokens = noEmoji.split(/\s+/).filter(Boolean)
   const kept = tokens.filter((tok) => !findEmote(tok))
   return kept.length ? kept.join(' ') : topic.trim()
 }
