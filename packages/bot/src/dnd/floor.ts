@@ -139,7 +139,32 @@ const FLOOR_MONSTERS: Record<number, MonsterTemplate[]> = {
   ],
 }
 
-export function generateEnemies(season: number, floor: number): Enemy[] {
+// --- party scaling: solo is eased; large raids face a tougher horde ---
+// (capped so a 50-person chat raid is a real battle, not a 4000-HP sponge, and
+//  the 480-char output stays readable). 3 players = the 1.0 baseline.
+export function enemyCount(party: number, boss: boolean): number {
+  if (boss) return 1                                  // a boss is singular (its stats scale instead)
+  return Math.min(5, 2 + Math.max(0, Math.floor((party - 3) / 3)))  // +1 enemy per 3 players past 3, cap 5
+}
+
+export function partyHpScale(party: number, boss: boolean): number {
+  if (party <= 1) return boss ? 0.40 : 0.55
+  if (party === 2) return boss ? 0.68 : 0.82
+  if (party === 3) return 1.0
+  // large raids: bosses get much tankier (they absorb all the DPS); horde enemies less so.
+  // caps keep it from becoming a 4000-HP sponge — past ~30 players a raid is a collective steamroll by design.
+  return boss ? Math.min(9, 1 + (party - 3) * 0.30) : Math.min(3, 1 + (party - 3) * 0.10)
+}
+
+export function partyDmgScale(party: number, boss: boolean): number {
+  if (party <= 1) return boss ? 0.45 : 0.62
+  if (party === 2) return boss ? 0.75 : 0.88
+  if (party === 3) return 1.0
+  // damage (not HP) is what creates casualties in a big raid — scale it harder
+  return boss ? Math.min(3.5, 1 + (party - 3) * 0.12) : Math.min(2.6, 1 + (party - 3) * 0.07)
+}
+
+export function generateEnemies(season: number, floor: number, count = 2): Enemy[] {
   const rng = mulberry32(((season * 1009 + floor * 997) >>> 0))
   const isBossFloor = getFloorType(floor) === 'boss'
   const templates = FLOOR_MONSTERS[floor]
@@ -169,11 +194,11 @@ export function generateEnemies(season: number, floor: number): Enemy[] {
     }]
   }
 
-  // combat floors: pick 2 enemies, no duplicate special abilities (prevents Troll+Troll etc.)
+  // combat floors: `count` enemies, no duplicate special abilities (prevents Troll+Troll etc.)
   const enemies: Enemy[] = []
   const usedSpecials = new Set<string>()
-  const bzNames = bazaarMonsterNames(floor, 2, rng, false)  // real Bazaar skin (empty = generic)
-  for (let i = 0; i < 2; i++) {
+  const bzNames = bazaarMonsterNames(floor, count, rng, false)  // real Bazaar skin (empty = generic)
+  for (let i = 0; i < count; i++) {
     let t = templates[Math.floor(rng() * templates.length)]
     // retry once to avoid stacking regeneration/fortitude/paralyze
     if (t.specialAbility && usedSpecials.has(t.specialAbility) && templates.length > 1) {

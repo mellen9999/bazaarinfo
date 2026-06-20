@@ -108,6 +108,23 @@ function enqueue(channel: string, action: QueuedAction) {
   debounceTimers.set(channel, timer)
 }
 
+// live party size (alive, present, not dead/dying) — drives enemy scaling
+function activePartySize(channel: string): number {
+  return Math.max(1, db.getActivePlayers(channel).filter((p) => p.hp > 0 && p.respawnAt === null && !p.isDying).length)
+}
+
+// generate a floor's enemies scaled to the party: count + HP grow for big raids,
+// shrink for solo. Single source of truth for every enemy-spawn site.
+function scaledEnemies(season: number, floorNum: number, party: number): Enemy[] {
+  const isBoss = floor.getFloorType(floorNum) === 'boss'
+  const count = floor.enemyCount(party, isBoss)
+  const hpScale = floor.partyHpScale(party, isBoss)
+  return floor.generateEnemies(season, floorNum, count).map((e) => {
+    const hp = Math.max(10, Math.floor(e.hp * hpScale))
+    return { ...e, hp, maxHp: hp }
+  })
+}
+
 // shared accumulators for a single round resolution
 interface KillContext {
   resultLines: string[]
@@ -471,11 +488,7 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
   const livingTargets = targets.filter((p) => p.hp > 0 && !p.isDying)
   const partySize = Math.max(1, livingTargets.length)
   const isBossEncounter = freshWorld.encounterType === 'boss'
-  const damageScale = partySize === 1
-    ? (isBossEncounter ? 0.45 : 0.62)
-    : partySize === 2
-      ? (isBossEncounter ? 0.75 : 0.88)
-      : 1.0
+  const damageScale = floor.partyDmgScale(partySize, isBossEncounter)
 
   const attacks: Array<{
     enemy: string; target: string; d20Roll?: number; attackTotal?: number; targetAC?: number
@@ -757,7 +770,7 @@ function startNewSeason(channel: string) {
     floor: 1,
     actionSequence: 0,
     encounterType: floor.getFloorType(1),
-    enemies: floor.generateEnemies(world.season + 1, 1),
+    enemies: scaledEnemies(world.season + 1, 1, activePartySize(channel)),
     floorCleared: false,
     scene: '',
     season: world.season + 1,
@@ -1043,11 +1056,7 @@ export function scheduleRespawn(username: string, channel: string, delayMs: numb
     if (world && !world.floorCleared && (world.encounterType === 'combat' || world.encounterType === 'boss')) {
       const active = db.getActivePlayers(channel).filter((p) => p.hp > 0 && p.respawnAt === null && !p.isDying)
       if (active.length <= 1) {
-        world.enemies = floor.generateEnemies(world.season, world.floor)
-        for (const e of world.enemies) {
-          e.hp = Math.max(10, Math.floor(e.hp * 0.65))
-          e.maxHp = e.hp
-        }
+        world.enemies = scaledEnemies(world.season, world.floor, 1)  // solo reset
         db.upsertWorld(world)
         say(channel, `@${username} rises — enemies reset for solo. → !b floor`)
         return
@@ -1204,26 +1213,14 @@ export async function resolveMove(username: string, channel: string): Promise<st
   if (nextFloor > 10) return `you're at the final floor — defeat the boss to complete the season!`
 
   const newEncounterType = floor.getFloorType(nextFloor)
-  const newEnemies = (newEncounterType === 'combat' || newEncounterType === 'boss')
-    ? floor.generateEnemies(world.season, nextFloor)
-    : []
-  const newShop = newEncounterType === 'shop' ? floor.generateShop(world.season, nextFloor) : []
-
-  // scale enemy HP by live party size; bosses get extra solo/duo reduction
   const players = db.getActivePlayers(channel)
   const aliveCount = Math.max(1, players.filter((p) => p.hp > 0 && p.respawnAt === null && !p.isDying).length)
   const isBossFloor = newEncounterType === 'boss'
-  const hpScale = aliveCount === 1
-    ? (isBossFloor ? 0.40 : 0.55)
-    : aliveCount === 2
-      ? (isBossFloor ? 0.68 : 0.82)
-      : 1.0
-  if (hpScale < 1.0) {
-    for (const e of newEnemies) {
-      e.hp = Math.max(10, Math.floor(e.hp * hpScale))
-      e.maxHp = e.hp
-    }
-  }
+  // party-scaled enemies: solo eased, large raids face a tougher horde
+  const newEnemies = (newEncounterType === 'combat' || newEncounterType === 'boss')
+    ? scaledEnemies(world.season, nextFloor, aliveCount)
+    : []
+  const newShop = newEncounterType === 'shop' ? floor.generateShop(world.season, nextFloor) : []
 
   const newWorld: WorldState = {
     ...world,
@@ -1460,7 +1457,7 @@ export function createWorld(channel: string): WorldState {
     floor: 1,
     actionSequence: 0,
     encounterType: floor.getFloorType(1),
-    enemies: floor.generateEnemies(1, 1),
+    enemies: scaledEnemies(1, 1, 1),
     floorCleared: false,
     scene: '',
     season: 1,
@@ -1488,7 +1485,7 @@ export function setDndEnabled(channel: string, enabled: boolean): void {
 export function resetFloor(channel: string): void {
   const world = db.getWorld(channel)
   if (!world) return
-  world.enemies = floor.generateEnemies(world.season, world.floor)
+  world.enemies = scaledEnemies(world.season, world.floor, activePartySize(channel))
   world.floorCleared = false
   roundCounters.delete(channel)
   world.scene = ''

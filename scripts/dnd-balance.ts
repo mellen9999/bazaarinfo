@@ -11,7 +11,7 @@
 // run: bun scripts/dnd-balance.ts
 import { getClassDef, maxHpFor, maxSpellSlotsFor, syntheticDef, registerClassDef } from '../packages/bot/src/dnd/classdef'
 import * as combat from '../packages/bot/src/dnd/combat'
-import { generateEnemies, getFloorType, enemyReward, lootDrop, bossLootDrop } from '../packages/bot/src/dnd/floor'
+import { generateEnemies, getFloorType, enemyReward, lootDrop, bossLootDrop, enemyCount, partyHpScale, partyDmgScale } from '../packages/bot/src/dnd/floor'
 import { boonMods, BOONS, applyBoonOnPick } from '../packages/bot/src/dnd/boons'
 import { getModifier, XP_PER_LEVEL } from '../packages/bot/src/dnd/types'
 import type { Character, Enemy } from '../packages/bot/src/dnd/types'
@@ -23,7 +23,7 @@ const d20 = () => Math.floor(Math.random() * 20) + 1
 const pct = (x: number) => `${Math.round(x * 100).toString().padStart(3)}%`
 
 interface Res { slots: number; ki: number; rage: number; surgeUsed: boolean }
-interface P { char: Character; def: ReturnType<typeof getClassDef>; res: Res; down: boolean; dead: boolean; dsucc: number; dfail: number }
+interface P { char: Character; def: ReturnType<typeof getClassDef>; res: Res; down: boolean; dead: boolean; dsucc: number; dfail: number; everDown?: boolean }
 
 function simChar(className: string, level: number, boonIds: string[]): Character {
   const def = getClassDef(className)
@@ -113,18 +113,19 @@ function playerTurn(p: P, enemies: Enemy[], party: P[]): void {
 }
 
 // resolve one floor fight; mutates party (hp/down/dead persist). returns win + xp earned.
-function fight(party: P[], floor: number, season: number): { win: boolean; xp: number } {
+function fight(party: P[], floor: number, season: number): { win: boolean; xp: number; rounds: number; casualties: number } {
+  const cas = () => party.filter((p) => p.everDown).length
   const n = party.length
   const boss = getFloorType(floor) === 'boss'
-  const hpScale = n === 1 ? (boss ? 0.40 : 0.55) : n === 2 ? (boss ? 0.68 : 0.82) : 1.0
-  const dmgScale = n === 1 ? (boss ? 0.45 : 0.62) : n === 2 ? (boss ? 0.75 : 0.88) : 1.0
-  const enemies: Enemy[] = generateEnemies(season, floor).map((e) => { const hp = Math.max(10, Math.floor(e.hp * hpScale)); return { ...e, hp, maxHp: hp } })
+  const hpScale = partyHpScale(n, boss)
+  const dmgScale = partyDmgScale(n, boss)
+  const enemies: Enemy[] = generateEnemies(season, floor, enemyCount(n, boss)).map((e) => { const hp = Math.max(10, Math.floor(e.hp * hpScale)); return { ...e, hp, maxHp: hp } })
   let xp = 0
   const xpFor = (e: Enemy) => enemyReward(e, floor).xp  // real reward (boss xpValue now sane)
   const startHp = enemies.map((e) => e.hp)
 
   for (let round = 0; round < 80; round++) {
-    if (enemies.every((e) => e.hp <= 0)) { enemies.forEach((e, i) => { if (startHp[i] > 0) xp += xpFor(e) }); return { win: true, xp } }
+    if (enemies.every((e) => e.hp <= 0)) { enemies.forEach((e, i) => { if (startHp[i] > 0) xp += xpFor(e) }); return { win: true, xp, rounds: round, casualties: cas() } }
     // players act
     for (const p of party) { if (p.down || p.dead || p.char.hp <= 0) continue; maybePotion(p); playerTurn(p, enemies, party) }
     // enrage
@@ -151,7 +152,7 @@ function fight(party: P[], floor: number, season: number): { win: boolean; xp: n
           else {
             const raging = tgt.def.chassis === 'rage' && tgt.char.rageTurnsLeft > 0
             tgt.char.hp -= raging ? Math.max(1, Math.floor(r.damage / 2)) : r.damage
-            if (tgt.char.hp <= 0) { tgt.char.hp = 0; tgt.down = true; tgt.dsucc = 0; tgt.dfail = 0 }
+            if (tgt.char.hp <= 0) { tgt.char.hp = 0; tgt.down = true; tgt.everDown = true; tgt.dsucc = 0; tgt.dfail = 0 }
           }
           if (tgt.dfail >= 3) { tgt.dead = true; tgt.down = false }
         }
@@ -165,13 +166,12 @@ function fight(party: P[], floor: number, season: number): { win: boolean; xp: n
       else if (r >= 10) { if (++p.dsucc >= 3) { /* stable, stays at 0 hp, out unless healed */ } }
       else if (++p.dfail >= 3) { p.dead = true; p.down = false }
     }
-    if (party.every((p) => p.dead || (p.down && p.dsucc >= 3))) return { win: false, xp }  // wiped or all stable-but-down
+    if (party.every((p) => p.dead || (p.down && p.dsucc >= 3))) return { win: false, xp, rounds: round, casualties: cas() }
     if (party.every((p) => p.down || p.dead)) {
-      // nobody can act; let saves play out a few rounds for a nat-20 comeback
-      if (party.every((p) => p.dead)) return { win: false, xp }
+      if (party.every((p) => p.dead)) return { win: false, xp, rounds: round, casualties: cas() }
     }
   }
-  return { win: false, xp }
+  return { win: false, xp, rounds: 80, casualties: cas() }
 }
 
 function winRate(party: () => P[], floor: number, runs = 400): number {
@@ -194,15 +194,21 @@ for (const c of CLASSES) {
 }
 
 // ============================================================ 2. party scaling
-console.log('\n=== 2. party scaling: win% by party size (level 6, no boons, mid+boss) ===')
-console.log('size'.padEnd(11) + 'f7'.padStart(7) + 'f8'.padStart(7) + 'f6boss'.padStart(8) + 'f10boss'.padStart(9))
-for (const size of [1, 2, 3]) {
-  const mk = () => Array.from({ length: size }, () => makeP('Fighter', 6, []))
-  console.log(`${size}p Fighter`.padEnd(11) + pct(winRate(mk, 7, 300)).padStart(7) + pct(winRate(mk, 8, 300)).padStart(7) + pct(winRate(mk, 6, 300)).padStart(8) + pct(winRate(mk, 10, 300)).padStart(9))
+console.log('\n=== 2. party scaling incl. large raids (lvl 6, no boons) — a fight should have casualties + last >1 round ===')
+console.log('a trivial fight = 0 casualties, 1 round. enemyCount shown as combat/boss.')
+console.log('size'.padEnd(11) + 'enemies'.padStart(8) + '   f8: win cas rnds   |   f10boss: win cas rnds')
+const MIX = ['Fighter', 'Cleric', 'Wizard', 'Barbarian', 'Rogue', 'Sorcerer', 'Warlock', 'Monk', 'Paladin']
+function fightStats(size: number, fl: number): string {
+  let wins = 0, cas = 0, rnds = 0; const RUNS = 200
+  for (let i = 0; i < RUNS; i++) {
+    const r = fight(Array.from({ length: size }, (_, j) => makeP(MIX[j % MIX.length], 6, [])), fl, 1 + (i % 7))
+    if (r.win) wins++; cas += r.casualties; rnds += r.rounds + 1
+  }
+  return `${pct(wins / RUNS)} ${(cas / RUNS).toFixed(1)} ${(rnds / RUNS).toFixed(1)}`
 }
-for (const size of [1, 2, 3]) {
-  const mk = () => ['Fighter', 'Cleric', 'Wizard'].slice(0, size).map((c) => makeP(c, 6, []))
-  console.log(`${size}p mixed`.padEnd(11) + pct(winRate(mk, 7, 300)).padStart(7) + pct(winRate(mk, 8, 300)).padStart(7) + pct(winRate(mk, 6, 300)).padStart(8) + pct(winRate(mk, 10, 300)).padStart(9))
+for (const size of [1, 3, 5, 10, 20, 50]) {
+  const ec = `${enemyCount(size, false)}/${enemyCount(size, true)}b`
+  console.log(`${size}p`.padEnd(11) + ec.padStart(8) + '   ' + fightStats(size, 8).padEnd(20) + '   ' + fightStats(size, 10))
 }
 
 // ============================================================ 3. boon matrix
