@@ -272,10 +272,8 @@ async function processQueue(channel: string) {
 
       const killed = targetEnemy.hp <= 0
 
-      // Hall of Legends: biggest crit on record
-      if (outcome.crit && db.recordBest(channel, 'biggest_crit', totalDmg, action.username, `vs ${targetEnemy.name}`)) {
-        resultLines.push(`NEW RECORD — biggest crit: ${totalDmg} dmg by @${action.username}!`)
-      }
+      // Hall of Legends: track biggest crit silently (surfaced in !b legends)
+      if (outcome.crit) db.recordBest(channel, 'biggest_crit', totalDmg, action.username, `vs ${targetEnemy.name}`)
 
       // Troll special: regenerate 10HP at end of round if not killed by fire/acid
       if (killed && targetEnemy.specialAbility === 'regeneration') {

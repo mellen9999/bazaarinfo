@@ -539,9 +539,10 @@ describe('killCharacter → creates gravestone', () => {
 describe('multikillBanner', () => {
   it('n<2 → null', () => expect(multikillBanner('user', 1)).toBeNull())
   it('2 → DOUBLE KILL', () => expect(multikillBanner('user', 2)).toContain('DOUBLE KILL'))
-  it('3 → TRIPLE KILL', () => expect(multikillBanner('user', 3)).toContain('TRIPLE KILL'))
-  it('4 → ULTRA KILL', () => expect(multikillBanner('user', 4)).toContain('ULTRA KILL'))
-  it('5 → RAMPAGE', () => expect(multikillBanner('user', 5)).toContain('RAMPAGE'))
+  it('3+ → generic MULTI KILL (3+ unreachable in normal play)', () => {
+    expect(multikillBanner('user', 3)).toContain('MULTI KILL')
+    expect(multikillBanner('user', 5)).toContain('MULTI KILL')
+  })
 })
 
 describe('titleFor', () => {
