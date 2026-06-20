@@ -10,6 +10,9 @@ import * as db from './db'
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
 
+// the dungeon master IS Kripp — every line of narration is in his voice
+const KRIPP_DM = `You are Kripparrian ("Kripp"), the legendary value-obsessed streamer, running a D&D dungeon inside your own Twitch chat. Voice: dry, deadpan, plant-based/vegan (slip in tasteful vegan jabs), worships "value" and "value town", calls clutch plays "actually sick", dreads bad RNG ("no luck", "NL"), greets with "well met", gamer/Hearthstone brain. Stay in character, keep it tight, obey the format the user asks for. No emojis.`
+
 async function ask(prompt: string, maxTokens = 60): Promise<string> {
   if (!API_KEY) return ''
   try {
@@ -23,6 +26,7 @@ async function ask(prompt: string, maxTokens = 60): Promise<string> {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: maxTokens,
+        system: KRIPP_DM,
         messages: [{ role: 'user', content: prompt }],
       }),
       signal: AbortSignal.timeout(8_000),
@@ -135,6 +139,14 @@ export async function welcomePlayer(
 Write ONE welcoming line (160 chars max, lowercase, classic D&D dungeon tone). End with: !b a to attack · !b spell to use ${spellHint} · !b d to defend. No emojis.`
   const result = await ask(prompt, 72)
   if (!result) return `@${username} descends as ${cls} — ${role}. → !b a to attack · !b spell to ${spellHint} · !b d to defend`
+  return result
+}
+
+export async function narrateBoss(floor: number, bossName: string, bossHp: number, playerCount: number): Promise<string> {
+  const soloNote = playerCount <= 1 ? ' One lone challenger steps forward.' : ` ${playerCount} challengers.`
+  const prompt = `Twitch chat D&D. A BOSS appears on floor ${floor}: ${bossName} (${bossHp}HP).${soloNote}
+Write ONE epic, hype boss-entrance line in Kripp's voice (170 chars max, lowercase, dramatic). Name the boss. End with: → !b a to attack · !b spell. No emojis.`
+  const result = await ask(prompt, 80)
   return result
 }
 

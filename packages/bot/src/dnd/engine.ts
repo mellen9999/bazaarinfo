@@ -122,6 +122,7 @@ async function processQueue(channel: string) {
 
     const resultLines: string[] = []
     const levelUpLines: string[] = []
+    const killsThisRound = new Map<string, number>()  // for multikill banners
 
     for (const action of actions) {
       const char = db.getCharacter(action.username, channel)
@@ -242,6 +243,7 @@ async function processQueue(channel: string) {
       resultLines.push(render.renderCombatResult(result))
 
       if (killed) {
+        killsThisRound.set(action.username, (killsThisRound.get(action.username) ?? 0) + 1)
         const reward = floor.enemyReward(targetEnemy, world.floor)
         char.gold += reward.gold
         char.totalKills++
@@ -339,6 +341,12 @@ async function processQueue(channel: string) {
     }
 
     db.upsertWorld(world)
+
+    // multikill banners — spectacle for big rounds
+    for (const [user, kills] of killsThisRound) {
+      const banner = render.multikillBanner(user, kills)
+      if (banner) resultLines.push(banner)
+    }
 
     const combined = resultLines.join(' | ')
     if (combined) say(channel, combined.slice(0, 480))
@@ -1179,6 +1187,14 @@ export async function resolveMove(username: string, channel: string): Promise<st
   }
 
   const aliveEnemies = newEnemies.filter((e) => e.hp > 0)
+
+  // boss floors get a dramatic intro card before the tactical line
+  if (isBossFloor && aliveEnemies[0]) {
+    const boss = aliveEnemies[0]
+    const card = await aiDm.narrateBoss(nextFloor, boss.name, boss.hp, aliveCount)
+    say(channel, card || render.renderBossCard(nextFloor, boss.name, boss.hp))
+  }
+
   const narration = await aiDm.narrateFloor(
     nextFloor, newEncounterType,
     aliveEnemies.map((e) => ({ name: e.name, hp: e.hp, maxHp: e.maxHp })),

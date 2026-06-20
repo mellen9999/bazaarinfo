@@ -218,6 +218,21 @@ export function renderLevelUp(char: Character, newLevel: number): string {
   return trunc(`${char.username} levels up! Lv${newLevel} ${char.class} — +HP max. ${bonus}`)
 }
 
+export function renderBossCard(floor: number, bossName: string, bossHp: number): string {
+  return trunc(`▰▰▰ BOSS — FLOOR ${floor} ▰▰▰ ${bossName} rises (${bossHp}HP). no luck if you brought meat. → !b a to attack · !b spell · !b d to defend`)
+}
+
+// gamer-announcer multikill banners (2+ kills in one round)
+export function multikillBanner(username: string, kills: number): string | null {
+  if (kills < 2) return null
+  const tag = kills === 2 ? 'DOUBLE KILL'
+    : kills === 3 ? 'TRIPLE KILL'
+    : kills === 4 ? 'ULTRA KILL'
+    : 'RAMPAGE'
+  const flair = kills >= 5 ? ' ACTUALLY SICK!!!' : kills >= 3 ? ' value town is BOOMING' : ''
+  return `★ ${tag} — @${username} drops ${kills} this round!${flair} ★`
+}
+
 export function renderBoonOffer(username: string, offer: string[]): string {
   const opts = offer.map((id, i) => {
     const b = getBoon(id)
