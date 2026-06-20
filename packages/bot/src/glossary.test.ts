@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { lookupKeywords, DEFINITIONAL_INTENT, GLOSSARY } from './glossary'
+import { lookupKeywords, DEFINITIONAL_INTENT, GLOSSARY, glossaryAnswer, isBareKeyword } from './glossary'
 
 describe('glossary — authoritative keyword definitions', () => {
   it('returns the Flying rule for a flying query (the bug that got the bot called out)', () => {
@@ -8,7 +8,7 @@ describe('glossary — authoritative keyword definitions', () => {
     expect(hits[0]).toStartWith('Flying:')
     // the exact lie the bot told must be explicitly contradicted by the def
     expect(hits[0]).toContain('Freeze and Slow for half')
-    expect(hits[0].toLowerCase()).toContain('grants no')
+    expect(hits[0].toLowerCase()).toContain('gives no')
   })
 
   it('matches base keywords and common inflections', () => {
@@ -59,5 +59,39 @@ describe('glossary — authoritative keyword definitions', () => {
         expect(DEFINITIONAL_INTENT.test(q)).toBe(false)
       }
     })
+  })
+})
+
+describe('glossaryAnswer — deterministic structured-path answer', () => {
+  it('answers "what is flying" with the rule (not the item Flying Pig)', () => {
+    const a = glossaryAnswer('what is flying')
+    expect(a).not.toBeNull()
+    expect(a!).toStartWith('Flying:')
+    expect(a!).toContain('Freeze and Slow for half')
+  })
+  it('answers a bare keyword', () => {
+    expect(glossaryAnswer('poison')).toStartWith('Poison:')
+    expect(glossaryAnswer('what does burn do')).toStartWith('Burn:')
+  })
+  it('does NOT answer build/list asks (those want items)', () => {
+    expect(glossaryAnswer('what is the best flying item')).toBeNull()
+    expect(glossaryAnswer('best poison build')).toBeNull()
+    expect(glossaryAnswer('flying items')).toBeNull()
+  })
+  it('returns null for non-keyword queries', () => {
+    expect(glossaryAnswer('what is vanessa')).toBeNull()
+    expect(glossaryAnswer('lavaroller')).toBeNull()
+  })
+  it('joins multiple keywords and stays under the twitch limit', () => {
+    const a = glossaryAnswer('what is poison and burn')
+    expect(a).toContain('Poison:')
+    expect(a).toContain('Burn:')
+    expect(a!.length).toBeLessThanOrEqual(480)
+  })
+  it('isBareKeyword distinguishes a lone keyword from a phrase', () => {
+    expect(isBareKeyword('flying')).toBe(true)
+    expect(isBareKeyword('flying?')).toBe(true)
+    expect(isBareKeyword('flying items')).toBe(false)
+    expect(isBareKeyword('vanessa')).toBe(false)
   })
 })

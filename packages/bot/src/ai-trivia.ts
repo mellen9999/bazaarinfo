@@ -69,7 +69,51 @@ export async function generateCustomTrivia(topic: string, channel: string): Prom
   // before the retry so a spree can't slip a second call in over the daily backstop.
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0 && isOverDailyCap(channel)) break
-    const r = await attemptGen(clean, channel)
+    const r = await attemptGen(SYSTEM, `TOPIC: ${clean}`, channel)
+    if (r.ok) return r.q
+    if (!r.retry) return null
+  }
+  return null
+}
+
+// Trivia about what just happened in chat ("!b trivia about the last 5 min of
+// chat"). Same constrained single-call shape as custom-topic, but the source
+// material is the recent chat log and the question must be answerable from it.
+// Caller supplies the (bot-filtered) lines so this stays decoupled from chatbuf.
+const CHAT_SYSTEM = `You generate ONE trivia question about what happened in a Twitch chat log (provided by the user).
+
+Base the question ONLY on the actual messages shown — the answer MUST be objectively findable in the log: who said/asked something, a specific word/number/name someone mentioned, what topic came up, who did X. A fun recall question about the conversation.
+
+Hard requirements:
+- SINGLE objective, verifiable answer found in the log. No opinion, no "favorite".
+- Answer short + typeable: 1-4 words, a number, or a username. "answer" is the single canonical form ONLY; put alternates (with/without @, casing) in "accept".
+- Provide 2-5 accepted variants in "accept".
+- Keep it light and SFW. NEVER quote or ask about slurs, harassment, doxxing/personal info, or sexual content. If the log is mostly that, or too thin/empty to make a fair question, return {"ok":false}.
+
+Output ONLY a single minified JSON object, no markdown/prose/fences:
+{"ok":true,"question":"...","answer":"...","accept":["...","..."]}
+or
+{"ok":false}
+
+Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 4 words.`
+
+const MIN_CHAT_LINES = 5
+
+export async function generateChatTrivia(chatLines: string[], channel: string): Promise<CustomTrivia | null> {
+  if (!API_KEY) return null
+  if (!AI_CHANNELS.has(channel.toLowerCase())) return null
+  if (isOverDailyCap(channel)) {
+    log(`ai-trivia: daily cap hit for ${channel}, skipping chat trivia`)
+    return null
+  }
+  const lines = chatLines.map((l) => stripUnpairedSurrogates(l).trim()).filter(Boolean)
+  if (lines.length < MIN_CHAT_LINES) return null // not enough chat to be fair
+  // cap context so a flood of long pastas can't blow the request body / budget
+  const log_ = lines.slice(-40).join('\n').slice(-2400)
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0 && isOverDailyCap(channel)) break
+    const r = await attemptGen(CHAT_SYSTEM, `CHAT LOG (oldest first):\n${log_}`, channel)
     if (r.ok) return r.q
     if (!r.retry) return null
   }
@@ -78,7 +122,7 @@ export async function generateCustomTrivia(topic: string, channel: string): Prom
 
 type GenResult = { ok: true; q: CustomTrivia } | { ok: false; retry: boolean }
 
-async function attemptGen(clean: string, channel: string): Promise<GenResult> {
+async function attemptGen(system: string, userContent: string, channel: string): Promise<GenResult> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT)
   try {
@@ -93,8 +137,8 @@ async function attemptGen(clean: string, channel: string): Promise<GenResult> {
         model: MODEL,
         max_tokens: 300,
         temperature: 0.85,
-        system: SYSTEM,
-        messages: [{ role: 'user', content: `TOPIC: ${clean}` }],
+        system,
+        messages: [{ role: 'user', content: userContent }],
       }),
       signal: controller.signal,
     })
