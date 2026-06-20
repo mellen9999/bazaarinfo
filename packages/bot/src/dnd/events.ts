@@ -14,7 +14,7 @@ export interface EventDef {
 // every event is reached via `!b explore`
 export const EVENTS: Record<EventId, EventDef> = {
   shrine:   { id: 'shrine',   name: 'Ancient Shrine',   intro: "an ancient shrine hums with pale light. it judges what you carry. → !b explore to approach" },
-  altar:    { id: 'altar',    name: 'Cursed Altar',     intro: "a cursed altar drips shadow. it hungers for gold to lift the season's no-luck curse. → !b explore to offer" },
+  altar:    { id: 'altar',    name: 'Cursed Altar',     intro: "a cursed altar drips shadow. sacrifice 50g and its dark power is yours, permanently. → !b explore to offer" },
   gamble:   { id: 'gamble',   name: "Merchant's Gamble", intro: "a hooded merchant rattles loaded dice. 'value town, friend — 30g, double or nothing.' → !b explore to roll" },
   chest:    { id: 'chest',    name: 'Mysterious Chest',  intro: "a battered chest sits alone. could be loot. could be teeth. → !b explore to open" },
   spring:   { id: 'spring',   name: 'Healing Spring',    intro: "a clear spring bubbles, plant-based and pure. → !b explore to drink" },
@@ -45,7 +45,6 @@ export function pickEvent(season: number, floor: number): EventDef {
 export interface EventContext {
   char: Character
   hasMeat: boolean       // for the shrine's vegan judgment
-  partyGold: number      // for the altar's collective toll
   itemReward: string | null  // a tier-appropriate item the engine pre-rolled
 }
 
@@ -57,11 +56,11 @@ export interface EventResult {
   grantItem: string | null
   boonOffer: boolean      // engine rolls a pick-1-of-3 offer
   blessed: boolean        // add 'blessed' status
-  liftNl: boolean         // lift the season no-luck curse
+  maxHpDelta: number      // permanent max-HP change (altar sacrifice)
 }
 
 function blank(message: string): EventResult {
-  return { message, goldDelta: 0, healAmount: 0, fullHeal: false, grantItem: null, boonOffer: false, blessed: false, liftNl: false }
+  return { message, goldDelta: 0, healAmount: 0, fullHeal: false, grantItem: null, boonOffer: false, blessed: false, maxHpDelta: 0 }
 }
 
 // resolve an event. seed makes gambles/chests deterministic per (season, floor, user).
@@ -78,12 +77,9 @@ export function resolveEvent(ev: EventDef, ctx: EventContext, seed: number): Eve
     }
 
     case 'altar': {
-      if (ctx.partyGold < 50) {
-        return blank(`the Cursed Altar demands 50g from the party (have ${ctx.partyGold}g). the darkness lingers.`)
-      }
-      // explorer pays what they can toward 50 (engine handles party split if desired)
-      const pay = Math.min(char.gold, 50)
-      return { ...blank(`@${char.username} offers ${pay}g to the Cursed Altar. an ancient burden lifts — luck restored for the season.`), goldDelta: -pay, liftNl: true }
+      const cost = 50
+      if (char.gold < cost) return blank(`the Cursed Altar demands ${cost}g (you have ${char.gold}g). it stays dormant.`)
+      return { ...blank(`@${char.username} sacrifices ${cost}g to the Cursed Altar — dark power surges. +8 max HP, permanently.`), goldDelta: -cost, maxHpDelta: 8 }
     }
 
     case 'gamble': {

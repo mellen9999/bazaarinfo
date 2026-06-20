@@ -82,6 +82,7 @@ export function renderCombatResult(result: CombatResult): string {
   line += ` + ${result.attackTotal - result.d20Roll} = ${result.attackTotal} vs AC ${result.targetAC} — HIT!`
   line += ` ${result.weaponName}: ${result.damageDiceStr} = ${result.damage} dmg.`
   if (result.comboBonus) line += ` COMBO +${result.comboBonus}!`
+  if (result.lifesteal) line += ` (drain ${result.lifesteal})`
   if (result.actuallySick) line += ' ACTUALLY SICK!'
 
   if (result.enemyKilled) {
@@ -148,7 +149,6 @@ export function titleFor(char: Character): string {
   if ((char.prestige ?? 0) >= 3) return 'the Eternal'
   if ((char.killStreak ?? 0) >= 10) return 'the Unkillable'
   if ((char.boons ?? []).length >= 6) return 'the Ascended'
-  if ((char.prestige ?? 0) >= 1) return 'the Veteran'
   if ((char.totalKills ?? 0) >= 100) return 'the Butcher'
   if ((char.achievements ?? []).includes('boss')) return 'Boss Slayer'
   if ((char.totalKills ?? 0) >= 50) return 'the Slayer'

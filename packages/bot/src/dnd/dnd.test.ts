@@ -97,7 +97,6 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
     scene: 'a dark corridor',
     season: 1,
     enabled: true,
-    nlLifted: false,
     shopInventory: [],
     veganShrineVisited: false,
     longRestCounter: 0,
@@ -830,14 +829,13 @@ describe('dnd db', () => {
 
   it('upsertWorld + getWorld round-trip preserving longRestCounter', async () => {
     const { upsertWorld, getWorld } = await import('./db')
-    const world = makeWorld({ channel: 'worldtest', veganShrineVisited: true, nlLifted: true, floor: 5, season: 3, longRestCounter: 2 })
+    const world = makeWorld({ channel: 'worldtest', veganShrineVisited: true, floor: 5, season: 3, longRestCounter: 2 })
     upsertWorld(world)
     const retrieved = getWorld('worldtest')
     expect(retrieved).not.toBeNull()
     expect(retrieved!.floor).toBe(5)
     expect(retrieved!.season).toBe(3)
     expect(retrieved!.veganShrineVisited).toBe(true)
-    expect(retrieved!.nlLifted).toBe(true)
     expect(retrieved!.longRestCounter).toBe(2)
   })
 

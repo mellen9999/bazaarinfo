@@ -189,7 +189,6 @@ export interface WorldState {
   scene: string
   season: number
   enabled: boolean
-  nlLifted: boolean
   shopInventory: ShopItem[]
   veganShrineVisited: boolean
   longRestCounter: number
@@ -219,6 +218,7 @@ export interface CombatResult {
   sneakAttackDice?: number
   actuallySick?: boolean
   comboBonus?: number
+  lifesteal?: number
 }
 
 export interface EnemyAttackResult {
