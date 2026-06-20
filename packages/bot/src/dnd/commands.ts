@@ -203,6 +203,16 @@ export function handleLeaderboard(arg: string, ctx: CommandContext): string | nu
   return `Depths leaderboard: ${top.join(' | ')}`
 }
 
+export function handleLegends(arg: string, ctx: CommandContext): string | null {
+  if (!ctx.channel) return null
+  return render.renderLegends(db.getRecords(ctx.channel.toLowerCase()))
+}
+
+export function handleGraveyard(arg: string, ctx: CommandContext): string | null {
+  if (!ctx.channel) return null
+  return render.renderGraveyard(db.getGraves(ctx.channel.toLowerCase(), 6))
+}
+
 export function handleDndToggle(arg: string, ctx: CommandContext): string | null {
   if (!ctx.channel || !ctx.isMod) return null
   const on = arg.toLowerCase().trim() === 'on'

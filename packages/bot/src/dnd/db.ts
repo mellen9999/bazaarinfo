@@ -101,6 +101,31 @@ export function initDndDb(): void {
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
   )`)
 
+  // Hall of Legends: per-channel records (deepest floor, biggest crit, first kills…)
+  db.run(`CREATE TABLE IF NOT EXISTS dnd_records (
+    channel TEXT NOT NULL,
+    rkey TEXT NOT NULL,
+    holder TEXT NOT NULL,
+    value INTEGER NOT NULL DEFAULT 0,
+    detail TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    PRIMARY KEY (channel, rkey)
+  )`)
+
+  // gravestones of the fallen
+  db.run(`CREATE TABLE IF NOT EXISTS dnd_graves (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel TEXT NOT NULL,
+    username TEXT NOT NULL,
+    class TEXT NOT NULL,
+    level INTEGER NOT NULL,
+    floor INTEGER NOT NULL,
+    killer TEXT NOT NULL,
+    season INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  )`)
+  db.run(`CREATE INDEX IF NOT EXISTS idx_dnd_graves_channel ON dnd_graves(channel, created_at)`)
+
   // inline migrations — safe to re-run, fail silently if column exists
   const CHAR_MIGRATIONS = [
     `ALTER TABLE dnd_characters ADD COLUMN prestige INTEGER NOT NULL DEFAULT 0`,
@@ -462,8 +487,12 @@ export function healCharacter(username: string, channel: string, amount: number)
   }
 }
 
-export function killCharacter(username: string, channel: string, respawnMs: number): void {
+export function killCharacter(username: string, channel: string, respawnMs: number, killer = 'the dungeon'): void {
   try {
+    // record a gravestone before the kill (chokepoint for all deaths)
+    const char = getCharacter(username, channel)
+    const world = getWorld(channel)
+    if (char) addGrave(channel, username, char.class, char.level, world?.floor ?? 0, killer, world?.season ?? 1)
     stmts.killChar.run(respawnMs, username.toLowerCase(), channel.toLowerCase())
   } catch (e) {
     log(`dnd: killCharacter error: ${e}`)
@@ -500,6 +529,55 @@ export function stabilizeCharacter(username: string, channel: string): void {
   } catch (e) {
     log(`dnd: stabilizeCharacter error: ${e}`)
   }
+}
+
+// --- Hall of Legends + gravestones ---
+export interface DndRecord { rkey: string; holder: string; value: number; detail: string }
+
+// update a "highest wins" record; returns true if a new record was set
+export function recordBest(channel: string, rkey: string, value: number, holder: string, detail = ''): boolean {
+  try {
+    const db = getDb()
+    const cur = db.query('SELECT value FROM dnd_records WHERE channel = ? AND rkey = ?').get(channel.toLowerCase(), rkey) as { value: number } | null
+    if (cur && cur.value >= value) return false
+    db.run(
+      `INSERT INTO dnd_records (channel, rkey, holder, value, detail) VALUES (?,?,?,?,?)
+       ON CONFLICT(channel, rkey) DO UPDATE SET holder=excluded.holder, value=excluded.value, detail=excluded.detail, created_at=unixepoch()`,
+      [channel.toLowerCase(), rkey, holder, value, detail],
+    )
+    return true
+  } catch (e) { log(`dnd: recordBest error: ${e}`); return false }
+}
+
+// set a record only if it doesn't exist yet (e.g. first to slay a boss)
+export function recordFirst(channel: string, rkey: string, holder: string, detail = ''): boolean {
+  try {
+    const db = getDb()
+    const cur = db.query('SELECT 1 FROM dnd_records WHERE channel = ? AND rkey = ?').get(channel.toLowerCase(), rkey)
+    if (cur) return false
+    db.run('INSERT INTO dnd_records (channel, rkey, holder, value, detail) VALUES (?,?,?,?,?)',
+      [channel.toLowerCase(), rkey, holder, 1, detail])
+    return true
+  } catch (e) { log(`dnd: recordFirst error: ${e}`); return false }
+}
+
+export function getRecords(channel: string): DndRecord[] {
+  try {
+    return getDb().query('SELECT rkey, holder, value, detail FROM dnd_records WHERE channel = ?').all(channel.toLowerCase()) as DndRecord[]
+  } catch (e) { log(`dnd: getRecords error: ${e}`); return [] }
+}
+
+export function addGrave(channel: string, username: string, cls: string, level: number, floor: number, killer: string, season: number): void {
+  try {
+    getDb().run('INSERT INTO dnd_graves (channel, username, class, level, floor, killer, season) VALUES (?,?,?,?,?,?,?)',
+      [channel.toLowerCase(), username.toLowerCase(), cls, level, floor, killer, season])
+  } catch (e) { log(`dnd: addGrave error: ${e}`) }
+}
+
+export function getGraves(channel: string, limit: number): { username: string; class: string; level: number; floor: number; killer: string }[] {
+  try {
+    return getDb().query('SELECT username, class, level, floor, killer FROM dnd_graves WHERE channel = ? ORDER BY id DESC LIMIT ?').all(channel.toLowerCase(), limit) as { username: string; class: string; level: number; floor: number; killer: string }[]
+  } catch (e) { log(`dnd: getGraves error: ${e}`); return [] }
 }
 
 const XP_PER_LEVEL = [0, 0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000]

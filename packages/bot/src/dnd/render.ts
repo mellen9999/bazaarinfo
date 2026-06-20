@@ -141,6 +141,44 @@ const ACH_LABELS: Record<string, string> = {
   boss: 'bossslayer', vegan: 'vegansaint', veteran: 'veteran',
 }
 
+// earned title shown by your name — highest-priority milestone wins
+export function titleFor(char: Character): string {
+  if ((char.prestige ?? 0) >= 3) return 'the Eternal'
+  if ((char.boons ?? []).length >= 6) return 'the Ascended'
+  if ((char.prestige ?? 0) >= 1) return 'the Veteran'
+  if ((char.totalKills ?? 0) >= 100) return 'the Butcher'
+  if ((char.achievements ?? []).includes('boss')) return 'Boss Slayer'
+  if ((char.totalKills ?? 0) >= 50) return 'the Slayer'
+  if ((char.deaths ?? 0) >= 15) return 'the Doomed'
+  if ((char.achievements ?? []).includes('vegan')) return 'the Pure'
+  return ''
+}
+
+const RECORD_LABELS: Record<string, (r: { holder: string; value: number; detail: string }) => string> = {
+  deepest_floor: (r) => `Deepest: floor ${r.value} (${r.holder})`,
+  biggest_crit: (r) => `Biggest crit: ${r.value} (${r.holder})`,
+  most_kills: (r) => `Most kills: ${r.value} (${r.holder})`,
+}
+
+export function renderLegends(records: { rkey: string; holder: string; value: number; detail: string }[]): string {
+  if (records.length === 0) return 'the Hall of Legends is empty — be the first to make history. !b join'
+  const parts: string[] = []
+  for (const key of ['deepest_floor', 'biggest_crit', 'most_kills']) {
+    const r = records.find((x) => x.rkey === key)
+    if (r) parts.push(RECORD_LABELS[key](r))
+  }
+  const firsts = records.filter((r) => r.rkey.startsWith('firstkill_'))
+    .map((r) => `${r.rkey.replace('firstkill_', '').replace(/\b\w/g, (c) => c.toUpperCase())}→${r.holder}`)
+  if (firsts.length > 0) parts.push(`First kills: ${firsts.slice(0, 4).join(', ')}`)
+  return trunc(`★ HALL OF LEGENDS ★ ${parts.join(' | ')}`)
+}
+
+export function renderGraveyard(graves: { username: string; class: string; level: number; floor: number; killer: string }[]): string {
+  if (graves.length === 0) return 'the graveyard is empty — nobody has fallen yet. press your luck.'
+  const stones = graves.slice(0, 6).map((g) => `RIP ${g.username}(Lv${g.level} ${g.class[0]}) f${g.floor}†${g.killer}`)
+  return trunc(`⚰ GRAVEYARD ⚰ ${stones.join(' | ')}`)
+}
+
 export function renderCharacter(char: Character): string {
   const xpTable = [0, 0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000]
   const nextXp = char.level < 10 ? (xpTable[char.level + 1] ?? '—') : 'MAX'
@@ -159,7 +197,9 @@ export function renderCharacter(char: Character): string {
   resources += ` hd:${char.hitDice}/${char.maxHitDice}`
 
   const ac = charAC(char)
-  let line = `${char.username}${stars}${achs} | Lv${char.level} ${char.class} | ${char.hp}/${char.maxHp}HP AC${ac} | ${char.gold}g`
+  const title = titleFor(char)
+  const titleStr = title ? ` "${title}"` : ''
+  let line = `${char.username}${stars}${achs}${titleStr} | Lv${char.level} ${char.class} | ${char.hp}/${char.maxHp}HP AC${ac} | ${char.gold}g`
   if (char.inventory.length > 0) line += ` | ${char.inventory.join(', ')}`
   line += ` | XP:${char.xp}/${nextXp}${resources} | deaths:${char.deaths}`
   if ((char.boons ?? []).length > 0) line += ` | boons:${boonLabels(char)}`
