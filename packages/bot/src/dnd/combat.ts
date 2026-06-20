@@ -98,6 +98,7 @@ export interface AttackOutcome {
   statusApplied?: string
   sneakAttackDice?: number
   actuallySick?: boolean
+  comboBonus?: number
 }
 
 export function resolvePlayerAttack(
@@ -165,6 +166,13 @@ export function resolvePlayerAttack(
   if (boons.executionerPct > 0 && enemy.hp <= enemy.maxHp * 0.3) boonDmgMult += boons.executionerPct
   totalDmg = Math.max(1, Math.floor(totalDmg * damageMult * boonDmgMult))
 
+  // COMBO: detonate a status-afflicted foe for bonus damage — rewards party setup
+  let comboBonus = 0
+  if (enemy.statusEffect) {
+    comboBonus = Math.floor(char.level / 2) + 2
+    totalDmg += comboBonus
+  }
+
   // actuallySick: natural 20 kills a boss
   const actuallySick = isCrit && enemy.isBoss && totalDmg >= enemy.hp
 
@@ -185,6 +193,7 @@ export function resolvePlayerAttack(
     damage: totalDmg, damageDiceStr: diceStr,
     weaponName: weapon.name,
     statusApplied,
+    comboBonus: comboBonus > 0 ? comboBonus : undefined,
     sneakAttackDice: saCount > 0 ? saCount : undefined,
     actuallySick: actuallySick || undefined,
   }

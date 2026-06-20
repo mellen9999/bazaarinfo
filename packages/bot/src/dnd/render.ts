@@ -80,6 +80,7 @@ export function renderCombatResult(result: CombatResult): string {
   if (result.crit) line += ' [NAT 20!]'
   line += ` + ${result.attackTotal - result.d20Roll} = ${result.attackTotal} vs AC ${result.targetAC} — HIT!`
   line += ` ${result.weaponName}: ${result.damageDiceStr} = ${result.damage} dmg.`
+  if (result.comboBonus) line += ` COMBO +${result.comboBonus}!`
   if (result.actuallySick) line += ' ACTUALLY SICK!'
 
   if (result.enemyKilled) {
