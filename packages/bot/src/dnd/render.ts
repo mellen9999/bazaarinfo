@@ -1,6 +1,7 @@
 import type { Character, WorldState, ShopItem, CombatResult } from './types'
 import { getClassDef, charAC, joinActionFor, levelUpBonusFor } from './classdef'
 import { getBoon, boonLabels } from './boons'
+import { XP_PER_LEVEL } from './types'
 
 const MAX_LEN = 480
 
@@ -184,8 +185,7 @@ export function renderGraveyard(graves: { username: string; class: string; level
 }
 
 export function renderCharacter(char: Character): string {
-  const xpTable = [0, 0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000]
-  const nextXp = char.level < 10 ? (xpTable[char.level + 1] ?? '—') : 'MAX'
+  const nextXp = char.level < 10 ? (XP_PER_LEVEL[char.level + 1] ?? '—') : 'MAX'
   const stars = char.prestige > 0 ? '★'.repeat(Math.min(char.prestige, 5)) : ''
   const achs = (char.achievements ?? []).length > 0
     ? ` [${char.achievements.map((a) => ACH_LABELS[a] ?? a).join('][')}]`

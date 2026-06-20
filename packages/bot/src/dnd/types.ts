@@ -66,7 +66,7 @@ export const CLASS_SPELL_SLOTS_LV1: Record<string, number> = {
 export function calcMaxSpellSlots(cls: string, level: number): number {
   const base = CLASS_SPELL_SLOTS_LV1[cls] ?? 0
   if (base === 0) return 0
-  if (cls === 'Warlock') return Math.min(4, 1 + Math.floor(level / 3))
+  if (cls === 'Warlock') return Math.min(4, 2 + Math.floor(level / 4))
   return Math.min(10, base + Math.floor((level - 1) / 2))
 }
 
@@ -80,6 +80,10 @@ export function calcMaxHp(cls: string, level: number, conScore: number): number 
   if (level === 1) return die + conMod
   return die + conMod + (level - 1) * (Math.floor(die / 2) + 1 + conMod)
 }
+
+// XP thresholds per level (single source of truth — used by leveling + display).
+// flattened for this game's pacing (~6-8 trash kills + 2 bosses per season).
+export const XP_PER_LEVEL = [0, 0, 120, 280, 480, 720, 1000, 1350, 1750, 2200, 2750]
 
 // AC formula families — every class (builtin or custom) maps to exactly one.
 export type AcArchetype = 'unarmored' | 'mail' | 'plate' | 'light' | 'mage' | 'monk' | 'default'

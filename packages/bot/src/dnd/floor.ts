@@ -77,10 +77,10 @@ function rollHp(rng: () => number, count: number, die: number, mod: number): num
 }
 
 export function getFloorType(floor: number): EncounterType {
-  if (floor === 3 || floor === 5) return 'shop'
+  if (floor === 5) return 'shop'
   if (floor === 6 || floor === 10) return 'boss'
   if (floor === 4 || floor === 9) return 'event'  // 4 = varied event, 9 = vegan shrine (canon)
-  return 'combat'
+  return 'combat'  // 1,2,3,7,8 — three combat floors feed the first boss
 }
 
 // D&D 5e monster templates by floor tier
@@ -108,17 +108,22 @@ const FLOOR_MONSTERS: Record<number, MonsterTemplate[]> = {
     { name: 'Giant Rat', ac: 12, hpDie: 6, hpCount: 1, hpMod: 0,  hitBonus: 4, damageDie: 4, damageCount: 1, damageMod: 0, multiattack: 1, cr: 0.125, xpValue: 25 },
   ],
   2: [
-    { name: 'Hobgoblin', ac: 18, hpDie: 8, hpCount: 2, hpMod: 2,  hitBonus: 3, damageDie: 8, damageCount: 1, damageMod: 1, multiattack: 1, cr: 0.5, xpValue: 100 },
-    { name: 'Orc',       ac: 13, hpDie: 8, hpCount: 2, hpMod: 6,  hitBonus: 5, damageDie: 12, damageCount: 1, damageMod: 3, multiattack: 1, cr: 0.5, xpValue: 100 },
-    { name: 'Bugbear',   ac: 16, hpDie: 8, hpCount: 5, hpMod: 5,  hitBonus: 4, damageDie: 8, damageCount: 2, damageMod: 2, multiattack: 1, cr: 1, xpValue: 200 },
+    { name: 'Hobgoblin', ac: 16, hpDie: 8, hpCount: 2, hpMod: 2,  hitBonus: 3, damageDie: 8, damageCount: 1, damageMod: 1, multiattack: 1, cr: 0.5, xpValue: 100 },
+    { name: 'Orc',       ac: 13, hpDie: 8, hpCount: 2, hpMod: 6,  hitBonus: 5, damageDie: 10, damageCount: 1, damageMod: 3, multiattack: 1, cr: 0.5, xpValue: 100 },
+    { name: 'Bugbear',   ac: 15, hpDie: 8, hpCount: 4, hpMod: 4,  hitBonus: 4, damageDie: 8, damageCount: 1, damageMod: 2, multiattack: 1, cr: 1, xpValue: 150 },
+  ],
+  3: [
+    { name: 'Wolf',         ac: 13, hpDie: 8, hpCount: 2, hpMod: 2, hitBonus: 4, damageDie: 6, damageCount: 1, damageMod: 2, multiattack: 1, cr: 0.5, xpValue: 100 },
+    { name: 'Bandit',       ac: 13, hpDie: 8, hpCount: 3, hpMod: 3, hitBonus: 4, damageDie: 6, damageCount: 1, damageMod: 2, multiattack: 1, cr: 0.5, xpValue: 100 },
+    { name: 'Giant Spider', ac: 14, hpDie: 8, hpCount: 4, hpMod: 4, hitBonus: 5, damageDie: 8, damageCount: 1, damageMod: 3, multiattack: 1, cr: 1, xpValue: 200, specialAbility: 'paralyze' },
   ],
   4: [
     { name: 'Skeleton',  ac: 13, hpDie: 8, hpCount: 1, hpMod: 4,  hitBonus: 4, damageDie: 6, damageCount: 1, damageMod: 2, multiattack: 1, cr: 0.25, xpValue: 50 },
     { name: 'Zombie',    ac: 8,  hpDie: 8, hpCount: 3, hpMod: 9,  hitBonus: 3, damageDie: 6, damageCount: 1, damageMod: 1, multiattack: 1, cr: 0.25, xpValue: 50, specialAbility: 'fortitude' },
     { name: 'Ghoul',     ac: 13, hpDie: 8, hpCount: 5, hpMod: 5,  hitBonus: 2, damageDie: 6, damageCount: 2, damageMod: 0, multiattack: 2, cr: 1, xpValue: 200, specialAbility: 'paralyze' },
   ],
-  6: [ // boss
-    { name: 'Fire Giant', ac: 18, hpDie: 12, hpCount: 13, hpMod: 65, hitBonus: 11, damageDie: 6, damageCount: 6, damageMod: 7, multiattack: 2, cr: 9, xpValue: 5000, specialAbility: 'fire_immunity' },
+  6: [ // act-1 boss — milestone, not a wall (tuned for a ~level-4-5 arrival)
+    { name: 'Fire Giant', ac: 15, hpDie: 12, hpCount: 10, hpMod: 30, hitBonus: 7, damageDie: 8, damageCount: 2, damageMod: 5, multiattack: 2, cr: 6, xpValue: 700, specialAbility: 'fire_immunity' },
   ],
   7: [
     { name: 'Drow Warrior',  ac: 15, hpDie: 8, hpCount: 3, hpMod: 3,  hitBonus: 4, damageDie: 6, damageCount: 2, damageMod: 2, multiattack: 2, cr: 1, xpValue: 200 },
@@ -129,8 +134,8 @@ const FLOOR_MONSTERS: Record<number, MonsterTemplate[]> = {
     { name: 'Vampire Spawn', ac: 13, hpDie: 8, hpCount: 11, hpMod: 22, hitBonus: 6, damageDie: 6, damageCount: 2, damageMod: 3, multiattack: 2, cr: 5, xpValue: 1800, specialAbility: 'drain' },
     { name: 'Night Hag',     ac: 17, hpDie: 8, hpCount: 15, hpMod: 45, hitBonus: 7, damageDie: 8, damageCount: 2, damageMod: 4, multiattack: 2, cr: 5, xpValue: 1800, specialAbility: 'nightmare' },
   ],
-  10: [ // final boss
-    { name: 'Lich', ac: 17, hpDie: 12, hpCount: 18, hpMod: 36, hitBonus: 12, damageDie: 10, damageCount: 4, damageMod: 6, multiattack: 1, cr: 21, xpValue: 33000, specialAbility: 'lair_actions' },
+  10: [ // final boss — the season climax (tuned for a ~level-8-9 arrival)
+    { name: 'Lich', ac: 16, hpDie: 12, hpCount: 16, hpMod: 40, hitBonus: 8, damageDie: 8, damageCount: 3, damageMod: 5, multiattack: 1, cr: 12, xpValue: 1500, specialAbility: 'lair_actions' },
   ],
 }
 

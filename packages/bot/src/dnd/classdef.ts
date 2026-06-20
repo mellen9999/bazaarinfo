@@ -161,7 +161,7 @@ export function maxHpFor(def: ClassDef, level: number, conScore: number): number
 export function maxSpellSlotsFor(def: ClassDef, level: number): number {
   const base = spellSlotsLv1ForChassis(def.chassis)
   if (base === 0) return 0
-  if (def.chassis === 'curse') return Math.min(4, 1 + Math.floor(level / 3))
+  if (def.chassis === 'curse') return Math.min(4, 2 + Math.floor(level / 4))
   return Math.min(10, base + Math.floor((level - 1) / 2))
 }
 

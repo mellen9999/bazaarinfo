@@ -1,7 +1,7 @@
 import type { Statement } from 'bun:sqlite'
 import { getDb } from '../db'
 import { log } from '../log'
-import { CLASS_BASE_STATS, calcMaxHp, calcMaxSpellSlots, getModifier } from './types'
+import { CLASS_BASE_STATS, calcMaxHp, calcMaxSpellSlots, getModifier, XP_PER_LEVEL } from './types'
 import type { Character, WorldState, EncounterType, ShopItem, Enemy, AbilityScores } from './types'
 import { getClassDef, registerClassDef } from './classdef'
 import type { ClassDef, Chassis } from './classdef'
@@ -589,7 +589,6 @@ export function getGraves(channel: string, limit: number): { username: string; c
   } catch (e) { log(`dnd: getGraves error: ${e}`); return [] }
 }
 
-const XP_PER_LEVEL = [0, 0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000]
 
 export function addCharacterXp(username: string, channel: string, xp: number): { newLevel: number; leveledUp: boolean } {
   try {
