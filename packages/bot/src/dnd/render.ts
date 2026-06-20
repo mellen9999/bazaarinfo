@@ -1,5 +1,6 @@
 import type { Character, WorldState, ShopItem, CombatResult } from './types'
 import { getClassDef, charAC, joinActionFor, levelUpBonusFor } from './classdef'
+import { getBoon, boonLabels } from './boons'
 
 const MAX_LEN = 480
 
@@ -161,6 +162,8 @@ export function renderCharacter(char: Character): string {
   let line = `${char.username}${stars}${achs} | Lv${char.level} ${char.class} | ${char.hp}/${char.maxHp}HP AC${ac} | ${char.gold}g`
   if (char.inventory.length > 0) line += ` | ${char.inventory.join(', ')}`
   line += ` | XP:${char.xp}/${nextXp}${resources} | deaths:${char.deaths}`
+  if ((char.boons ?? []).length > 0) line += ` | boons:${boonLabels(char)}`
+  if ((char.pendingBoon ?? []).length > 0) line += ` | !b pick a boon!`
   if (char.statusEffects.length > 0) line += ` | ${char.statusEffects.join(',')}`
   if (char.isDying) {
     line += ` | DYING — saves:${char.deathSuccesses}✓${char.deathFailures}✗`
@@ -213,6 +216,18 @@ export function renderDeathSave(username: string, roll: number, successes: numbe
 export function renderLevelUp(char: Character, newLevel: number): string {
   const bonus = levelUpBonusFor(getClassDef(char.class).chassis, newLevel)
   return trunc(`${char.username} levels up! Lv${newLevel} ${char.class} — +HP max. ${bonus}`)
+}
+
+export function renderBoonOffer(username: string, offer: string[]): string {
+  const opts = offer.map((id, i) => {
+    const b = getBoon(id)
+    return `${i + 1}) ${b?.name ?? id} — ${b?.desc ?? ''}`
+  }).join('  ')
+  return trunc(`@${username} BOON! choose your power: ${opts}  → !b pick 1-${offer.length}`)
+}
+
+export function renderBoonPicked(username: string, boonName: string, allBoons: string): string {
+  return trunc(`@${username} gains ${boonName}! build: [${allBoons}]. → !b a to keep fighting`)
 }
 
 export function renderJoin(char: Character): string {

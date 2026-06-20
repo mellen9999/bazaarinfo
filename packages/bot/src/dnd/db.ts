@@ -5,6 +5,7 @@ import { CLASS_BASE_STATS, calcMaxHp, calcMaxSpellSlots, getModifier } from './t
 import type { Character, WorldState, EncounterType, ShopItem, Enemy, AbilityScores } from './types'
 import { getClassDef, registerClassDef } from './classdef'
 import type { ClassDef, Chassis } from './classdef'
+import { rollBoonOffer, offerSeed } from './boons'
 
 let stmts: {
   getChar: Statement
@@ -117,6 +118,8 @@ export function initDndDb(): void {
     `ALTER TABLE dnd_characters ADD COLUMN is_dying INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE dnd_characters ADD COLUMN death_successes INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE dnd_characters ADD COLUMN death_failures INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE dnd_characters ADD COLUMN boons TEXT NOT NULL DEFAULT '[]'`,
+    `ALTER TABLE dnd_characters ADD COLUMN pending_boon TEXT NOT NULL DEFAULT '[]'`,
     `ALTER TABLE dnd_world ADD COLUMN long_rest_counter INTEGER NOT NULL DEFAULT 0`,
   ]
   for (const sql of CHAR_MIGRATIONS) {
@@ -155,8 +158,8 @@ export function initDndDb(): void {
        deaths, total_kills, defending, last_action_at, respawn_at, prestige, achievements,
        stats, spell_slots, max_spell_slots, hit_dice, max_hit_dice,
        ki_points, max_ki_points, rage_charges, rage_turns_left, action_surge_used,
-       is_dying, death_successes, death_failures)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       is_dying, death_successes, death_failures, boons, pending_boon)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(username, channel) DO UPDATE SET
         class=excluded.class, level=excluded.level, xp=excluded.xp,
         hp=excluded.hp, max_hp=excluded.max_hp, gold=excluded.gold,
@@ -172,7 +175,8 @@ export function initDndDb(): void {
         rage_charges=excluded.rage_charges, rage_turns_left=excluded.rage_turns_left,
         action_surge_used=excluded.action_surge_used,
         is_dying=excluded.is_dying, death_successes=excluded.death_successes,
-        death_failures=excluded.death_failures`),
+        death_failures=excluded.death_failures,
+        boons=excluded.boons, pending_boon=excluded.pending_boon`),
     getWorld: db.prepare('SELECT * FROM dnd_world WHERE channel = ?'),
     upsertWorld: db.prepare(`INSERT INTO dnd_world
       (channel, floor, action_sequence, encounter_type, enemies, floor_cleared,
@@ -320,6 +324,8 @@ function rowToChar(row: Record<string, unknown>): Character {
     isDying: (row.is_dying as number) === 1,
     deathSuccesses: (row.death_successes as number) ?? 0,
     deathFailures: (row.death_failures as number) ?? 0,
+    boons: JSON.parse((row.boons as string) ?? '[]') as string[],
+    pendingBoon: JSON.parse((row.pending_boon as string) ?? '[]') as string[],
   }
 }
 
@@ -369,6 +375,7 @@ export function upsertCharacter(char: Character): void {
       char.actionSurgeUsed ? 1 : 0,
       char.isDying ? 1 : 0,
       char.deathSuccesses, char.deathFailures,
+      JSON.stringify(char.boons ?? []), JSON.stringify(char.pendingBoon ?? []),
     )
   } catch (e) {
     log(`dnd: upsertCharacter error: ${e}`)
@@ -520,6 +527,15 @@ export function addCharacterXp(username: string, channel: string, xp: number): {
     const newMaxHp = row.max_hp + hpGain
 
     stmts.setXpLevel.run(newXp, newLevel, newMaxHp, hpGain, hpGain, username.toLowerCase(), channel.toLowerCase())
+
+    // single chokepoint for all leveling (combat + trivia) → always offer a boon
+    if (leveledUp) {
+      const char = getCharacter(username, channel)
+      if (char && (char.pendingBoon?.length ?? 0) === 0) {
+        const offer = rollBoonOffer(char, offerSeed(char.username, newLevel))
+        if (offer.length > 0) { char.pendingBoon = offer; upsertCharacter(char) }
+      }
+    }
     return { newLevel, leveledUp }
   } catch (e) {
     log(`dnd: addCharacterXp error: ${e}`)

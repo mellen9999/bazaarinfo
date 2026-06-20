@@ -5,6 +5,7 @@ import * as floorMod from './floor'
 import * as aiDm from './ai-dm'
 import type { Character } from './types'
 import { maxHpFor, maxSpellSlotsFor } from './classdef'
+import { getBoon, applyBoonOnPick, boonLabels } from './boons'
 import type { CommandContext } from '../commands'
 
 function dndActive(channel: string): boolean {
@@ -77,10 +78,35 @@ export async function handleJoin(arg: string, ctx: CommandContext): Promise<stri
     lastActionAt: Date.now(),
     respawnAt: null,
     prestige: 0, achievements: [],
+    boons: [], pendingBoon: [],
   }
   db.upsertCharacter(newChar)
   engine.announceJoin(channel, { username, cls: def.name })
   return render.renderJoin(newChar)
+}
+
+export function handlePick(arg: string, ctx: CommandContext): string | null {
+  if (!ctx.channel || !ctx.user) return null
+  if (!dndActive(ctx.channel)) return null  // live → raid pick takes over
+  const channel = ctx.channel.toLowerCase()
+  const username = ctx.user.toLowerCase()
+  const char = db.getCharacter(username, channel)
+  if (!char) return null
+  if (!char.pendingBoon || char.pendingBoon.length === 0) return `@${username}: no boon to pick right now. level up to earn one.`
+
+  const idx = parseInt(arg.trim(), 10) - 1
+  if (isNaN(idx) || idx < 0 || idx >= char.pendingBoon.length) {
+    return render.renderBoonOffer(username, char.pendingBoon)
+  }
+  const boonId = char.pendingBoon[idx]
+  const boon = getBoon(boonId)
+  if (!boon) return `@${username}: that boon vanished. try again.`
+
+  char.boons = [...(char.boons ?? []), boonId]
+  char.pendingBoon = []
+  applyBoonOnPick(char, boonId)  // instant effects (maxHP, resources)
+  db.upsertCharacter(char)
+  return render.renderBoonPicked(username, boon.name, boonLabels(char))
 }
 
 export function handleAttack(arg: string, ctx: CommandContext): string | null {

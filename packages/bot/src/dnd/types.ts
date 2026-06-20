@@ -155,6 +155,8 @@ export interface Character {
   respawnAt: number | null
   prestige: number
   achievements: string[]
+  boons: string[]              // chosen roguelike perks
+  pendingBoon: string[]        // current level-up offer (3 ids; empty = none)
 }
 
 export interface Enemy {

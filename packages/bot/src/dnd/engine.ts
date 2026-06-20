@@ -6,6 +6,7 @@ import * as aiDm from './ai-dm'
 import { log } from '../log'
 import { getModifier, type Character, type WorldState, type Enemy } from './types'
 import { getClassDef, chassisOf } from './classdef'
+import * as boons from './boons'
 
 type SayFn = (channel: string, msg: string) => void
 let say: SayFn = () => {}
@@ -183,6 +184,14 @@ async function processQueue(channel: string) {
       }
       const totalDmg = outcome.damage + extraDmg
 
+      // Vampiric boon: heal a fraction of damage dealt
+      const lifesteal = boons.boonMods(char).lifestealPct
+      if (lifesteal > 0) {
+        const healed = Math.max(1, Math.floor(totalDmg * lifesteal))
+        const newHp = db.healCharacter(char.username, channel, healed)
+        if (newHp < char.maxHp || healed > 0) resultLines.push(`@${char.username} drains ${healed}HP`)
+      }
+
       targetEnemy.hp = Math.max(0, targetEnemy.hp - totalDmg)
       if (outcome.statusApplied && !targetEnemy.statusEffect) {
         const isFireStatus = outcome.statusApplied === 'burning'
@@ -238,6 +247,9 @@ async function processQueue(channel: string) {
         char.totalKills++
         // Sneak chassis: steal extra gold on kill
         if (chassisOf(char) === 'sneak') char.gold += Math.floor(reward.gold * 0.5)
+        // Looter boon: bonus gold per kill
+        const goldBonusPct = boons.boonMods(char).goldBonusPct
+        if (goldBonusPct > 0) char.gold += Math.floor(reward.gold * goldBonusPct)
         // boss achievement
         if (targetEnemy.isBoss) db.grantAchievement(action.username, channel, 'boss')
 
@@ -247,7 +259,13 @@ async function processQueue(channel: string) {
         const { newLevel, leveledUp } = db.addCharacterXp(action.username, channel, reward.xp)
         if (leveledUp) {
           const updatedChar = db.getCharacter(action.username, channel)
-          if (updatedChar) levelUpLines.push(render.renderLevelUp(updatedChar, newLevel))
+          if (updatedChar) {
+            levelUpLines.push(render.renderLevelUp(updatedChar, newLevel))
+            // addCharacterXp already rolled the offer — just surface it
+            if ((updatedChar.pendingBoon ?? []).length > 0) {
+              levelUpLines.push(render.renderBoonOffer(updatedChar.username, updatedChar.pendingBoon))
+            }
+          }
         }
 
         // loot drop
@@ -632,6 +650,9 @@ async function handleFloorClear(channel: string, world: WorldState) {
     if (chassisOf(p) === 'curse') p.spellSlots = p.maxSpellSlots
     p.defending = false
     db.upsertCharacter(p)
+    // Regenerator boon: heal on floor clear
+    const regen = boons.boonMods(p).regenPerFloor
+    if (regen > 0) db.healCharacter(p.username, channel, regen)
     loot.push({ username: p.username, gold: goldReward })
   }
 
