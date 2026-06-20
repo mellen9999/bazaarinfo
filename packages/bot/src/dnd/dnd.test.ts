@@ -475,11 +475,13 @@ describe('getFloorType', () => {
     expect(getFloorType(6)).toBe('boss')
     expect(getFloorType(10)).toBe('boss')
   })
-  it('event on 9', () => expect(getFloorType(9)).toBe('event'))
+  it('event on 4 and 9', () => {
+    expect(getFloorType(4)).toBe('event')
+    expect(getFloorType(9)).toBe('event')
+  })
   it('combat otherwise', () => {
     expect(getFloorType(1)).toBe('combat')
     expect(getFloorType(2)).toBe('combat')
-    expect(getFloorType(4)).toBe('combat')
     expect(getFloorType(7)).toBe('combat')
     expect(getFloorType(8)).toBe('combat')
   })
