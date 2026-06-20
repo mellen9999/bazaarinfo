@@ -573,6 +573,7 @@ const subcommands: [RegExp, SubHandler][] = [
   }],
   // --- dnd game commands (offline only) ---
   [/^join(?:\s+(.+))?$/i, async (query, ctx) => (await dndCmds.handleJoin(query ?? '', ctx)) ?? raidCmds.handleJoin('', ctx)],
+  [/^reroll(?:\s+([\s\S]+))?$/i, (query, ctx) => dndCmds.handleReroll(query ?? '', ctx)],
   [/^(?:a|attack)(?:\s+(.*))?$/i, (query, ctx) => dndCmds.handleAttack(query ?? '', ctx)],
   [/^(?:d|defend)$/i, (_q, ctx) => dndCmds.handleDefend('', ctx)],
   [/^spell$/i, (_q, ctx) => dndCmds.handleSpell('', ctx)],

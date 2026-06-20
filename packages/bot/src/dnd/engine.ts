@@ -108,6 +108,16 @@ function enqueue(channel: string, action: QueuedAction) {
   debounceTimers.set(channel, timer)
 }
 
+// drop a player's pending action (used on reroll so a stale queued action from the
+// old character can't resolve against the freshly-made one)
+export function clearQueuedAction(channel: string, username: string): void {
+  const q = queues.get(channel)
+  if (!q) return
+  const filtered = q.filter((a) => a.username.toLowerCase() !== username.toLowerCase())
+  if (filtered.length) queues.set(channel, filtered)
+  else queues.delete(channel)
+}
+
 // live party size (alive, present, not dead/dying) — drives enemy scaling
 function activePartySize(channel: string): number {
   return Math.max(1, db.getActivePlayers(channel).filter((p) => p.hp > 0 && p.respawnAt === null && !p.isDying).length)
@@ -460,7 +470,7 @@ async function processDeathSaves(channel: string, _world: WorldState) {
       scheduleRespawn(char.username, channel, respawnDelay)
       db.logDndAction(channel, char.username, 'death', 'death saves')
       const respawnSecs = Math.round(respawnDelay / 1000)
-      aiDm.narrateDeath(char.username, 'failed death saves', 0).then((flavor) => {
+      aiDm.narrateDeath(channel, char.username, 'failed death saves', 0).then((flavor) => {
         const base = render.renderDeath(char.username, 'failed death saves', respawnSecs)
         say(channel, flavor ? `${base} ${flavor.slice(0, 80)}` : base)
       }).catch(() => say(channel, render.renderDeath(char.username, 'failed death saves', respawnSecs)))
@@ -1036,14 +1046,14 @@ export function announceJoin(channel: string, newPlayer?: { username: string; cl
     const aliveEnemies = world.enemies.filter((e) => e.hp > 0)
     if (joiner) {
       const msg = await aiDm.welcomePlayer(
-        joiner.username, joiner.cls,
+        channel, joiner.username, joiner.cls,
         world.floor, world.encounterType,
         aliveEnemies.map((e) => e.name),
       )
       if (msg) { say(channel, msg); return }
     }
     const narration = await aiDm.narrateFloor(
-      world.floor, world.encounterType,
+      channel, world.floor, world.encounterType,
       aliveEnemies.map((e) => ({ name: e.name, hp: e.hp, maxHp: e.maxHp })),
       players.filter((p) => p.hp > 0).length,
     )
@@ -1263,12 +1273,12 @@ export async function resolveMove(username: string, channel: string): Promise<st
   // boss floors get a dramatic intro card before the tactical line
   if (isBossFloor && aliveEnemies[0]) {
     const boss = aliveEnemies[0]
-    const card = await aiDm.narrateBoss(nextFloor, boss.name, boss.hp, aliveCount)
+    const card = await aiDm.narrateBoss(channel, nextFloor, boss.name, boss.hp, aliveCount)
     say(channel, card || render.renderBossCard(nextFloor, boss.name, boss.hp))
   }
 
   const narration = await aiDm.narrateFloor(
-    nextFloor, newEncounterType,
+    channel, nextFloor, newEncounterType,
     aliveEnemies.map((e) => ({ name: e.name, hp: e.hp, maxHp: e.maxHp })),
     players.filter((p) => p.hp > 0).length,
   )
@@ -1297,7 +1307,7 @@ export async function resolveExplore(username: string, channel: string): Promise
       db.upsertCharacter(char)
       db.grantAchievement(username, channel, 'vegan')
     }
-    const flavor = await aiDm.narrateVeganShrine(!hasMeat, username)
+    const flavor = await aiDm.narrateVeganShrine(channel, !hasMeat, username)
     if (flavor) return flavor.slice(0, 480)
     return hasMeat
       ? `@${username} approaches the Ancient Shrine. It recoils. "Tainted." nothing happens. !b move to continue.`
@@ -1355,7 +1365,7 @@ export async function resolveFloor(username: string, channel: string): Promise<s
 
   const aliveEnemies = world.enemies.filter((e) => e.hp > 0)
   const narration = await aiDm.narrateFloor(
-    world.floor, world.encounterType,
+    channel, world.floor, world.encounterType,
     aliveEnemies.map((e) => ({ name: e.name, hp: e.hp, maxHp: e.maxHp })),
     players.filter((p) => p.hp > 0).length,
   )

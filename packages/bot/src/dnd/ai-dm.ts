@@ -10,11 +10,35 @@ import * as db from './db'
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
 
+// per-channel daily token cap — same env knob + same spend store as the main !b path
+// (recordAiSpend/getDailyAiSpend live in the main db), so dnd shares ONE budget. the
+// main db is loaded lazily inside callDm (not a static import) because importing it —
+// or ai-cache — at module scope pulls the db/ai-sanitize/emotes chain into the dnd
+// graph and forms a circular import. dynamic import resolves at call time, after the
+// graph is fully initialised, so there's no cycle (and tests with no API key never hit it).
+const DAILY_TOKEN_CAP = Math.max(0, parseInt(process.env.AI_DAILY_TOKEN_CAP ?? '0') || 0)
+
 // the dungeon master IS Kripp — every line of narration is in his voice
 const KRIPP_DM = `You are Kripparrian ("Kripp"), the legendary value-obsessed streamer, running a D&D dungeon inside your own Twitch chat. Voice: dry, deadpan, plant-based/vegan (slip in tasteful vegan jabs), worships "value" and "value town", calls clutch plays "actually sick", dreads bad RNG ("no luck", "NL"), greets with "well met", gamer/Hearthstone brain. Stay in character, keep it tight, obey the format the user asks for. No emojis.`
 
-async function ask(prompt: string, maxTokens = 60): Promise<string> {
-  if (!API_KEY) return ''
+// every dnd AI call funnels through here so token usage is RECORDED and the per-channel
+// daily cap is ENFORCED. dnd shares the same budget as the main !b lookups, so the cost
+// backstop finally covers the game — it previously bypassed both tracking and the cap.
+async function callDm(
+  channel: string,
+  opts: { maxTokens: number; system: string; prompt: string; timeoutMs: number },
+): Promise<string | null> {
+  if (!API_KEY) return null
+  const mainDb = await import('../db')  // lazy — avoids a static circular import (see DAILY_TOKEN_CAP note)
+  if (DAILY_TOKEN_CAP > 0) {
+    try {
+      const s = mainDb.getDailyAiSpend(channel)
+      if (s.input_tokens + s.output_tokens >= DAILY_TOKEN_CAP) {
+        log(`dnd: daily ai cap hit (${channel}) — using fallback`)
+        return null
+      }
+    } catch { /* spend lookup failed — fail open, don't block the game */ }
+  }
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -25,20 +49,28 @@ async function ask(prompt: string, maxTokens = 60): Promise<string> {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: maxTokens,
-        system: KRIPP_DM,
-        messages: [{ role: 'user', content: prompt }],
+        max_tokens: opts.maxTokens,
+        system: opts.system,
+        messages: [{ role: 'user', content: opts.prompt }],
       }),
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(opts.timeoutMs),
     })
-    if (!res.ok) { log(`dnd: ai-dm ${res.status}`); return '' }
-    const data = await res.json() as { content?: { type: string; text: string }[] }
-    const text = data.content?.[0]?.type === 'text' ? (data.content[0] as { text: string }).text.trim() : ''
-    return text.slice(0, 200)
+    if (!res.ok) { log(`dnd: ai-dm ${res.status}`); return null }
+    const data = await res.json() as {
+      content?: { type: string; text: string }[]
+      usage?: { input_tokens?: number; output_tokens?: number }
+    }
+    if (data.usage) mainDb.recordAiSpend(channel, data.usage.input_tokens ?? 0, data.usage.output_tokens ?? 0)
+    return data.content?.[0]?.type === 'text' ? (data.content[0] as { text: string }).text.trim() : ''
   } catch (e) {
     log(`dnd: ai-dm error: ${e}`)
-    return ''
+    return null
   }
+}
+
+async function ask(channel: string, prompt: string, maxTokens = 60): Promise<string> {
+  const text = await callDm(channel, { maxTokens, system: KRIPP_DM, prompt, timeoutMs: 8_000 })
+  return (text ?? '').slice(0, 200)
 }
 
 // --- custom class generation ---
@@ -48,34 +80,22 @@ Chassis = the mechanical engine the signature ability runs on: rage=berserk mele
 The "signature" MUST riff directly on the class name — pun on it, remix its words, or build the ability around its theme (e.g. name "kripps juicy butthole" -> "Buttjuice Tornado"; name "cheese wizard" -> "Gouda Nova"; name "sleepy cat" -> "Catnap Pounce"). Make it unmistakably derived from the name. The "weapon.name" and "desc" should match that theme too.
 Stats use point-buy 8-17, total around 72. Be creative and funny with names/flavor but keep the numbers balanced.`
 
-async function askJson(name: string): Promise<Record<string, unknown> | null> {
-  if (!API_KEY) return null
+async function askJson(channel: string, name: string): Promise<Record<string, unknown> | null> {
+  // JSON.stringify the untrusted class name so it lands as a quoted string literal —
+  // a name like `ignore previous instructions` can't break out of the prompt frame.
+  const raw = await callDm(channel, {
+    maxTokens: 320, system: CLASS_GEN_SYSTEM,
+    prompt: `Class name: ${JSON.stringify(name)}`, timeoutMs: 10_000,
+  })
+  if (!raw) return null
+  const text = raw.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start < 0 || end < 0) return null
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 320,
-        system: CLASS_GEN_SYSTEM,
-        messages: [{ role: 'user', content: `Class name: ${name}` }],
-      }),
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (!res.ok) { log(`dnd: classgen ${res.status}`); return null }
-    const data = await res.json() as { content?: { type: string; text: string }[] }
-    let text = data.content?.[0]?.type === 'text' ? (data.content[0] as { text: string }).text.trim() : ''
-    text = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
-    const start = text.indexOf('{')
-    const end = text.lastIndexOf('}')
-    if (start < 0 || end < 0) return null
     return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>
   } catch (e) {
-    log(`dnd: classgen error: ${e}`)
+    log(`dnd: classgen parse error: ${e}`)
     return null
   }
 }
@@ -84,13 +104,13 @@ async function askJson(name: string): Promise<Record<string, unknown> | null> {
 // fly. Builtins and already-cached customs return instantly (no AI call). New custom
 // names trigger one AI generation (or a deterministic fallback if AI is off/fails),
 // then persist so every future join is free and identical.
-export async function ensureClassDef(rawName: string): Promise<ClassDef> {
+export async function ensureClassDef(channel: string, rawName: string): Promise<ClassDef> {
   const builtin = matchBuiltin(rawName)
   if (builtin) return builtin
   const norm = normClassName(rawName)
   if (hasClassDef(rawName)) return getClassDef(rawName)
 
-  const raw = await askJson(rawName)
+  const raw = await askJson(channel, rawName)
   const def = raw ? buildClassDef(rawName, raw) : syntheticDef(rawName)
   // re-check: a concurrent join may have cached it first; first write wins (INSERT OR IGNORE)
   db.saveClassDef(norm, def, raw ? 'ai' : 'synthetic')
@@ -99,6 +119,7 @@ export async function ensureClassDef(rawName: string): Promise<ClassDef> {
 }
 
 export async function narrateFloor(
+  channel: string,
   floor: number,
   encounterType: EncounterType,
   enemies: { name: string; hp: number; maxHp: number }[],
@@ -118,12 +139,13 @@ export async function narrateFloor(
   const soloNote = playerCount <= 1 ? ' One adventurer stands alone.' : ''
   const prompt = `Twitch chat D&D dungeon, floor ${floor}.${soloNote} ${playerCount} adventurer(s) face: ${enemyStr}.
 Write ONE tactical atmosphere line (170 chars max, lowercase, gritty D&D dungeon tone). End with: → !b a to attack · !b d to defend · !b spell for class ability. No emojis.`
-  const result = await ask(prompt, 72)
+  const result = await ask(channel, prompt, 72)
   if (!result) return `floor ${floor}: ${enemyStr} — roll for initiative. → !b a to attack · !b d to defend · !b spell for class ability`
   return result
 }
 
 export async function welcomePlayer(
+  channel: string,
   username: string,
   cls: string,
   floor: number,
@@ -136,31 +158,24 @@ export async function welcomePlayer(
   const spellHint = spellHintFor(def)
   const prompt = `Twitch chat D&D. @${username} descends as a ${cls} (${role}). Floor ${floor} (${encounterType}). Enemies: ${enemyStr}.
 Write ONE welcoming line (160 chars max, lowercase, classic D&D dungeon tone). End with: !b a to attack · !b spell to use ${spellHint} · !b d to defend. No emojis.`
-  const result = await ask(prompt, 72)
+  const result = await ask(channel, prompt, 72)
   if (!result) return `@${username} descends as ${cls} — ${role}. → !b a to attack · !b spell to ${spellHint} · !b d to defend`
   return result
 }
 
-export async function narrateBoss(floor: number, bossName: string, bossHp: number, playerCount: number): Promise<string> {
+export async function narrateBoss(channel: string, floor: number, bossName: string, bossHp: number, playerCount: number): Promise<string> {
   const soloNote = playerCount <= 1 ? ' One lone challenger steps forward.' : ` ${playerCount} challengers.`
   const prompt = `Twitch chat D&D. A BOSS appears on floor ${floor}: ${bossName} (${bossHp}HP).${soloNote}
 Write ONE epic, hype boss-entrance line in Kripp's voice (170 chars max, lowercase, dramatic). Name the boss. End with: → !b a to attack · !b spell. No emojis.`
-  const result = await ask(prompt, 80)
+  const result = await ask(channel, prompt, 80)
   return result
 }
 
-export async function describeFloor(floor: number, encounterType: EncounterType, enemies: string[]): Promise<string> {
-  const enemyStr = enemies.length > 0 ? enemies.join(', ') : 'silence'
-  const prompt = `Twitch chat D&D. Dungeon level ${floor} (${encounterType}). Enemies: ${enemyStr}.
-Write ONE vivid dungeon atmosphere sentence, 150 chars max, lowercase, gritty D&D tone. No emojis. Just the sentence.`
-  return await ask(prompt, 60)
-}
-
-export async function narrateVeganShrine(passed: boolean, username: string): Promise<string> {
+export async function narrateVeganShrine(channel: string, passed: boolean, username: string): Promise<string> {
   const prompt = passed
     ? `D&D dungeon. ${username} approaches an ancient shrine with no tainted goods. Write one sentence of mystical acceptance, 120 chars max, lowercase, reference purity and divine blessing.`
     : `D&D dungeon. ${username} approaches an ancient shrine carrying profane goods. Write one sentence of rejection, 120 chars max, lowercase, reference corruption and denied blessing.`
-  const result = await ask(prompt, 50)
+  const result = await ask(channel, prompt, 50)
   if (!result) {
     return passed
       ? `the shrine pulses with pale light for @${username}. "worthy." a divine warmth fills the hall. full heal granted.`
@@ -169,9 +184,9 @@ export async function narrateVeganShrine(passed: boolean, username: string): Pro
   return result
 }
 
-export async function narrateDeath(username: string, enemyName: string, floor: number): Promise<string> {
+export async function narrateDeath(channel: string, username: string, enemyName: string, floor: number): Promise<string> {
   const prompt = `D&D dungeon floor ${floor}. ${username} was just killed by ${enemyName}. Write one darkly poetic eulogy sentence, 140 chars max, lowercase, classic D&D tone. No emojis.`
-  const result = await ask(prompt, 55)
+  const result = await ask(channel, prompt, 55)
   if (!result) return `@${username} has fallen to ${enemyName} on floor ${floor}. the dungeon claims another.`
   return result
 }

@@ -946,4 +946,66 @@ describe('dnd db', () => {
     expect(found!.target).toBe('Goblin')
     expect(found!.result).toBe('12dmg')
   })
+
+  // builtin class names resolve instantly (no AI call), so reroll is exercised
+  // end-to-end against the real db with no network. ai-dm no-ops without a key.
+  describe('reroll', () => {
+    const chan = 'rrchan'
+    const ctx = (user: string) => ({ user, channel: chan, isMod: false })
+
+    beforeAll(async () => {
+      const engine = await import('./engine')
+      engine.setIsLive(() => false)        // dnd is offline-only; treat channel as not-live
+      engine.setDndEnabled(chan, true)
+    })
+
+    // let the 400ms join/announce timers drain before the parent afterAll closes the db
+    afterAll(async () => { await new Promise((r) => setTimeout(r, 450)) })
+
+    it('fresh char (no progress) rerolls instantly, resetting to the new class', async () => {
+      const { handleJoin, handleReroll } = await import('./commands')
+      const { getCharacter } = await import('./db')
+      await handleJoin('Barbarian', ctx('rr_fresh'))
+      expect(getCharacter('rr_fresh', chan)!.class).toBe('Barbarian')
+      await handleReroll('Wizard', ctx('rr_fresh'))
+      const c = getCharacter('rr_fresh', chan)!
+      expect(c.class).toBe('Wizard')
+      expect(c.gold).toBe(10)
+    })
+
+    it('a character with progress is confirm-gated (no accidental wipe)', async () => {
+      const { handleJoin, handleReroll } = await import('./commands')
+      const { getCharacter, upsertCharacter } = await import('./db')
+      await handleJoin('Barbarian', ctx('rr_prog'))
+      const b = getCharacter('rr_prog', chan)!
+      b.totalKills = 7; b.gold = 99; upsertCharacter(b)
+      const warn = await handleReroll('Rogue', ctx('rr_prog'))
+      expect(warn).toContain('WIPES')
+      expect(getCharacter('rr_prog', chan)!.class).toBe('Barbarian')  // unchanged
+      await handleReroll('Rogue confirm', ctx('rr_prog'))
+      const after = getCharacter('rr_prog', chan)!
+      expect(after.class).toBe('Rogue')
+      expect(after.totalKills).toBe(0)  // progress wiped
+      expect(after.gold).toBe(10)
+    })
+
+    it('cooldown blocks a rapid second reroll', async () => {
+      const { handleJoin, handleReroll } = await import('./commands')
+      const { getCharacter } = await import('./db')
+      await handleJoin('Fighter', ctx('rr_cd'))
+      await handleReroll('Wizard confirm', ctx('rr_cd'))
+      const msg = await handleReroll('Rogue confirm', ctx('rr_cd'))
+      expect(msg).toContain('wait')
+      expect(getCharacter('rr_cd', chan)!.class).toBe('Wizard')  // second reroll blocked
+    })
+
+    it('empty class arg returns usage, not a wipe', async () => {
+      const { handleJoin, handleReroll } = await import('./commands')
+      const { getCharacter } = await import('./db')
+      await handleJoin('Cleric', ctx('rr_empty'))
+      const msg = await handleReroll('', ctx('rr_empty'))
+      expect(msg).toContain('reroll into what')
+      expect(getCharacter('rr_empty', chan)!.class).toBe('Cleric')  // untouched
+    })
+  })
 })
