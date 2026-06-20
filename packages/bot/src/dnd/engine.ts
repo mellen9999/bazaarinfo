@@ -4,11 +4,8 @@ import * as floor from './floor'
 import * as render from './render'
 import * as aiDm from './ai-dm'
 import { log } from '../log'
-import {
-  CLASS_BASE_STATS, calcMaxHp, calcMaxSpellSlots, getCharAC, getModifier,
-  sneakAttackDice,
-  type Character, type WorldState, type Enemy,
-} from './types'
+import { getModifier, type Character, type WorldState, type Enemy } from './types'
+import { getClassDef, chassisOf } from './classdef'
 
 type SayFn = (channel: string, msg: string) => void
 let say: SayFn = () => {}
@@ -158,7 +155,7 @@ async function processQueue(channel: string) {
 
       const seq = db.nextSequence(channel)
       const activePlayers = db.getActivePlayers(channel).filter((p) => p.hp > 0 && !p.isDying && p.respawnAt === null)
-      const hasAdvantage = char.class === 'Rogue' && activePlayers.length > 1
+      const hasAdvantage = chassisOf(char) === 'sneak' && activePlayers.length > 1
       const hasDisadvantage = char.statusEffects.some((s) => s === 'poisoned' || s === 'blinded')
       const damageMult = 1 + (char.prestige ?? 0) * 0.02
       const outcome = combat.resolvePlayerAttack(char, targetEnemy, seq, hasAdvantage, hasDisadvantage, damageMult)
@@ -180,7 +177,7 @@ async function processQueue(channel: string) {
 
       // --- handle Warlock Hex bonus damage ---
       let extraDmg = 0
-      if (char.class === 'Warlock' && targetEnemy.statusEffect === 'hexed') {
+      if (chassisOf(char) === 'curse' && targetEnemy.statusEffect === 'hexed') {
         const hexRolls = Array.from({ length: 1 }, () => Math.floor(Math.random() * 6) + 1)
         extraDmg = hexRolls.reduce((s, r) => s + r, 0)
       }
@@ -202,8 +199,8 @@ async function processQueue(channel: string) {
 
       // Troll special: regenerate 10HP at end of round if not killed by fire/acid
       if (killed && targetEnemy.specialAbility === 'regeneration') {
-        const killerClass = char.class
-        if (killerClass !== 'Wizard' && killerClass !== 'Sorcerer') {
+        const killerChassis = chassisOf(char)
+        if (killerChassis !== 'nuke' && killerChassis !== 'chaos') {
           // Troll doesn't die yet — regenerates next round
           targetEnemy.hp = 10
           const result: import('./types').CombatResult = {
@@ -239,8 +236,8 @@ async function processQueue(channel: string) {
         const reward = floor.enemyReward(targetEnemy, world.floor)
         char.gold += reward.gold
         char.totalKills++
-        // Rogue: steal extra gold on kill
-        if (char.class === 'Rogue') char.gold += Math.floor(reward.gold * 0.5)
+        // Sneak chassis: steal extra gold on kill
+        if (chassisOf(char) === 'sneak') char.gold += Math.floor(reward.gold * 0.5)
         // boss achievement
         if (targetEnemy.isBoss) db.grantAchievement(action.username, channel, 'boss')
 
@@ -314,7 +311,7 @@ async function processQueue(channel: string) {
     // decrement Barbarian rage
     for (const action of actions) {
       const char = db.getCharacter(action.username, channel)
-      if (char?.class === 'Barbarian' && char.rageTurnsLeft > 0) {
+      if (char && chassisOf(char) === 'rage' && char.rageTurnsLeft > 0) {
         char.rageTurnsLeft--
         if (char.rageTurnsLeft === 0) {
           resultLines.push(`@${action.username}'s Rage ends.`)
@@ -499,9 +496,9 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
         continue
       }
 
-      // Barbarian rage resistance: half physical damage while raging
+      // Rage chassis resistance: half physical damage while raging
       let finalDmg = result.damage
-      if (target.class === 'Barbarian' && target.rageTurnsLeft > 0) {
+      if (chassisOf(target) === 'rage' && target.rageTurnsLeft > 0) {
         finalDmg = Math.max(1, Math.floor(finalDmg / 2))
       }
 
@@ -631,8 +628,8 @@ async function handleFloorClear(channel: string, world: WorldState) {
     // restore resources on floor clear: spell slots, ki points, action surge
     p.spellSlots = p.maxSpellSlots
     p.actionSurgeUsed = false
-    // Warlock: restore spell slot on short rest (every floor clear)
-    if (p.class === 'Warlock') p.spellSlots = p.maxSpellSlots
+    // Curse chassis: restore spell slot on short rest (every floor clear)
+    if (chassisOf(p) === 'curse') p.spellSlots = p.maxSpellSlots
     p.defending = false
     db.upsertCharacter(p)
     loot.push({ username: p.username, gold: goldReward })
@@ -652,7 +649,7 @@ async function handleFloorClear(channel: string, world: WorldState) {
       const fresh = db.getCharacter(p.username, channel)
       if (!fresh) continue
       fresh.hitDice = Math.min(fresh.maxHitDice, fresh.hitDice + Math.ceil(fresh.maxHitDice / 2))
-      fresh.rageCharges = fresh.class === 'Barbarian' ? 2 + Math.floor(fresh.level / 3) : 0
+      fresh.rageCharges = chassisOf(fresh) === 'rage' ? 2 + Math.floor(fresh.level / 3) : 0
       db.upsertCharacter(fresh)
     }
     say(channel, `Long rest! Hit dice refreshed for all survivors.`)
@@ -703,9 +700,11 @@ interface SpellResult { message: string; levelUp?: string }
 function resolveSpell(char: Character, world: WorldState, channel: string): SpellResult {
   char.lastActionAt = Date.now()
   const livingEnemies = world.enemies.filter((e) => e.hp > 0)
+  const def = getClassDef(char.class)
+  const sig = def.signature.toUpperCase()
 
-  switch (char.class) {
-    case 'Barbarian': {
+  switch (def.chassis) {
+    case 'rage': {
       // Rage: +2 dmg on all attacks, resistance (half dmg) for 3 turns
       if (char.rageTurnsLeft > 0) {
         return { message: `@${char.username} is already raging! (${char.rageTurnsLeft} turns left)` }
@@ -713,13 +712,13 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       char.rageTurnsLeft = 3
       char.rageCharges = Math.max(0, char.rageCharges - 1)
       db.upsertCharacter(char)
-      return { message: `@${char.username} enters a RAGE! +2 dmg on all attacks, resistance for 3 turns. The fury consumes them.` }
+      return { message: `@${char.username} enters a ${sig}! +2 dmg on all attacks, resistance for 3 turns. The fury consumes them.` }
     }
 
-    case 'Fighter': {
+    case 'surge': {
       // Action Surge: make a second attack immediately
       if (char.actionSurgeUsed) {
-        return { message: `@${char.username}: Action Surge spent — recharges on floor clear.` }
+        return { message: `@${char.username}: ${def.signature} spent — recharges on floor clear.` }
       }
       if (livingEnemies.length === 0) return { message: '' }
       char.actionSurgeUsed = true
@@ -734,10 +733,10 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       const hitStr = outcome.hit
         ? `${outcome.weaponName}: ${outcome.damageDiceStr} = ${outcome.damage} dmg${outcome.crit ? ' [CRIT!]' : ''}`
         : `misses (d20:${outcome.d20Roll})`
-      return { message: `@${char.username} ACTION SURGE — attacks ${target.name} again! ${hitStr}. ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}` }
+      return { message: `@${char.username} ${sig} — attacks ${target.name} again! ${hitStr}. ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}` }
     }
 
-    case 'Paladin': {
+    case 'smite': {
       // Divine Smite: spend slot on next attack = +2d8 radiant
       if (char.spellSlots <= 0) {
         return { message: `@${char.username}: no spell slots remaining (recharge on floor clear).` }
@@ -759,12 +758,12 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       db.upsertCharacter(char)
       const killed = target.hp <= 0
       if (!outcome.hit) {
-        return { message: `@${char.username} calls DIVINE SMITE but misses ${target.name} (d20:${outcome.d20Roll}). Slot consumed.` }
+        return { message: `@${char.username} calls ${sig} but misses ${target.name} (d20:${outcome.d20Roll}). Slot consumed.` }
       }
-      return { message: `@${char.username} DIVINE SMITE — ${target.name}: ${outcome.damageDiceStr}+${smiteStr}. ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}` }
+      return { message: `@${char.username} ${sig} — ${target.name}: ${outcome.damageDiceStr}+${smiteStr}. ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}` }
     }
 
-    case 'Rogue': {
+    case 'sneak': {
       // Shadowstrike: guaranteed hit (advantage + auto-sneak), apply poisoned
       if (livingEnemies.length === 0) return { message: '' }
       const target = livingEnemies[0]
@@ -777,33 +776,32 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       target.statusRoundsLeft = 3
       db.upsertCharacter(char)
       const killed = target.hp <= 0
-      return { message: `@${char.username} SHADOWSTRIKE — ${target.name}: ${finalOutcome.damageDiceStr} = ${finalOutcome.damage} dmg [GUARANTEED HIT] + poisoned! ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}` }
+      return { message: `@${char.username} ${sig} — ${target.name}: ${finalOutcome.damageDiceStr} = ${finalOutcome.damage} dmg [GUARANTEED HIT] + poisoned! ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}` }
     }
 
-    case 'Wizard': {
+    case 'nuke': {
       // Fireball: 8d6 fire dmg to ALL enemies, DC 14 DEX save for half
       if (char.spellSlots <= 0) {
-        return { message: `@${char.username}: no spell slots — Fireball expended. Recharge on floor clear.` }
+        return { message: `@${char.username}: no spell slots — ${def.signature} expended. Recharge on floor clear.` }
       }
       char.spellSlots--
       const fireDice = Array.from({ length: 8 }, () => Math.floor(Math.random() * 6) + 1)
       const fireDmg = fireDice.reduce((a, b) => a + b, 0)
       const parts: string[] = []
       for (const enemy of livingEnemies) {
-        const halfDmg = Math.floor(fireDmg / 2)
         // no DEX saves for monsters in this system (full dmg for simplicity)
         enemy.hp = Math.max(0, enemy.hp - fireDmg)
         if (!enemy.statusEffect) { enemy.statusEffect = 'burning'; enemy.statusRoundsLeft = 2 }
         parts.push(`${enemy.name}(${enemy.hp}HP)`)
       }
       db.upsertCharacter(char)
-      return { message: `@${char.username} casts FIREBALL! 8d6=[${fireDice.join('+')}]=${fireDmg} fire dmg + burning → ${parts.join(', ')}` }
+      return { message: `@${char.username} casts ${sig}! 8d6=[${fireDice.join('+')}]=${fireDmg} fire dmg + burning → ${parts.join(', ')}` }
     }
 
-    case 'Cleric': {
+    case 'heal': {
       // Healing Word: restore 1d4+WIS to lowest-HP ally (or self)
       if (char.spellSlots <= 0) {
-        return { message: `@${char.username}: no spell slots — Healing Word expended. Recharge on floor clear.` }
+        return { message: `@${char.username}: no spell slots — ${def.signature} expended. Recharge on floor clear.` }
       }
       char.spellSlots--
       const wisMod = getModifier(char.stats.wis)
@@ -815,13 +813,13 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       const target = allies.length > 0 ? allies.reduce((a, b) => a.hp < b.hp ? a : b) : char
       const newHp = db.healCharacter(target.username, channel, healAmt)
       db.upsertCharacter(char)
-      return { message: `@${char.username} HEALING WORD — @${target.username} healed ${healAmt}HP (1d4${wisMod >= 0 ? '+' : ''}${wisMod}). ${newHp}/${target.maxHp}HP.` }
+      return { message: `@${char.username} ${sig} — @${target.username} healed ${healAmt}HP (1d4${wisMod >= 0 ? '+' : ''}${wisMod}). ${newHp}/${target.maxHp}HP.` }
     }
 
-    case 'Sorcerer': {
+    case 'chaos': {
       // Wild Magic: 2d8 Chaos Bolt to random enemy + surge chance
       if (char.spellSlots <= 0) {
-        return { message: `@${char.username}: no spell slots — Wild Magic spent. Recharge on floor clear.` }
+        return { message: `@${char.username}: no spell slots — ${def.signature} spent. Recharge on floor clear.` }
       }
       if (livingEnemies.length === 0) return { message: '' }
       char.spellSlots--
@@ -857,10 +855,10 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
         }
       }
       const killed = target.hp <= 0
-      return { message: `@${char.username} CHAOS BOLT! 2d8+${chaMod}=[${dmgDice.join('+')}]=${dmg} → ${target.name}: ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}${surgeMsg}` }
+      return { message: `@${char.username} ${sig}! 2d8+${chaMod}=[${dmgDice.join('+')}]=${dmg} → ${target.name}: ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}${surgeMsg}` }
     }
 
-    case 'Monk': {
+    case 'flurry': {
       // Flurry of Blows: spend 1 ki point, make 2 extra unarmed strikes
       if (char.kiPoints <= 0) {
         return { message: `@${char.username}: no ki points remaining (!b rest to restore).` }
@@ -881,13 +879,13 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       }
       db.upsertCharacter(char)
       const killed = target.hp <= 0
-      return { message: `@${char.username} FLURRY OF BLOWS (ki) → ${target.name}: ${parts.join(', ')}. ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}` }
+      return { message: `@${char.username} ${sig} (ki) → ${target.name}: ${parts.join(', ')}. ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}` }
     }
 
-    case 'Warlock': {
+    case 'curse': {
       // Hex + Eldritch Blast: apply hex then blast, 1d10+CHA
       if (char.spellSlots <= 0) {
-        return { message: `@${char.username}: Hex spent — recharges on short rest (!b rest).` }
+        return { message: `@${char.username}: ${def.signature} spent — recharges on short rest (!b rest).` }
       }
       if (livingEnemies.length === 0) return { message: '' }
       char.spellSlots--
@@ -902,17 +900,14 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       if (outcome.hit) {
         dmg = outcome.damage
         target.hp = Math.max(0, target.hp - dmg)
-        blastStr = `Eldritch Blast: ${outcome.damageDiceStr} = ${dmg} dmg. `
+        blastStr = `blast: ${outcome.damageDiceStr} = ${dmg} dmg. `
       } else {
-        blastStr = `Eldritch Blast misses (d20:${outcome.d20Roll}). `
+        blastStr = `blast misses (d20:${outcome.d20Roll}). `
       }
       db.upsertCharacter(char)
       const killed = target.hp <= 0
-      return { message: `@${char.username} HEX + ELDRITCH BLAST — ${target.name} hexed! ${blastStr}${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP. (Hex: +1d6 to all attacks vs this target)`}` }
+      return { message: `@${char.username} ${sig} — ${target.name} hexed! ${blastStr}${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP. (Hex: +1d6 to all attacks vs this target)`}` }
     }
-
-    default:
-      return { message: `@${char.username}: no class ability available` }
   }
 }
 
@@ -1280,23 +1275,23 @@ export function resolveShortRest(username: string, channel: string): string | nu
 
   if (char.hitDice <= 0) return `@${username}: no hit dice remaining (recharge on long rest every 3 floors).`
 
-  const hitDie = { Barbarian: 12, Fighter: 10, Paladin: 10, Rogue: 8, Wizard: 6, Cleric: 8, Sorcerer: 6, Monk: 8, Warlock: 8 }
-  const die = hitDie[char.class as keyof typeof hitDie] ?? 8
+  const chassis = getClassDef(char.class).chassis
+  const die = getClassDef(char.class).hitDie
   const conMod = getModifier(char.stats.con)
   const roll = Math.floor(Math.random() * die) + 1
   const healAmt = Math.max(1, roll + conMod)
   const newHp = db.healCharacter(username, channel, healAmt)
 
   char.hitDice--
-  // Warlock: restore spell slot on short rest
-  if (char.class === 'Warlock') char.spellSlots = char.maxSpellSlots
-  // Fighter: restore action surge on short rest
-  if (char.class === 'Fighter') char.actionSurgeUsed = false
-  // Monk: restore ki points on short rest
-  if (char.class === 'Monk') char.kiPoints = char.maxKiPoints
+  // Curse chassis: restore spell slot on short rest
+  if (chassis === 'curse') char.spellSlots = char.maxSpellSlots
+  // Surge chassis: restore action surge on short rest
+  if (chassis === 'surge') char.actionSurgeUsed = false
+  // Flurry chassis: restore ki points on short rest
+  if (chassis === 'flurry') char.kiPoints = char.maxKiPoints
   db.upsertCharacter(char)
 
-  const restoreMsg = char.class === 'Warlock' ? ' Spell slot restored.' : char.class === 'Fighter' ? ' Action Surge restored.' : char.class === 'Monk' ? ' Ki points restored.' : ''
+  const restoreMsg = chassis === 'curse' ? ' Spell slot restored.' : chassis === 'surge' ? ' Action Surge restored.' : chassis === 'flurry' ? ' Ki points restored.' : ''
   return `@${username} takes a short rest — spends 1 hit die: 1d${die}+${conMod}=${healAmt}HP healed (${newHp}/${char.maxHp}HP). HD left: ${char.hitDice}/${char.maxHitDice}.${restoreMsg}`
 }
 

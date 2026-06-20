@@ -1,5 +1,11 @@
 import type { EncounterType } from './types'
 import { log } from '../log'
+import {
+  buildClassDef, syntheticDef, matchBuiltin, normClassName, hasClassDef, getClassDef,
+  registerClassDef, spellHintFor,
+} from './classdef'
+import type { ClassDef } from './classdef'
+import * as db from './db'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
@@ -31,16 +37,59 @@ async function ask(prompt: string, maxTokens = 60): Promise<string> {
   }
 }
 
-const CLASS_ROLE: Record<string, string> = {
-  Barbarian: 'raging front-liner who enters berserker fury for bonus damage and resistance',
-  Fighter:   'martial champion with Action Surge for devastating double attacks',
-  Paladin:   'divine warrior who channels spell slots into radiant smite damage',
-  Rogue:     'cunning striker with automatic Sneak Attack extra damage dice',
-  Wizard:    'arcane scholar who devastates groups with Fireball',
-  Cleric:    'divine healer who keeps the party standing with Healing Word',
-  Sorcerer:  'wild mage whose Chaos Bolt channels unpredictable magical power',
-  Monk:      'disciplined martial artist spending ki for Flurry of Blows',
-  Warlock:   'eldritch pactbinder who curses foes and blasts with dark energy',
+// --- custom class generation ---
+const CLASS_GEN_SYSTEM = `You are a D&D 5e class designer for a Twitch dungeon-crawler. Given a class NAME (which may be silly, rude, or absurd — that's fine, lean into the humor), design a balanced level-1 class. Respond with ONLY a JSON object, no prose, no code fences:
+{"chassis":"<one of: rage surge smite sneak nuke heal chaos flurry curse>","baseStats":{"str":N,"dex":N,"con":N,"int":N,"wis":N,"cha":N},"hitDie":<6|8|10|12>,"atkStat":"<str|dex|con|int|wis|cha>","weapon":{"name":"<short weapon name>","die":<4|6|8|10|12>,"count":<1|2>},"acArchetype":"<unarmored|mail|plate|light|mage|monk>","signature":"<bespoke ability name, max 24 chars>","role":"<one vivid sentence describing the fighter>","desc":"<short stat+ability summary, max 80 chars>"}
+Chassis = the mechanical engine the signature ability runs on: rage=berserk melee, surge=extra attack, smite=slot→radiant burst, sneak=auto bonus damage striker, nuke=AoE blast caster, heal=support healer, chaos=random wild magic, flurry=multi-strike martial artist, curse=hex+blast warlock. Pick the chassis that best fits the name's vibe. Stats use point-buy 8-17, total around 72. Be creative and funny with names/flavor but keep the numbers balanced.`
+
+async function askJson(name: string): Promise<Record<string, unknown> | null> {
+  if (!API_KEY) return null
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 320,
+        system: CLASS_GEN_SYSTEM,
+        messages: [{ role: 'user', content: `Class name: ${name}` }],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) { log(`dnd: classgen ${res.status}`); return null }
+    const data = await res.json() as { content?: { type: string; text: string }[] }
+    let text = data.content?.[0]?.type === 'text' ? (data.content[0] as { text: string }).text.trim() : ''
+    text = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
+    const start = text.indexOf('{')
+    const end = text.lastIndexOf('}')
+    if (start < 0 || end < 0) return null
+    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>
+  } catch (e) {
+    log(`dnd: classgen error: ${e}`)
+    return null
+  }
+}
+
+// Resolve a class name to a definition, generating + caching custom classes on the
+// fly. Builtins and already-cached customs return instantly (no AI call). New custom
+// names trigger one AI generation (or a deterministic fallback if AI is off/fails),
+// then persist so every future join is free and identical.
+export async function ensureClassDef(rawName: string): Promise<ClassDef> {
+  const builtin = matchBuiltin(rawName)
+  if (builtin) return builtin
+  const norm = normClassName(rawName)
+  if (hasClassDef(rawName)) return getClassDef(rawName)
+
+  const raw = await askJson(rawName)
+  const def = raw ? buildClassDef(rawName, raw) : syntheticDef(rawName)
+  // re-check: a concurrent join may have cached it first; first write wins (INSERT OR IGNORE)
+  db.saveClassDef(norm, def, raw ? 'ai' : 'synthetic')
+  registerClassDef(def)
+  return getClassDef(rawName)
 }
 
 export async function narrateFloor(
@@ -76,22 +125,10 @@ export async function welcomePlayer(
   encounterType: string,
   enemies: string[],
 ): Promise<string> {
-  const role = CLASS_ROLE[cls] ?? cls
+  const def = getClassDef(cls)
+  const role = def.role
   const enemyStr = enemies.length > 0 ? enemies.join(', ') : 'shadows'
-  const spellHint = (() => {
-    switch (cls) {
-      case 'Barbarian': return 'Rage (enter fury, +dmg+resistance)'
-      case 'Fighter':   return 'Action Surge (attack twice)'
-      case 'Paladin':   return 'Divine Smite (slot → radiant burst)'
-      case 'Rogue':     return 'attack — Sneak Attack auto triggers'
-      case 'Wizard':    return 'Fireball (8d6 to all enemies)'
-      case 'Cleric':    return 'Healing Word (restore ally HP)'
-      case 'Sorcerer':  return 'Wild Magic (chaos damage + surge)'
-      case 'Monk':      return 'Flurry of Blows (ki → 2 extra strikes)'
-      case 'Warlock':   return 'Hex + Eldritch Blast (curse + force bolt)'
-      default:          return 'class ability'
-    }
-  })()
+  const spellHint = spellHintFor(def)
   const prompt = `Twitch chat D&D. @${username} descends as a ${cls} (${role}). Floor ${floor} (${encounterType}). Enemies: ${enemyStr}.
 Write ONE welcoming line (160 chars max, lowercase, classic D&D dungeon tone). End with: !b a to attack · !b spell to use ${spellHint} · !b d to defend. No emojis.`
   const result = await ask(prompt, 72)

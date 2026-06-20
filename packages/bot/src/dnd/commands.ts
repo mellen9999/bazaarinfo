@@ -2,15 +2,16 @@ import * as db from './db'
 import * as engine from './engine'
 import * as render from './render'
 import * as floorMod from './floor'
+import * as aiDm from './ai-dm'
 import type { Character } from './types'
-import { ALL_CLASSES, CLASS_BASE_STATS, calcMaxHp, calcMaxSpellSlots } from './types'
+import { maxHpFor, maxSpellSlotsFor } from './classdef'
 import type { CommandContext } from '../commands'
 
 function dndActive(channel: string): boolean {
   return !engine.isLive(channel)
 }
 
-export function handleJoin(arg: string, ctx: CommandContext): string | null {
+export async function handleJoin(arg: string, ctx: CommandContext): Promise<string | null> {
   if (!ctx.channel || !ctx.user) return null
   if (!dndActive(ctx.channel)) return null  // let raid handler take over when live
 
@@ -40,11 +41,6 @@ export function handleJoin(arg: string, ctx: CommandContext): string | null {
     return render.renderClassList()
   }
 
-  const classArg = arg.trim().toLowerCase()
-  const matched = ALL_CLASSES.find((c) => c.toLowerCase() === classArg || c.toLowerCase().startsWith(classArg))
-
-  if (!matched) return `unknown class "${arg.trim()}" — ${render.renderClassList()}`
-
   if (existing) {
     const now = Date.now()
     if (existing.respawnAt !== null && existing.respawnAt <= now) {
@@ -53,12 +49,16 @@ export function handleJoin(arg: string, ctx: CommandContext): string | null {
     return `@${username} already in the Depths as Lv${existing.level} ${existing.class}. !b floor to see the action.`
   }
 
-  const stats = CLASS_BASE_STATS[matched] ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }
-  const maxHp = calcMaxHp(matched, 1, stats.con)
-  const maxSpellSlots = calcMaxSpellSlots(matched, 1)
+  // resolve the typed name to a class definition — builtins instant, custom names
+  // generated + cached on the fly (any string becomes a real, balanced class)
+  const def = await aiDm.ensureClassDef(arg.trim())
+
+  const stats = { ...def.baseStats }
+  const maxHp = maxHpFor(def, 1, stats.con)
+  const maxSpellSlots = maxSpellSlotsFor(def, 1)
   const newChar: Character = {
     username, channel,
-    class: matched,
+    class: def.name,
     level: 1, xp: 0,
     hp: maxHp, maxHp,
     gold: 10,
@@ -66,9 +66,9 @@ export function handleJoin(arg: string, ctx: CommandContext): string | null {
     stats,
     spellSlots: maxSpellSlots, maxSpellSlots,
     hitDice: 1, maxHitDice: 1,
-    kiPoints: matched === 'Monk' ? 1 : 0,
-    maxKiPoints: matched === 'Monk' ? 1 : 0,
-    rageCharges: matched === 'Barbarian' ? 2 : 0,
+    kiPoints: def.chassis === 'flurry' ? 1 : 0,
+    maxKiPoints: def.chassis === 'flurry' ? 1 : 0,
+    rageCharges: def.chassis === 'rage' ? 2 : 0,
     rageTurnsLeft: 0,
     actionSurgeUsed: false,
     isDying: false, deathSuccesses: 0, deathFailures: 0,
@@ -79,7 +79,7 @@ export function handleJoin(arg: string, ctx: CommandContext): string | null {
     prestige: 0, achievements: [],
   }
   db.upsertCharacter(newChar)
-  engine.announceJoin(channel, { username, cls: matched })
+  engine.announceJoin(channel, { username, cls: def.name })
   return render.renderJoin(newChar)
 }
 
