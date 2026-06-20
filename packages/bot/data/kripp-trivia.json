@@ -50,7 +50,7 @@
       "category": "hearthstone"
     },
     {
-      "question": "kripp's old hearthstone podcast (with trump + chanmanv) — also his signature catchphrase, two words?",
+      "question": "kripp co-hosted which old hearthstone podcast alongside trump and chanmanv? (two words)",
       "answer": "Value Town",
       "accept": [
         "value town",
@@ -730,17 +730,6 @@
       "category": "hs-career"
     },
     {
-      "question": "kripp cast the 2015 blizzcon hs world championship alongside frodan and which other big-name caster?",
-      "answer": "amaz",
-      "accept": [
-        "amaz",
-        "amazhs",
-        "jason chan"
-      ],
-      "difficulty": "hard",
-      "category": "hs-career"
-    },
-    {
       "question": "kripp's signature constructed hs deck didn't kill you fast — it decked you out and outlasted you to 0 cards. what's the archetype called?",
       "answer": "fatigue warrior",
       "accept": [
@@ -789,7 +778,7 @@
       "category": "hs-fatigue"
     },
     {
-      "question": "elise's card that transforms your hand and deck into random legendaries — kripp's second fatigue win-con — is the map to the ___?",
+      "question": "elise shuffles a card into your deck that leads to turning your whole hand and deck into random legendaries — kripp's second fatigue win-con — the map to the ___?",
       "answer": "golden monkey",
       "accept": [
         "golden monkey",
@@ -938,7 +927,7 @@
       "category": "persona-memes"
     },
     {
-      "question": "kripp's editor runs a secondary youtube channel for his clips and lighter highlights, named with 'casual' plus his nickname. what's it called?",
+      "question": "a fan-run secondary youtube channel reposts kripp's clips and lighter highlights, named with 'casual' plus his nickname. what's it called?",
       "answer": "casual kripp",
       "accept": [
         "casual kripp",
