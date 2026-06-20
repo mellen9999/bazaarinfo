@@ -2,6 +2,7 @@ import { log } from './log'
 import { readJson, extractFirstJson } from './http'
 import { AI_CHANNELS, isOverDailyCap } from './ai-cache'
 import { recordAiSpend } from './db'
+import { MAX_INSTRUCTION } from './directives'
 
 // AI gate for chat-planted steering directives. Parses a natural-language plant
 // ("anytime someone asks about topology, work in GachiBlacksmith") into a structured
@@ -35,7 +36,7 @@ const SYSTEM = `A Twitch chat user wants to plant a fun, TEMPORARY rule that cha
 2. STEER — flavor how answers come out. {"mute":false, "instruction":"the flavor", ...}.
    - "target": the username if it's directed at one person ("answer kripp in pirate speak" -> "kripp"), else "".
    - "trigger": lowercase topic keywords if it's topic-based ("anytime someone asks about topology..." -> ["topology"]), else [].
-   - "instruction": the short flavor, <= 120 chars (e.g. "work in the GachiBlacksmith emote", "answer in pirate speak").
+   - "instruction": the short flavor, <= ${MAX_INSTRUCTION} chars (e.g. "work in the GachiBlacksmith emote", "answer in pirate speak").
 
 Return {"ok":true,"mute":<bool>,"target":"<username or empty>","trigger":[...],"instruction":"<flavor or empty>"} for any benign, PLAYFUL directive — themes, emotes, accents, running jokes, and ignoring/muting a specific named user are all FINE (this is good chat fun).
 
@@ -113,6 +114,8 @@ function validate(text: string): ParsedDirective | null {
     return { trigger: [], targetUser, mute: true, instruction: '' }
   }
   // a steer needs an actual instruction; with no trigger/target it colors every answer.
-  if (instruction.length < 2 || instruction.length > 160) return null
-  return { trigger, targetUser, mute: false, instruction }
+  // clip (don't reject) over-long flavors so an LLM that slightly overshoots its target
+  // still lands a valid directive — the echoed confirmation stays bounded too.
+  if (instruction.length < 2) return null
+  return { trigger, targetUser, mute: false, instruction: instruction.slice(0, MAX_INSTRUCTION) }
 }

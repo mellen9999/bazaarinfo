@@ -22,6 +22,10 @@ export interface Directive {
 
 const MAX_PER_CHANNEL = 4
 const TTL_MS = 20 * 60_000
+// single source of truth for a planted instruction's length: advertised to the AI
+// (ai-directive system prompt), enforced by truncation at parse, and clipped again on
+// store. a "flavor" is short by design — 120 is generous; longer is clipped, never dropped.
+export const MAX_INSTRUCTION = 120
 
 const byChannel = new Map<string, Directive[]>()
 
@@ -29,7 +33,7 @@ const byChannel = new Map<string, Directive[]>()
 // open a new prompt line), no square brackets (can't mimic [USER]/[MOD]/[CHAT VIBES]
 // labels), collapse whitespace, cap length.
 function scrubInstruction(s: string): string {
-  return s.replace(/[\r\n\t]+/g, ' ').replace(/[[\]]/g, '').replace(/\s{2,}/g, ' ').trim().slice(0, 160)
+  return s.replace(/[\r\n\t]+/g, ' ').replace(/[[\]]/g, '').replace(/\s{2,}/g, ' ').trim().slice(0, MAX_INSTRUCTION)
 }
 
 function active(channel: string): Directive[] {
