@@ -1,6 +1,7 @@
 import type { BazaarCard, Monster } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
+import { lookupKeywords, DEFINITIONAL_INTENT } from './glossary'
 
 export const KNOWLEDGE: [RegExp, string][] = [
   [/kripp|kripparrian|rania|dr\.?\s*limestone/i, "Kripp (Octavian Morosan): Romanian-Canadian. 'nl'=No Life. World-first HC Inferno D3 (Guinness). PoE S1 champ. #1 HS Arena+BG streamer ever. Vegan, OJ+falafel. Wife=Rania (underflowR), Greek, married Halloween 2014. 11PM-5AM EST. Pets: Catarrian(cat), Dexter(GSD), Fey(Corgi). Now plays Bazaar."],
@@ -14,7 +15,7 @@ export const KNOWLEDGE: [RegExp, string][] = [
   [/reynad|andrey|tempo storm/i, "Reynad (Andrey Yanyuk): Ukrainian-Canadian. Banned from MTG (extra card in sealed deck). Popularized Zoo Warlock. Founded Tempo Storm 2014, ran Meta Snapshots. Forbes 30 Under 30. Built The Bazaar since 2017. Notorious salt, death stares, mass-bans. 'Reynad luck'=always wrong end of topdecks."],
   [/reynad.*(drama|beef|amaz|magic.?amy|ban|cheat|salt|forsen)/i, "Reynad drama: MTG ban for extra cards. Amaz/Archon rivalry — refused handshake. Defended MagicAmy 2015 (investigated 36 people, found nothing). TTS donation incident. Forsen Boys raids. The salt was the content."],
   [/the bazaar|this game/i, "The Bazaar: PvP auto-battler roguelike by Reynad. 7 heroes. Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments, monsters on numbered days."],
-  [/karnok|rage|enrage/i, "Karnok: DLC hero. Rage mechanic — gain Rage, Enrage when full (temp buff). Enraged=boosted effects (damage, flying, shields). Rage decays. Archetypes: Rage stacking, Friends, Weapons, Properties."],
+  [/karnok|rage|enrage/i, "Karnok: DLC hero. Rage mechanic — reach 100 Rage to become Enraged: removes Slow and Freeze from your items, and reduces your item cooldowns by 10%. Archetypes: Rage stacking, Friends, Weapons, Properties."],
   [/lethalfrag/i, "Lethalfrag (Matt McKnight): ex-chef, single father, WA. Streamed 731 consecutive nights (2012-2014). First Twitch Hall of Fame inductee. Top English Bazaar streamer. Goal: be gaming's Batman."],
   [/patopapao|pato/i, "PatoPapao: Brazilian, #1 most-watched Bazaar channel globally. Partner since 2012, ~600 avg viewers. Consistent grinder, 100+ hrs/week during Bazaar peaks."],
   [/dog\b.*\b(?:hs|hearthstone|bazaar)|dogdog/i, "Dog: high-legend HS, off-meta decks, now plays Bazaar. Married Hafu (2021)."],
@@ -71,14 +72,28 @@ export interface ResolvedEntities {
   effects: string[]
   chatQuery: string | undefined
   knowledge: string[]
+  glossary: string[]
   isGame: boolean
 }
 
 export function extractEntities(query: string): ResolvedEntities {
   const result: ResolvedEntities = {
     cards: [], monsters: [], hero: undefined, tag: undefined,
-    day: undefined, effects: [], chatQuery: undefined, knowledge: [],
+    day: undefined, effects: [], chatQuery: undefined, knowledge: [], glossary: [],
     isGame: GAME_TERMS.test(query),
+  }
+
+  // authoritative keyword definitions — inject when the query asks ABOUT a keyword
+  // (any interrogative, or a bare keyword), not when it's just used in a build/list
+  // request ("best damage build" stays clean). keyword rules are short + always
+  // correct, and a missed inject = the model invents the mechanic (the Flying bug),
+  // so the trigger errs broad. lookupKeywords only returns hits for real keywords,
+  // so a question with none ("are aquatic items good") injects nothing.
+  const bareKeyword = query.trim().split(/\s+/).length <= 2
+  const interrogative = /\?/.test(query)
+    || /\b(what|whats|wat|how|hows|why|does|do|is|are|can|could|will|would|should|which|whether|explain|define|definition|meaning|means?|effect|bonus|works?|wtf|wdym|tell me)\b/i.test(query)
+  if (interrogative || bareKeyword) {
+    result.glossary = lookupKeywords(query)
   }
 
   const words = query.toLowerCase().split(/\s+/)
@@ -172,7 +187,7 @@ export function extractEntities(query: string): ResolvedEntities {
   }
 
   // mark as game query if we found any game entities (replaces separate isGameQuery sliding window)
-  if (!result.isGame && (result.cards.length > 0 || result.monsters.length > 0 || result.hero || result.tag)) {
+  if (!result.isGame && (result.cards.length > 0 || result.monsters.length > 0 || result.hero || result.tag || result.glossary.length > 0)) {
     result.isGame = true
   }
 

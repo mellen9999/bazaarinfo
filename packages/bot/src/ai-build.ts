@@ -21,11 +21,19 @@ import {
 } from './ai-query'
 import { randomPastaExamples } from './ai-prompt'
 import { directiveHint } from './directives'
+import { DEFINITIONAL_INTENT } from './glossary'
 
 // --- game context builder ---
 
 export function buildGameContext(entities: ResolvedEntities, channel?: string): string {
   const sections: string[] = []
+
+  // authoritative keyword rules first — these are the verified mechanic, the one
+  // thing the dump can't give. lead with them so a "what does flying do" answer is
+  // the real rule, not a guess off the item list below.
+  if (entities.glossary.length > 0) {
+    sections.push(`Keyword rules (authoritative — state these exactly, never embellish or add numbers):\n${entities.glossary.join('\n')}`)
+  }
 
   const isBroadHeroQ = !entities.hero && entities.cards.length === 0 && entities.monsters.length === 0
   const isComparisonQ = /\b(tier\s*list|ranking|rank|compare|best|worst|strongest|weakest|meta|patch)\b/i.test(
@@ -700,9 +708,18 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // game query that matched NO data — the model tends to free-associate a specific
     // card's mechanic from memory and get it wrong (e.g. "Toxic Weapons buffs damage" —
     // it's poison). gate that off while leaving general banter/opinions intact.
+    // second case: a "what does X do" ask DID inject some game data (e.g. a tag's item
+    // LIST) but no authoritative answer — no keyword rule, no named card/monster, no
+    // knowledge. a title list isn't a definition, and the model will invent the mechanic
+    // (this is exactly how it fabricated the Flying rule). gate that too.
     (entities.isGame && !hasGameData)
       ? "\n⚠️ NO GAME DATA matched this. Do NOT state the specific mechanic, numbers, tags, or effect of any specific item/skill — your memory of exact Bazaar card details is unreliable. General takes are fine; for specifics, tell them to name the exact card (e.g. '!b <card name>')."
-      : '',
+      : (entities.isGame && DEFINITIONAL_INTENT.test(query)
+          && !/\b(best|worst|good|bad|meta|tier|build|strong|weak|viable|worth|better|op|broken|heroes?|comp|loadout|strat|counter)\b/i.test(query)
+          && entities.glossary.length === 0 && entities.knowledge.length === 0
+          && entities.cards.length === 0 && entities.monsters.length === 0 && !entities.hero)
+        ? "\n⚠️ NO VERIFIED DEFINITION for what they're asking about — the data here is just a related item list, not the rule. Do NOT state how this mechanic/keyword works or invent numbers; your memory of exact Bazaar rules is unreliable. Say you don't have the exact rule on that one."
+        : '',
     // chat-planted flavor directives that match this query (kept in the required tail so
     // a tight context budget can't evict them). empty when none are active/matching.
     directiveHint(ctx.channel, query, ctx.user),

@@ -561,6 +561,14 @@ const subcommands: [RegExp, SubHandler][] = [
     return withSuffix(formatItem(skill), suffix)
   }],
   [/^trivia(?:\s+([\s\S]+))?$/i, (query, ctx, suffix) => runTrivia(ctx, query ?? '', suffix)],
+  // natural-language trivia start: "make a trivia about happy gilmore", "do a quiz on
+  // cats", "can you start a trivia". the verb + "trivia"/"quiz" makes intent explicit, so
+  // route it to the trivia game instead of letting it fall to AI chat. the topic (incl. a
+  // leading "about"/"on") is handed to runTrivia, which resolves category vs custom topic.
+  [/^(?:pls\s+|please\s+)?(?:can\s+(?:you|u|we)\s+)?(?:make|do|start|begin|create|run|generate|gen|give|gimme|set\s*up|lets?\s+do|let'?s\s+do|wanna|i\s+wanna|i\s+want(?:\s+to)?)\s+(?:me\s+)?(?:a|an|some|the|new)?\s*(?:new\s+)?(?:trivia|quiz)(?:\s+(?:question|round|game|q))?(?:\s+(?:about|on|for|regarding|over|covering))?\s*([\s\S]*)$/i,
+    (query, ctx, suffix) => runTrivia(ctx, stripTopicConnector(query ?? ''), suffix)],
+  // "quiz" as a full alias for "trivia" (quiz / quiz me / quiz about cats)
+  [/^quiz(?:\s+me)?(?:\s+([\s\S]+))?$/i, (query, ctx, suffix) => runTrivia(ctx, stripTopicConnector(query ?? ''), suffix)],
   [/^(?:vibes?|directives?)(?:\s+([\s\S]+))?$/i, (query, ctx, suffix) => handleVibes(query ?? '', ctx, suffix)],
   [/^skip$/i, (_query, ctx, suffix) => {
     if (!ctx.channel) return null
@@ -919,10 +927,24 @@ function stripEmotesFromTopic(topic: string): string {
   return kept.length ? kept.join(' ') : topic.trim()
 }
 
+// natural phrasing puts a connector before the subject ("trivia ON cat", "trivia
+// ABOUT birds"). left in, it derails the model — "on cat" yielded an "on'yomi"
+// (Japanese reading) question instead of cats. strip a single leading connector so
+// the topic is just the subject. only the unambiguous-connector words, so a real
+// title that opens with "of"/"for" survives.
+export function stripTopicConnector(topic: string): string {
+  // drop a leftover "me" from "quiz me about X" / "trivia me X", then one connector.
+  const stripped = topic.trim()
+    .replace(/^me\s+/i, '')
+    .replace(/^(?:on|about|regarding|concerning|covering)\s+/i, '')
+    .trim()
+  return stripped.length >= 2 ? stripped : topic.trim()
+}
+
 async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: string): Promise<string | null> {
   const channel = ctx.channel
   if (!channel) return null
-  const t = stripEmotesFromTopic(topic.trim())
+  const t = stripTopicConnector(stripEmotesFromTopic(topic.trim()))
   // need a real topic with at least one alphanumeric char; cap length before the API call.
   if (t.length < 2 || !/[a-z0-9]/i.test(t)) return null
   if (isGameActive(channel)) {

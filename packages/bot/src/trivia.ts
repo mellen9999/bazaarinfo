@@ -633,9 +633,23 @@ const BAZAAR_INDICES = generators.map((_, i) => i).filter((i) => i !== KRIPP_GEN
 // kept in the array (indices are load-bearing) but never selected. filtered in pickQuestionType.
 const DISABLED_GENERATORS = new Set([11, 14])
 
+// strip alternate-answer cruft so a hint counts the REAL answer, not the extras a
+// custom-trivia answer can carry. "Ti (or Si)" -> "Ti" (else the hint said
+// "3 words, 8 letters" / "T_________ (10 letters)" for a 2-letter answer). Drops a
+// trailing parenthetical, and a "/alt" or " or alt" tail. Falls back to the input
+// if cleaning leaves nothing.
+export function hintBase(answer: string): string {
+  const a = answer
+    .replace(/\s*[([][^)\]]*[)\]]\s*/g, ' ') // (…) / […]
+    .replace(/\s*(?:\/|\sor\s).+$/i, '')      // "/ si", " or si"
+    .trim()
+  return a.length >= 1 ? a : answer.trim()
+}
+
 // weak first-stage hint: shape/count only (no letters revealed), so the round
 // escalates count(10s) -> skeleton(20s) instead of dumping everything at once.
-function generateWeakHint(answer: string): string {
+function generateWeakHint(rawAnswer: string): string {
+  const answer = hintBase(rawAnswer)
   if (/^\d+$/.test(answer)) {
     const n = parseInt(answer)
     if (n < 10) return `Hint: single digit` // log10(0) is -Infinity → guard tiny values
@@ -648,7 +662,8 @@ function generateWeakHint(answer: string): string {
   return `Hint: ${answer.length} letters`
 }
 
-function generateHint(answer: string): string {
+function generateHint(rawAnswer: string): string {
+  const answer = hintBase(rawAnswer)
   // for numeric answers, give a range
   if (/^\d+$/.test(answer)) {
     const n = parseInt(answer)

@@ -1172,3 +1172,24 @@ describe('kripp channel-scoped pack', () => {
 
   afterEach(() => setKrippPackForTest([]))
 })
+
+describe('hint counts — alternate-answer cruft must not skew shape/length', () => {
+  // bug: a custom-trivia answer "Ti (or Si)" produced "3 words, 8 letters" then
+  // "T_________ (10 letters)" for what is really a 2-letter answer. hints must count
+  // the canonical answer only.
+  it('counts the canonical answer for an answer with a parenthetical alternate', () => {
+    expect(generateWeakHint('Ti (or Si)')).toBe('Hint: 2 letters')
+    expect(generateHint('Ti (or Si)')).toBe('Hint: T_ (2 letters)')
+  })
+
+  it('handles "/" and " or " alternates the same way', () => {
+    expect(generateHint('Ti / Si')).toBe('Hint: T_ (2 letters)')
+    expect(generateHint('Ti or Si')).toBe('Hint: T_ (2 letters)')
+  })
+
+  it('leaves a legitimate multi-word answer intact', () => {
+    expect(generateWeakHint('San Francisco')).toBe('Hint: 2 words, 12 letters')
+    // "&" name must not be split or miscounted
+    expect(generateHint('Mortar')).toBe('Hint: M_____ (6 letters)')
+  })
+})

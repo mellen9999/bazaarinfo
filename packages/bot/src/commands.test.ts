@@ -168,7 +168,7 @@ mock.module('./emotes', () => ({
   removeChannelEmotes: mock(() => {}),
 }))
 
-const { handleCommand, parseArgs, resetDedup, resetProxyCooldowns, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES } = await import('./commands')
+const { handleCommand, parseArgs, resetDedup, resetProxyCooldowns, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES, stripTopicConnector } = await import('./commands')
 const chatbuf = await import('./chatbuf')
 const directives = await import('./directives')
 
@@ -2204,3 +2204,21 @@ describe('chat-planted steering directives (vibes)', () => {
 })
 
 
+
+describe('stripTopicConnector — natural-language trivia topic cleanup', () => {
+  it('drops a leading connector so "trivia on cat" means topic "cat"', () => {
+    // bug: "on cat" reached the model verbatim and yielded an "on'yomi" question
+    expect(stripTopicConnector('on cat')).toBe('cat')
+    expect(stripTopicConnector('about the simpsons')).toBe('the simpsons')
+    expect(stripTopicConnector('regarding birds')).toBe('birds')
+  })
+  it('drops a leftover "me" from "quiz me about X"', () => {
+    expect(stripTopicConnector('me about birds')).toBe('birds')
+    expect(stripTopicConnector('me cats')).toBe('cats')
+  })
+  it('leaves a topic that merely starts with an ambiguous word', () => {
+    expect(stripTopicConnector('of mice and men')).toBe('of mice and men')
+    expect(stripTopicConnector('for honor')).toBe('for honor')
+    expect(stripTopicConnector('happy gilmore')).toBe('happy gilmore')
+  })
+})
