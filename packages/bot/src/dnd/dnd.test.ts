@@ -485,9 +485,9 @@ describe('hasMeatItems', () => {
 // ===========================================================================
 
 describe('getFloorType', () => {
-  it('shops on 3 and 5', () => {
-    expect(getFloorType(3)).toBe('shop')
+  it('shop on 5', () => {
     expect(getFloorType(5)).toBe('shop')
+    expect(getFloorType(3)).toBe('combat')  // floor 3 is now combat (feeds the act-1 boss)
   })
   it('bosses on 6 and 10', () => {
     expect(getFloorType(6)).toBe('boss')
@@ -617,10 +617,11 @@ describe('enemyReward', () => {
     expect(r5.gold).toBeGreaterThan(r1.gold)
   })
 
-  it('Lich gives 33000 XP', () => {
+  it('final boss gives sane (rescaled) XP', () => {
     const enemies = generateEnemies(1, 10)
-    const lich = enemies[0]
-    expect(lich.xpValue).toBe(33000)
+    const boss = enemies[0]
+    expect(boss.isBoss).toBe(true)
+    expect(boss.xpValue).toBe(1500)
   })
 })
 
@@ -839,11 +840,11 @@ describe('dnd db', () => {
     expect(retrieved!.longRestCounter).toBe(2)
   })
 
-  it('addCharacterXp triggers level-up at D&D XP threshold (300 for Lv2)', async () => {
+  it('addCharacterXp triggers level-up at the Lv2 XP threshold (120)', async () => {
     const { upsertCharacter, addCharacterXp } = await import('./db')
     const char = makeChar({ username: 'levelup', channel: 'testchan', xp: 0, level: 1 })
     upsertCharacter(char)
-    const result = addCharacterXp('levelup', 'testchan', 300)
+    const result = addCharacterXp('levelup', 'testchan', 120)
     expect(result.leveledUp).toBe(true)
     expect(result.newLevel).toBe(2)
   })

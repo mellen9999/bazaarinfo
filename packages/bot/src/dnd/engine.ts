@@ -966,8 +966,8 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       // apply hex (causes +1d6 on future attacks)
       target.statusEffect = 'hexed'
       target.statusRoundsLeft = 999
-      // Eldritch Blast scales: a second beam at level 5+
-      const beams = char.level >= 5 ? 2 : 1
+      // Eldritch Blast: two beams from the start, a third at level 9
+      const beams = char.level >= 9 ? 3 : 2
       let dmg = 0; let hits = 0
       for (let i = 0; i < beams; i++) {
         const seq = db.nextSequence(channel)
