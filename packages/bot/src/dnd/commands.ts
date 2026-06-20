@@ -6,6 +6,7 @@ import * as aiDm from './ai-dm'
 import type { Character } from './types'
 import { maxHpFor, maxSpellSlotsFor } from './classdef'
 import { getBoon, applyBoonOnPick, boonLabels } from './boons'
+import { XP_PER_LEVEL } from './types'
 import type { CommandContext } from '../commands'
 
 function dndActive(channel: string): boolean {
@@ -54,22 +55,26 @@ export async function handleJoin(arg: string, ctx: CommandContext): Promise<stri
   // generated + cached on the fly (any string becomes a real, balanced class)
   const def = await aiDm.ensureClassDef(arg.trim())
 
+  // catch-up level: a fresh joiner on a deep floor starts floor-appropriate (no
+  // gear/boons, so still weaker than a natural veteran) — otherwise a level-1
+  // char joining a floor-7 channel mid-season is instantly crushed and stuck.
+  const startLevel = Math.max(1, Math.min(9, world.floor - 1))
   const stats = { ...def.baseStats }
-  const maxHp = maxHpFor(def, 1, stats.con)
-  const maxSpellSlots = maxSpellSlotsFor(def, 1)
+  const maxHp = maxHpFor(def, startLevel, stats.con)
+  const maxSpellSlots = maxSpellSlotsFor(def, startLevel)
   const newChar: Character = {
     username, channel,
     class: def.name,
-    level: 1, xp: 0,
+    level: startLevel, xp: XP_PER_LEVEL[startLevel] ?? 0,
     hp: maxHp, maxHp,
     gold: 10,
     inventory: [], statusEffects: [],
     stats,
     spellSlots: maxSpellSlots, maxSpellSlots,
     hitDice: 1, maxHitDice: 1,
-    kiPoints: def.chassis === 'flurry' ? 1 : 0,
-    maxKiPoints: def.chassis === 'flurry' ? 1 : 0,
-    rageCharges: def.chassis === 'rage' ? 2 : 0,
+    kiPoints: def.chassis === 'flurry' ? startLevel : 0,
+    maxKiPoints: def.chassis === 'flurry' ? startLevel : 0,
+    rageCharges: def.chassis === 'rage' ? 2 + Math.floor(startLevel / 3) : 0,
     rageTurnsLeft: 0,
     actionSurgeUsed: false,
     isDying: false, deathSuccesses: 0, deathFailures: 0,
