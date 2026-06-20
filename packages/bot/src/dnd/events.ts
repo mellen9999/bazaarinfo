@@ -15,7 +15,7 @@ export interface EventDef {
 export const EVENTS: Record<EventId, EventDef> = {
   shrine:   { id: 'shrine',   name: 'Ancient Shrine',   intro: "an ancient shrine hums with pale light. it judges what you carry. → !b explore to approach" },
   altar:    { id: 'altar',    name: 'Cursed Altar',     intro: "a cursed altar drips shadow. sacrifice 50g and its dark power is yours, permanently. → !b explore to offer" },
-  gamble:   { id: 'gamble',   name: "Merchant's Gamble", intro: "a hooded merchant rattles loaded dice. 'value town, friend — 30g, double or nothing.' → !b explore to roll" },
+  gamble:   { id: 'gamble',   name: "Merchant's Gamble", intro: "a hooded merchant rattles loaded dice. 'feeling lucky, friend? 30g, double or nothing.' → !b explore to roll" },
   chest:    { id: 'chest',    name: 'Mysterious Chest',  intro: "a battered chest sits alone. could be loot. could be teeth. → !b explore to open" },
   spring:   { id: 'spring',   name: 'Healing Spring',    intro: "a clear spring bubbles, plant-based and pure. → !b explore to drink" },
   fountain: { id: 'fountain', name: 'Fountain of Power',  intro: "a fountain of raw power churns. drink deep and a new gift awaits. → !b explore to drink" },
@@ -71,7 +71,7 @@ export function resolveEvent(ev: EventDef, ctx: EventContext, seed: number): Eve
   switch (ev.id) {
     case 'shrine': {
       if (!ctx.hasMeat) {
-        return { ...blank(`the shrine pulses for @${char.username}. "worthy." full heal + blessed. well met.`), fullHeal: true, blessed: true }
+        return { ...blank(`the shrine pulses for @${char.username}. "worthy." full heal + blessed. plant-based and pure.`), fullHeal: true, blessed: true }
       }
       return blank(`the shrine recoils from @${char.username}'s tainted, meat-tinged pack. "no luck." the blessing is denied.`)
     }
@@ -86,14 +86,14 @@ export function resolveEvent(ev: EventDef, ctx: EventContext, seed: number): Eve
       if (char.gold < 30) return blank(`@${char.username} can't cover the 30g ante. the merchant tuts. "no value, no game."`)
       const win = rng() < 0.5
       if (win) {
-        return { ...blank(`@${char.username} rolls... WINS! 30g becomes 75g. ACTUALLY SICK value town. (+45g net)`), goldDelta: 45 }
+        return { ...blank(`@${char.username} rolls... WINS! 30g becomes 75g. ACTUALLY SICK. (+45g net)`), goldDelta: 45 }
       }
       return { ...blank(`@${char.username} rolls... no luck. the merchant pockets the 30g. (-30g)`), goldDelta: -30 }
     }
 
     case 'chest': {
       if (rng() < 0.7 && ctx.itemReward) {
-        return { ...blank(`@${char.username} opens the chest — [${ctx.itemReward}] inside! well met.`), grantItem: ctx.itemReward }
+        return { ...blank(`@${char.username} opens the chest — [${ctx.itemReward}] inside! not bad value.`), grantItem: ctx.itemReward }
       }
       const bite = 4 + Math.floor(rng() * 6)
       return { ...blank(`@${char.username} opens the chest — MIMIC! it chomps for ${bite} dmg before fleeing.`), healAmount: -bite }
