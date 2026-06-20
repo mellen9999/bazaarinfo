@@ -1,4 +1,63 @@
 import type { Enemy, EncounterType, ShopItem } from './types'
+import * as store from '../store'
+import type { BazaarCard } from '@bazaarinfo/shared'
+
+// --- Bazaar reskin: real Bazaar monsters/items dress the balanced D&D mechanics.
+// All helpers fall back gracefully (return null/[]) when the item cache is empty,
+// so the game runs identically on generic D&D content if Bazaar data is missing.
+const MAX_DAY = 10
+
+// dungeon floor -> Bazaar "day" (the game's PvE difficulty ramp), clamped
+function bazaarMonsterPool(floor: number): { Title: string; health: number }[] {
+  const day = Math.min(MAX_DAY, Math.max(1, floor))
+  let pool = store.monstersByDay(day)
+  for (let d = day + 1; d <= MAX_DAY && pool.length === 0; d++) pool = store.monstersByDay(d)
+  for (let d = day - 1; d >= 1 && pool.length === 0; d--) pool = store.monstersByDay(d)
+  return pool.map((m) => ({ Title: m.Title, health: m.MonsterMetadata?.health ?? 0 }))
+}
+
+// pick `count` distinct real Bazaar monster names for a floor (boss = tankiest)
+function bazaarMonsterNames(floor: number, count: number, rng: () => number, boss: boolean): string[] {
+  const pool = bazaarMonsterPool(floor)
+  if (pool.length === 0) return []
+  if (boss) {
+    const tankiest = [...pool].sort((a, b) => b.health - a.health)[0]
+    return [tankiest.Title]
+  }
+  const names: string[] = []
+  const used = new Set<string>()
+  let guard = 0
+  while (names.length < count && guard++ < 40) {
+    const pick = pool[Math.floor(rng() * pool.length)]
+    if (used.has(pick.Title)) continue
+    used.add(pick.Title)
+    names.push(pick.Title)
+  }
+  return names
+}
+
+// items whose tags give getItemBonus something real (weapon/armor/heal/status)
+const COMBAT_TAGS = ['weapon', 'armor', 'shield', 'heal', 'regeneration', 'poison', 'freeze', 'slow', 'burn', 'fire']
+function isCombatItem(c: BazaarCard): boolean {
+  const tags = (c.Tags ?? []).map((t) => t.toLowerCase())
+  return COMBAT_TAGS.some((t) => tags.includes(t))
+}
+
+// floor -> which Bazaar tiers can drop
+function tiersForFloor(floor: number): string[] {
+  if (floor <= 2) return ['Bronze']
+  if (floor <= 4) return ['Bronze', 'Silver']
+  if (floor <= 6) return ['Silver', 'Gold']
+  if (floor <= 8) return ['Gold', 'Diamond']
+  return ['Diamond', 'Legendary']
+}
+
+function bazaarLootPool(floor: number): string[] {
+  const tiers = tiersForFloor(floor)
+  return store.getItems()
+    .filter((c) => c.Type === 'Item' && tiers.includes(c.BaseTier) && isCombatItem(c))
+    .map((c) => c.Title)
+}
 
 // mulberry32 — deterministic seeded RNG
 function mulberry32(seed: number): () => number {
@@ -95,8 +154,9 @@ export function generateEnemies(season: number, floor: number): Enemy[] {
   if (isBossFloor) {
     const t = templates[Math.floor(rng() * templates.length)]
     const hp = rollHp(rng, t.hpCount, t.hpDie, t.hpMod)
+    const bzName = bazaarMonsterNames(floor, 1, rng, true)[0]
     return [{
-      name: t.name, hp, maxHp: hp,
+      name: bzName ?? t.name, hp, maxHp: hp,
       ac: t.ac, hitBonus: t.hitBonus,
       damageDie: t.damageDie, damageCount: t.damageCount, damageMod: t.damageMod,
       multiattack: t.multiattack, isBoss: true, cr: t.cr, xpValue: t.xpValue,
@@ -107,6 +167,7 @@ export function generateEnemies(season: number, floor: number): Enemy[] {
   // combat floors: pick 2 enemies, no duplicate special abilities (prevents Troll+Troll etc.)
   const enemies: Enemy[] = []
   const usedSpecials = new Set<string>()
+  const bzNames = bazaarMonsterNames(floor, 2, rng, false)  // real Bazaar skin (empty = generic)
   for (let i = 0; i < 2; i++) {
     let t = templates[Math.floor(rng() * templates.length)]
     // retry once to avoid stacking regeneration/fortitude/paralyze
@@ -116,7 +177,7 @@ export function generateEnemies(season: number, floor: number): Enemy[] {
     if (t.specialAbility) usedSpecials.add(t.specialAbility)
     const hp = rollHp(rng, t.hpCount, t.hpDie, t.hpMod)
     enemies.push({
-      name: t.name, hp, maxHp: hp,
+      name: bzNames[i] ?? t.name, hp, maxHp: hp,
       ac: t.ac, hitBonus: t.hitBonus,
       damageDie: t.damageDie, damageCount: t.damageCount, damageMod: t.damageMod,
       multiattack: t.multiattack, isBoss: false, cr: t.cr, xpValue: t.xpValue,
@@ -150,21 +211,44 @@ const SHOP_POOLS: Record<number, { name: string; price: number }[][]> = {
   ],
 }
 
-// Pick 4 items from appropriate pool, seeded for determinism
+const TIER_SHOP_PRICE: Record<string, number> = {
+  Bronze: 50, Silver: 100, Gold: 175, Diamond: 275, Legendary: 400,
+}
+
+// Pick 4 shop items, seeded. Stocks real Bazaar gear (priced by tier) plus a
+// guaranteed healing potion; falls back to the D&D pool when no Bazaar data.
 export function generateShop(season: number, floor: number): ShopItem[] {
   const rng = mulberry32(((season * 2003 + floor * 1009 + 42) >>> 0))
-  const poolIdx = floor <= 3 ? 0 : floor <= 4 ? 1 : 2
-  const pool = SHOP_POOLS[1][Math.min(poolIdx, 2)]
+  const bzPool = bazaarLootPool(floor)
 
-  const shop: ShopItem[] = []
+  if (bzPool.length === 0) {
+    const poolIdx = floor <= 3 ? 0 : floor <= 4 ? 1 : 2
+    const pool = SHOP_POOLS[1][Math.min(poolIdx, 2)]
+    const shop: ShopItem[] = []
+    const seen = new Set<string>()
+    let attempts = 0
+    while (shop.length < 4 && attempts < 20) {
+      attempts++
+      const item = pool[Math.floor(rng() * pool.length)]
+      if (!item || seen.has(item.name)) continue
+      seen.add(item.name)
+      shop.push({ name: item.name, price: item.price })
+    }
+    return shop
+  }
+
+  // always offer healing, then fill with Bazaar gear
+  const shop: ShopItem[] = [{ name: floor >= 5 ? 'Potion of Greater Healing' : 'Potion of Healing', price: floor >= 5 ? 100 : 50 }]
   const seen = new Set<string>()
   let attempts = 0
-  while (shop.length < 4 && attempts < 20) {
+  while (shop.length < 4 && attempts < 30) {
     attempts++
-    const item = pool[Math.floor(rng() * pool.length)]
-    if (!item || seen.has(item.name)) continue
-    seen.add(item.name)
-    shop.push({ name: item.name, price: item.price })
+    const name = bzPool[Math.floor(rng() * bzPool.length)]
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    const card = store.findCard(name)
+    const price = TIER_SHOP_PRICE[card?.BaseTier ?? 'Silver'] ?? 100
+    shop.push({ name, price })
   }
   return shop
 }
@@ -198,12 +282,14 @@ function lootPoolFor(floor: number): string[] {
 export function lootDrop(season: number, floor: number, enemyIndex: number): string | null {
   const rng = mulberry32(((season * 7919 + floor * 6271 + enemyIndex * 4133) >>> 0))
   if (rng() > 0.35) return null
-  const pool = lootPoolFor(floor)
+  const bz = bazaarLootPool(floor)
+  const pool = bz.length > 0 ? bz : lootPoolFor(floor)
   return pool[Math.floor(rng() * pool.length)] ?? null
 }
 
 export function bossLootDrop(season: number, floor: number): string | null {
   const rng = mulberry32(((season * 9007 + floor * 5003) >>> 0))
-  const pool = lootPoolFor(floor)
+  const bz = bazaarLootPool(floor)
+  const pool = bz.length > 0 ? bz : lootPoolFor(floor)
   return pool[Math.floor(rng() * pool.length)] ?? null
 }
