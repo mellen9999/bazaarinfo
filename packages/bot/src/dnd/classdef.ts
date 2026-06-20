@@ -246,9 +246,32 @@ const CHASSIS_ROLE_WORD: Record<Chassis, string> = {
   heal: 'cleric', chaos: 'wild mage', flurry: 'martial artist', curse: 'warlock',
 }
 
-const SYNTH_VERBS = ['Savage', 'Forbidden', 'Arcane', 'Cursed', 'Radiant', 'Wild', 'Shadow', 'Thunder', 'Vile', 'Eternal']
-const SYNTH_NOUNS = ['Strike', 'Fury', 'Gambit', 'Surge', 'Onslaught', 'Rite', 'Barrage', 'Reckoning', 'Flourish', 'Wrath']
+// chassis-themed signature nouns — paired with a word lifted from the class name
+const CHASSIS_SIG_NOUNS: Record<Chassis, string[]> = {
+  rage: ['Smash', 'Rampage', 'Frenzy', 'Slam'],
+  surge: ['Barrage', 'Blitz', 'Onslaught', 'Combo'],
+  smite: ['Judgment', 'Wrath', 'Reckoning', 'Verdict'],
+  sneak: ['Ambush', 'Backstab', 'Gambit', 'Strike'],
+  nuke: ['Tornado', 'Eruption', 'Storm', 'Nova'],
+  heal: ['Blessing', 'Renewal', 'Mend', 'Grace'],
+  chaos: ['Maelstrom', 'Surge', 'Frenzy', 'Roulette'],
+  flurry: ['Flurry', 'Barrage', 'Combo', 'Cyclone'],
+  curse: ['Hex', 'Bane', 'Curse', 'Doom'],
+}
 const SYNTH_WEAPONS = ['Fang', 'Cleaver', 'Scepter', 'Shiv', 'Brand', 'Maul', 'Talon', 'Lash', 'Censer', 'Sigil']
+const SIG_STOPWORDS = new Set(['the', 'of', 'a', 'an', 'and', 'to', 'my', 'your', 'is', 'with'])
+
+// lift the most distinctive word from a class name (for name-derived signatures)
+function salientWord(name: string, seed: number): string {
+  const words = name.split(/\s+/).map((w) => w.replace(/[^A-Za-z]/g, '')).filter(Boolean)
+  const meaty = words.filter((w) => w.length >= 3 && !SIG_STOPWORDS.has(w.toLowerCase()))
+  const pool = meaty.length ? meaty : words
+  if (!pool.length) return 'Mystic'
+  const maxLen = Math.max(...pool.map((w) => w.length))
+  const longest = pool.filter((w) => w.length === maxLen)
+  const w = longest[seed % longest.length].slice(0, 14)
+  return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+}
 
 // deterministic, AI-free class. Always playable — the bulletproof floor.
 export function syntheticDef(rawName: string): ClassDef {
@@ -262,10 +285,10 @@ export function syntheticDef(rawName: string): ClassDef {
     const d = ((seed >>> (i * 3)) % 5) - 2  // -2..+2
     jitter[k] = tmpl.baseStats[k] + d
   })
-  const firstWord = name.split(' ')[0].replace(/[^A-Za-z]/g, '') || 'Wanderer'
-  const cap = firstWord.charAt(0).toUpperCase() + firstWord.slice(1).toLowerCase()
-  const sig = `${SYNTH_VERBS[(seed >>> 4) % 10]} ${SYNTH_NOUNS[(seed >>> 8) % 10]}`
-  const weaponName = `${cap}'s ${SYNTH_WEAPONS[(seed >>> 12) % 10]}`
+  const word = salientWord(name, seed)                          // e.g. "Butthole" / "Buttjuice"
+  const nouns = CHASSIS_SIG_NOUNS[chassis]
+  const sig = `${word} ${nouns[(seed >>> 8) % nouns.length]}`     // e.g. "Butthole Tornado"
+  const weaponName = `${word}'s ${SYNTH_WEAPONS[(seed >>> 12) % 10]}`
   return {
     name,
     chassis,
