@@ -153,6 +153,7 @@ export async function handleReroll(arg: string, ctx: CommandContext): Promise<st
   const def = await aiDm.ensureClassDef(channel, classArg)
   const newChar = freshCharacter(username, channel, def, world)
   engine.clearQueuedAction(channel, username)  // drop any stale action from the old char
+  engine.cancelRespawn(username, channel)      // and any pending respawn (reroll while dead)
   db.upsertCharacter(newChar)                  // same (user, channel) PK → overwrites
   engine.announceJoin(channel, { username, cls: def.name })
   return render.renderJoin(newChar)

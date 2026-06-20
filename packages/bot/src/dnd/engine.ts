@@ -741,9 +741,7 @@ async function handleFloorClear(channel: string, world: WorldState) {
     const respawnedNames: string[] = []
     for (const dead of deadChars) {
       db.addCharacterXp(dead.username, channel, 3)
-      const key = `${dead.username.toLowerCase()}:${channel.toLowerCase()}`
-      const timer = respawnTimers.get(key)
-      if (timer) { clearTimeout(timer); respawnTimers.delete(key) }
+      cancelRespawn(dead.username, channel)
       db.respawnCharacter(dead.username, channel)
       respawnedNames.push(dead.username)
     }
@@ -1110,6 +1108,15 @@ export function announceJoin(channel: string, newPlayer?: { username: string; cl
 
 // --- respawn timers ---
 const respawnTimers = new Map<string, Timer>()
+
+// cancel a pending respawn so it can't fire on a character that no longer needs it
+// (e.g. rerolled into a fresh char, or revived another way) — a stray fire would
+// halve the live char's HP and post a bogus "respawns" line.
+export function cancelRespawn(username: string, channel: string): void {
+  const key = `${username.toLowerCase()}:${channel.toLowerCase()}`
+  const timer = respawnTimers.get(key)
+  if (timer) { clearTimeout(timer); respawnTimers.delete(key) }
+}
 
 export function scheduleRespawn(username: string, channel: string, delayMs: number) {
   const key = `${username.toLowerCase()}:${channel.toLowerCase()}`

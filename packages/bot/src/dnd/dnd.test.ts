@@ -1007,6 +1007,20 @@ describe('dnd db', () => {
       expect(msg).toContain('reroll into what')
       expect(getCharacter('rr_empty', chan)!.class).toBe('Cleric')  // untouched
     })
+
+    it('cancels a pending respawn timer (reroll while dead) so the fresh char keeps full HP', async () => {
+      const engine = await import('./engine')
+      const { handleJoin, handleReroll } = await import('./commands')
+      const { getCharacter } = await import('./db')
+      await handleJoin('Barbarian', ctx('rr_dead'))
+      engine.scheduleRespawn('rr_dead', chan, 100)        // simulate a pending respawn
+      await handleReroll('Wizard confirm', ctx('rr_dead'))  // must cancel it
+      const fresh = getCharacter('rr_dead', chan)!
+      await new Promise((r) => setTimeout(r, 220))         // past the 100ms respawn delay
+      const after = getCharacter('rr_dead', chan)!
+      expect(after.class).toBe('Wizard')
+      expect(after.hp).toBe(fresh.maxHp)  // full HP — respawnCharacter (half HP) never fired
+    })
   })
 
   // prestige damage multiplier is capped so a long-time grinder can't trivialise content

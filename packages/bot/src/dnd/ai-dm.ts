@@ -60,7 +60,11 @@ async function callDm(
       content?: { type: string; text: string }[]
       usage?: { input_tokens?: number; output_tokens?: number }
     }
-    if (data.usage) mainDb.recordAiSpend(channel, data.usage.input_tokens ?? 0, data.usage.output_tokens ?? 0)
+    // always record spend so the daily cap can't be bypassed by a response that omits
+    // usage — fall back to a conservative estimate (max output + a rough input guess)
+    const inT = data.usage?.input_tokens ?? Math.ceil((opts.system.length + opts.prompt.length) / 4)
+    const outT = data.usage?.output_tokens ?? opts.maxTokens
+    mainDb.recordAiSpend(channel, inT, outT)
     return data.content?.[0]?.type === 'text' ? (data.content[0] as { text: string }).text.trim() : ''
   } catch (e) {
     log(`dnd: ai-dm error: ${e}`)
