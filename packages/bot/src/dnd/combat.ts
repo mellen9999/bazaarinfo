@@ -125,13 +125,18 @@ export function resolvePlayerAttack(
     const roll2 = d20Roll(sequence + 50000)
     roll = Math.min(roll, roll2)
   }
-  // Lucky boon: reroll a natural 1 once
-  if (roll === 1 && boons.rerollFumble) roll = d20Roll(sequence + 31337)
-
-  const isCrit = roll >= boons.critThreshold       // Deadeye widens the crit range
-  const isFumble = roll === 1
-  const attackTotal = roll + atkMod + prof + boons.toHit
-  const hit = isCrit || (!isFumble && attackTotal >= enemy.ac)
+  let isCrit = roll >= boons.critThreshold       // Deadeye widens the crit range
+  let isFumble = roll === 1
+  let attackTotal = roll + atkMod + prof + boons.toHit
+  let hit = isCrit || (!isFumble && attackTotal >= enemy.ac)
+  // Lucky boon: a mulligan — reroll the whole attack once on a miss
+  if (!hit && boons.rerollMiss) {
+    roll = d20Roll(sequence + 31337)
+    isCrit = roll >= boons.critThreshold
+    isFumble = roll === 1
+    attackTotal = roll + atkMod + prof + boons.toHit
+    hit = isCrit || (!isFumble && attackTotal >= enemy.ac)
+  }
 
   if (!hit) {
     return {
@@ -178,7 +183,7 @@ export function resolvePlayerAttack(
 
   // status application on hit
   let statusApplied: string | undefined
-  if (def.chassis === 'nuke') statusApplied = 'burning'
+  if (def.chassis === 'nuke' && roll >= 13) statusApplied = 'burning'  // fire bolt ignites on a solid hit (not every swing)
   else if (def.chassis === 'sneak' && roll >= 15) statusApplied = 'poisoned'
   else {
     for (const item of char.inventory) {

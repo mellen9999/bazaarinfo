@@ -131,8 +131,8 @@ const FLOOR_MONSTERS: Record<number, MonsterTemplate[]> = {
     { name: 'Troll',         ac: 15, hpDie: 10, hpCount: 8, hpMod: 16, hitBonus: 6, damageDie: 6, damageCount: 2, damageMod: 4, multiattack: 2, cr: 5, xpValue: 1800, specialAbility: 'regeneration' },
   ],
   8: [
-    { name: 'Vampire Spawn', ac: 13, hpDie: 8, hpCount: 11, hpMod: 22, hitBonus: 6, damageDie: 6, damageCount: 2, damageMod: 3, multiattack: 2, cr: 5, xpValue: 1800, specialAbility: 'drain' },
-    { name: 'Night Hag',     ac: 17, hpDie: 8, hpCount: 15, hpMod: 45, hitBonus: 7, damageDie: 8, damageCount: 2, damageMod: 4, multiattack: 2, cr: 5, xpValue: 1800, specialAbility: 'nightmare' },
+    { name: 'Vampire Spawn', ac: 13, hpDie: 8, hpCount: 8,  hpMod: 16, hitBonus: 6, damageDie: 6, damageCount: 1, damageMod: 3, multiattack: 2, cr: 4, xpValue: 1100, specialAbility: 'drain' },
+    { name: 'Night Hag',     ac: 15, hpDie: 8, hpCount: 10, hpMod: 30, hitBonus: 6, damageDie: 8, damageCount: 1, damageMod: 4, multiattack: 2, cr: 4, xpValue: 1100, specialAbility: 'nightmare' },
   ],
   10: [ // final boss — the season climax (tuned for a ~level-8-9 arrival)
     { name: 'Lich', ac: 16, hpDie: 12, hpCount: 16, hpMod: 40, hitBonus: 8, damageDie: 8, damageCount: 3, damageMod: 5, multiattack: 1, cr: 12, xpValue: 1500, specialAbility: 'lair_actions' },
