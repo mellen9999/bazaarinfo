@@ -1008,4 +1008,38 @@ describe('dnd db', () => {
       expect(getCharacter('rr_empty', chan)!.class).toBe('Cleric')  // untouched
     })
   })
+
+  // an abandoned deep run must not soft-lock a newcomer: a fresh joiner on a stuck
+  // floor-10 boss would be unwinnable. dormant worlds reset to floor 1 on entry.
+  describe('dormant world reset', () => {
+    const FOUR_HOURS = 4 * 60 * 60 * 1000
+    const ctx = (user: string, channel: string) => ({ user, channel, isMod: false })
+
+    beforeAll(async () => {
+      const engine = await import('./engine')
+      engine.setIsLive(() => false)
+    })
+    afterAll(async () => { await new Promise((r) => setTimeout(r, 450)) })
+
+    it('a stuck deep run with no recent activity resets to floor 1 on join', async () => {
+      const { handleJoin } = await import('./commands')
+      const { upsertWorld, upsertCharacter, getWorld, getCharacter } = await import('./db')
+      upsertWorld(makeWorld({ channel: 'dormchan', floor: 10, season: 2, encounterType: 'boss' }))
+      upsertCharacter(makeChar({ username: 'oldvet', channel: 'dormchan', lastActionAt: Date.now() - FOUR_HOURS }))
+      await handleJoin('Barbarian', ctx('newbie', 'dormchan'))
+      expect(getWorld('dormchan')!.floor).toBe(1)          // run reset
+      expect(getWorld('dormchan')!.season).toBe(2)         // same season — abandonment isn't a conquest
+      expect(getCharacter('newbie', 'dormchan')!.level).toBe(1)  // catch-up from floor 1
+    })
+
+    it('an active deep run is left alone (newcomer joins via catch-up level)', async () => {
+      const { handleJoin } = await import('./commands')
+      const { upsertWorld, upsertCharacter, getWorld, getCharacter } = await import('./db')
+      upsertWorld(makeWorld({ channel: 'activechan', floor: 6, season: 1, encounterType: 'combat' }))
+      upsertCharacter(makeChar({ username: 'activevet', channel: 'activechan', lastActionAt: Date.now() }))
+      await handleJoin('Wizard', ctx('newb2', 'activechan'))
+      expect(getWorld('activechan')!.floor).toBe(6)         // unchanged — still active
+      expect(getCharacter('newb2', 'activechan')!.level).toBe(5)  // catch-up = floor - 1
+    })
+  })
 })

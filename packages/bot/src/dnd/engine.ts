@@ -1353,8 +1353,9 @@ export async function resolveExplore(username: string, channel: string): Promise
 }
 
 export async function resolveFloor(username: string, channel: string): Promise<string | null> {
-  const world = db.getWorld(channel)
-  if (!world || !world.enabled) return null
+  const base = db.getWorld(channel)
+  if (!base || !base.enabled) return null
+  const world = resetIfDormant(channel) ?? base  // abandoned deep run → fresh floor 1
 
   const players = db.getActivePlayers(channel)
 
@@ -1511,4 +1512,49 @@ export function resetFloor(channel: string): void {
   roundCounters.delete(channel)
   world.scene = ''
   db.upsertWorld(world)
+}
+
+// a shared dungeon run is abandoned once nobody has acted for this long. the next
+// player to show up starts a fresh floor-1 run instead of inheriting a stuck deep
+// floor — e.g. a floor-10 boss the previous party left behind, unwinnable for a lone
+// newcomer who'd otherwise be soft-locked. matches the natural rhythm (each new
+// session/night is a new descent). characters persist; only the world resets.
+const DORMANT_RESET_MS = 3 * 60 * 60 * 1000  // 3h of zero gameplay = run abandoned
+
+function channelLastActivity(channel: string): number {
+  let max = 0
+  for (const c of db.getAllCharacters(channel)) if (c.lastActionAt > max) max = c.lastActionAt
+  return max
+}
+
+// reset an abandoned deep run to floor 1 (SAME season — abandonment isn't a conquest,
+// so no season bump and no prestige). no-op if the world is already fresh or still
+// active. returns the (possibly reset) world so callers use up-to-date floor state.
+export function resetIfDormant(channel: string): WorldState | null {
+  const world = db.getWorld(channel)
+  if (!world) return null
+  if (world.floor <= 1 && !world.floorCleared) return world  // already fresh — nothing to reset
+  const last = channelLastActivity(channel)
+  if (last > 0 && Date.now() - last < DORMANT_RESET_MS) return world  // run still active
+  const fresh: WorldState = {
+    ...world,
+    floor: 1,
+    actionSequence: 0,
+    encounterType: floor.getFloorType(1),
+    enemies: scaledEnemies(world.season, 1, activePartySize(channel)),
+    floorCleared: false,
+    scene: '',
+    shopInventory: [],
+    veganShrineVisited: false,
+    longRestCounter: 0,
+  }
+  db.upsertWorld(fresh)
+  // drop any stale round state so a leftover timer can't resolve against the new floor
+  roundCounters.delete(channel)
+  queues.delete(channel)
+  const timer = debounceTimers.get(channel)
+  if (timer) { clearTimeout(timer); debounceTimers.delete(channel) }
+  windowStartTimes.delete(channel)
+  log(`dnd: ${channel} run was dormant — reset to fresh floor 1 (season ${fresh.season})`)
+  return fresh
 }

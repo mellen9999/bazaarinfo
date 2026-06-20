@@ -62,8 +62,10 @@ export async function handleJoin(arg: string, ctx: CommandContext): Promise<stri
   const channel = ctx.channel.toLowerCase()
   const username = ctx.user.toLowerCase()
 
-  const world = db.getWorld(channel) ?? engine.createWorld(channel)
-  if (!world.enabled) return null
+  const base = db.getWorld(channel) ?? engine.createWorld(channel)
+  if (!base.enabled) return null
+  // abandoned deep run → fresh floor 1, so a newcomer isn't dropped onto a stuck boss
+  const world = engine.resetIfDormant(channel) ?? base
 
   const existing = db.getCharacter(username, channel)
 
@@ -120,8 +122,9 @@ export async function handleReroll(arg: string, ctx: CommandContext): Promise<st
   const channel = ctx.channel.toLowerCase()
   const username = ctx.user.toLowerCase()
 
-  const world = db.getWorld(channel) ?? engine.createWorld(channel)
-  if (!world.enabled) return null
+  const base = db.getWorld(channel) ?? engine.createWorld(channel)
+  if (!base.enabled) return null
+  const world = engine.resetIfDormant(channel) ?? base
 
   // strip a trailing confirm/yes token → the rest is the (possibly multi-word) class
   const m = arg.trim().match(/^([\s\S]*?)\s+(?:confirm|yes)$/i)
