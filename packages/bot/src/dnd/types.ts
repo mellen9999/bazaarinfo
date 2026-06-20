@@ -162,6 +162,7 @@ export interface Character {
   boons: string[]              // chosen roguelike perks
   pendingBoon: string[]        // current level-up offer (3 ids; empty = none)
   killStreak: number           // consecutive kills without dying (spectacle)
+  deathsSeason: number         // deaths this season — escalates respawn cost, gates "Flawless"
 }
 
 export interface Enemy {

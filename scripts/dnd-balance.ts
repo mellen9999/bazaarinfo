@@ -36,7 +36,7 @@ function simChar(className: string, level: number, boonIds: string[]): Character
     rageCharges: 0, rageTurnsLeft: 0, actionSurgeUsed: false,
     isDying: false, deathSuccesses: 0, deathFailures: 0,
     deaths: 0, totalKills: 0, defending: false, lastActionAt: 0, respawnAt: null,
-    prestige: 0, achievements: [], boons: [], pendingBoon: [], killStreak: 0,
+    prestige: 0, achievements: [], boons: [], pendingBoon: [], killStreak: 0, deathsSeason: 0,
   }
   for (const b of boonIds) { char.boons.push(b); applyBoonOnPick(char, b) }
   return char
@@ -266,7 +266,7 @@ function fullRun(className: string, season: number): { cleared: boolean; deathFl
         if (p.char.hp <= 0) p.char.hp = Math.max(1, Math.floor(p.char.maxHp / 2))  // respawn HP
         const { win, xp } = fight([p], floor, season)
         if (win) { won = true; p.char.xp += xp; levelUp(p) }
-        else { totalDeaths++; p.char.hp = 0 }  // died → will respawn & retry
+        else { totalDeaths++; p.char.hp = 0; p.char.gold = Math.floor(p.char.gold * 0.6) }  // death stakes: lose 40% gold
       }
       if (!won) return { cleared: false, deathFloor: floor, level: p.char.level, deaths: totalDeaths, arrive6, arrive10 }
       p.char.hp = Math.min(p.char.maxHp, (p.char.hp <= 0 ? 1 : p.char.hp) + (type === 'boss' ? 0 : 15) + boonMods(p.char).regenPerFloor)
