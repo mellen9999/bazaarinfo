@@ -1009,6 +1009,32 @@ describe('dnd db', () => {
     })
   })
 
+  // prestige damage multiplier is capped so a long-time grinder can't trivialise content
+  describe('prestige damage multiplier cap', () => {
+    it('scales +2% per star but caps at +50% (prestige 25)', async () => {
+      const { prestigeDamageMult } = await import('./engine')
+      expect(prestigeDamageMult(makeChar({ prestige: 0 }))).toBeCloseTo(1.0)
+      expect(prestigeDamageMult(makeChar({ prestige: 10 }))).toBeCloseTo(1.2)
+      expect(prestigeDamageMult(makeChar({ prestige: 25 }))).toBeCloseTo(1.5)
+      expect(prestigeDamageMult(makeChar({ prestige: 100 }))).toBeCloseTo(1.5)  // capped, not 3.0
+    })
+  })
+
+  // a big-raid counterattack summary must never blow the 480-char Twitch budget
+  describe('renderEnemyAttacks 480-char safety', () => {
+    it('caps a huge attack list and appends a +N more marker, staying under 480', async () => {
+      const { renderEnemyAttacks } = await import('./render')
+      const attacks = Array.from({ length: 15 }, (_, i) => ({
+        enemy: `Gnarled Bonecrusher ${i}`, target: `player_number_${i}`,
+        d20Roll: 15, attackTotal: 22, targetAC: 14, damage: 9,
+        defended: false, killed: false, targetHp: 6, targetMaxHp: 15,
+      }))
+      const out = renderEnemyAttacks(attacks)
+      expect(out.length).toBeLessThanOrEqual(480)
+      expect(out).toMatch(/\+\d+ more hits/)  // overflow folded into a marker, not truncated away
+    })
+  })
+
   // an abandoned deep run must not soft-lock a newcomer: a fresh joiner on a stuck
   // floor-10 boss would be unwinnable. dormant worlds reset to floor 1 on entry.
   describe('dormant world reset', () => {
