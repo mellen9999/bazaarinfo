@@ -7,6 +7,7 @@ import { log } from '../log'
 import { getModifier, type Character, type WorldState, type Enemy } from './types'
 import { getClassDef, chassisOf } from './classdef'
 import * as boons from './boons'
+import * as events from './events'
 
 type SayFn = (channel: string, msg: string) => void
 let say: SayFn = () => {}
@@ -1212,6 +1213,11 @@ export async function resolveMove(username: string, channel: string): Promise<st
     return render.renderShop(newShop, char.gold, nextFloor)
   }
 
+  // varied event floors announce their specific encounter
+  if (newEncounterType === 'event' && nextFloor !== 9) {
+    return `Floor ${nextFloor} — ${events.pickEvent(newWorld.season, nextFloor).intro}`
+  }
+
   const aliveEnemies = newEnemies.filter((e) => e.hp > 0)
 
   // boss floors get a dramatic intro card before the tactical line
@@ -1237,6 +1243,49 @@ export async function resolveExplore(username: string, channel: string): Promise
 
   const char = db.getCharacter(username, channel)
   if (!char) return `!b join <class> to enter the dungeon`
+
+  // non-shrine event floors: one varied encounter, then cleared (no farming)
+  if (world.floor !== 9) {
+    if (world.floorCleared) return `@${username}: this floor is already explored. !b move to descend.`
+    const ev = events.pickEvent(world.season, world.floor)
+    const players = db.getActivePlayers(channel)
+    const ctx: events.EventContext = {
+      char,
+      hasMeat: combat.hasMeatItems(char.inventory),
+      partyGold: players.reduce((s, p) => s + p.gold, 0),
+      itemReward: floor.bossLootDrop(world.season, world.floor),
+    }
+    const userSeed = [...username].reduce((a, c) => a + c.charCodeAt(0), 0)
+    const r = events.resolveEvent(ev, ctx, (world.season * 131 + world.floor * 17 + userSeed) >>> 0)
+
+    if (r.goldDelta) char.gold = Math.max(0, char.gold + r.goldDelta)
+    if (r.blessed && !char.statusEffects.includes('blessed')) char.statusEffects.push('blessed')
+    if (r.grantItem && char.inventory.length < 6) char.inventory.push(r.grantItem)
+    db.upsertCharacter(char)
+
+    if (r.fullHeal) db.healCharacter(username, channel, char.maxHp)
+    else if (r.healAmount > 0) db.healCharacter(username, channel, r.healAmount)
+    else if (r.healAmount < 0) {
+      // events never kill — leave at least 1 HP
+      const fresh = db.getCharacter(username, channel)
+      const safe = Math.min(-r.healAmount, Math.max(0, (fresh?.hp ?? 1) - 1))
+      if (safe > 0) db.damageCharacter(username, channel, safe)
+    }
+    if (r.liftNl) world.nlLifted = true
+
+    let msg = r.message
+    if (r.boonOffer) {
+      const fresh = db.getCharacter(username, channel)
+      if (fresh && (fresh.pendingBoon ?? []).length === 0) {
+        const offer = boons.rollBoonOffer(fresh, boons.offerSeed(fresh.username, 100 + world.floor))
+        if (offer.length > 0) { fresh.pendingBoon = offer; db.upsertCharacter(fresh); msg += ' ' + render.renderBoonOffer(username, offer) }
+      }
+    }
+
+    world.floorCleared = true
+    db.upsertWorld(world)
+    return `${msg} !b move to descend.`.slice(0, 480)
+  }
 
   if (!world.veganShrineVisited) {
     world.veganShrineVisited = true

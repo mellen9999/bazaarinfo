@@ -79,7 +79,7 @@ function rollHp(rng: () => number, count: number, die: number, mod: number): num
 export function getFloorType(floor: number): EncounterType {
   if (floor === 3 || floor === 5) return 'shop'
   if (floor === 6 || floor === 10) return 'boss'
-  if (floor === 9) return 'event'
+  if (floor === 4 || floor === 9) return 'event'  // 4 = varied event, 9 = vegan shrine (canon)
   return 'combat'
 }
 
