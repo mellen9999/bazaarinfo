@@ -204,6 +204,15 @@ async function processQueue(channel: string) {
       const char = db.getCharacter(action.username, channel)
       if (!char || char.hp <= 0 || char.respawnAt !== null || char.isDying) continue
 
+      // paralyzed: lose this action, then shake it off (Ghoul's paralyze now bites)
+      if (char.statusEffects.includes('restrained')) {
+        char.statusEffects = char.statusEffects.filter((s) => s !== 'restrained')
+        char.lastActionAt = Date.now()
+        db.upsertCharacter(char)
+        resultLines.push(`@${action.username} is paralyzed and can't move!`)
+        continue
+      }
+
       const livingEnemies = world.enemies.filter((e) => e.hp > 0)
       if (livingEnemies.length === 0) break
 
@@ -707,6 +716,8 @@ async function handleFloorClear(channel: string, world: WorldState) {
     // Curse chassis: restore spell slot on short rest (every floor clear)
     if (chassisOf(p) === 'curse') p.spellSlots = p.maxSpellSlots
     p.defending = false
+    // shake off transient afflictions between floors (poison/burn/paralyze don't persist)
+    p.statusEffects = p.statusEffects.filter((s) => s !== 'poisoned' && s !== 'burning' && s !== 'restrained')
     db.upsertCharacter(p)
     // Regenerator boon: heal on floor clear
     const regen = boons.boonMods(p).regenPerFloor
