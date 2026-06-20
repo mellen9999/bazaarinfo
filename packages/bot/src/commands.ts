@@ -4,11 +4,12 @@ import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia } from './trivia'
-import { generateCustomTrivia } from './ai-trivia'
+import { generateCustomTrivia, generateChatTrivia } from './ai-trivia'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam } from './ai'
 import { isEmote, findEmote } from './emotes'
+import { glossaryAnswer, isBareKeyword } from './glossary'
 import { getThread, getRecent } from './chatbuf'
 import { log } from './log'
 import * as raidCmds from './raid/commands'
@@ -829,6 +830,17 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     if (planted) return planted
   }
 
+  // keyword/mechanic definition — deterministic, BEFORE item lookup + AI so
+  // "what is flying" returns the verified rule, not the fuzzy item "Flying Pig".
+  // a bare keyword that is also an exact item name lets the item win.
+  {
+    const gloss = glossaryAnswer(cleanArgs)
+    if (gloss && !(isBareKeyword(cleanArgs) && store.exact(cleanArgs.trim()))) {
+      try { db.logCommand(ctx, 'glossary', cleanArgs, 'keyword') } catch {}
+      return withSuffix(gloss, suffix)
+    }
+  }
+
   // detect conversational/creative queries that should skip item lookup entirely
   const isGreeting = /^(h(ello|i|ey|owdy)|yo|sup|hey+|what'?s? ?up|greetings|hola|whats good|good (morning|evening|night)|gm|gn|gg|ty|thanks|thank you|lol|lmao|wow|nice|cool|pog|based|true|real|facts|nah|bruh|bro|dude|man|omg|rip|oof|haha|o7|bye|cya|later|peace|gl|hf|glhf|ggs)\b/i.test(cleanArgs)
   const isContinuation = /^(how about|what about|and |or |but )\b/i.test(cleanArgs)
@@ -941,6 +953,20 @@ export function stripTopicConnector(topic: string): string {
   return stripped.length >= 2 ? stripped : topic.trim()
 }
 
+// "trivia about chat / the last 5 min / what we just talked about" — the topic is the
+// conversation itself, so the question is built from the recent chat log, not a subject.
+const CHAT_TRIVIA_RE = /\b(chat|conversation|convo|the last \d+\s*(?:min|minute|sec|second|message|msg)s?|recent (?:chat|messages?|msgs?)|what (?:we|you|i|us|chat|y'?all|everyone) (?:just |were |been )?(?:talk|talked|said|saying|discuss|chatted|wrote)|this (?:stream|conversation|chat))\b/i
+
+// pull the recent chat log for chat-trivia: drop the bot's own lines + empties,
+// strip a leading command trigger so messages read naturally.
+function recentChatLines(channel: string): string[] {
+  const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
+  return getRecent(channel, 40)
+    .filter((m) => m.user.toLowerCase() !== botName)
+    .map((m) => `${m.user}: ${m.text.replace(/^!\w+\s*/, '').replace(/\n/g, ' ').trim()}`)
+    .filter((l) => l.split(': ').slice(1).join(': ').trim().length > 0)
+}
+
 async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: string): Promise<string | null> {
   const channel = ctx.channel
   if (!channel) return null
@@ -954,10 +980,20 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   const last = customGenCooldown.get(channel) ?? 0
   if (Date.now() - last < CUSTOM_GEN_CD) return null
 
+  const isChatTrivia = CHAT_TRIVIA_RE.test(t)
   customPending.add(channel)
   try {
-    const q = await generateCustomTrivia(t, channel)
-    if (!q) return withSuffix(`couldn't make a trivia about "${t.slice(0, 40)}" — try a clearer topic`, suffix)
+    const q = isChatTrivia
+      ? await generateChatTrivia(recentChatLines(channel), channel)
+      : await generateCustomTrivia(t, channel)
+    if (!q) {
+      return withSuffix(
+        isChatTrivia
+          ? `not enough chat to make a trivia about yet — let it cook`
+          : `couldn't make a trivia about "${t.slice(0, 40)}" — try a clearer topic`,
+        suffix,
+      )
+    }
     return withSuffix(startCustomTrivia(channel, q), suffix)
   } finally {
     customPending.delete(channel)

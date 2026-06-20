@@ -134,8 +134,14 @@ const mockGenerateCustomTrivia = mock(async (_topic: string) => ({
   answer: 'ans',
   accept: ['ans', 'answer'],
 }))
+const mockGenerateChatTrivia = mock(async (_lines: string[]) => ({
+  question: 'who said hi?',
+  answer: 'bob',
+  accept: ['bob', '@bob'],
+}))
 mock.module('./ai-trivia', () => ({
   generateCustomTrivia: mockGenerateCustomTrivia,
+  generateChatTrivia: mockGenerateChatTrivia,
 }))
 
 // directive-plant AI gate — mocked so tests never hit the API. default returns a valid
@@ -2220,5 +2226,45 @@ describe('stripTopicConnector — natural-language trivia topic cleanup', () => 
     expect(stripTopicConnector('of mice and men')).toBe('of mice and men')
     expect(stripTopicConnector('for honor')).toBe('for honor')
     expect(stripTopicConnector('happy gilmore')).toBe('happy gilmore')
+  })
+})
+
+describe('natural-language + chat trivia routing', () => {
+  beforeEach(() => {
+    mockIsGameActive.mockImplementation(() => false)
+    mockGenerateCustomTrivia.mockClear()
+    mockGenerateCustomTrivia.mockImplementation(async () => ({ question: 'custom q?', answer: 'ans', accept: ['ans', 'answer'] }))
+    mockGenerateChatTrivia.mockClear()
+    mockGenerateChatTrivia.mockImplementation(async () => ({ question: 'who said hi?', answer: 'bob', accept: ['bob'] }))
+  })
+
+  it('routes "make a trivia about happy gilmore" to the topic generator', async () => {
+    const res = await handleCommand('!b make a trivia about happy gilmore', { user: 'u', channel: 'nlt-1' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('happy gilmore', 'nlt-1')
+    expect(res).toBe('Trivia! custom question (30s)')
+  })
+
+  it('routes "do a quiz on cats" to the topic generator', async () => {
+    await handleCommand('!b do a quiz on cats', { user: 'u', channel: 'nlt-2' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('cats', 'nlt-2')
+  })
+
+  it('routes a chat-about request to the chat-trivia generator, not the topic one', async () => {
+    const res = await handleCommand('!b trivia about the last 5 min of chat', { user: 'u', channel: 'nlt-3' })
+    expect(mockGenerateChatTrivia).toHaveBeenCalled()
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+    expect(res).toBe('Trivia! custom question (30s)')
+  })
+
+  it('"make a trivia about chat" also goes to chat trivia', async () => {
+    await handleCommand('!b make a trivia about chat', { user: 'u', channel: 'nlt-4' })
+    expect(mockGenerateChatTrivia).toHaveBeenCalled()
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+  })
+
+  it('a normal topic that merely contains "chatgpt" is NOT chat trivia', async () => {
+    await handleCommand('!b trivia about chatgpt', { user: 'u', channel: 'nlt-5' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('chatgpt', 'nlt-5')
+    expect(mockGenerateChatTrivia).not.toHaveBeenCalled()
   })
 })
