@@ -285,7 +285,7 @@ export function renderBossCard(floor: number, bossName: string, bossHp: number):
 export function multikillBanner(username: string, kills: number): string | null {
   if (kills < 2) return null
   const tag = kills === 2 ? 'DOUBLE KILL' : `MULTI KILL x${kills}`
-  return `★ ${tag} — @${username} drops ${kills} in one round! value town is BOOMING ★`
+  return `★ ${tag} — @${username} drops ${kills} in one round! actually insane ★`
 }
 
 // cross-round kill streaks (no death) — only fires at milestones
