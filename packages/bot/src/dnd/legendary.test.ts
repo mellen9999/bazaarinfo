@@ -78,6 +78,7 @@ function makeChar(overrides: Partial<Character> = {}): Character {
     boons: [],
     pendingBoon: [],
     killStreak: 0,
+    deathsSeason: 0,
     ...overrides,
   }
 }
@@ -523,7 +524,7 @@ describe('killCharacter → creates gravestone', () => {
       enemies: [], floorCleared: false, scene: '', season: 2,
       enabled: true, shopInventory: [], veganShrineVisited: false, longRestCounter: 0,
     })
-    killCharacter('doomed', ch, Date.now() + 60000, 'the Boss')
+    killCharacter('doomed', ch, 'the Boss')
     const graves = getGraves(ch, 10)
     expect(graves.length).toBeGreaterThan(0)
     const g = graves[0]
@@ -532,6 +533,24 @@ describe('killCharacter → creates gravestone', () => {
     expect(g.level).toBe(4)
     expect(g.floor).toBe(7)
     expect(g.killer).toBe('the Boss')
+  })
+})
+
+describe('death stakes', () => {
+  it('death costs 40% gold, escalates respawn, counts the season death', async () => {
+    const { upsertCharacter, getCharacter, killCharacter, resetSeasonDeaths } = await import('./db')
+    const ch = 'stakeschan'
+    upsertCharacter(makeChar({ username: 'risky', channel: ch, gold: 100, hp: 14, maxHp: 14 }))
+    const d1 = killCharacter('risky', ch, 'Goblin')
+    let c = getCharacter('risky', ch)!
+    expect(c.gold).toBe(60)            // lost 40%
+    expect(c.deathsSeason).toBe(1)
+    const d2 = killCharacter('risky', ch, 'Goblin')
+    c = getCharacter('risky', ch)!
+    expect(c.deathsSeason).toBe(2)
+    expect(d2).toBeGreaterThan(d1)     // respawn escalates with each death
+    resetSeasonDeaths(ch)
+    expect(getCharacter('risky', ch)!.deathsSeason).toBe(0)
   })
 })
 

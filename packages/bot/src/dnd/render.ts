@@ -142,12 +142,13 @@ export function renderFloorClear(
 }
 
 const ACH_LABELS: Record<string, string> = {
-  boss: 'bossslayer', vegan: 'vegansaint', veteran: 'veteran',
+  boss: 'bossslayer', vegan: 'vegansaint', veteran: 'veteran', flawless: 'flawless',
 }
 
 // earned title shown by your name — highest-priority milestone wins
 export function titleFor(char: Character): string {
   if ((char.prestige ?? 0) >= 3) return 'the Eternal'
+  if ((char.achievements ?? []).includes('flawless')) return 'the Flawless'
   if ((char.killStreak ?? 0) >= 10) return 'the Unkillable'
   if ((char.boons ?? []).length >= 6) return 'the Ascended'
   if ((char.totalKills ?? 0) >= 100) return 'the Butcher'
@@ -245,9 +246,9 @@ const DEATH_QUIPS = [
   'even heroes fall.',
 ]
 
-export function renderDeath(username: string, killer: string): string {
+export function renderDeath(username: string, killer: string, respawnSecs = 60): string {
   const quip = DEATH_QUIPS[(username.charCodeAt(0) + killer.charCodeAt(0)) % DEATH_QUIPS.length]
-  return trunc(`@${username} has been slain by ${killer}. ${quip} Respawning in 1min — !b floor to spectate.`)
+  return trunc(`@${username} has been slain by ${killer}. ${quip} the dungeon takes 40% of your gold. respawning in ${respawnSecs}s — dying more this season costs more. !b floor to spectate.`)
 }
 
 export function renderDeathSave(username: string, roll: number, successes: number, failures: number, stable: boolean, revived: boolean): string {

@@ -37,7 +37,6 @@ function checkCooldown(username: string, channel: string): boolean {
 }
 
 const COMBAT_ACTIVE_MS = 5 * 60 * 1000
-const RESPAWN_MS = 60_000
 
 // --- action queue + round window ---
 interface QueuedAction {
@@ -430,13 +429,14 @@ async function processDeathSaves(channel: string, _world: WorldState) {
 
     if (newFailures >= 3) {
       // dead
-      db.killCharacter(char.username, channel, Date.now() + RESPAWN_MS, 'failed death saves')
-      scheduleRespawn(char.username, channel, RESPAWN_MS)
+      const respawnDelay = db.killCharacter(char.username, channel, 'failed death saves')
+      scheduleRespawn(char.username, channel, respawnDelay)
       db.logDndAction(channel, char.username, 'death', 'death saves')
+      const respawnSecs = Math.round(respawnDelay / 1000)
       aiDm.narrateDeath(char.username, 'failed death saves', 0).then((flavor) => {
-        const base = render.renderDeath(char.username, 'failed death saves')
+        const base = render.renderDeath(char.username, 'failed death saves', respawnSecs)
         say(channel, flavor ? `${base} ${flavor.slice(0, 80)}` : base)
-      }).catch(() => say(channel, render.renderDeath(char.username, 'failed death saves')))
+      }).catch(() => say(channel, render.renderDeath(char.username, 'failed death saves', respawnSecs)))
       continue
     }
 
@@ -547,8 +547,8 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
         if (freshDying?.isDying) {
           const newFailures = freshDying.deathFailures + 1
           if (newFailures >= 3) {
-            db.killCharacter(target.username, channel, Date.now() + RESPAWN_MS, enemy.name)
-            scheduleRespawn(target.username, channel, RESPAWN_MS)
+            const respawnDelay = db.killCharacter(target.username, channel, enemy.name)
+            scheduleRespawn(target.username, channel, respawnDelay)
             attacks.push({ enemy: enemy.name, target: target.username, damage: result.damage, defended: false, killed: true, targetHp: 0, targetMaxHp: target.maxHp })
           } else {
             db.updateDeathSaves(target.username, channel, freshDying.deathSuccesses, newFailures)
@@ -725,13 +725,23 @@ async function handleFloorClear(channel: string, world: WorldState) {
 
   if (world.floor === 10 && world.encounterType === 'boss') {
     const survivors = db.getAllCharacters(channel).filter((p) => p.hp > 0 && p.respawnAt === null)
+    const flawless: string[] = []
     for (const p of survivors) {
       db.addPrestige(p.username, channel)
       db.grantAchievement(p.username, channel, 'veteran')
+      // few-death seasons earn extra glory — reward skilled play
+      if ((p.deathsSeason ?? 0) <= 3) {
+        db.addPrestige(p.username, channel)  // bonus star
+        db.grantAchievement(p.username, channel, 'flawless')
+        flawless.push(p.username)
+      }
     }
     if (survivors.length > 0) {
       const names = survivors.map((p) => `@${p.username}★`).join(' ')
       setTimeout(() => say(channel, `${names} earned Prestige ★ for conquering the dungeon! +2% dmg per star, permanently.`), 600)
+    }
+    if (flawless.length > 0) {
+      setTimeout(() => say(channel, `FLAWLESS RUN — ${flawless.map((u) => `@${u}`).join(' ')} conquered the season with ≤3 deaths. bonus ★ + the title "the Flawless". ACTUALLY SICK.`), 1200)
     }
     say(channel, render.renderSeasonComplete(world.season, world.floor))
     setTimeout(() => startNewSeason(channel), 3500)
@@ -755,6 +765,7 @@ function startNewSeason(channel: string) {
     longRestCounter: 0,
   }
   db.upsertWorld(newWorld)
+  db.resetSeasonDeaths(channel)  // fresh stakes each season
   say(channel, `Season ${newWorld.season} begins! Floor 1 awaits. !b floor to descend.`)
 }
 

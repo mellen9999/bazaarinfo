@@ -64,6 +64,7 @@ function makeChar(overrides: Partial<Character> = {}): Character {
     boons: [],
     pendingBoon: [],
     killStreak: 0,
+    deathsSeason: 0,
     ...overrides,
   }
 }
@@ -755,9 +756,10 @@ describe('renderCombatResult', () => {
 
 describe('renderDeath', () => {
   it('contains respawn info', () => {
-    const result = renderDeath('alice', 'Goblin')
+    const result = renderDeath('alice', 'Goblin', 85)
     expect(result).toContain('slain')
-    expect(result).toContain('Respawning')
+    expect(result).toContain('respawning')
+    expect(result).toContain('85s')
   })
 
   it('output ≤480 chars', () => {
@@ -889,7 +891,7 @@ describe('dnd db', () => {
     const char = makeChar({ username: 'dietest', channel: 'testchan', hp: 14, maxHp: 14 })
     upsertCharacter(char)
 
-    killCharacter('dietest', 'testchan', Date.now() + 120_000)
+    killCharacter('dietest', 'testchan')
     const dead = getCharacter('dietest', 'testchan')
     expect(dead!.hp).toBe(0)
     expect(dead!.respawnAt).toBeGreaterThan(Date.now())
@@ -928,7 +930,7 @@ describe('dnd db', () => {
     const { upsertCharacter, killCharacter, getPendingRespawns } = await import('./db')
     const char = makeChar({ username: 'respawntest', channel: 'testchan', hp: 14, maxHp: 14 })
     upsertCharacter(char)
-    killCharacter('respawntest', 'testchan', Date.now() + 60_000)
+    killCharacter('respawntest', 'testchan')
     const pending = getPendingRespawns()
     const found = pending.find((p) => p.username === 'respawntest')
     expect(found).toBeTruthy()
