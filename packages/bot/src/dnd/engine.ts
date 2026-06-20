@@ -108,6 +108,61 @@ function enqueue(channel: string, action: QueuedAction) {
   debounceTimers.set(channel, timer)
 }
 
+// shared accumulators for a single round resolution
+interface KillContext {
+  resultLines: string[]
+  levelUpLines: string[]
+  killsThisRound: Map<string, number>
+}
+
+// single source of truth for an enemy kill — gold, xp, level-up/boon offer, loot,
+// records, multikill tracking. Called from BOTH the attack path and the spell path
+// (via HP snapshot-diff) so casters get full rewards too.
+function awardKill(username: string, enemy: Enemy, world: WorldState, channel: string, ctx: KillContext, actuallySick = false): void {
+  const char = db.getCharacter(username, channel)
+  if (!char) return
+  ctx.killsThisRound.set(username, (ctx.killsThisRound.get(username) ?? 0) + 1)
+
+  const reward = floor.enemyReward(enemy, world.floor)
+  char.gold += reward.gold
+  char.totalKills++
+  if (chassisOf(char) === 'sneak') char.gold += Math.floor(reward.gold * 0.5)         // sneak steal
+  const goldBonusPct = boons.boonMods(char).goldBonusPct
+  if (goldBonusPct > 0) char.gold += Math.floor(reward.gold * goldBonusPct)            // Looter boon
+  if (enemy.isBoss) {
+    db.grantAchievement(username, channel, 'boss')
+    if (db.recordFirst(channel, `firstkill_${enemy.name.toLowerCase()}`, username, `floor ${world.floor}`)) {
+      ctx.resultLines.push(`★ FIRST BLOOD — @${username} is first to slay ${enemy.name}! ★`)
+    }
+  }
+  db.recordBest(channel, 'most_kills', char.totalKills, username)
+  char.lastActionAt = Date.now()
+  db.upsertCharacter(char)
+
+  const { newLevel, leveledUp } = db.addCharacterXp(username, channel, reward.xp)
+  if (leveledUp) {
+    const u = db.getCharacter(username, channel)
+    if (u) {
+      ctx.levelUpLines.push(render.renderLevelUp(u, newLevel))
+      if ((u.pendingBoon ?? []).length > 0) ctx.levelUpLines.push(render.renderBoonOffer(u.username, u.pendingBoon))
+    }
+  }
+
+  const drop = enemy.isBoss
+    ? floor.bossLootDrop(world.season, world.floor)
+    : floor.lootDrop(world.season, world.floor, world.enemies.indexOf(enemy))
+  if (drop) {
+    const fresh = db.getCharacter(username, channel)
+    if (fresh && fresh.inventory.length < 6) {
+      fresh.inventory.push(drop)
+      if (actuallySick) fresh.gold += reward.gold * 2
+      db.upsertCharacter(fresh)
+      ctx.resultLines.push(`@${username} found [${drop}]!${actuallySick ? ' ACTUALLY SICK — double gold!' : ''}`)
+    }
+  }
+  db.logDndAction(channel, username, 'kill', enemy.name, `${reward.xp}xp`)
+}
+
 async function processQueue(channel: string) {
   if (processing.has(channel)) return
   processing.add(channel)
@@ -123,6 +178,7 @@ async function processQueue(channel: string) {
     const resultLines: string[] = []
     const levelUpLines: string[] = []
     const killsThisRound = new Map<string, number>()  // for multikill banners
+    const killCtx: KillContext = { resultLines, levelUpLines, killsThisRound }
 
     for (const action of actions) {
       const char = db.getCharacter(action.username, channel)
@@ -140,9 +196,14 @@ async function processQueue(channel: string) {
       }
 
       if (action.action === 'spell') {
+        const hpBefore = world.enemies.map((e) => e.hp)
         const spellResult = resolveSpell(char, world, channel)
         if (spellResult.message) resultLines.push(spellResult.message)
         if (spellResult.levelUp) levelUpLines.push(spellResult.levelUp)
+        // award every enemy the spell just killed (fixes caster XP/gold/loot/records)
+        world.enemies.forEach((e, i) => {
+          if (hpBefore[i] > 0 && e.hp <= 0) awardKill(action.username, e, world, channel, killCtx, false)
+        })
         db.upsertWorld(world)
         continue
       }
@@ -248,59 +309,7 @@ async function processQueue(channel: string) {
       resultLines.push(render.renderCombatResult(result))
 
       if (killed) {
-        killsThisRound.set(action.username, (killsThisRound.get(action.username) ?? 0) + 1)
-        const reward = floor.enemyReward(targetEnemy, world.floor)
-        char.gold += reward.gold
-        char.totalKills++
-        // Sneak chassis: steal extra gold on kill
-        if (chassisOf(char) === 'sneak') char.gold += Math.floor(reward.gold * 0.5)
-        // Looter boon: bonus gold per kill
-        const goldBonusPct = boons.boonMods(char).goldBonusPct
-        if (goldBonusPct > 0) char.gold += Math.floor(reward.gold * goldBonusPct)
-        // boss achievement
-        if (targetEnemy.isBoss) {
-          db.grantAchievement(action.username, channel, 'boss')
-          // first to slay this boss, ever, on this channel
-          if (db.recordFirst(channel, `firstkill_${targetEnemy.name.toLowerCase()}`, action.username, `floor ${world.floor}`)) {
-            resultLines.push(`★ FIRST BLOOD — @${action.username} is first to slay ${targetEnemy.name}! ★`)
-          }
-        }
-        db.recordBest(channel, 'most_kills', char.totalKills, action.username)
-
-        char.lastActionAt = Date.now()
-        db.upsertCharacter(char)
-
-        const { newLevel, leveledUp } = db.addCharacterXp(action.username, channel, reward.xp)
-        if (leveledUp) {
-          const updatedChar = db.getCharacter(action.username, channel)
-          if (updatedChar) {
-            levelUpLines.push(render.renderLevelUp(updatedChar, newLevel))
-            // addCharacterXp already rolled the offer — just surface it
-            if ((updatedChar.pendingBoon ?? []).length > 0) {
-              levelUpLines.push(render.renderBoonOffer(updatedChar.username, updatedChar.pendingBoon))
-            }
-          }
-        }
-
-        // loot drop
-        const drop = targetEnemy.isBoss
-          ? floor.bossLootDrop(world.season, world.floor)
-          : floor.lootDrop(world.season, world.floor, world.enemies.indexOf(targetEnemy))
-
-        if (drop) {
-          const freshChar = db.getCharacter(action.username, channel)
-          if (freshChar && freshChar.inventory.length < 6) {
-            freshChar.inventory.push(drop)
-            db.upsertCharacter(freshChar)
-            resultLines.push(`@${action.username} found [${drop}]!${outcome.actuallySick ? ' ACTUALLY SICK — double gold!' : ''}`)
-            if (outcome.actuallySick) {
-              freshChar.gold += reward.gold * 2
-              db.upsertCharacter(freshChar)
-            }
-          }
-        }
-
-        db.logDndAction(channel, action.username, 'kill', targetEnemy.name, `${totalDmg}dmg`)
+        awardKill(action.username, targetEnemy, world, channel, killCtx, outcome.actuallySick === true)
       } else {
         char.lastActionAt = Date.now()
         db.upsertCharacter(char)
