@@ -267,6 +267,13 @@ export function renderBossCard(floor: number, bossName: string, bossHp: number):
   return trunc(`▰▰▰ BOSS — FLOOR ${floor} ▰▰▰ ${bossName} rises (${bossHp}HP). no luck if you brought meat. → !b a to attack · !b spell · !b d to defend`)
 }
 
+// multi-kill in a single round (only reachable via AoE, floors cap at 2 enemies)
+export function multikillBanner(username: string, kills: number): string | null {
+  if (kills < 2) return null
+  const tag = kills === 2 ? 'DOUBLE KILL' : `MULTI KILL x${kills}`
+  return `★ ${tag} — @${username} drops ${kills} in one round! value town is BOOMING ★`
+}
+
 // cross-round kill streaks (no death) — only fires at milestones
 const STREAK_TAGS: Record<number, string> = {
   3: 'KILLING SPREE', 5: 'DOMINATING', 7: 'UNSTOPPABLE', 10: 'GODLIKE', 15: 'BEYOND GODLIKE',
@@ -275,17 +282,6 @@ export function killStreakBanner(username: string, streak: number): string | nul
   const tag = STREAK_TAGS[streak]
   if (!tag) return null
   return `▰ ${tag} ▰ @${username} is on a ${streak}-kill streak! no luck for the dungeon.`
-}
-
-// gamer-announcer multikill banners (2+ kills in one round)
-export function multikillBanner(username: string, kills: number): string | null {
-  if (kills < 2) return null
-  const tag = kills === 2 ? 'DOUBLE KILL'
-    : kills === 3 ? 'TRIPLE KILL'
-    : kills === 4 ? 'ULTRA KILL'
-    : 'RAMPAGE'
-  const flair = kills >= 5 ? ' ACTUALLY SICK!!!' : kills >= 3 ? ' value town is BOOMING' : ''
-  return `★ ${tag} — @${username} drops ${kills} this round!${flair} ★`
 }
 
 export function renderBoonOffer(username: string, offer: string[]): string {
