@@ -331,8 +331,8 @@ describe('boonMods', () => {
     expect(boonMods(makeChar({ boons: ['deadeye'] })).critThreshold).toBe(19)
   })
 
-  it('ironhide + bulwark → acBonus 4', () => {
-    expect(boonMods(makeChar({ boons: ['ironhide', 'bulwark'] })).acBonus).toBe(4)
+  it('ironhide + bulwark → acBonus 5', () => {
+    expect(boonMods(makeChar({ boons: ['ironhide', 'bulwark'] })).acBonus).toBe(5)
   })
 
   it('lucky → rerollFumble true', () => {
@@ -521,7 +521,7 @@ describe('killCharacter → creates gravestone', () => {
     upsertWorld({
       channel: ch, floor: 7, actionSequence: 0, encounterType: 'combat',
       enemies: [], floorCleared: false, scene: '', season: 2,
-      enabled: true, nlLifted: false, shopInventory: [], veganShrineVisited: false, longRestCounter: 0,
+      enabled: true, shopInventory: [], veganShrineVisited: false, longRestCounter: 0,
     })
     killCharacter('doomed', ch, Date.now() + 60000, 'the Boss')
     const graves = getGraves(ch, 10)
@@ -550,8 +550,8 @@ describe('titleFor', () => {
     expect(titleFor(makeChar({ prestige: 3 }))).toBe('the Eternal')
   })
 
-  it('prestige 1 → the Veteran (overrides boss achievement)', () => {
-    expect(titleFor(makeChar({ prestige: 1, achievements: ['boss'] }))).toBe('the Veteran')
+  it('prestige shown as ★, not duplicated as a title — boss achievement wins', () => {
+    expect(titleFor(makeChar({ prestige: 1, achievements: ['boss'] }))).toBe('Boss Slayer')
   })
 
   it('totalKills 120 → the Butcher', () => {
@@ -624,42 +624,43 @@ describe('events', () => {
     expect(pickEvent(3, 4).id).toBe(pickEvent(3, 4).id)
   })
   it('shrine heals + blesses the vegan, denies the meat-eater', () => {
-    const vegan = resolveEvent(EVENTS.shrine, { char: makeChar(), hasMeat: false, partyGold: 0, itemReward: null }, 1)
+    const vegan = resolveEvent(EVENTS.shrine, { char: makeChar(), hasMeat: false, itemReward: null }, 1)
     expect(vegan.fullHeal).toBe(true)
     expect(vegan.blessed).toBe(true)
-    const carn = resolveEvent(EVENTS.shrine, { char: makeChar(), hasMeat: true, partyGold: 0, itemReward: null }, 1)
+    const carn = resolveEvent(EVENTS.shrine, { char: makeChar(), hasMeat: true, itemReward: null }, 1)
     expect(carn.fullHeal).toBe(false)
   })
-  it('altar lifts NL when party can pay, else does nothing', () => {
-    const paid = resolveEvent(EVENTS.altar, { char: makeChar({ gold: 60 }), hasMeat: false, partyGold: 200, itemReward: null }, 1)
-    expect(paid.liftNl).toBe(true)
+  it('altar grants permanent max HP when affordable, else does nothing', () => {
+    const paid = resolveEvent(EVENTS.altar, { char: makeChar({ gold: 60 }), hasMeat: false, itemReward: null }, 1)
+    expect(paid.maxHpDelta).toBeGreaterThan(0)
     expect(paid.goldDelta).toBeLessThan(0)
-    const broke = resolveEvent(EVENTS.altar, { char: makeChar({ gold: 5 }), hasMeat: false, partyGold: 10, itemReward: null }, 1)
-    expect(broke.liftNl).toBe(false)
+    const broke = resolveEvent(EVENTS.altar, { char: makeChar({ gold: 5 }), hasMeat: false, itemReward: null }, 1)
+    expect(broke.maxHpDelta).toBe(0)
+    expect(broke.goldDelta).toBe(0)
   })
   it('gamble is a coin flip on a seed (some win, some lose)', () => {
     const outcomes = Array.from({ length: 20 }, (_, i) =>
-      resolveEvent(EVENTS.gamble, { char: makeChar({ gold: 100 }), hasMeat: false, partyGold: 0, itemReward: null }, i).goldDelta)
+      resolveEvent(EVENTS.gamble, { char: makeChar({ gold: 100 }), hasMeat: false, itemReward: null }, i).goldDelta)
     expect(outcomes.some((g) => g > 0)).toBe(true)
     expect(outcomes.some((g) => g < 0)).toBe(true)
   })
   it('gamble refuses when broke', () => {
-    const r = resolveEvent(EVENTS.gamble, { char: makeChar({ gold: 5 }), hasMeat: false, partyGold: 0, itemReward: null }, 1)
+    const r = resolveEvent(EVENTS.gamble, { char: makeChar({ gold: 5 }), hasMeat: false, itemReward: null }, 1)
     expect(r.goldDelta).toBe(0)
   })
   it('chest grants an item or bites (never both)', () => {
-    const r = resolveEvent(EVENTS.chest, { char: makeChar(), hasMeat: false, partyGold: 0, itemReward: 'Plague Glaive' }, 3)
+    const r = resolveEvent(EVENTS.chest, { char: makeChar(), hasMeat: false, itemReward: 'Plague Glaive' }, 3)
     const item = r.grantItem === 'Plague Glaive'
     const bite = r.healAmount < 0
     expect(item || bite).toBe(true)
     expect(item && bite).toBe(false)
   })
   it('spring heals a positive amount', () => {
-    const r = resolveEvent(EVENTS.spring, { char: makeChar({ maxHp: 40 }), hasMeat: false, partyGold: 0, itemReward: null }, 2)
+    const r = resolveEvent(EVENTS.spring, { char: makeChar({ maxHp: 40 }), hasMeat: false, itemReward: null }, 2)
     expect(r.healAmount).toBeGreaterThan(0)
   })
   it('fountain offers a boon', () => {
-    const r = resolveEvent(EVENTS.fountain, { char: makeChar(), hasMeat: false, partyGold: 0, itemReward: null }, 9)
+    const r = resolveEvent(EVENTS.fountain, { char: makeChar(), hasMeat: false, itemReward: null }, 9)
     expect(r.boonOffer).toBe(true)
   })
 })

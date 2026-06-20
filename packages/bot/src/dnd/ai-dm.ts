@@ -103,7 +103,6 @@ export async function narrateFloor(
   encounterType: EncounterType,
   enemies: { name: string; hp: number; maxHp: number }[],
   playerCount: number,
-  nlLifted: boolean,
 ): Promise<string> {
   const alive = enemies.filter((e) => e.hp > 0)
   if (encounterType === 'shop') {

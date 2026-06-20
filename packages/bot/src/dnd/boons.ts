@@ -27,7 +27,7 @@ export const BOONS: Boon[] = [
   { id: 'berserker',  name: 'Berserker',   desc: '+20% damage',                       mods: { dmgMult: 0.20 } },
   { id: 'deadeye',    name: 'Deadeye',     desc: 'crit on 19-20',                     mods: { critThreshold: 19 } },
   { id: 'vampiric',   name: 'Vampiric',    desc: 'lifesteal 25% of damage dealt',     mods: { lifestealPct: 0.25 } },
-  { id: 'ironhide',   name: 'Ironhide',    desc: '+2 AC',                             mods: { acBonus: 2 } },
+  { id: 'ironhide',   name: 'Ironhide',    desc: '+3 AC',                             mods: { acBonus: 3 } },
   { id: 'precise',    name: 'Precise',     desc: '+2 to hit',                         mods: { toHit: 2 } },
   { id: 'looter',     name: 'Looter',      desc: '+50% gold from kills',              mods: { goldBonusPct: 0.5 } },
   { id: 'regen',      name: 'Regenerator', desc: 'heal 20 HP each floor cleared',     mods: { regenPerFloor: 20 } },

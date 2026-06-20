@@ -207,14 +207,14 @@ export function initDndDb(): void {
     getWorld: db.prepare('SELECT * FROM dnd_world WHERE channel = ?'),
     upsertWorld: db.prepare(`INSERT INTO dnd_world
       (channel, floor, action_sequence, encounter_type, enemies, floor_cleared,
-       scene, season, enabled, nl_lifted, shop_inventory, vegan_shrine_visited, long_rest_counter)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+       scene, season, enabled, shop_inventory, vegan_shrine_visited, long_rest_counter)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(channel) DO UPDATE SET
         floor=excluded.floor, action_sequence=excluded.action_sequence,
         encounter_type=excluded.encounter_type, enemies=excluded.enemies,
         floor_cleared=excluded.floor_cleared, scene=excluded.scene,
         season=excluded.season, enabled=excluded.enabled,
-        nl_lifted=excluded.nl_lifted, shop_inventory=excluded.shop_inventory,
+        shop_inventory=excluded.shop_inventory,
         vegan_shrine_visited=excluded.vegan_shrine_visited,
         long_rest_counter=excluded.long_rest_counter`),
     getActivePlayers: db.prepare(
@@ -368,7 +368,6 @@ function rowToWorld(row: Record<string, unknown>): WorldState {
     scene: row.scene as string,
     season: row.season as number,
     enabled: (row.enabled as number) === 1,
-    nlLifted: (row.nl_lifted as number) === 1,
     shopInventory: JSON.parse(row.shop_inventory as string) as ShopItem[],
     veganShrineVisited: (row.vegan_shrine_visited as number) === 1,
     longRestCounter: (row.long_rest_counter as number) ?? 0,
@@ -428,7 +427,6 @@ export function upsertWorld(world: WorldState): void {
       world.floor, world.actionSequence, world.encounterType,
       JSON.stringify(world.enemies), world.floorCleared ? 1 : 0,
       world.scene, world.season, world.enabled ? 1 : 0,
-      world.nlLifted ? 1 : 0,
       JSON.stringify(world.shopInventory),
       world.veganShrineVisited ? 1 : 0,
       world.longRestCounter ?? 0,

@@ -250,12 +250,12 @@ async function processQueue(channel: string) {
       }
       const totalDmg = outcome.damage + extraDmg
 
-      // Vampiric boon: heal a fraction of damage dealt
-      const lifesteal = boons.boonMods(char).lifestealPct
-      if (lifesteal > 0) {
-        const healed = Math.max(1, Math.floor(totalDmg * lifesteal))
-        const newHp = db.healCharacter(char.username, channel, healed)
-        if (newHp < char.maxHp || healed > 0) resultLines.push(`@${char.username} drains ${healed}HP`)
+      // Vampiric boon: heal a fraction of damage dealt (shown inline on the hit line)
+      const lifestealPct = boons.boonMods(char).lifestealPct
+      let lifestealHealed = 0
+      if (lifestealPct > 0) {
+        lifestealHealed = Math.max(1, Math.floor(totalDmg * lifestealPct))
+        db.healCharacter(char.username, channel, lifestealHealed)
       }
 
       targetEnemy.hp = Math.max(0, targetEnemy.hp - totalDmg)
@@ -308,6 +308,7 @@ async function processQueue(channel: string) {
         enemyKilled: killed, enemyHpAfter: targetEnemy.hp,
         actuallySick: outcome.actuallySick,
         comboBonus: outcome.comboBonus,
+        lifesteal: lifestealHealed > 0 ? lifestealHealed : undefined,
       }
       resultLines.push(render.renderCombatResult(result))
 
@@ -748,7 +749,6 @@ function startNewSeason(channel: string) {
     floorCleared: false,
     scene: '',
     season: world.season + 1,
-    nlLifted: false,
     shopInventory: [],
     veganShrineVisited: false,
     longRestCounter: 0,
@@ -1001,7 +1001,6 @@ export function announceJoin(channel: string, newPlayer?: { username: string; cl
       world.floor, world.encounterType,
       aliveEnemies.map((e) => ({ name: e.name, hp: e.hp, maxHp: e.maxHp })),
       players.filter((p) => p.hp > 0).length,
-      world.nlLifted,
     )
     say(channel, narration || render.renderFloor(world, players))
   }, 400)
@@ -1243,7 +1242,6 @@ export async function resolveMove(username: string, channel: string): Promise<st
     nextFloor, newEncounterType,
     aliveEnemies.map((e) => ({ name: e.name, hp: e.hp, maxHp: e.maxHp })),
     players.filter((p) => p.hp > 0).length,
-    newWorld.nlLifted,
   )
   return narration || render.renderFloor(newWorld, players)
 }
@@ -1256,54 +1254,13 @@ export async function resolveExplore(username: string, channel: string): Promise
   const char = db.getCharacter(username, channel)
   if (!char) return `!b join <class> to enter the dungeon`
 
-  // non-shrine event floors: one varied encounter, then cleared (no farming)
-  if (world.floor !== 9) {
-    if (world.floorCleared) return `@${username}: this floor is already explored. !b move to descend.`
-    const ev = events.pickEvent(world.season, world.floor)
-    const players = db.getActivePlayers(channel)
-    const ctx: events.EventContext = {
-      char,
-      hasMeat: combat.hasMeatItems(char.inventory),
-      partyGold: players.reduce((s, p) => s + p.gold, 0),
-      itemReward: floor.bossLootDrop(world.season, world.floor),
-    }
-    const userSeed = [...username].reduce((a, c) => a + c.charCodeAt(0), 0)
-    const r = events.resolveEvent(ev, ctx, (world.season * 131 + world.floor * 17 + userSeed) >>> 0)
+  if (world.floorCleared) return `@${username}: this floor is already explored. !b move to descend.`
 
-    if (r.goldDelta) char.gold = Math.max(0, char.gold + r.goldDelta)
-    if (r.blessed && !char.statusEffects.includes('blessed')) char.statusEffects.push('blessed')
-    if (r.grantItem && char.inventory.length < 6) char.inventory.push(r.grantItem)
-    db.upsertCharacter(char)
-
-    if (r.fullHeal) db.healCharacter(username, channel, char.maxHp)
-    else if (r.healAmount > 0) db.healCharacter(username, channel, r.healAmount)
-    else if (r.healAmount < 0) {
-      // events never kill — leave at least 1 HP
-      const fresh = db.getCharacter(username, channel)
-      const safe = Math.min(-r.healAmount, Math.max(0, (fresh?.hp ?? 1) - 1))
-      if (safe > 0) db.damageCharacter(username, channel, safe)
-    }
-    if (r.liftNl) world.nlLifted = true
-
-    let msg = r.message
-    if (r.boonOffer) {
-      const fresh = db.getCharacter(username, channel)
-      if (fresh && (fresh.pendingBoon ?? []).length === 0) {
-        const offer = boons.rollBoonOffer(fresh, boons.offerSeed(fresh.username, 100 + world.floor))
-        if (offer.length > 0) { fresh.pendingBoon = offer; db.upsertCharacter(fresh); msg += ' ' + render.renderBoonOffer(username, offer) }
-      }
-    }
-
+  // floor 9 = the canon vegan shrine (richer AI narration + achievement);
+  // other event floors roll the varied pool (gamble/chest/spring/fountain/altar)
+  if (world.floor === 9) {
     world.floorCleared = true
     db.upsertWorld(world)
-    return `${msg} !b move to descend.`.slice(0, 480)
-  }
-
-  if (!world.veganShrineVisited) {
-    world.veganShrineVisited = true
-    world.floorCleared = true
-    db.upsertWorld(world)
-
     const hasMeat = combat.hasMeatItems(char.inventory)
     if (!hasMeat) {
       db.healCharacter(username, channel, char.maxHp)
@@ -1311,36 +1268,49 @@ export async function resolveExplore(username: string, channel: string): Promise
       db.upsertCharacter(char)
       db.grantAchievement(username, channel, 'vegan')
     }
-
     const flavor = await aiDm.narrateVeganShrine(!hasMeat, username)
     if (flavor) return flavor.slice(0, 480)
-
-    if (!hasMeat) {
-      return `@${username} approaches the Ancient Shrine. It glows. "Worthy." Full heal + blessed. !b move to continue.`
-    }
-    return `@${username} approaches the Ancient Shrine. It recoils. "Tainted." Nothing happens. !b move to continue.`
-  } else {
-    const players = db.getActivePlayers(channel)
-    const totalGold = players.reduce((sum, p) => sum + p.gold, 0)
-
-    if (totalGold < 50) {
-      return `The Cursed Altar demands 50g. Current party total: ${totalGold}g. Not enough. The darkness lingers.`
-    }
-
-    let remaining = 50
-    for (const p of players) {
-      if (remaining <= 0) break
-      const share = Math.min(p.gold, Math.ceil((p.gold / totalGold) * 50))
-      p.gold -= share
-      remaining -= share
-      db.upsertCharacter(p)
-    }
-
-    world.nlLifted = true
-    world.floorCleared = true
-    db.upsertWorld(world)
-    return `The party offers 50g to the Cursed Altar. An ancient burden lifts. Luck restored for the season. !b move to continue.`
+    return hasMeat
+      ? `@${username} approaches the Ancient Shrine. It recoils. "Tainted." nothing happens. !b move to continue.`
+      : `@${username} approaches the Ancient Shrine. It glows. "Worthy." full heal + blessed. !b move to continue.`
   }
+
+  const ev = events.pickEvent(world.season, world.floor)
+  const ctx: events.EventContext = {
+    char,
+    hasMeat: combat.hasMeatItems(char.inventory),
+    itemReward: floor.bossLootDrop(world.season, world.floor),
+  }
+  const userSeed = [...username].reduce((a, c) => a + c.charCodeAt(0), 0)
+  const r = events.resolveEvent(ev, ctx, (world.season * 131 + world.floor * 17 + userSeed) >>> 0)
+
+  if (r.goldDelta) char.gold = Math.max(0, char.gold + r.goldDelta)
+  if (r.maxHpDelta) { char.maxHp += r.maxHpDelta; char.hp += r.maxHpDelta }  // altar sacrifice
+  if (r.blessed && !char.statusEffects.includes('blessed')) char.statusEffects.push('blessed')
+  if (r.grantItem && char.inventory.length < 6) char.inventory.push(r.grantItem)
+  db.upsertCharacter(char)
+
+  if (r.fullHeal) db.healCharacter(username, channel, char.maxHp)
+  else if (r.healAmount > 0) db.healCharacter(username, channel, r.healAmount)
+  else if (r.healAmount < 0) {
+    // events never kill — leave at least 1 HP
+    const fresh = db.getCharacter(username, channel)
+    const safe = Math.min(-r.healAmount, Math.max(0, (fresh?.hp ?? 1) - 1))
+    if (safe > 0) db.damageCharacter(username, channel, safe)
+  }
+
+  let msg = r.message
+  if (r.boonOffer) {
+    const fresh = db.getCharacter(username, channel)
+    if (fresh && (fresh.pendingBoon ?? []).length === 0) {
+      const offer = boons.rollBoonOffer(fresh, boons.offerSeed(fresh.username, 100 + world.floor))
+      if (offer.length > 0) { fresh.pendingBoon = offer; db.upsertCharacter(fresh); msg += ' ' + render.renderBoonOffer(username, offer) }
+    }
+  }
+
+  world.floorCleared = true
+  db.upsertWorld(world)
+  return `${msg} !b move to descend.`.slice(0, 480)
 }
 
 export async function resolveFloor(username: string, channel: string): Promise<string | null> {
@@ -1359,7 +1329,6 @@ export async function resolveFloor(username: string, channel: string): Promise<s
     world.floor, world.encounterType,
     aliveEnemies.map((e) => ({ name: e.name, hp: e.hp, maxHp: e.maxHp })),
     players.filter((p) => p.hp > 0).length,
-    world.nlLifted,
   )
   return narration || render.renderFloor(world, players)
 }
@@ -1475,7 +1444,6 @@ export function createWorld(channel: string): WorldState {
     scene: '',
     season: 1,
     enabled: true,
-    nlLifted: false,
     shopInventory: [],
     veganShrineVisited: false,
     longRestCounter: 0,

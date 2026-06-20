@@ -240,7 +240,6 @@ export function handleDndSeason(arg: string, ctx: CommandContext): string | null
     floorCleared: false,
     scene: '',
     season: newSeason,
-    nlLifted: false,
     shopInventory: [],
     veganShrineVisited: false,
     longRestCounter: 0,
