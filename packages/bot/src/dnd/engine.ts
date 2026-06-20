@@ -222,7 +222,8 @@ async function processQueue(channel: string) {
 
       const seq = db.nextSequence(channel)
       const activePlayers = db.getActivePlayers(channel).filter((p) => p.hp > 0 && !p.isDying && p.respawnAt === null)
-      const hasAdvantage = chassisOf(char) === 'sneak' && activePlayers.length > 1
+      const hasAdvantage = (chassisOf(char) === 'sneak' && activePlayers.length > 1)
+        || (chassisOf(char) === 'surge' && char.level >= 5)  // veteran: rarely misses
       const hasDisadvantage = char.statusEffects.some((s) => s === 'poisoned' || s === 'blinded')
       const damageMult = 1 + (char.prestige ?? 0) * 0.02
       const outcome = combat.resolvePlayerAttack(char, targetEnemy, seq, hasAdvantage, hasDisadvantage, damageMult)
@@ -470,9 +471,9 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
   const partySize = Math.max(1, livingTargets.length)
   const isBossEncounter = freshWorld.encounterType === 'boss'
   const damageScale = partySize === 1
-    ? (isBossEncounter ? 0.60 : 0.75)
+    ? (isBossEncounter ? 0.45 : 0.62)
     : partySize === 2
-      ? (isBossEncounter ? 0.80 : 0.90)
+      ? (isBossEncounter ? 0.75 : 0.88)
       : 1.0
 
   const attacks: Array<{
@@ -779,24 +780,25 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
     }
 
     case 'surge': {
-      // Action Surge: make a second attack immediately
+      // Action Surge: a full extra action = TWO more attacks immediately
       if (char.actionSurgeUsed) {
         return { message: `@${char.username}: ${def.signature} spent — recharges on floor clear.` }
       }
       if (livingEnemies.length === 0) return { message: '' }
       char.actionSurgeUsed = true
       const target = livingEnemies[0]
-      const seq = db.nextSequence(channel)
-      const outcome = combat.resolvePlayerAttack(char, target, seq, false, false, 1 + (char.prestige ?? 0) * 0.02)
-      if (outcome.hit) {
-        target.hp = Math.max(0, target.hp - outcome.damage)
+      const parts: string[] = []
+      let total = 0
+      for (let i = 0; i < 2; i++) {
+        if (target.hp <= 0) break
+        const seq = db.nextSequence(channel)
+        const outcome = combat.resolvePlayerAttack(char, target, seq + i * 13337, false, false, 1 + (char.prestige ?? 0) * 0.02)
+        if (outcome.hit) { target.hp = Math.max(0, target.hp - outcome.damage); total += outcome.damage; parts.push(`${outcome.damage}${outcome.crit ? '[CRIT]' : ''}`) }
+        else parts.push('miss')
       }
       db.upsertCharacter(char)
       const killed = target.hp <= 0
-      const hitStr = outcome.hit
-        ? `${outcome.weaponName}: ${outcome.damageDiceStr} = ${outcome.damage} dmg${outcome.crit ? ' [CRIT!]' : ''}`
-        : `misses (d20:${outcome.d20Roll})`
-      return { message: `@${char.username} ${sig} — attacks ${target.name} again! ${hitStr}. ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}` }
+      return { message: `@${char.username} ${sig} — two extra strikes on ${target.name}: ${parts.join(', ')} (${total} dmg). ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}` }
     }
 
     case 'smite': {
@@ -875,8 +877,16 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       const allies = db.getActivePlayers(channel).filter((p) => p.hp > 0 && !p.isDying && p.respawnAt === null)
       const target = allies.length > 0 ? allies.reduce((a, b) => a.hp < b.hp ? a : b) : char
       const newHp = db.healCharacter(target.username, channel, healAmt)
+      // Guiding Bolt: clerics also smite a foe with radiant light (gives them real damage)
+      let boltStr = ''
+      const foe = livingEnemies[0]
+      if (foe) {
+        const bolt = Array.from({ length: 3 }, () => Math.floor(Math.random() * 6) + 1).reduce((a, b) => a + b, 0) + wisMod
+        foe.hp = Math.max(0, foe.hp - bolt)
+        boltStr = ` Guiding Bolt: ${bolt} radiant → ${foe.name} ${foe.hp <= 0 ? 'DEFEATED!' : `${foe.hp}/${foe.maxHp}HP`}.`
+      }
       db.upsertCharacter(char)
-      return { message: `@${char.username} ${sig} — @${target.username} healed ${healAmt}HP (1d4${wisMod >= 0 ? '+' : ''}${wisMod}). ${newHp}/${target.maxHp}HP.` }
+      return { message: `@${char.username} ${sig} — @${target.username} +${healAmt}HP (${newHp}/${target.maxHp}).${boltStr}` }
     }
 
     case 'chaos': {
@@ -887,7 +897,7 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       if (livingEnemies.length === 0) return { message: '' }
       char.spellSlots--
       const target = livingEnemies[Math.floor(Math.random() * livingEnemies.length)]
-      const dmgDice = Array.from({ length: 2 }, () => Math.floor(Math.random() * 8) + 1)
+      const dmgDice = Array.from({ length: 3 }, () => Math.floor(Math.random() * 8) + 1)
       const chaMod = getModifier(char.stats.cha)
       const dmg = dmgDice.reduce((a, b) => a + b, 0) + chaMod
       target.hp = Math.max(0, target.hp - dmg)
@@ -918,7 +928,7 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
         }
       }
       const killed = target.hp <= 0
-      return { message: `@${char.username} ${sig}! 2d8+${chaMod}=[${dmgDice.join('+')}]=${dmg} → ${target.name}: ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}${surgeMsg}` }
+      return { message: `@${char.username} ${sig}! 3d8+${chaMod}=[${dmgDice.join('+')}]=${dmg} → ${target.name}: ${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP`}${surgeMsg}` }
     }
 
     case 'flurry': {
@@ -953,23 +963,22 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       if (livingEnemies.length === 0) return { message: '' }
       char.spellSlots--
       const target = livingEnemies[0]
-      const seq = db.nextSequence(channel)
-      const outcome = combat.resolvePlayerAttack(char, target, seq, false, false, 1 + (char.prestige ?? 0) * 0.02)
       // apply hex (causes +1d6 on future attacks)
       target.statusEffect = 'hexed'
       target.statusRoundsLeft = 999
-      let dmg = 0
-      let blastStr = ''
-      if (outcome.hit) {
-        dmg = outcome.damage
-        target.hp = Math.max(0, target.hp - dmg)
-        blastStr = `blast: ${outcome.damageDiceStr} = ${dmg} dmg. `
-      } else {
-        blastStr = `blast misses (d20:${outcome.d20Roll}). `
+      // Eldritch Blast scales: a second beam at level 5+
+      const beams = char.level >= 5 ? 2 : 1
+      let dmg = 0; let hits = 0
+      for (let i = 0; i < beams; i++) {
+        const seq = db.nextSequence(channel)
+        const outcome = combat.resolvePlayerAttack(char, target, seq + i * 9173, false, false, 1 + (char.prestige ?? 0) * 0.02)
+        if (outcome.hit) { dmg += outcome.damage; hits++ }
       }
+      target.hp = Math.max(0, target.hp - dmg)
       db.upsertCharacter(char)
       const killed = target.hp <= 0
-      return { message: `@${char.username} ${sig} — ${target.name} hexed! ${blastStr}${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP. (Hex: +1d6 to all attacks vs this target)`}` }
+      const blastStr = hits > 0 ? `${hits}/${beams} beams hit for ${dmg}. ` : `blast misses. `
+      return { message: `@${char.username} ${sig} — ${target.name} hexed! ${blastStr}${killed ? 'DEFEATED!' : `${target.hp}/${target.maxHp}HP. (Hex: +1d6 vs this target)`}` }
     }
   }
 }
@@ -1193,9 +1202,9 @@ export async function resolveMove(username: string, channel: string): Promise<st
   const aliveCount = Math.max(1, players.filter((p) => p.hp > 0 && p.respawnAt === null && !p.isDying).length)
   const isBossFloor = newEncounterType === 'boss'
   const hpScale = aliveCount === 1
-    ? (isBossFloor ? 0.50 : 0.65)
+    ? (isBossFloor ? 0.40 : 0.55)
     : aliveCount === 2
-      ? (isBossFloor ? 0.70 : 0.85)
+      ? (isBossFloor ? 0.68 : 0.82)
       : 1.0
   if (hpScale < 1.0) {
     for (const e of newEnemies) {
