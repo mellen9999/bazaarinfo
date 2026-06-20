@@ -363,14 +363,15 @@ async function processQueue(channel: string) {
       }
     }
 
-    // decrement Barbarian rage
+    // end-of-round upkeep: rage decay + Regenerator boon healing
     for (const action of actions) {
       const char = db.getCharacter(action.username, channel)
-      if (char && chassisOf(char) === 'rage' && char.rageTurnsLeft > 0) {
+      if (!char) continue
+      const regen = boons.boonMods(char).regenPerRound
+      if (regen > 0 && char.hp > 0) db.healCharacter(action.username, channel, regen)
+      if (chassisOf(char) === 'rage' && char.rageTurnsLeft > 0) {
         char.rageTurnsLeft--
-        if (char.rageTurnsLeft === 0) {
-          resultLines.push(`@${action.username}'s Rage ends.`)
-        }
+        if (char.rageTurnsLeft === 0) resultLines.push(`@${action.username}'s Rage ends.`)
         db.upsertCharacter(char)
       }
     }
@@ -856,12 +857,12 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
     }
 
     case 'nuke': {
-      // Fireball: 8d6 fire dmg to ALL enemies, DC 14 DEX save for half
+      // Fireball: 6d6 fire dmg to ALL enemies
       if (char.spellSlots <= 0) {
         return { message: `@${char.username}: no spell slots — ${def.signature} expended. Recharge on floor clear.` }
       }
       char.spellSlots--
-      const fireDice = Array.from({ length: 8 }, () => Math.floor(Math.random() * 6) + 1)
+      const fireDice = Array.from({ length: 6 }, () => Math.floor(Math.random() * 6) + 1)
       const fireDmg = fireDice.reduce((a, b) => a + b, 0)
       const parts: string[] = []
       for (const enemy of livingEnemies) {
@@ -871,7 +872,7 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
         parts.push(`${enemy.name}(${enemy.hp}HP)`)
       }
       db.upsertCharacter(char)
-      return { message: `@${char.username} casts ${sig}! 8d6=[${fireDice.join('+')}]=${fireDmg} fire dmg + burning → ${parts.join(', ')}` }
+      return { message: `@${char.username} casts ${sig}! 6d6=[${fireDice.join('+')}]=${fireDmg} fire dmg + burning → ${parts.join(', ')}` }
     }
 
     case 'heal': {

@@ -74,7 +74,7 @@ function playerTurn(p: P, enemies: Enemy[], party: P[]): void {
   }
 
   if (chassis === 'nuke' && res.slots > 0) {
-    res.slots--; const dmg = roll(8, 6)
+    res.slots--; const dmg = roll(6, 6)
     for (const e of alive()) { e.hp = Math.max(0, e.hp - dmg); if (!e.statusEffect && e.specialAbility !== 'fire_immunity') { e.statusEffect = 'burning'; e.statusRoundsLeft = 2 } }
     return
   }
@@ -131,7 +131,11 @@ function fight(party: P[], floor: number, season: number): { win: boolean; xp: n
     for (const e of enemies) if (e.isBoss && e.hp > 0 && !e.enraged && e.hp <= e.maxHp * 0.5) { e.enraged = true; e.damageMod += Math.ceil(e.damageMod * 0.5) + 2; e.multiattack += 1 }
     // status ticks
     for (const e of enemies) if (e.hp > 0 && e.statusEffect) { e.hp = Math.max(0, e.hp - combat.singleStatusTick(e.statusEffect)); if (e.statusRoundsLeft !== undefined && --e.statusRoundsLeft <= 0) delete e.statusEffect }
-    for (const p of party) if (p.char.rageTurnsLeft > 0) p.char.rageTurnsLeft--
+    for (const p of party) {
+      if (p.char.rageTurnsLeft > 0) p.char.rageTurnsLeft--
+      const regen = boonMods(p.char).regenPerRound  // Regenerator boon in-combat sustain
+      if (regen > 0 && !p.down && !p.dead && p.char.hp > 0) p.char.hp = Math.min(p.char.maxHp, p.char.hp + regen)
+    }
     // enemies attack
     for (const e of enemies) {
       if (e.hp <= 0) continue

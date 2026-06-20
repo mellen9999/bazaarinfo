@@ -317,7 +317,7 @@ describe('boonMods', () => {
     expect(mods.toHit).toBe(0)
     expect(mods.acBonus).toBe(0)
     expect(mods.lifestealPct).toBe(0)
-    expect(mods.rerollFumble).toBe(false)
+    expect(mods.rerollMiss).toBe(false)
   })
 
   it('berserker → dmgMult 1.2', () => {
@@ -336,8 +336,8 @@ describe('boonMods', () => {
     expect(boonMods(makeChar({ boons: ['ironhide', 'bulwark'] })).acBonus).toBe(5)
   })
 
-  it('lucky → rerollFumble true', () => {
-    expect(boonMods(makeChar({ boons: ['lucky'] })).rerollFumble).toBe(true)
+  it('lucky → rerollMiss true', () => {
+    expect(boonMods(makeChar({ boons: ['lucky'] })).rerollMiss).toBe(true)
   })
 
   it('vampiric → lifestealPct 0.25', () => {
@@ -398,11 +398,11 @@ describe('applyBoonOnPick', () => {
     expect(char.hp).toBeLessThanOrEqual(75)
   })
 
-  it('battery on char with spellSlots → maxSpellSlots++ & spellSlots++', () => {
+  it('battery on char with spellSlots → +2 max & current', () => {
     const char = makeChar({ spellSlots: 2, maxSpellSlots: 2 })
     applyBoonOnPick(char, 'battery')
-    expect(char.maxSpellSlots).toBe(3)
-    expect(char.spellSlots).toBe(3)
+    expect(char.maxSpellSlots).toBe(4)
+    expect(char.spellSlots).toBe(4)
   })
 })
 

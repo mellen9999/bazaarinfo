@@ -11,8 +11,9 @@ export interface BoonMods {
   acBonus: number        // flat AC
   goldBonusPct: number   // extra gold per kill
   regenPerFloor: number  // HP healed on floor clear
+  regenPerRound: number  // HP healed each combat round (in-fight sustain)
   executionerPct: number // extra dmg mult vs enemies below 30% HP
-  rerollFumble: boolean  // reroll a natural 1 once
+  rerollMiss: boolean    // reroll the whole attack once on a miss (a mulligan)
 }
 
 export interface Boon {
@@ -30,15 +31,15 @@ export const BOONS: Boon[] = [
   { id: 'ironhide',   name: 'Ironhide',    desc: '+3 AC',                             mods: { acBonus: 3 } },
   { id: 'precise',    name: 'Precise',     desc: '+2 to hit',                         mods: { toHit: 2 } },
   { id: 'looter',     name: 'Looter',      desc: '+50% gold from kills',              mods: { goldBonusPct: 0.5 } },
-  { id: 'regen',      name: 'Regenerator', desc: 'heal 20 HP each floor cleared',     mods: { regenPerFloor: 20 } },
+  { id: 'regen',      name: 'Regenerator', desc: 'heal 2 HP every round + 20 on floor clear', mods: { regenPerRound: 2, regenPerFloor: 20 } },
   { id: 'executioner',name: 'Executioner', desc: '+50% damage vs foes below 30% HP',  mods: { executionerPct: 0.5 } },
-  { id: 'lucky',      name: 'Lucky',       desc: 'reroll a natural 1 once per attack', mods: { rerollFumble: true } },
+  { id: 'lucky',      name: 'Lucky',       desc: 'reroll a missed attack once',       mods: { rerollMiss: true } },
   { id: 'titan',      name: 'Titan',       desc: '+30 max HP (and heal it now)',      onPick: (c) => { c.maxHp += 30; c.hp += 30 } },
   { id: 'glasscannon',name: 'Glass Cannon',desc: '+50% damage, -25% max HP',          mods: { dmgMult: 0.50 }, onPick: (c) => { const cut = Math.floor(c.maxHp * 0.25); c.maxHp -= cut; c.hp = Math.max(1, c.hp - cut) } },
-  { id: 'battery',    name: 'Arcane Battery', desc: '+1 to your main resource (slot/ki/rage)', onPick: (c) => {
-    if (c.maxSpellSlots > 0) { c.maxSpellSlots++; c.spellSlots++ }
-    else if (c.maxKiPoints > 0) { c.maxKiPoints++; c.kiPoints++ }
-    else c.rageCharges++
+  { id: 'battery',    name: 'Arcane Battery', desc: '+2 to your main resource (slot/ki/rage)', onPick: (c) => {
+    if (c.maxSpellSlots > 0) { c.maxSpellSlots += 2; c.spellSlots += 2 }
+    else if (c.maxKiPoints > 0) { c.maxKiPoints += 2; c.kiPoints += 2 }
+    else c.rageCharges += 2
   } },
   { id: 'bulwark',    name: 'Bulwark',     desc: '+2 AC and heal 15 HP now',          mods: { acBonus: 2 }, onPick: (c) => { c.hp = Math.min(c.maxHp, c.hp + 15) } },
 ]
@@ -51,7 +52,7 @@ export function getBoon(id: string): Boon | undefined {
 
 const DEFAULT_MODS: BoonMods = {
   toHit: 0, dmgMult: 1, critThreshold: 20, lifestealPct: 0, acBonus: 0,
-  goldBonusPct: 0, regenPerFloor: 0, executionerPct: 0, rerollFumble: false,
+  goldBonusPct: 0, regenPerFloor: 0, regenPerRound: 0, executionerPct: 0, rerollMiss: false,
 }
 
 // aggregate all owned boons into a single mod set
@@ -67,8 +68,9 @@ export function boonMods(char: Character): BoonMods {
     if (m.acBonus) out.acBonus += m.acBonus
     if (m.goldBonusPct) out.goldBonusPct += m.goldBonusPct
     if (m.regenPerFloor) out.regenPerFloor += m.regenPerFloor
+    if (m.regenPerRound) out.regenPerRound += m.regenPerRound
     if (m.executionerPct) out.executionerPct += m.executionerPct
-    if (m.rerollFumble) out.rerollFumble = true
+    if (m.rerollMiss) out.rerollMiss = true
   }
   return out
 }
