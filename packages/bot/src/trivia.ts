@@ -23,7 +23,7 @@ try {
   const raw = readFileSync(join(import.meta.dir, '../data/kripp-trivia.json'), 'utf-8')
   const parsed = JSON.parse(raw) as { questions?: PackQ[] }
   krippPack = (parsed.questions ?? []).filter((q) => q.question && q.answer)
-} catch { krippPack = [] }
+} catch (e) { log(`trivia: kripp pack parse failed: ${e}`); krippPack = [] }
 
 // test seam
 export function setKrippPackForTest(pack: PackQ[]) { krippPack = pack }
@@ -185,7 +185,8 @@ const MAX_CLOSE_MISS_PER_ROUND = 2
 // question types that get NO hint: tiny closed enums (hero/size/tier/enchant) where a
 // hint uniquely identifies, plus numeric types (day/HP/fill-blank) where a range hint
 // either leaks the suffix or is identical at both stages — for those, no hint > a bad one.
-const NO_HINT_TYPES = new Set([1, 7, 9, 11, 12, 13, 14, 16])
+// types whose answer pool is tiny enough that a shape/first-letter hint would leak it
+const NO_HINT_TYPES = new Set([1, 7, 9, 10, 11, 12, 13, 14, 16, 19])
 
 type SayFn = (channel: string, text: string) => void
 
@@ -627,6 +628,11 @@ const CATEGORY_GENERATORS: Record<TriviaCategory, number[]> = {
 // generator; that is mixed in only for kripp channels via pickQuestionType.
 const BAZAAR_INDICES = generators.map((_, i) => i).filter((i) => i !== KRIPP_GEN_INDEX)
 
+// disabled generators (array indices) — coin-flip questions a guesser wins on luck, not
+// knowledge: 11 = "what size is X?" (1-of-3), 14 = "which has more HP, A or B?" (50/50).
+// kept in the array (indices are load-bearing) but never selected. filtered in pickQuestionType.
+const DISABLED_GENERATORS = new Set([11, 14])
+
 // weak first-stage hint: shape/count only (no letters revealed), so the round
 // escalates count(10s) -> skeleton(20s) instead of dumping everything at once.
 function generateWeakHint(answer: string): string {
@@ -710,7 +716,8 @@ function pickQuestionType(channel: string, category?: TriviaCategory): number {
   } else if (category === 'kripp') {
     category = undefined // not a kripp channel (or empty pack) → fall back to the Bazaar pool
   }
-  const allowedIndices = category ? CATEGORY_GENERATORS[category] : BAZAAR_INDICES
+  const allowedIndices = (category ? CATEGORY_GENERATORS[category] : BAZAAR_INDICES)
+    .filter((i) => !DISABLED_GENERATORS.has(i))
   const available = allowedIndices.filter((i) => recent.filter((t) => t === i).length < 2)
   const pool = available.length > 0 ? available : allowedIndices
   return weightedPick(pool, typeWeights(channel, pool))
@@ -877,7 +884,7 @@ function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>): 
   // answer field is a description, not a real title — pick a random accepted
   // answer so hints vary per round instead of deterministically leaking the
   // same board item / monster every time.
-  const hintAnswer = q.answer.startsWith('any')
+  const hintAnswer = q.answer.startsWith('any') && q.accepted.length > 0
     ? pickRandom(q.accepted)
     : q.answer
   // progressive hints: weak shape/count @10s, then first-letter skeleton @20s. each

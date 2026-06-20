@@ -624,6 +624,25 @@ describe('tooltip question (type 3)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// culled coin-flip question types
+// ---------------------------------------------------------------------------
+describe('culled question types', () => {
+  it('never serves item-size (type 12) or hp-compare (type 15) — pure-luck coin flips', () => {
+    const seen = new Set<number>()
+    for (let i = 0; i < 150; i++) {
+      resetForTest()
+      mockCreateTriviaGame.mockImplementation(() => i + 1)
+      startTrivia('#test', i % 2 ? 'items' : 'monsters')  // both pools that contained them
+      const g = getActiveGameForTest('#test')
+      if (g) seen.add(g.questionType)
+    }
+    expect(seen.has(12)).toBe(false)  // "what size is X?" — 1-of-3 guess, culled
+    expect(seen.has(15)).toBe(false)  // "which has more HP, A or B?" — 50/50, culled
+    expect(seen.size).toBeGreaterThan(3)  // sanity: other types were still served
+  })
+})
+
+// ---------------------------------------------------------------------------
 // monster board question (type 4)
 // ---------------------------------------------------------------------------
 describe('monster board question (type 4)', () => {
