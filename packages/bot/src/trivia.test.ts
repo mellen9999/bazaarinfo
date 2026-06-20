@@ -197,6 +197,7 @@ const {
   looksLikeAnswer,
   resetForTest,
   getActiveGameForTest,
+  __forceGenIdxForTest,
   rebuildTriviaMaps,
   norm,
   difficultyBase,
@@ -591,38 +592,34 @@ describe('tag question (type 2)', () => {
 // tooltip question (type 3)
 // ---------------------------------------------------------------------------
 describe('tooltip question (type 3)', () => {
-  it('generates valid tooltip question', () => {
-    let found = false
-    for (let i = 0; i < 50; i++) {
+  // genTooltipQuestion is generator index 2 → questionType 3. forcing the index makes
+  // these deterministic (no random type lottery); the small loop only re-rolls the
+  // random ITEM pick in the rare case the chosen item has no usable tooltip.
+  const TOOLTIP_GEN_IDX = 2
+  function startTooltipQuestion() {
+    for (let i = 0; i < 10; i++) {
       resetForTest()
+      __forceGenIdxForTest(TOOLTIP_GEN_IDX)
       mockCreateTriviaGame.mockImplementation(() => i + 1)
       startTrivia('#test', 'items')
       const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 3) {
-        expect(game.question).toContain('Which item does this:')
-        expect(game.acceptedAnswers.length).toBe(1)
-        found = true
-        break
-      }
+      if (game && game.questionType === 3) { __forceGenIdxForTest(null); return game }
     }
-    expect(found).toBe(true)
+    __forceGenIdxForTest(null)
+    return null
+  }
+
+  it('generates valid tooltip question', () => {
+    const game = startTooltipQuestion()
+    expect(game).toBeTruthy()
+    expect(game!.question).toContain('Which item does this:')
+    expect(game!.acceptedAnswers.length).toBe(1)
   })
 
   it('resolves tooltip placeholders', () => {
-    let found = false
-    for (let i = 0; i < 50; i++) {
-      resetForTest()
-      mockCreateTriviaGame.mockImplementation(() => i + 1)
-      startTrivia('#test', 'items')
-      const game = getActiveGameForTest('#test')
-      if (game && game.questionType === 3) {
-        // should not contain unresolved {placeholders}
-        expect(game.question).not.toContain('{')
-        found = true
-        break
-      }
-    }
-    expect(found).toBe(true)
+    const game = startTooltipQuestion()
+    expect(game).toBeTruthy()
+    expect(game!.question).not.toContain('{')  // no unresolved {placeholders}
   })
 })
 
