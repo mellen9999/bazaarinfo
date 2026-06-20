@@ -157,6 +157,7 @@ export interface Character {
   achievements: string[]
   boons: string[]              // chosen roguelike perks
   pendingBoon: string[]        // current level-up offer (3 ids; empty = none)
+  killStreak: number           // consecutive kills without dying (spectacle)
 }
 
 export interface Enemy {

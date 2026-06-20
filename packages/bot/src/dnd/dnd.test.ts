@@ -63,6 +63,7 @@ function makeChar(overrides: Partial<Character> = {}): Character {
     achievements: [],
     boons: [],
     pendingBoon: [],
+    killStreak: 0,
     ...overrides,
   }
 }
