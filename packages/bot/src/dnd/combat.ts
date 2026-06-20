@@ -69,9 +69,10 @@ export function getItemBonus(itemName: string): ItemBonus {
   if (tags.some((t: string) => t === 'weapon')) damage = TIER_DMG[card.BaseTier] ?? 3
   if (tags.some((t: string) => t === 'armor' || t === 'shield')) armor = 5
   if (tags.some((t: string) => t === 'heal' || t === 'regeneration')) onUseHeal = 30
-  if (!onHitStatus && tags.some((t: string) => t === 'poison')) onHitStatus = 'poisoned'
-  if (!onHitStatus && tags.some((t: string) => t === 'freeze' || t === 'slow')) onHitStatus = 'restrained'
-  if (!onHitStatus && tags.some((t: string) => t === 'burn' || t === 'fire')) onHitStatus = 'burning'
+  // substring match catches Bazaar's *Reference tags (PoisonReference, BurnReference, …)
+  if (!onHitStatus && tags.some((t: string) => t.includes('poison'))) onHitStatus = 'poisoned'
+  else if (!onHitStatus && tags.some((t: string) => t.includes('freeze') || t.includes('slow') || t.includes('cold'))) onHitStatus = 'restrained'
+  else if (!onHitStatus && tags.some((t: string) => t.includes('burn') || t.includes('fire'))) onHitStatus = 'burning'
   return { damage, armor, onUseHeal, onHitStatus }
 }
 

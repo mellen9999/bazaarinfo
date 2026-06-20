@@ -212,7 +212,7 @@ async function processQueue(channel: string) {
             enemyKilled: false, enemyHpAfter: 10,
             statusApplied: outcome.statusApplied,
           }
-          resultLines.push(render.renderCombatResult(result) + ` (Troll regenerates 10HP! Use fire or acid!)`)
+          resultLines.push(render.renderCombatResult(result) + ` (${targetEnemy.name} regenerates 10HP! Use fire or acid!)`)
           char.lastActionAt = Date.now()
           db.upsertCharacter(char)
           continue
@@ -533,9 +533,9 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
         const lairHp = db.damageCharacter(lairTarget.username, channel, lairDmg)
         if (lairHp <= 0) {
           db.setDying(lairTarget.username, channel, true)
-          attacks.push({ enemy: 'Lich LAIR ACTION', target: lairTarget.username, damage: lairDmg, defended: false, killed: false, targetHp: 0, targetMaxHp: lairTarget.maxHp, isDying: true })
+          attacks.push({ enemy: `${enemy.name} LAIR ACTION`, target: lairTarget.username, damage: lairDmg, defended: false, killed: false, targetHp: 0, targetMaxHp: lairTarget.maxHp, isDying: true })
         } else {
-          attacks.push({ enemy: 'Lich LAIR ACTION', target: lairTarget.username, damage: lairDmg, defended: false, killed: false, targetHp: lairHp, targetMaxHp: lairTarget.maxHp })
+          attacks.push({ enemy: `${enemy.name} LAIR ACTION`, target: lairTarget.username, damage: lairDmg, defended: false, killed: false, targetHp: lairHp, targetMaxHp: lairTarget.maxHp })
         }
       }
     }
