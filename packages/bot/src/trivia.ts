@@ -695,7 +695,13 @@ function weightedPick<T>(items: T[], weights: number[]): T {
   return items[items.length - 1]
 }
 
+// test-only: pin the generator index so type-specific tests are deterministic
+// instead of looping on random selection (which flakes when a type never comes up).
+let forcedGenIdxForTest: number | null = null
+export function __forceGenIdxForTest(idx: number | null): void { forcedGenIdxForTest = idx }
+
 function pickQuestionType(channel: string, category?: TriviaCategory): number {
+  if (forcedGenIdxForTest !== null) return forcedGenIdxForTest
   const recent = recentTypes.get(channel) ?? []
   // kripp pack is channel-scoped and only when the vetted pack is non-empty.
   if (isKrippChannel(channel) && krippPack.length > 0) {
@@ -1122,6 +1128,7 @@ export function resetForTest() {
   lastGameEnd.clear()
   recentTypes.clear()
   recentQuestions.clear()
+  forcedGenIdxForTest = null
 }
 
 export function getActiveGameForTest(channel: string) {
