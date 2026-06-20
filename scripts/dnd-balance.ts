@@ -68,7 +68,7 @@ function playerTurn(p: P, enemies: Enemy[], party: P[]): void {
 
   if (!PROFILE.useAbilities) {  // careless player: never uses !b spell — basic attacks only
     const t = alive()[0]
-    const o = combat.resolvePlayerAttack(char, t, Math.floor(Math.random() * 1e9), chassis === 'sneak', false, 1)
+    const o = combat.resolvePlayerAttack(char, t, Math.floor(Math.random() * 1e9), chassis === "sneak", false, 1 + (char.prestige ?? 0) * 0.02)
     if (o.hit) { t.hp = Math.max(0, t.hp - o.damage); if (o.statusApplied && !t.statusEffect) { t.statusEffect = o.statusApplied; t.statusRoundsLeft = 3 } if (ls > 0) char.hp = Math.min(char.maxHp, char.hp + Math.max(1, Math.floor(o.damage * ls))) }
     return
   }
@@ -101,7 +101,7 @@ function playerTurn(p: P, enemies: Enemy[], party: P[]): void {
   let seq = (Math.floor(Math.random() * 1e9))
   for (let i = 0; i < attacks; i++) {
     const t = alive()[0]; if (!t) break
-    const o = combat.resolvePlayerAttack(char, t, seq++, adv, false, 1)
+    const o = combat.resolvePlayerAttack(char, t, seq++, adv, false, 1 + (char.prestige ?? 0) * 0.02)
     if (!o.hit) continue
     let dmg = o.damage
     if (chassis === 'smite' && res.slots > 0) { res.slots--; dmg += roll(o.crit ? 4 : 2, 8) }
@@ -327,3 +327,26 @@ PROFILE.usePotions = false; PROFILE.buyGear = false
 runProfile('no potions/gear')
 PROFILE.useAbilities = false
 runProfile('careless (no !b spell)')
+
+// ============================================================ 7. power creep / season carryover
+console.log('\n=== 7. power creep: a maxed veteran vs early-season content (carries level+prestige+gear+boons) ===')
+console.log('casualties/round should be ~0 for a steamroll. fresh = level-appropriate, no extras.')
+function vet(className: string): P {
+  const p = makeP(className, 10, ['titan', 'ironhide', 'berserker', 'vampiric', 'bulwark', 'precise'])
+  p.char.prestige = 5                                        // 5 seasons cleared = +10% dmg
+  p.char.inventory = ['+2 Weapon', '+2 Weapon', '+2 Weapon', 'Ring of Protection', 'Ring of Protection']
+  p.char.hp = p.char.maxHp
+  p.res = startRes(p.def, 10)
+  return p
+}
+function statsFor(makeOne: () => P, fl: number): string {
+  let wins = 0, cas = 0, rnds = 0; const RUNS = 300
+  for (let i = 0; i < RUNS; i++) { const r = fight([makeOne()], fl, 1 + (i % 7)); if (r.win) wins++; cas += r.casualties; rnds += r.rounds + 1 }
+  return `${pct(wins / RUNS)} win, ${(cas / RUNS).toFixed(2)} deaths, ${(rnds / RUNS).toFixed(1)} rounds`
+}
+for (const c of ['Fighter', 'Wizard', 'Barbarian']) {
+  console.log(`${c} veteran(L10★5+gear+boons)`.padEnd(34) + ' f2: ' + statsFor(() => vet(c), 2).padEnd(34) + ' f10boss: ' + statsFor(() => vet(c), 10))
+}
+console.log('vs fresh level-appropriate (no extras):')
+console.log('Fighter L2 vs f2'.padEnd(34) + '      ' + statsFor(() => makeP('Fighter', 2, []), 2))
+console.log('Fighter L10 vs f10boss'.padEnd(34) + '      ' + statsFor(() => makeP('Fighter', 10, []), 10))
