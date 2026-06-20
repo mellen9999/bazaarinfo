@@ -536,6 +536,30 @@ describe('killCharacter → creates gravestone', () => {
   })
 })
 
+describe('party scaling', () => {
+  it('enemy count grows with party (capped at 5), bosses stay singular', async () => {
+    const { enemyCount } = await import('./floor')
+    expect(enemyCount(1, false)).toBe(2)
+    expect(enemyCount(3, false)).toBe(2)
+    expect(enemyCount(6, false)).toBe(3)
+    expect(enemyCount(50, false)).toBe(5)   // capped
+    expect(enemyCount(50, true)).toBe(1)    // boss is singular
+  })
+  it('solo is eased, 3p is baseline, big raids face tougher stats', async () => {
+    const { partyHpScale, partyDmgScale } = await import('./floor')
+    expect(partyHpScale(1, false)).toBeLessThan(1)      // solo eased
+    expect(partyHpScale(3, false)).toBe(1)              // baseline
+    expect(partyHpScale(20, false)).toBeGreaterThan(1)  // raid tougher
+    expect(partyHpScale(50, true)).toBeGreaterThan(partyHpScale(10, true))  // boss scales up
+    expect(partyDmgScale(20, false)).toBeGreaterThan(1)
+  })
+  it('generateEnemies honors the count param', async () => {
+    const { generateEnemies } = await import('./floor')
+    expect(generateEnemies(1, 1, 4).length).toBe(4)
+    expect(generateEnemies(1, 1, 2).length).toBe(2)
+  })
+})
+
 describe('death stakes', () => {
   it('death costs 40% gold, escalates respawn, counts the season death', async () => {
     const { upsertCharacter, getCharacter, killCharacter, resetSeasonDeaths } = await import('./db')
