@@ -217,6 +217,7 @@ export interface CombatResult {
   enemyHpAfter: number
   sneakAttackDice?: number
   actuallySick?: boolean
+  comboBonus?: number
 }
 
 export interface EnemyAttackResult {

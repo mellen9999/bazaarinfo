@@ -309,6 +309,7 @@ async function processQueue(channel: string) {
         statusApplied: outcome.statusApplied,
         enemyKilled: killed, enemyHpAfter: targetEnemy.hp,
         actuallySick: outcome.actuallySick,
+        comboBonus: outcome.comboBonus,
       }
       resultLines.push(render.renderCombatResult(result))
 

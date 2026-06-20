@@ -224,6 +224,24 @@ describe('d20Roll', () => {
   })
 })
 
+describe('combo — detonating status-afflicted foes', () => {
+  it('hitting a status-afflicted enemy adds combo bonus damage', () => {
+    const char = makeChar({ level: 6 })  // bonus = floor(6/2)+2 = 5
+    // find a seed that hits a plain AC-12 enemy (no crit/fumble noise)
+    let seq = -1
+    for (let s = 0; s < 500; s++) {
+      const o = resolvePlayerAttack(char, makeEnemy({ ac: 12 }), s, false, false)
+      if (o.hit && !o.crit) { seq = s; break }
+    }
+    expect(seq).toBeGreaterThanOrEqual(0)
+    const plain = resolvePlayerAttack(char, makeEnemy({ ac: 12 }), seq, false, false)
+    const combo = resolvePlayerAttack(char, makeEnemy({ ac: 12, statusEffect: 'burning' }), seq, false, false)
+    expect(combo.comboBonus).toBe(5)
+    expect(combo.damage).toBe(plain.damage + 5)
+    expect(plain.comboBonus).toBeUndefined()
+  })
+})
+
 describe('resolvePlayerAttack — d20 vs AC', () => {
   it('hit only when attackTotal >= enemy.ac or nat 20', () => {
     const char = makeChar()
