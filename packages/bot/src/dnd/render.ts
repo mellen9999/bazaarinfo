@@ -42,6 +42,7 @@ export function renderFloor(world: WorldState, players: Character[]): string {
     for (const e of livingEnemies) {
       const bar = hpBar(e.hp, e.maxHp)
       line += ` | ${e.name} [AC${e.ac}] ${e.hp}/${e.maxHp}HP [${bar}]`
+      if (e.enraged) line += ' ENRAGED'
       if (e.statusEffect) line += ` (${e.statusEffect})`
     }
   }

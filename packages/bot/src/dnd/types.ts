@@ -176,6 +176,7 @@ export interface Enemy {
   statusEffect?: string
   statusRoundsLeft?: number
   specialAbility?: string
+  enraged?: boolean        // boss phase-2 (one-time, triggers at half HP)
 }
 
 export interface WorldState {

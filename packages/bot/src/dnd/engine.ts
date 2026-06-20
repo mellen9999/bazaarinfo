@@ -331,6 +331,16 @@ async function processQueue(channel: string) {
       }
     }
 
+    // boss enrage: at half HP a boss enters phase 2 — harder hits, extra attack (one-time)
+    for (const enemy of world.enemies) {
+      if (enemy.isBoss && enemy.hp > 0 && !enemy.enraged && enemy.hp <= enemy.maxHp * 0.5) {
+        enemy.enraged = true
+        enemy.damageMod += Math.ceil(enemy.damageMod * 0.5) + 2
+        enemy.multiattack += 1
+        resultLines.push(`▰▰ ${enemy.name} ENRAGES at half health — its attacks intensify! no luck now. ▰▰`)
+      }
+    }
+
     // status ticks on enemies
     for (const enemy of world.enemies.filter((e) => e.hp > 0)) {
       if (!enemy.statusEffect) continue
