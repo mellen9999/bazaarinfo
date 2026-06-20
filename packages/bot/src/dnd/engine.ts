@@ -207,6 +207,11 @@ async function processQueue(channel: string) {
 
       const killed = targetEnemy.hp <= 0
 
+      // Hall of Legends: biggest crit on record
+      if (outcome.crit && db.recordBest(channel, 'biggest_crit', totalDmg, action.username, `vs ${targetEnemy.name}`)) {
+        resultLines.push(`NEW RECORD — biggest crit: ${totalDmg} dmg by @${action.username}!`)
+      }
+
       // Troll special: regenerate 10HP at end of round if not killed by fire/acid
       if (killed && targetEnemy.specialAbility === 'regeneration') {
         const killerChassis = chassisOf(char)
@@ -253,7 +258,14 @@ async function processQueue(channel: string) {
         const goldBonusPct = boons.boonMods(char).goldBonusPct
         if (goldBonusPct > 0) char.gold += Math.floor(reward.gold * goldBonusPct)
         // boss achievement
-        if (targetEnemy.isBoss) db.grantAchievement(action.username, channel, 'boss')
+        if (targetEnemy.isBoss) {
+          db.grantAchievement(action.username, channel, 'boss')
+          // first to slay this boss, ever, on this channel
+          if (db.recordFirst(channel, `firstkill_${targetEnemy.name.toLowerCase()}`, action.username, `floor ${world.floor}`)) {
+            resultLines.push(`★ FIRST BLOOD — @${action.username} is first to slay ${targetEnemy.name}! ★`)
+          }
+        }
+        db.recordBest(channel, 'most_kills', char.totalKills, action.username)
 
         char.lastActionAt = Date.now()
         db.upsertCharacter(char)
@@ -394,7 +406,7 @@ async function processDeathSaves(channel: string, _world: WorldState) {
 
     if (newFailures >= 3) {
       // dead
-      db.killCharacter(char.username, channel, Date.now() + RESPAWN_MS)
+      db.killCharacter(char.username, channel, Date.now() + RESPAWN_MS, 'failed death saves')
       scheduleRespawn(char.username, channel, RESPAWN_MS)
       db.logDndAction(channel, char.username, 'death', 'death saves')
       aiDm.narrateDeath(char.username, 'failed death saves', 0).then((flavor) => {
@@ -511,7 +523,7 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
         if (freshDying?.isDying) {
           const newFailures = freshDying.deathFailures + 1
           if (newFailures >= 3) {
-            db.killCharacter(target.username, channel, Date.now() + RESPAWN_MS)
+            db.killCharacter(target.username, channel, Date.now() + RESPAWN_MS, enemy.name)
             scheduleRespawn(target.username, channel, RESPAWN_MS)
             attacks.push({ enemy: enemy.name, target: target.username, damage: result.damage, defended: false, killed: true, targetHp: 0, targetMaxHp: target.maxHp })
           } else {
@@ -1181,6 +1193,11 @@ export async function resolveMove(username: string, channel: string): Promise<st
     shopInventory: newShop,
   }
   db.upsertWorld(newWorld)
+
+  // Hall of Legends: deepest floor reached on this channel
+  if (db.recordBest(channel, 'deepest_floor', nextFloor, char.username, `S${newWorld.season}`)) {
+    say(channel, `NEW RECORD — @${char.username} reaches the deepest floor yet: ${nextFloor}!`)
+  }
 
   if (newEncounterType === 'shop') {
     return render.renderShop(newShop, char.gold, nextFloor)
