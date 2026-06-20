@@ -116,7 +116,20 @@ export function renderEnemyAttacks(
     }
     return s
   })
-  return trunc(parts.join(' | '))
+  // attacks = enemies × multiattacks (up to ~15 on a boss horde) — pack as many whole
+  // hit lines as fit a char budget, then append a "+N more" marker. budget leaves room
+  // for the marker so it survives, instead of trunc() silently eating the tail mid-token.
+  const BUDGET = 440
+  const shown: string[] = []
+  let len = 0
+  for (const p of parts) {
+    const add = (shown.length ? 3 : 0) + p.length  // ' | ' separator
+    if (len + add > BUDGET) break
+    shown.push(p); len += add
+  }
+  const remaining = parts.length - shown.length
+  if (remaining > 0) shown.push(`+${remaining} more hits`)
+  return trunc(shown.join(' | '))
 }
 
 export function renderFloorClear(

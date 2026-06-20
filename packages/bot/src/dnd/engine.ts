@@ -135,6 +135,14 @@ function scaledEnemies(season: number, floorNum: number, party: number): Enemy[]
   })
 }
 
+// prestige grants +2% damage per star, but the mechanical effect is CAPPED so a
+// long-time grinder can't trivialise content — the prestige COUNT keeps growing as a
+// badge, only its damage multiplier is bounded (+50% max). single source of truth.
+const PRESTIGE_MULT_CAP = 25
+export function prestigeDamageMult(char: Character): number {
+  return 1 + Math.min(char.prestige ?? 0, PRESTIGE_MULT_CAP) * 0.02
+}
+
 // shared accumulators for a single round resolution
 interface KillContext {
   resultLines: string[]
@@ -260,7 +268,7 @@ async function processQueue(channel: string) {
       const hasAdvantage = (chassisOf(char) === 'sneak' && activePlayers.length > 1)
         || (chassisOf(char) === 'surge' && char.level >= 5)  // veteran: rarely misses
       const hasDisadvantage = char.statusEffects.some((s) => s === 'poisoned' || s === 'blinded')
-      const damageMult = 1 + (char.prestige ?? 0) * 0.02
+      const damageMult = prestigeDamageMult(char)
       const outcome = combat.resolvePlayerAttack(char, targetEnemy, seq, hasAdvantage, hasDisadvantage, damageMult)
 
       if (!outcome.hit) {
@@ -432,6 +440,11 @@ async function processQueue(channel: string) {
 
     await processDeathSaves(channel, world)
     await resolveEnemyCounterattacks(channel, world)
+    // enemies may have just dropped someone to dying — make sure death saves keep
+    // ticking even if the party now goes idle (esp. a solo player who can't act)
+    if (db.getActivePlayers(channel).some((p) => p.isDying && p.respawnAt === null)) {
+      scheduleDeathSaveTick(channel)
+    }
   } finally {
     processing.delete(channel)
   }
@@ -490,6 +503,32 @@ async function processDeathSaves(channel: string, _world: WorldState) {
     db.updateDeathSaves(char.username, channel, newSuccesses, newFailures)
     say(channel, render.renderDeathSave(char.username, roll, newSuccesses, newFailures, false, false))
   }
+}
+
+// death saves normally tick during round resolution — but a SOLO dying player (or a
+// party that's gone idle) can't queue actions, so no round fires and they'd be frozen
+// in "dying" forever. this fallback ticks death saves on a timer until every dying
+// player resolves (stabilise / revive / die→respawn), so nobody gets stuck.
+const deathSaveTimers = new Map<string, Timer>()
+const DEATH_SAVE_TICK_MS = 6_000
+
+function scheduleDeathSaveTick(channel: string): void {
+  if (deathSaveTimers.has(channel)) return
+  const timer = setTimeout(async () => {
+    deathSaveTimers.delete(channel)
+    try {
+      const world = db.getWorld(channel)
+      if (!world || !world.enabled) return
+      // a live round will tick death saves itself — don't double up; just re-arm
+      if (!processing.has(channel)) await processDeathSaves(channel, world)
+      if (db.getActivePlayers(channel).some((p) => p.isDying && p.respawnAt === null)) {
+        scheduleDeathSaveTick(channel)  // still dying → keep ticking
+      }
+    } catch (e) {
+      log(`dnd: death-save tick error: ${e}`)
+    }
+  }, DEATH_SAVE_TICK_MS)
+  deathSaveTimers.set(channel, timer)
 }
 
 async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
@@ -838,7 +877,7 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       for (let i = 0; i < 2; i++) {
         if (target.hp <= 0) break
         const seq = db.nextSequence(channel)
-        const outcome = combat.resolvePlayerAttack(char, target, seq + i * 13337, false, false, 1 + (char.prestige ?? 0) * 0.02)
+        const outcome = combat.resolvePlayerAttack(char, target, seq + i * 13337, false, false, prestigeDamageMult(char))
         if (outcome.hit) { target.hp = Math.max(0, target.hp - outcome.damage); total += outcome.damage; parts.push(`${outcome.damage}${outcome.crit ? '[CRIT]' : ''}`) }
         else parts.push('miss')
       }
@@ -855,7 +894,7 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       if (livingEnemies.length === 0) return { message: '' }
       const target = livingEnemies[0]
       const seq = db.nextSequence(channel)
-      const outcome = combat.resolvePlayerAttack(char, target, seq, false, false, 1 + (char.prestige ?? 0) * 0.02)
+      const outcome = combat.resolvePlayerAttack(char, target, seq, false, false, prestigeDamageMult(char))
       char.spellSlots--
       let smiteDmg = 0
       let smiteStr = ''
@@ -879,7 +918,7 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       if (livingEnemies.length === 0) return { message: '' }
       const target = livingEnemies[0]
       const seq = db.nextSequence(channel)
-      const outcome = combat.resolvePlayerAttack(char, target, seq, true, false, 1 + (char.prestige ?? 0) * 0.02)
+      const outcome = combat.resolvePlayerAttack(char, target, seq, true, false, prestigeDamageMult(char))
       // force a hit via simulated high roll if natural miss (shadowstrike cannot miss)
       const finalOutcome = outcome.hit ? outcome : combat.resolvePlayerAttack(char, target, seq + 99999, true, false, 1)
       target.hp = Math.max(0, target.hp - finalOutcome.damage)
@@ -988,7 +1027,7 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       const parts: string[] = []
       for (let i = 0; i < 2; i++) {
         const seq = db.nextSequence(channel)
-        const outcome = combat.resolvePlayerAttack(char, target, seq + i * 11111, false, false, 1 + (char.prestige ?? 0) * 0.02)
+        const outcome = combat.resolvePlayerAttack(char, target, seq + i * 11111, false, false, prestigeDamageMult(char))
         if (outcome.hit && target.hp > 0) {
           target.hp = Math.max(0, target.hp - outcome.damage)
           parts.push(`${outcome.damage} dmg${outcome.crit ? '[CRIT]' : ''}`)
@@ -1017,7 +1056,7 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       let dmg = 0; let hits = 0
       for (let i = 0; i < beams; i++) {
         const seq = db.nextSequence(channel)
-        const outcome = combat.resolvePlayerAttack(char, target, seq + i * 9173, false, false, 1 + (char.prestige ?? 0) * 0.02)
+        const outcome = combat.resolvePlayerAttack(char, target, seq + i * 9173, false, false, prestigeDamageMult(char))
         if (outcome.hit) { dmg += outcome.damage; hits++ }
       }
       target.hp = Math.max(0, target.hp - dmg)
@@ -1188,6 +1227,7 @@ export function resolveFlee(username: string, channel: string): string | null {
     const newHp = db.damageCharacter(username, channel, dmg)
     if (newHp <= 0) {
       db.setDying(username, channel, true)
+      scheduleDeathSaveTick(channel)  // no round will fire from a failed flee — tick saves on a timer
       return `@${username} tries to flee but ${enemy.name} strikes! -${dmg}HP — DYING. Make death saves!`
     }
     return `@${username} fails to flee (d20:${roll}) — ${enemy.name} strikes for ${dmg}dmg (${newHp}/${char.maxHp}HP).`
