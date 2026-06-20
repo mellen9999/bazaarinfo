@@ -41,6 +41,12 @@ function buildState(row: RaidRow): RaidState {
 
   const slots: RaidSlot[] = makeNPCSlots()
   for (const sr of slotRows) {
+    // guard against a corrupted row: an out-of-range position would create a sparse
+    // array and crash resolution when it iterates over the undefined hole
+    if (!Number.isInteger(sr.position) || sr.position < 0 || sr.position >= slots.length) {
+      log(`raid: skipping slot row with bad position ${sr.position} (raid ${row.id})`)
+      continue
+    }
     let boardItems: BoardItem[] = []
     try { boardItems = JSON.parse(sr.board_json) } catch {}
     slots[sr.position] = {
