@@ -114,11 +114,11 @@ describe('GAME_TERMS s3 vocabulary', () => {
 describe('system prompt', () => {
   // runaway-growth guard, not a tight budget: the system prompt is cached
   // server-side (cache_control ephemeral in ai.ts), so size is paid once per
-  // cache window, not per call. raised from 6700 after deliberate personality
-  // tuning (other-game knowledge, looser bits/personas) legitimately grew it to ~7.5k.
-  it('is under 8000 chars (runaway-growth guard)', () => {
+  // cache window, not per call. raised 6700->8000 after personality tuning, then
+  // ->8600 for the real-death/tragedy sensitivity rule (genie incident).
+  it('is under 8600 chars (runaway-growth guard)', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt.length).toBeLessThan(8000)
+    expect(prompt.length).toBeLessThan(8600)
   })
 
   it('contains core identity', () => {
