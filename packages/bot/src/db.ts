@@ -801,7 +801,7 @@ export function logChat(channel: string, username: string, message: string) {
 const chattedCache = new Set<string>()
 export function userHasChatted(username: string, channel: string): boolean {
   const lc = username.toLowerCase()
-  const key = `${channel} ${lc}`
+  const key = `${channel}\x00${lc}`
   if (chattedCache.has(key)) return true
   if (!stmts.hasChatted.get(lc, channel)) return false
   if (chattedCache.size > 5000) chattedCache.clear()
@@ -1403,5 +1403,3 @@ export function pruneOldTriviaGames(days = 180) {
     log(`trivia prune error: ${e}`)
   }
 }
-
-export function getDb(): Database { return db }
