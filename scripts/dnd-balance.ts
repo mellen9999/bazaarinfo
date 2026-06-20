@@ -16,6 +16,8 @@ import { boonMods, BOONS, applyBoonOnPick } from '../packages/bot/src/dnd/boons'
 import { getModifier, XP_PER_LEVEL } from '../packages/bot/src/dnd/types'
 import type { Character, Enemy } from '../packages/bot/src/dnd/types'
 
+// player skill profile — toggles what a careless vs a skilled player does
+const PROFILE = { useAbilities: true, smartBoons: true, buyGear: true, usePotions: true }
 const roll = (n: number, d: number) => { let s = 0; for (let i = 0; i < n; i++) s += Math.floor(Math.random() * d) + 1; return s }
 const d20 = () => Math.floor(Math.random() * 20) + 1
 const pct = (x: number) => `${Math.round(x * 100).toString().padStart(3)}%`
@@ -48,6 +50,7 @@ function makeP(className: string, level: number, boonIds: string[]): P {
 
 // auto-quaff a healing potion when low
 function maybePotion(p: P): void {
+  if (!PROFILE.usePotions) return
   if (p.char.hp > p.char.maxHp * 0.35) return
   const i = p.char.inventory.findIndex((n) => n.toLowerCase().includes('potion'))
   if (i < 0) return
@@ -62,6 +65,13 @@ function playerTurn(p: P, enemies: Enemy[], party: P[]): void {
   if (alive().length === 0) return
   const chassis = def.chassis
   const ls = boonMods(char).lifestealPct
+
+  if (!PROFILE.useAbilities) {  // careless player: never uses !b spell — basic attacks only
+    const t = alive()[0]
+    const o = combat.resolvePlayerAttack(char, t, Math.floor(Math.random() * 1e9), chassis === 'sneak', false, 1)
+    if (o.hit) { t.hp = Math.max(0, t.hp - o.damage); if (o.statusApplied && !t.statusEffect) { t.statusEffect = o.statusApplied; t.statusRoundsLeft = 3 } if (ls > 0) char.hp = Math.min(char.maxHp, char.hp + Math.max(1, Math.floor(o.damage * ls))) }
+    return
+  }
 
   if (chassis === 'nuke' && res.slots > 0) {
     res.slots--; const dmg = roll(8, 6)
@@ -229,8 +239,11 @@ function levelUp(p: P): void {
     const conMod = getModifier(p.char.stats.con)
     const hpGain = Math.floor(p.def.hitDie / 2) + 1 + conMod
     p.char.maxHp += hpGain; p.char.hp += hpGain
-    // pick a boon (priority, first not owned)
-    const pick = BOON_PRIORITY.find((b) => !p.char.boons.includes(b))
+    // pick a boon — skilled: survival priority; careless: random
+    const avail = PROFILE.smartBoons
+      ? [BOON_PRIORITY.find((b) => !p.char.boons.includes(b))].filter(Boolean) as string[]
+      : BOONS.map((b) => b.id).filter((b) => !p.char.boons.includes(b))
+    const pick = PROFILE.smartBoons ? avail[0] : avail[Math.floor(Math.random() * avail.length)]
     if (pick) { p.char.boons.push(pick); applyBoonOnPick(p.char, pick) }
     p.res = startRes(p.def, p.char.level)
   }
@@ -261,7 +274,7 @@ function fullRun(className: string, season: number): { cleared: boolean; deathFl
       if (drop && p.char.inventory.length < 6) p.char.inventory.push(drop)
     } else if (type === 'shop') {
       p.char.gold += 30
-      if (p.char.gold >= 200 && !p.char.inventory.includes('+1 Weapon')) { p.char.gold -= 200; if (p.char.inventory.length < 6) p.char.inventory.push('+1 Weapon') }
+      if (PROFILE.buyGear && p.char.gold >= 200 && !p.char.inventory.includes('+1 Weapon')) { p.char.gold -= 200; if (p.char.inventory.length < 6) p.char.inventory.push('+1 Weapon') }
     } else {
       if (floor === 9) p.char.hp = p.char.maxHp
       else p.char.hp = Math.min(p.char.maxHp, p.char.hp + Math.floor(p.char.maxHp * 0.5))
@@ -283,3 +296,24 @@ for (const c of CLASSES) {
   const hist = deaths.slice(1).map((d) => Math.round((d / RUNS) * 99).toString().padStart(2)).join(' ')
   console.log(c.padEnd(11) + pct(cleared / RUNS).padStart(7) + (deathSum / RUNS).toFixed(1).padStart(9) + (a6 / RUNS).toFixed(1).padStart(10) + (a10n ? (a10 / a10n).toFixed(1) : '-').padStart(11) + '  ' + hist)
 }
+
+// ============================================================ 6. skill gradient
+console.log('\n=== 6. does misplay get punished? full-run completion by player skill ===')
+function runProfile(label: string): void {
+  let row = label.padEnd(26)
+  for (const c of ['Fighter', 'Wizard', 'Barbarian']) {
+    let cleared = 0, deathSum = 0
+    const RUNS = 400
+    for (let i = 0; i < RUNS; i++) { const r = fullRun(c, 1 + (i % 7)); if (r.cleared) cleared++; deathSum += r.deaths }
+    row += `${c} ${pct(cleared / RUNS)} (${(deathSum / RUNS).toFixed(1)}d)`.padEnd(22)
+  }
+  console.log(row)
+}
+PROFILE.useAbilities = true; PROFILE.smartBoons = true; PROFILE.buyGear = true; PROFILE.usePotions = true
+runProfile('skilled (all)')
+PROFILE.smartBoons = false
+runProfile('random boons')
+PROFILE.usePotions = false; PROFILE.buyGear = false
+runProfile('no potions/gear')
+PROFILE.useAbilities = false
+runProfile('careless (no !b spell)')
