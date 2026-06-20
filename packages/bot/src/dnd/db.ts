@@ -145,6 +145,7 @@ export function initDndDb(): void {
     `ALTER TABLE dnd_characters ADD COLUMN death_failures INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE dnd_characters ADD COLUMN boons TEXT NOT NULL DEFAULT '[]'`,
     `ALTER TABLE dnd_characters ADD COLUMN pending_boon TEXT NOT NULL DEFAULT '[]'`,
+    `ALTER TABLE dnd_characters ADD COLUMN kill_streak INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE dnd_world ADD COLUMN long_rest_counter INTEGER NOT NULL DEFAULT 0`,
   ]
   for (const sql of CHAR_MIGRATIONS) {
@@ -183,8 +184,8 @@ export function initDndDb(): void {
        deaths, total_kills, defending, last_action_at, respawn_at, prestige, achievements,
        stats, spell_slots, max_spell_slots, hit_dice, max_hit_dice,
        ki_points, max_ki_points, rage_charges, rage_turns_left, action_surge_used,
-       is_dying, death_successes, death_failures, boons, pending_boon)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       is_dying, death_successes, death_failures, boons, pending_boon, kill_streak)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(username, channel) DO UPDATE SET
         class=excluded.class, level=excluded.level, xp=excluded.xp,
         hp=excluded.hp, max_hp=excluded.max_hp, gold=excluded.gold,
@@ -201,7 +202,8 @@ export function initDndDb(): void {
         action_surge_used=excluded.action_surge_used,
         is_dying=excluded.is_dying, death_successes=excluded.death_successes,
         death_failures=excluded.death_failures,
-        boons=excluded.boons, pending_boon=excluded.pending_boon`),
+        boons=excluded.boons, pending_boon=excluded.pending_boon,
+        kill_streak=excluded.kill_streak`),
     getWorld: db.prepare('SELECT * FROM dnd_world WHERE channel = ?'),
     upsertWorld: db.prepare(`INSERT INTO dnd_world
       (channel, floor, action_sequence, encounter_type, enemies, floor_cleared,
@@ -351,6 +353,7 @@ function rowToChar(row: Record<string, unknown>): Character {
     deathFailures: (row.death_failures as number) ?? 0,
     boons: JSON.parse((row.boons as string) ?? '[]') as string[],
     pendingBoon: JSON.parse((row.pending_boon as string) ?? '[]') as string[],
+    killStreak: (row.kill_streak as number) ?? 0,
   }
 }
 
@@ -401,6 +404,7 @@ export function upsertCharacter(char: Character): void {
       char.isDying ? 1 : 0,
       char.deathSuccesses, char.deathFailures,
       JSON.stringify(char.boons ?? []), JSON.stringify(char.pendingBoon ?? []),
+      char.killStreak ?? 0,
     )
   } catch (e) {
     log(`dnd: upsertCharacter error: ${e}`)
@@ -492,7 +496,14 @@ export function killCharacter(username: string, channel: string, respawnMs: numb
     // record a gravestone before the kill (chokepoint for all deaths)
     const char = getCharacter(username, channel)
     const world = getWorld(channel)
-    if (char) addGrave(channel, username, char.class, char.level, world?.floor ?? 0, killer, world?.season ?? 1)
+    if (char) {
+      addGrave(channel, username, char.class, char.level, world?.floor ?? 0, killer, world?.season ?? 1)
+      if (char.killStreak > 0) {           // a streak ends at death — bank the best
+        recordBest(channel, 'best_streak', char.killStreak, username)
+        char.killStreak = 0
+        upsertCharacter(char)
+      }
+    }
     stmts.killChar.run(respawnMs, username.toLowerCase(), channel.toLowerCase())
   } catch (e) {
     log(`dnd: killCharacter error: ${e}`)

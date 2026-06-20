@@ -78,7 +78,7 @@ export async function handleJoin(arg: string, ctx: CommandContext): Promise<stri
     lastActionAt: Date.now(),
     respawnAt: null,
     prestige: 0, achievements: [],
-    boons: [], pendingBoon: [],
+    boons: [], pendingBoon: [], killStreak: 0,
   }
   db.upsertCharacter(newChar)
   engine.announceJoin(channel, { username, cls: def.name })

@@ -144,6 +144,7 @@ const ACH_LABELS: Record<string, string> = {
 // earned title shown by your name — highest-priority milestone wins
 export function titleFor(char: Character): string {
   if ((char.prestige ?? 0) >= 3) return 'the Eternal'
+  if ((char.killStreak ?? 0) >= 10) return 'the Unkillable'
   if ((char.boons ?? []).length >= 6) return 'the Ascended'
   if ((char.prestige ?? 0) >= 1) return 'the Veteran'
   if ((char.totalKills ?? 0) >= 100) return 'the Butcher'
@@ -158,12 +159,13 @@ const RECORD_LABELS: Record<string, (r: { holder: string; value: number; detail:
   deepest_floor: (r) => `Deepest: floor ${r.value} (${r.holder})`,
   biggest_crit: (r) => `Biggest crit: ${r.value} (${r.holder})`,
   most_kills: (r) => `Most kills: ${r.value} (${r.holder})`,
+  best_streak: (r) => `Best streak: ${r.value} (${r.holder})`,
 }
 
 export function renderLegends(records: { rkey: string; holder: string; value: number; detail: string }[]): string {
   if (records.length === 0) return 'the Hall of Legends is empty — be the first to make history. !b join'
   const parts: string[] = []
-  for (const key of ['deepest_floor', 'biggest_crit', 'most_kills']) {
+  for (const key of ['deepest_floor', 'biggest_crit', 'most_kills', 'best_streak']) {
     const r = records.find((x) => x.rkey === key)
     if (r) parts.push(RECORD_LABELS[key](r))
   }
@@ -202,6 +204,7 @@ export function renderCharacter(char: Character): string {
   let line = `${char.username}${stars}${achs}${titleStr} | Lv${char.level} ${char.class} | ${char.hp}/${char.maxHp}HP AC${ac} | ${char.gold}g`
   if (char.inventory.length > 0) line += ` | ${char.inventory.join(', ')}`
   line += ` | XP:${char.xp}/${nextXp}${resources} | deaths:${char.deaths}`
+  if ((char.killStreak ?? 0) >= 3) line += ` | streak:${char.killStreak}`
   if ((char.boons ?? []).length > 0) line += ` | boons:${boonLabels(char)}`
   if ((char.pendingBoon ?? []).length > 0) line += ` | !b pick a boon!`
   if (char.statusEffects.length > 0) line += ` | ${char.statusEffects.join(',')}`
@@ -260,6 +263,16 @@ export function renderLevelUp(char: Character, newLevel: number): string {
 
 export function renderBossCard(floor: number, bossName: string, bossHp: number): string {
   return trunc(`▰▰▰ BOSS — FLOOR ${floor} ▰▰▰ ${bossName} rises (${bossHp}HP). no luck if you brought meat. → !b a to attack · !b spell · !b d to defend`)
+}
+
+// cross-round kill streaks (no death) — only fires at milestones
+const STREAK_TAGS: Record<number, string> = {
+  3: 'KILLING SPREE', 5: 'DOMINATING', 7: 'UNSTOPPABLE', 10: 'GODLIKE', 15: 'BEYOND GODLIKE',
+}
+export function killStreakBanner(username: string, streak: number): string | null {
+  const tag = STREAK_TAGS[streak]
+  if (!tag) return null
+  return `▰ ${tag} ▰ @${username} is on a ${streak}-kill streak! no luck for the dungeon.`
 }
 
 // gamer-announcer multikill banners (2+ kills in one round)

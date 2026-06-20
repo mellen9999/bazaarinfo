@@ -127,6 +127,9 @@ function awardKill(username: string, enemy: Enemy, world: WorldState, channel: s
   const reward = floor.enemyReward(enemy, world.floor)
   char.gold += reward.gold
   char.totalKills++
+  char.killStreak = (char.killStreak ?? 0) + 1
+  const streakBanner = render.killStreakBanner(username, char.killStreak)
+  if (streakBanner) ctx.resultLines.push(streakBanner)
   if (chassisOf(char) === 'sneak') char.gold += Math.floor(reward.gold * 0.5)         // sneak steal
   const goldBonusPct = boons.boonMods(char).goldBonusPct
   if (goldBonusPct > 0) char.gold += Math.floor(reward.gold * goldBonusPct)            // Looter boon
