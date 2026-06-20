@@ -1,8 +1,10 @@
 import type { Statement } from 'bun:sqlite'
 import { getDb } from '../db'
 import { log } from '../log'
-import { CLASS_HIT_DIE, CLASS_BASE_STATS, calcMaxHp, calcMaxSpellSlots, getModifier } from './types'
+import { CLASS_BASE_STATS, calcMaxHp, calcMaxSpellSlots, getModifier } from './types'
 import type { Character, WorldState, EncounterType, ShopItem, Enemy, AbilityScores } from './types'
+import { getClassDef, registerClassDef } from './classdef'
+import type { ClassDef, Chassis } from './classdef'
 
 let stmts: {
   getChar: Statement
@@ -77,6 +79,26 @@ export function initDndDb(): void {
   )`)
 
   db.run(`CREATE INDEX IF NOT EXISTS idx_dnd_log_channel ON dnd_log(channel, created_at)`)
+
+  // custom (AI-generated / synthesized) class definitions, cached by normalized name
+  db.run(`CREATE TABLE IF NOT EXISTS dnd_classes (
+    name_norm TEXT PRIMARY KEY,
+    display TEXT NOT NULL,
+    chassis TEXT NOT NULL,
+    base_stats TEXT NOT NULL,
+    hit_die INTEGER NOT NULL,
+    atk_stat TEXT NOT NULL,
+    weapon_name TEXT NOT NULL,
+    weapon_die INTEGER NOT NULL,
+    weapon_count INTEGER NOT NULL,
+    ac_archetype TEXT NOT NULL,
+    save_profs TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    role TEXT NOT NULL,
+    descr TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'ai',
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  )`)
 
   // inline migrations — safe to re-run, fail silently if column exists
   const CHAR_MIGRATIONS = [
@@ -213,7 +235,56 @@ export function initDndDb(): void {
     ),
   }
 
+  loadClassDefs()
+
   log('dnd: db initialized')
+}
+
+// --- custom class definitions ---
+function rowToClassDef(row: Record<string, unknown>): ClassDef {
+  return {
+    name: row.display as string,
+    chassis: row.chassis as Chassis,
+    baseStats: JSON.parse(row.base_stats as string) as AbilityScores,
+    hitDie: row.hit_die as number,
+    atkStat: row.atk_stat as keyof AbilityScores,
+    weapon: { name: row.weapon_name as string, die: row.weapon_die as number, count: row.weapon_count as number },
+    acArchetype: row.ac_archetype as ClassDef['acArchetype'],
+    saveProfs: JSON.parse(row.save_profs as string) as ClassDef['saveProfs'],
+    signature: row.signature as string,
+    role: row.role as string,
+    desc: row.descr as string,
+    builtin: false,
+  }
+}
+
+export function loadClassDefs(): void {
+  try {
+    const rows = getDb().query('SELECT * FROM dnd_classes').all() as Record<string, unknown>[]
+    for (const row of rows) registerClassDef(rowToClassDef(row))
+    if (rows.length > 0) log(`dnd: loaded ${rows.length} custom classes`)
+  } catch (e) {
+    log(`dnd: loadClassDefs error: ${e}`)
+  }
+}
+
+export function saveClassDef(nameNorm: string, def: ClassDef, source: 'ai' | 'synthetic'): void {
+  try {
+    getDb().run(
+      `INSERT INTO dnd_classes
+        (name_norm, display, chassis, base_stats, hit_die, atk_stat, weapon_name, weapon_die,
+         weapon_count, ac_archetype, save_profs, signature, role, descr, source)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(name_norm) DO NOTHING`,
+      [
+        nameNorm, def.name, def.chassis, JSON.stringify(def.baseStats), def.hitDie, def.atkStat,
+        def.weapon.name, def.weapon.die, def.weapon.count, def.acArchetype,
+        JSON.stringify(def.saveProfs), def.signature, def.role, def.desc, source,
+      ],
+    )
+  } catch (e) {
+    log(`dnd: saveClassDef error: ${e}`)
+  }
 }
 
 function rowToChar(row: Record<string, unknown>): Character {
@@ -442,7 +513,7 @@ export function addCharacterXp(username: string, channel: string, xp: number): {
       const cls = row.class
       const stats = JSON.parse(row.stats ?? '{"con":10}') as AbilityScores
       const conMod = getModifier(stats.con)
-      const hitDie = CLASS_HIT_DIE[cls] ?? 8
+      const hitDie = getClassDef(cls).hitDie
       const hpPerLevel = Math.floor(hitDie / 2) + 1 + conMod
       hpGain = (newLevel - row.level) * hpPerLevel
     }

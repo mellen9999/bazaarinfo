@@ -1,5 +1,5 @@
 import type { Character, WorldState, ShopItem, CombatResult } from './types'
-import { CLASS_DESC, getCharAC } from './types'
+import { getClassDef, charAC, joinActionFor, levelUpBonusFor } from './classdef'
 
 const MAX_LEN = 480
 
@@ -148,15 +148,16 @@ export function renderCharacter(char: Character): string {
     ? ` [${char.achievements.map((a) => ACH_LABELS[a] ?? a).join('][')}]`
     : ''
 
-  // class-specific resource display
+  // class-specific resource display (driven by mechanical chassis)
+  const chassis = getClassDef(char.class).chassis
   let resources = ''
   if (char.spellSlots > 0 || char.maxSpellSlots > 0) resources += ` slots:${char.spellSlots}/${char.maxSpellSlots}`
-  if (char.class === 'Monk' && char.maxKiPoints > 0) resources += ` ki:${char.kiPoints}/${char.maxKiPoints}`
-  if (char.class === 'Barbarian' && char.maxSpellSlots === 0) resources += ` rage:${char.rageCharges}`
-  if (char.class === 'Fighter') resources += char.actionSurgeUsed ? ` surge:spent` : ` surge:ready`
+  if (chassis === 'flurry' && char.maxKiPoints > 0) resources += ` ki:${char.kiPoints}/${char.maxKiPoints}`
+  if (chassis === 'rage') resources += ` rage:${char.rageCharges}`
+  if (chassis === 'surge') resources += char.actionSurgeUsed ? ` surge:spent` : ` surge:ready`
   resources += ` hd:${char.hitDice}/${char.maxHitDice}`
 
-  const ac = getCharAC(char.class, char.stats)
+  const ac = charAC(char)
   let line = `${char.username}${stars}${achs} | Lv${char.level} ${char.class} | ${char.hp}/${char.maxHp}HP AC${ac} | ${char.gold}g`
   if (char.inventory.length > 0) line += ` | ${char.inventory.join(', ')}`
   line += ` | XP:${char.xp}/${nextXp}${resources} | deaths:${char.deaths}`
@@ -210,45 +211,17 @@ export function renderDeathSave(username: string, roll: number, successes: numbe
 }
 
 export function renderLevelUp(char: Character, newLevel: number): string {
-  const bonus = (() => {
-    switch (char.class) {
-      case 'Barbarian': return 'Rage damage +1'
-      case 'Fighter':   return 'Action Surge refreshed'
-      case 'Paladin':   return '+1 spell slot'
-      case 'Rogue':     return `Sneak Attack now ${Math.ceil(newLevel / 2)}d6`
-      case 'Wizard':    return '+1 spell slot, Fireball grows'
-      case 'Cleric':    return '+1 spell slot, Healing Word +2'
-      case 'Sorcerer':  return '+1 spell slot, Wild Magic surge chance +5%'
-      case 'Monk':      return '+1 ki point'
-      case 'Warlock':   return '+1 spell slot'
-      default:          return '+HP'
-    }
-  })()
+  const bonus = levelUpBonusFor(getClassDef(char.class).chassis, newLevel)
   return trunc(`${char.username} levels up! Lv${newLevel} ${char.class} — +HP max. ${bonus}`)
 }
 
 export function renderJoin(char: Character): string {
-  const cls = char.class
-  const desc = CLASS_DESC[cls] ?? cls
-  const action = (() => {
-    switch (cls) {
-      case 'Barbarian': return '!b spell to enter Rage'
-      case 'Fighter':   return '!b spell for Action Surge'
-      case 'Paladin':   return '!b spell for Divine Smite'
-      case 'Rogue':     return 'Sneak Attack is automatic on !b a'
-      case 'Wizard':    return '!b spell for Fireball'
-      case 'Cleric':    return '!b spell to cast Healing Word'
-      case 'Sorcerer':  return '!b spell for Wild Magic'
-      case 'Monk':      return '!b spell for Flurry of Blows'
-      case 'Warlock':   return '!b spell for Hex + Eldritch Blast'
-      default:          return '!b spell for class ability'
-    }
-  })()
-  return trunc(`@${char.username} enters as Lv1 ${cls} (${char.maxHp}HP, AC${getCharAC(cls, char.stats)}, 10g). ${action}. !b floor to see what awaits.`)
+  const def = getClassDef(char.class)
+  return trunc(`@${char.username} enters as Lv1 ${char.class} (${char.maxHp}HP, AC${charAC(char)}, 10g). ${joinActionFor(def)}. !b floor to see what awaits.`)
 }
 
 export function renderClassList(): string {
-  return 'classes: barbarian · fighter · paladin · rogue · wizard · cleric · sorcerer · monk · warlock — !b join <class>'
+  return 'classes: barbarian · fighter · paladin · rogue · wizard · cleric · sorcerer · monk · warlock — or !b join <anything> to forge your own custom class'
 }
 
 export function renderSeasonComplete(season: number, floor: number): string {

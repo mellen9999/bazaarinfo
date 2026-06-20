@@ -572,7 +572,7 @@ const subcommands: [RegExp, SubHandler][] = [
     return withSuffix(getTriviaScore(ctx.channel), suffix)
   }],
   // --- dnd game commands (offline only) ---
-  [/^join(?:\s+(\S+))?$/i, (query, ctx) => dndCmds.handleJoin(query ?? '', ctx) ?? raidCmds.handleJoin('', ctx)],
+  [/^join(?:\s+(.+))?$/i, async (query, ctx) => (await dndCmds.handleJoin(query ?? '', ctx)) ?? raidCmds.handleJoin('', ctx)],
   [/^(?:a|attack)(?:\s+(.*))?$/i, (query, ctx) => dndCmds.handleAttack(query ?? '', ctx)],
   [/^(?:d|defend)$/i, (_q, ctx) => dndCmds.handleDefend('', ctx)],
   [/^spell$/i, (_q, ctx) => dndCmds.handleSpell('', ctx)],

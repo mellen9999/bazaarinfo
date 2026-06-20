@@ -81,25 +81,35 @@ export function calcMaxHp(cls: string, level: number, conScore: number): number 
   return die + conMod + (level - 1) * (Math.floor(die / 2) + 1 + conMod)
 }
 
-export function getCharAC(cls: string, stats: AbilityScores, itemAcBonus = 0): number {
+// AC formula families — every class (builtin or custom) maps to exactly one.
+export type AcArchetype = 'unarmored' | 'mail' | 'plate' | 'light' | 'mage' | 'monk' | 'default'
+
+export const BUILTIN_AC_ARCHETYPE: Record<string, AcArchetype> = {
+  Barbarian: 'unarmored', Fighter: 'mail', Paladin: 'plate', Rogue: 'light',
+  Wizard: 'mage', Cleric: 'mail', Sorcerer: 'mage', Monk: 'monk', Warlock: 'light',
+}
+
+// single source of truth for AC math — used by builtins and custom classes alike
+export function acFromArchetype(archetype: AcArchetype, stats: AbilityScores, itemAcBonus = 0): number {
   const dex = Math.floor((stats.dex - 10) / 2)
   const con = Math.floor((stats.con - 10) / 2)
   const wis = Math.floor((stats.wis - 10) / 2)
   const base = (() => {
-    switch (cls) {
-      case 'Barbarian': return 10 + dex + con
-      case 'Fighter':   return 16
-      case 'Paladin':   return 18
-      case 'Rogue':     return 11 + Math.min(dex, 2)
-      case 'Wizard':    return 13 + Math.min(dex, 2)
-      case 'Cleric':    return 16
-      case 'Sorcerer':  return 13 + Math.min(dex, 2)
-      case 'Monk':      return 10 + dex + wis
-      case 'Warlock':   return 11 + Math.min(dex, 2)
+    switch (archetype) {
+      case 'unarmored': return 10 + dex + con
+      case 'mail':      return 16
+      case 'plate':     return 18
+      case 'light':     return 11 + Math.min(dex, 2)
+      case 'mage':      return 13 + Math.min(dex, 2)
+      case 'monk':      return 10 + dex + wis
       default:          return 10 + dex
     }
   })()
   return base + itemAcBonus
+}
+
+export function getCharAC(cls: string, stats: AbilityScores, itemAcBonus = 0): number {
+  return acFromArchetype(BUILTIN_AC_ARCHETYPE[cls] ?? 'default', stats, itemAcBonus)
 }
 
 export const CLASS_DESC: Record<string, string> = {

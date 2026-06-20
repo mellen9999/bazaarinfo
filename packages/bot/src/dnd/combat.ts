@@ -1,8 +1,9 @@
 import * as store from '../store'
 import {
-  getModifier, getProfBonus, CLASS_ATK_STAT, CLASS_WEAPON, sneakAttackDice, getCharAC,
+  getModifier, getProfBonus, sneakAttackDice,
   type Character, type Enemy, type AbilityScores,
 } from './types'
+import { getClassDef, charAC } from './classdef'
 
 // mulberry32 — deterministic seeded RNG (same impl as raid/sim.ts)
 function mulberry32(seed: number): () => number {
@@ -105,12 +106,11 @@ export function resolvePlayerAttack(
   hasDisadvantage: boolean,
   damageMult = 1.0,
 ): AttackOutcome {
-  const atkStat = CLASS_ATK_STAT[char.class] ?? 'str'
+  const def = getClassDef(char.class)
+  const atkStat = def.atkStat
   const atkMod = getModifier(char.stats[atkStat as keyof AbilityScores] ?? 10)
   const prof = getProfBonus(char.level)
-  const weapon = CLASS_WEAPON[char.class] ?? { name: 'Weapon', die: 8, count: 1 }
-  const acBonus = inventoryAcBonus(char.inventory)
-  const charAC = getCharAC(char.class, char.stats, acBonus)
+  const weapon = def.weapon
 
   // roll d20 (advantage = roll twice take higher, disadvantage = take lower)
   let roll = d20Roll(sequence)
@@ -140,13 +140,13 @@ export function resolvePlayerAttack(
   const diceCount = isCrit ? weapon.count * 2 : weapon.count
   const rolls = rollDice(diceCount, weapon.die, sequence)
   const dmgBonus = inventoryDamageBonus(char.inventory)
-  const rageDmg = char.class === 'Barbarian' && char.rageTurnsLeft > 0 ? 2 : 0
+  const rageDmg = def.chassis === 'rage' && char.rageTurnsLeft > 0 ? 2 : 0
   let totalDmg = rolls.reduce((s, r) => s + r, 0) + atkMod + dmgBonus + rageDmg
   let diceStr = `${diceCount}d${weapon.die}+${atkMod + dmgBonus + rageDmg}`
 
-  // Rogue: Sneak Attack always fires on hit — rogues always find an angle
+  // Sneak chassis: Sneak Attack always fires on hit — they always find an angle
   let saCount = 0
-  if (char.class === 'Rogue') {
+  if (def.chassis === 'sneak') {
     saCount = sneakAttackDice(char.level)
     const saDice = isCrit ? saCount * 2 : saCount
     const saRolls = rollDice(saDice, 6, sequence + 99999)
@@ -162,8 +162,8 @@ export function resolvePlayerAttack(
 
   // status application on hit
   let statusApplied: string | undefined
-  if (char.class === 'Wizard') statusApplied = 'burning'
-  else if (char.class === 'Rogue' && roll >= 15) statusApplied = 'poisoned'
+  if (def.chassis === 'nuke') statusApplied = 'burning'
+  else if (def.chassis === 'sneak' && roll >= 15) statusApplied = 'poisoned'
   else {
     for (const item of char.inventory) {
       const bonus = getItemBonus(item)
@@ -199,7 +199,7 @@ export function resolveEnemyAttack(
   damageScale = 1.0,
 ): EnemyAttackResult {
   const acBonus = inventoryAcBonus(target.inventory)
-  const targetAC = getCharAC(target.class, target.stats, acBonus) + (target.defending ? 2 : 0)
+  const targetAC = charAC(target, acBonus) + (target.defending ? 2 : 0)
 
   const roll = d20Roll(sequence + 500)
   const isCrit = roll === 20
