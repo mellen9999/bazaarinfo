@@ -4,7 +4,7 @@ import * as floor from './floor'
 import * as render from './render'
 import * as aiDm from './ai-dm'
 import { log } from '../log'
-import { getModifier, type Character, type WorldState, type Enemy } from './types'
+import { getModifier, calcMaxHp, type Character, type WorldState, type Enemy } from './types'
 import { getClassDef, chassisOf } from './classdef'
 import * as boons from './boons'
 import * as events from './events'
@@ -141,6 +141,13 @@ function scaledEnemies(season: number, floorNum: number, party: number): Enemy[]
 const PRESTIGE_MULT_CAP = 25
 export function prestigeDamageMult(char: Character): number {
   return 1 + Math.min(char.prestige ?? 0, PRESTIGE_MULT_CAP) * 0.02
+}
+
+// max-HP bonus above the class baseline (Titan boon + altar sacrifices) is bounded so
+// repeated altar visits across many persistent seasons can't balloon hp without limit.
+const MAX_BONUS_HP = 60
+export function maxHpCeiling(char: Character): number {
+  return calcMaxHp(char.class, char.level, char.stats.con) + MAX_BONUS_HP
 }
 
 // shared accumulators for a single round resolution
@@ -1364,7 +1371,10 @@ export async function resolveExplore(username: string, channel: string): Promise
   const r = events.resolveEvent(ev, ctx, (world.season * 131 + world.floor * 17 + userSeed) >>> 0)
 
   if (r.goldDelta) char.gold = Math.max(0, char.gold + r.goldDelta)
-  if (r.maxHpDelta) { char.maxHp += r.maxHpDelta; char.hp += r.maxHpDelta }  // altar sacrifice
+  if (r.maxHpDelta) {  // altar sacrifice — bounded so repeated visits can't balloon hp
+    if (char.maxHp < maxHpCeiling(char)) char.maxHp = Math.min(maxHpCeiling(char), char.maxHp + r.maxHpDelta)
+    char.hp = Math.min(char.maxHp, char.hp + r.maxHpDelta)
+  }
   if (r.blessed && !char.statusEffects.includes('blessed')) char.statusEffects.push('blessed')
   if (r.grantItem && char.inventory.length < 6) char.inventory.push(r.grantItem)
   db.upsertCharacter(char)
@@ -1537,11 +1547,34 @@ export function isDndEnabled(channel: string): boolean {
   return world?.enabled ?? false
 }
 
+// free per-channel in-memory state + cancel pending timers (so they can't fire on a
+// disabled channel and the Maps don't accumulate entries for channels no longer in play)
+function clearChannelState(channel: string): void {
+  const ch = channel.toLowerCase()
+  for (const t of [debounceTimers.get(ch), joinAnnounceTimers.get(ch), deathSaveTimers.get(ch)]) {
+    if (t) clearTimeout(t)
+  }
+  lastAction.delete(ch)
+  queues.delete(ch)
+  debounceTimers.delete(ch)
+  windowStartTimes.delete(ch)
+  processing.delete(ch)
+  roundCounters.delete(ch)
+  deathSaveTimers.delete(ch)
+  joinAnnounceTimers.delete(ch)
+  pendingJoiners.delete(ch)
+  // respawnTimers are keyed `username:channel` — drop every entry for this channel
+  for (const [key, timer] of respawnTimers) {
+    if (key.endsWith(`:${ch}`)) { clearTimeout(timer); respawnTimers.delete(key) }
+  }
+}
+
 export function setDndEnabled(channel: string, enabled: boolean): void {
   let world = db.getWorld(channel)
   if (!world) world = createWorld(channel)
   world.enabled = enabled
   db.upsertWorld(world)
+  if (!enabled) clearChannelState(channel)
 }
 
 export function resetFloor(channel: string): void {
