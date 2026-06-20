@@ -38,6 +38,7 @@ Hard requirements:
 - The question must be genuinely HARD — obscure-but-real, the kind that stumps casual fans, not a surface fact anyone would know.
 - It must have a SINGLE objective, verifiable answer. No opinion, no "favorite", no "which is best".
 - The answer MUST be short and typeable in a chat box: 1-4 words, or a number. Never a sentence.
+- "answer" is the SINGLE canonical form ONLY — e.g. "Ti", never "Ti (or Si)". Put every alternate/spelling in "accept".
 - Provide 2-5 accepted answer variants: lowercase forms, with/without leading articles, common alternate spellings/abbreviations. Always include the canonical answer.
 
 ONLY refuse (return {"ok":false}) if the topic is sexual, hateful, harassing, or about a private individual. Nothing else is a valid reason to refuse — if in doubt, make a question.
@@ -136,15 +137,42 @@ function validate(text: string): CustomTrivia | null {
   if (o.ok !== true) return null
 
   const question = typeof o.question === 'string' ? o.question.trim() : ''
-  const answer = typeof o.answer === 'string' ? o.answer.trim() : ''
+  const rawAnswer = typeof o.answer === 'string' ? o.answer.trim() : ''
   if (question.length < 5 || question.length > 200) return null
-  if (answer.length < 1 || answer.length > 40) return null
+  if (rawAnswer.length < 1 || rawAnswer.length > 40) return null
+
+  // the model sometimes crams an alternate into the answer ("Ti (or Si)", "Ti / Si").
+  // split it: the canonical answer is the primary form (so the reveal + hint count are
+  // clean), and every alternate folds into accept so chat can still type either.
+  const { canonical, alts } = splitAlternates(rawAnswer)
   // chat must be able to type the answer — reject sentence-length answers.
-  if (answer.split(/\s+/).length > 5) return null
+  if (canonical.split(/\s+/).length > 5) return null
 
   const accept = Array.isArray(o.accept)
     ? o.accept.filter((a): a is string => typeof a === 'string' && a.trim().length > 0).map((a) => a.trim())
     : []
+  for (const alt of [canonical, ...alts]) {
+    if (!accept.some((a) => a.toLowerCase() === alt.toLowerCase())) accept.push(alt)
+  }
 
-  return { question, answer, accept }
+  return { question, answer: canonical, accept }
+}
+
+// "Ti (or Si)" / "Ti / Si" / "Ti or Si" -> { canonical: "Ti", alts: ["Si"] }.
+// Returns the whole string as canonical with no alts when there's nothing to split.
+export function splitAlternates(answer: string): { canonical: string; alts: string[] } {
+  const alts: string[] = []
+  // pull a trailing parenthetical alternate: "Ti (or Si)" / "Ti [Si]"
+  let base = answer.replace(/\s*[([]\s*(?:or\s+|aka\s+|a\.?k\.?a\.?\s+)?([^)\]]+?)\s*[)\]]\s*$/i, (_m, alt) => {
+    alts.push(String(alt).trim())
+    return ''
+  }).trim()
+  // then split a "/" or " or " alternate list on the remainder: "Ti / Si", "Ti or Si"
+  const parts = base.split(/\s*\/\s*|\s+or\s+/i).map((p) => p.trim()).filter(Boolean)
+  if (parts.length > 1) {
+    base = parts[0]
+    alts.push(...parts.slice(1))
+  }
+  const canonical = base.length >= 1 ? base : answer.trim()
+  return { canonical, alts: alts.filter((a) => a && a.toLowerCase() !== canonical.toLowerCase()) }
 }
