@@ -61,6 +61,8 @@ function makeChar(overrides: Partial<Character> = {}): Character {
     respawnAt: null,
     prestige: 0,
     achievements: [],
+    boons: [],
+    pendingBoon: [],
     ...overrides,
   }
 }

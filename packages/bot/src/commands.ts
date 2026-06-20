@@ -592,7 +592,7 @@ const subcommands: [RegExp, SubHandler][] = [
   [/^dnd\s+season$/i, (_q, ctx) => dndCmds.handleDndSeason('', ctx)],
   // --- raid game commands (silent) ---
   [/^leave$/i, (_q, ctx) => raidCmds.handleLeave('', ctx)],
-  [/^pick\s+(.+)$/i, (query, ctx) => raidCmds.handlePick(query, ctx)],
+  [/^pick\s+(.+)$/i, (query, ctx) => dndCmds.handlePick(query, ctx) ?? raidCmds.handlePick(query, ctx)],
   [/^vote\s+(.+)$/i, (query, ctx) => raidCmds.handleVote(query, ctx)],
   [/^party$/i, (_q, ctx) => dndCmds.handleParty('', ctx) ?? raidCmds.handleParty('', ctx)],
   [/^shop$/i, (_q, ctx) => raidCmds.handleParty('', ctx)],

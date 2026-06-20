@@ -4,6 +4,7 @@ import {
   type Character, type Enemy, type AbilityScores,
 } from './types'
 import { getClassDef, charAC } from './classdef'
+import { boonMods } from './boons'
 
 // mulberry32 — deterministic seeded RNG (same impl as raid/sim.ts)
 function mulberry32(seed: number): () => number {
@@ -108,6 +109,7 @@ export function resolvePlayerAttack(
   damageMult = 1.0,
 ): AttackOutcome {
   const def = getClassDef(char.class)
+  const boons = boonMods(char)
   const atkStat = def.atkStat
   const atkMod = getModifier(char.stats[atkStat as keyof AbilityScores] ?? 10)
   const prof = getProfBonus(char.level)
@@ -122,10 +124,12 @@ export function resolvePlayerAttack(
     const roll2 = d20Roll(sequence + 50000)
     roll = Math.min(roll, roll2)
   }
+  // Lucky boon: reroll a natural 1 once
+  if (roll === 1 && boons.rerollFumble) roll = d20Roll(sequence + 31337)
 
-  const isCrit = roll === 20
+  const isCrit = roll >= boons.critThreshold       // Deadeye widens the crit range
   const isFumble = roll === 1
-  const attackTotal = roll + atkMod + prof
+  const attackTotal = roll + atkMod + prof + boons.toHit
   const hit = isCrit || (!isFumble && attackTotal >= enemy.ac)
 
   if (!hit) {
@@ -156,7 +160,10 @@ export function resolvePlayerAttack(
     diceStr += `+${saDice}d6(sneak)`
   }
 
-  totalDmg = Math.max(1, Math.floor(totalDmg * damageMult))
+  // boon damage: flat % plus Executioner bonus vs low-HP foes
+  let boonDmgMult = boons.dmgMult
+  if (boons.executionerPct > 0 && enemy.hp <= enemy.maxHp * 0.3) boonDmgMult += boons.executionerPct
+  totalDmg = Math.max(1, Math.floor(totalDmg * damageMult * boonDmgMult))
 
   // actuallySick: natural 20 kills a boss
   const actuallySick = isCrit && enemy.isBoss && totalDmg >= enemy.hp
@@ -199,7 +206,7 @@ export function resolveEnemyAttack(
   sequence: number,
   damageScale = 1.0,
 ): EnemyAttackResult {
-  const acBonus = inventoryAcBonus(target.inventory)
+  const acBonus = inventoryAcBonus(target.inventory) + boonMods(target).acBonus
   const targetAC = charAC(target, acBonus) + (target.defending ? 2 : 0)
 
   const roll = d20Roll(sequence + 500)
