@@ -1020,6 +1020,16 @@ describe('dnd db', () => {
     })
   })
 
+  // repeated altar visits across persistent seasons must not balloon max HP unbounded
+  describe('max HP ceiling', () => {
+    it('caps the bonus pool above the class baseline at +60', async () => {
+      const { maxHpCeiling } = await import('./engine')
+      const { calcMaxHp } = await import('./types')
+      const c = makeChar({ class: 'Fighter', level: 10 })
+      expect(maxHpCeiling(c)).toBe(calcMaxHp('Fighter', 10, c.stats.con) + 60)
+    })
+  })
+
   // a big-raid counterattack summary must never blow the 480-char Twitch budget
   describe('renderEnemyAttacks 480-char safety', () => {
     it('caps a huge attack list and appends a +N more marker, staying under 480', async () => {
