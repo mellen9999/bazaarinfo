@@ -2133,6 +2133,12 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     await handleCommand('!b trivia OMEGALUL', { user: 'u', channel: 'ct-10' })
     expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('OMEGALUL', 'ct-10')
   })
+
+  it('strips invisible/format chars chat injects into the topic', async () => {
+    // trailing U+034F (combining grapheme joiner) + a zero-width space mid-word
+    await handleCommand('!b trivia se\u200Bx\u034F', { user: 'u', channel: 'ct-inv' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('sex', 'ct-inv')
+  })
 })
 
 describe('person-targeted trivia: !trivia about @user', () => {

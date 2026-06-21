@@ -937,8 +937,13 @@ const customGenCooldown = new Map<string, number>()
 // emoji/pictographs first, then drop any whitespace token that resolves to a known 7tv/
 // twitch emote name. if nothing real survives, keep the original trimmed input so a lone
 // emote name can still be its own topic rather than a dead miss.
+// invisible/format chars chat injects (zero-width, bidi controls, soft hyphen, the
+// combining grapheme joiner U+034F, Hangul fillers). stripped so a topic like "sex" with a
+// trailing U+034F becomes just "sex" instead of junk — without touching real letters/accents.
+const INVISIBLE_RE = /[\p{Cf}\u034F\u115F\u1160\u3164\uFFA0]/gu
+
 function stripEmotesFromTopic(topic: string): string {
-  const noEmoji = topic.replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}️‍]/gu, ' ')
+  const noEmoji = topic.replace(INVISIBLE_RE, '').replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}️‍]/gu, ' ')
   const tokens = noEmoji.split(/\s+/).filter(Boolean)
   const kept = tokens.filter((tok) => !findEmote(tok))
   return kept.length ? kept.join(' ') : topic.trim()
