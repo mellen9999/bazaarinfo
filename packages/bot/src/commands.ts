@@ -844,8 +844,13 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // detect conversational/creative queries that should skip item lookup entirely
   const isGreeting = /^(h(ello|i|ey|owdy)|yo|sup|hey+|what'?s? ?up|greetings|hola|whats good|good (morning|evening|night)|gm|gn|gg|ty|thanks|thank you|lol|lmao|wow|nice|cool|pog|based|true|real|facts|nah|bruh|bro|dude|man|omg|rip|oof|haha|o7|bye|cya|later|peace|gl|hf|glhf|ggs)\b/i.test(cleanArgs)
   const isContinuation = /^(how about|what about|and |or |but )\b/i.test(cleanArgs)
+  // deictic/context questions — "what is that", "what do you mean", "wdym" — point
+  // at recent chat, not an item. route to AI (it gets the Recent-chat block) so the
+  // referent is read from the line above, not fuzzy-matched ("that" → "Stop That!").
+  const isDeictic = /^(?:wdym|wym|huh|(?:what|who|why)(?:'?s| is| was| are| do(?:es)?| did)?\s+(?:you|they|he|she|it|that|this|dat|those|these|them|i)\b)/i.test(cleanArgs)
   const isConversational = isGreeting
     || isContinuation
+    || isDeictic
     || cleanArgs.split(/\s+/).length > 4
     || /\b(continue|extend|expand|write|make|create|do|say|tell|give|sing|rap|roast|rate|rank|compare|explain|describe|imagine|pretend|spam|repeat|copypasta|pasta)\b/i.test(cleanArgs)
 
