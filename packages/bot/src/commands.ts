@@ -983,35 +983,54 @@ const PERSON_TOPIC_RE = /^@([a-z0-9_]{2,25})$/i
 // "trivia about cats" keeps its topic, "trivia about @x" loses it to the tag.
 const PERSON_CONNECTOR_RE = /^(?:about|on|for|regarding|concerning|covering)$/i
 
+// the emote a chatter spams most — their signature. a regular who watches them KNOWS
+// this, so it makes the fairest, most-fun person-trivia question. counted exactly (the
+// model can't reliably eyeball "most-used" from a sample), needs >=2 uses to be a habit.
+function signatureEmote(messages: string[]): string | null {
+  const counts = new Map<string, number>()
+  for (const m of messages) {
+    for (const tok of m.split(/\s+/)) {
+      const e = findEmote(tok)
+      if (e) counts.set(e, (counts.get(e) ?? 0) + 1)
+    }
+  }
+  let best: string | null = null
+  let bestN = 1 // a one-off isn't a signature
+  for (const [e, n] of counts) if (n > bestN) { best = e; bestN = n }
+  return best
+}
+
 // assemble what we've logged about a chatter into a compact dossier for the person-trivia
-// model. only in-channel data we already store — extracted facts, lookup/trivia stats, and
-// a sample of their own messages (where catchphrases live). returns null if the profile is
-// too thin to make a fair question, so the caller can miss honestly instead of inventing.
+// model. only in-channel data we already store. leads with OBSERVABLE persona — signature
+// emote, main item, AI-extracted facts — the things a regular who watches them could
+// actually answer; hidden stats come last. returns null if the profile is too thin to make
+// a fair question, so the caller misses honestly instead of inventing. gated on the message
+// sample, not a users-table row, so a chat-only regular (never runs a command) still counts.
 function buildPersonDossier(username: string, channel: string): string | null {
+  const msgs = db.getUserMessages(username, channel, 80)
+  const sample = msgs
+    .map((m) => m.replace(/\n/g, ' ').trim())
+    .filter((m) => m.length > 0 && m.length <= 120 && !m.startsWith('!'))
+    .slice(0, 25)
   const facts = db.getUserFacts(username, 6)
-  const stats = db.getUserStats(username, channel)
-  if (facts.length === 0 && (!stats || stats.chat_messages < 8)) return null
+  if (facts.length === 0 && sample.length < 6) return null // too thin to be fair
 
   const lines: string[] = []
+  const sig = signatureEmote(msgs)
+  if (sig) lines.push(`signature emote (their most-spammed): ${sig}`)
+  const stats = db.getUserStats(username, channel)
+  if (stats?.favorite_item) lines.push(`most-looked-up item: ${stats.favorite_item}`)
+  const tops = db.getUserTopItems(username, 4)
+  if (tops.length) lines.push(`top items: ${tops.join(', ')}`)
   if (facts.length) lines.push(`facts: ${facts.join(' | ')}`)
   if (stats) {
-    if (stats.favorite_item) lines.push(`most-looked-up item: ${stats.favorite_item}`)
-    const tops = db.getUserTopItems(username, 4)
-    if (tops.length) lines.push(`top items: ${tops.join(', ')}`)
     const t: string[] = []
     if (stats.trivia_wins) t.push(`${stats.trivia_wins} trivia wins`)
     if (stats.trivia_best_streak) t.push(`best streak ${stats.trivia_best_streak}`)
     if (stats.trivia_points) t.push(`${stats.trivia_points} trivia points`)
-    if (t.length) lines.push(`trivia: ${t.join(', ')}`)
-    if (stats.chat_messages) lines.push(`messages logged: ${stats.chat_messages}`)
-    if (stats.first_seen) lines.push(`first seen: ${stats.first_seen}`)
+    if (t.length) lines.push(`trivia (hidden stats — last resort): ${t.join(', ')}`)
   }
-  // their own recent messages — real recurring words/catchphrases live here. drop commands
-  // and overlong pastas so the sample reads as the person's voice, not noise.
-  const sample = db.getUserMessages(username, channel, 80)
-    .map((m) => m.replace(/\n/g, ' ').trim())
-    .filter((m) => m.length > 0 && m.length <= 120 && !m.startsWith('!'))
-    .slice(0, 25)
+  // their own messages — recurring words/topics the model can spot. last so persona leads.
   if (sample.length) lines.push(`recent messages:\n${sample.map((m) => `- ${m}`).join('\n')}`)
 
   const text = lines.join('\n')

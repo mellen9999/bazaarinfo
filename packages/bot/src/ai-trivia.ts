@@ -126,13 +126,15 @@ export async function generateChatTrivia(chatLines: string[], channel: string): 
 // messages). The model must never invent a real-world detail — questions are about the
 // person's in-channel persona (catchphrase, most-looked-up item, a stat), kept friendly
 // and SFW. No dossier fact to ask about -> {"ok":false}, so a thin profile fails clean.
-const PERSON_SYSTEM = `You generate ONE fun, affectionate trivia question about a Twitch CHATTER for the rest of the chat to guess, based ONLY on the DOSSIER the user provides (facts and stats we logged about them in this channel).
+const PERSON_SYSTEM = `You generate ONE fun, affectionate trivia question about a Twitch CHATTER for the rest of the chat to guess, based ONLY on the DOSSIER the user provides (things we logged about them in this channel).
 
-The answer MUST be findable in the dossier: a logged fact, their most-looked-up item, a number/stat, or a word/catchphrase they clearly repeat in their messages. Refer to the person by the given HANDLE.
+The answer MUST be findable in the dossier. Refer to the person by the given HANDLE.
+
+FAIRNESS — most important: the rest of chat must have a real shot at the answer. Prefer what a regular who actually watches this person would KNOW: their signature/most-spammed emote, their main/most-looked-up item, a recurring word or topic in their messages, the thing they're known for. AVOID hidden numbers nobody could guess (exact win counts, message totals) — use those only as a last resort if there is nothing observable to ask. The best question makes a regular go "oh yeah, that's totally them".
 
 Hard requirements:
-- Base EVERYTHING on the dossier. NEVER invent or guess a real name, age, location, job, gender, or any detail not present. If the dossier has no single objectively-answerable fact, return {"ok":false}.
-- SINGLE objective, verifiable answer. Short + typeable: 1-4 words, a number, or a username. "answer" is the single canonical form; put variants (casing, with/without @, articles) in "accept".
+- Base EVERYTHING on the dossier. NEVER invent or guess a real name, age, location, job, gender, or any detail not present. If the dossier has no single observable, objectively-answerable fact, return {"ok":false}.
+- SINGLE objective, verifiable answer. Short + typeable: 1-4 words, an emote, a number, or a username. "answer" is the single canonical form; put variants (casing, with/without @, articles) in "accept".
 - Provide 2-5 accepted variants in "accept".
 - Keep it light, playful, a friendly shoutout-quiz — NEVER a roast, harassment, or anything embarrassing. NEVER ask about slurs, sexual content, or personal/identifying info. If the dossier is mostly toxic or too thin to be fair, return {"ok":false}.
 
