@@ -21,6 +21,17 @@ export const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you
 export const GARBLED = /\b(?:i|you|we|they|he|she)\s+to\s+(?!(?:some|any|every|no)(?:thing|one|where|body)\b)(?!(?:be|get|keep|start|stop|go|come|try)\s)\w+ing\b/i
 export const CONTEXT_ECHO = /^(Game data:|Recent chat:|Stream timeline:|Who's chatting:|Channel:|Your prior exchanges)/i
 export const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that (you|i|the bot|bazaarinfo)|the story goes|one time you|back when you|remember when we|remember that time you)\b/i
+// invented game stats — the bot must only cite numbers from an injected "Game data:"
+// section. STRICT = a number bound to an explicit Bazaar combat keyword, a tier
+// anchor, or the game's +X/+Y dual-stat notation; these never occur in legit
+// narrative copy, so they're rejected even inside creative/banter context. LOOSE =
+// bare verb+number / "base X is N" — real Bazaar tells, but they also trip on
+// incidental narrative numbers ("gained 50 pounds"), so they only fire outside creative.
+export const STAT_STRICT = /\b\d{2,}\s*(damage|poison|burn|shield|heal|hp|health|crit|gold|regen|haste|freeze|slow|attack|lifesteal|multicast|cooldown|luck)\b|\+\d+%?\s*(damage|crit|shield|hp|heal|poison|burn|lifesteal|multicast|cooldown|haste|regen|freeze|slow)\b|\+\d+\s*\/\s*\+?\d+|\b\+?\d{2,}\s+(?:at|on)\s+(?:bronze|silver|gold|diamond|legendary)\b/i
+export const STAT_LOOSE = /\b(deals?|gains?|grants?|gives?|adds?|stacks?|does|heals?)\s+(for\s+)?\+?\d{2,}\b|\b(base|starting)\s+\w+\s+is\s+\d{2,}\b/i
+export function hasHallucinatedStats(text: string, creative = false): boolean {
+  return STAT_STRICT.test(text) || (!creative && STAT_LOOSE.test(text))
+}
 export const DIPLOMATIC_REFUSAL = /\b(can'?t (do|pick|choose) favorites?|play favorites|everyone is (great|special|equal)|not gonna (pick|choose) favorites?|not gonna rank (chatters?|people|users?|favorites?)|no favorites)\b/i
 export const META_INSTRUCTION = /\b(pls|please)\s+(just\s+)?(do|give|say|answer|stop|help)\s+(what\s+)?(ppl|people)\b|\bstop\s+(denying|refusing|ignoring|blocking)\s+(ppl|people|them|users?)\b|\b(just\s+)?(do|give|answer|say)\s+(\w+\s+)?what\s+(ppl|people|they|users?|chat)\s+(want|ask|need|say|tell)\b/i
 export const INSTRUCTION_ECHO = /\b(it needs to (know|respond|learn|have|be|act)|just (respond|be|act|sound|talk) (cleanly|pro|normally|like|as)|don'?t sound like|every\s+respon[sc]e?\s+should\s+be\s+unique|respond the same way|don'?t respond the same|vary (structure|opener|tone)(\s+and\s+(structure|opener|tone))*\s+every|minimum characters.{0,15}maximum impact|maximum impact.{0,15}minimum characters)\b/i

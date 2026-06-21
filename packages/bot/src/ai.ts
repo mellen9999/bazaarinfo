@@ -6,14 +6,14 @@ import { readJson } from './http'
 
 // --- re-exports (preserve public API) ---
 
-export { sanitize, isModelRefusal, stripInputEcho, fixEmoteCase, fixEmotePunctuation, dedupeEmote, dedupeUserEmote, dedupeMention, capEmoteTotal, capRepeatedSpam, EMOTE_CAP_PER_MSG } from './ai-sanitize'
+export { sanitize, isModelRefusal, stripInputEcho, fixEmoteCase, fixEmotePunctuation, dedupeEmote, dedupeUserEmote, dedupeMention, capEmoteTotal, capRepeatedSpam, hasHallucinatedStats, EMOTE_CAP_PER_MSG } from './ai-sanitize'
 export { cacheExchange, getChannelRecentResponses, getHotExchanges, getAiCooldown, getGlobalAiCooldown, recordUsage, setChannelLive, setChannelOffline, isChannelLive, getLiveChannels, getChannelGame, setChannelGame, setChannelInfos, cbRecordSuccess, cbRecordFailure, cbIsOpen, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, getRecentEmotes } from './ai-cache'
 export { buildSystemPrompt, invalidatePromptCache, buildFTSQuery, buildFTSQueryLoose, GREETINGS, isLowValue, isShortResponse, STOP_WORDS, REMEMBER_RE, extractEntities, buildUserMessage, buildGameContext, buildUserContext, buildTimeline, buildRecallContext, buildChatRecall, buildChattersContext, isNoise, parseChatTimeWindow, isAboutOtherUser } from './ai-context'
 export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, maybeExtractFacts } from './ai-background'
 
 // --- local imports from sub-modules ---
 
-import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal } from './ai-sanitize'
+import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats } from './ai-sanitize'
 import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, GAME_TERMS } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
@@ -54,12 +54,6 @@ const HEDGE_AFTER = 4_000
 const MIN_ATTEMPT_BUDGET = 2_000
 
 // --- hallucination detection ---
-
-const STAT_PATTERN = /\b(\d{2,})\s*(damage|poison|burn|shield|heal|hp|health|crit|gold|regen|haste|freeze|slow|attack|lifesteal|multicast|cooldown|luck)\b|\b(deals?|gains?|grants?|gives?|adds?|stacks?|does|heals?)\s+(for\s+)?\+?\d{2,}\b|\+\d+%?\s*(damage|crit|shield|hp|heal|poison|burn|lifesteal|multicast|cooldown)\b|\b(base|starting)\s+\w+\s+is\s+\d{2,}\b|\b\+?\d{2,}\s+(?:at|on)\s+(?:bronze|silver|gold|diamond|legendary)\b/i
-
-function hasHallucinatedStats(text: string): boolean {
-  return STAT_PATTERN.test(text)
-}
 
 // data-ref → verb (within 30 chars after) OR verb → data-ref (within 40 chars after)
 // catches both "the data shows X" and "X is in the data pull alongside Y"
@@ -280,8 +274,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // emote can be a recurring character/noun ("Crowge watched from the corner…") and
       // stripping it leaves grammatically broken fragments ("the watched from the corner").
       if (!isCreative) result.text = dedupeUserEmote(result.text, ctx.user, ctx.channel)
-      // reject hallucinated game stats when no game data was provided (creative gets a pass)
-      if (!hasGameData && !isCreative && hasHallucinatedStats(result.text)) {
+      // reject hallucinated game stats when no game data was provided. unambiguous
+      // Bazaar stat claims (keyword/tier/+X/+Y) are rejected even in creative/banter —
+      // a roleplay reply that invents "+60 haste at gold tier" is still misinformation.
+      if (!hasGameData && hasHallucinatedStats(result.text, isCreative)) {
         log(`ai: hallucinated stats without game data, retrying (attempt ${attempt + 1})`)
         if (attempt < MAX_RETRIES - 1) {
           messages.push({ role: 'assistant', content: textBlock.text })
@@ -337,6 +333,11 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         } else {
           result.text = result.text.replace(/[,\s]*$/, '') + ')'
         }
+      }
+      // truncation can leave a dangling list label ("...2. foo 3") — drop the orphan
+      // ordinal, but only when an earlier numbered item proves it was a real list.
+      if (/\b\d+[.)]\s+\S/.test(result.text) && /(?:\n|\s)\d+[.):]?\s*$/.test(result.text)) {
+        result.text = result.text.replace(/(?:\n|\s)+\d+[.):]?\s*$/, '').trim()
       }
       if (result.text) {
         // terse refusal detection
