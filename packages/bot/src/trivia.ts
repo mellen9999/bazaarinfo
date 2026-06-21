@@ -380,7 +380,7 @@ function genHeroSkillQuestion(): ReturnType<QuestionGen> {
   const desc = skill.Tooltips
     .map((t) => resolveTooltip(t.text, skill.TooltipReplacements, skill.Tiers[0]))
     .join(' | ')
-  if (desc.length > 200 || desc.includes('{')) return null
+  if (desc.trim().length < 8 || desc.length > 200 || desc.includes('{')) return null // empty/garbled tooltip -> no question
   const hero = skill.Heroes[0]
   return {
     question: `Which hero has the skill: ${desc}`,
@@ -397,6 +397,7 @@ function genMonsterSkillQuestion(): ReturnType<QuestionGen> {
   const skillMap = new Map<string, string[]>()
   for (const m of valid) {
     for (const s of m.MonsterMetadata.skills) {
+      if (!s.title?.trim()) continue // a future data refresh could carry an empty skill title — never ask "has the skill """
       if (!skillMap.has(s.title)) skillMap.set(s.title, [])
       const lower = m.Title.toLowerCase()
       if (!skillMap.get(s.title)!.includes(lower)) skillMap.get(s.title)!.push(lower)
@@ -562,6 +563,7 @@ function genItemCarrierQuestion(): ReturnType<QuestionGen> {
   const carriers = new Map<string, Set<string>>()
   for (const m of store.getMonsters()) {
     for (const b of m.MonsterMetadata.board ?? []) {
+      if (!b.title?.trim()) continue // guard an empty board-item title -> "Which monster has  on its board?"
       if (!carriers.has(b.title)) carriers.set(b.title, new Set())
       carriers.get(b.title)!.add(m.Title.toLowerCase())
     }

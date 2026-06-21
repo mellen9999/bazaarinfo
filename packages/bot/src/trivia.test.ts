@@ -231,6 +231,46 @@ beforeEach(() => {
 })
 
 // ---------------------------------------------------------------------------
+// malformed-question guards — a future data refresh must never produce a
+// question built on an empty board-item / skill title.
+// ---------------------------------------------------------------------------
+describe('empty-title guards', () => {
+  const CARRIER_IDX = 18 // genItemCarrierQuestion (type 19)
+  const MONSKILL_IDX = 9 // genMonsterSkillQuestion (type 10)
+  const malformed: Monster = {
+    Type: 'CombatEncounter', Title: 'Glitch Mob', Size: 'Medium',
+    Tags: [], DisplayTags: [], HiddenTags: [], Heroes: [],
+    MonsterMetadata: {
+      available: 'Always', day: 4, health: 100,
+      board: [{ title: '', tier: 'Bronze', id: 'bx' }],
+      skills: [{ title: '   ', tier: 'Bronze', id: 'sx' }],
+    },
+    Shortlink: 'https://bzdb.to/glitch',
+  }
+  beforeEach(() => allMonsters.push(malformed))
+  afterEach(() => { allMonsters.pop() })
+
+  it('never asks about an empty board item', () => {
+    __forceGenIdxForTest(CARRIER_IDX)
+    for (let i = 0; i < 40; i++) {
+      const q = startTrivia(`#carrier${i}`)
+      expect(q).not.toMatch(/has\s{2,}on its board/)
+      expect(q).not.toMatch(/has\s+''?\s+on its board/)
+    }
+    __forceGenIdxForTest(null)
+  })
+
+  it('never asks about an empty monster skill', () => {
+    __forceGenIdxForTest(MONSKILL_IDX)
+    for (let i = 0; i < 40; i++) {
+      const q = startTrivia(`#monskill${i}`)
+      expect(q).not.toMatch(/skill\s*"\s*"/)
+    }
+    __forceGenIdxForTest(null)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // matchAnswer — fuzzy answer matching
 // ---------------------------------------------------------------------------
 describe('matchAnswer', () => {
