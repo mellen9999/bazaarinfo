@@ -44,6 +44,11 @@ mock.module('./store', () => ({
 const mockLogCommand = mock<(...args: any[]) => void>(() => {})
 const mockGetOrCreateUser = mock<(username: string) => number>(() => 1)
 const mockGetRecentAsks = mock<(user: string, limit?: number) => { query: string; response: string | null; created_at: string }[]>(() => [])
+// person-trivia dossier sources — default to empty so a target with no logged data
+// produces a clean "don't know enough" miss; individual tests seed them.
+const mockGetUserFacts = mock<(user: string, limit?: number) => string[]>(() => [])
+const mockGetUserMessages = mock<(user: string, channel: string, limit?: number) => string[]>(() => [])
+const mockGetUserTopItems = mock<(user: string, limit?: number) => string[]>(() => [])
 
 mock.module('./db', () => ({
   logCommand: mockLogCommand,
@@ -51,6 +56,9 @@ mock.module('./db', () => ({
   getRecentAsks: mockGetRecentAsks,
   logChat: mock(() => {}),
   getUserStats: mock(() => null),
+  getUserFacts: mockGetUserFacts,
+  getUserMessages: mockGetUserMessages,
+  getUserTopItems: mockGetUserTopItems,
   getChannelLeaderboard: mock(() => []),
   getTriviaLeaderboard: mock(() => []),
   createTriviaGame: mock(() => 1),
@@ -139,9 +147,15 @@ const mockGenerateChatTrivia = mock(async (_lines: string[]) => ({
   answer: 'bob',
   accept: ['bob', '@bob'],
 }))
+const mockGeneratePersonTrivia = mock(async (_dossier: string, _handle: string) => ({
+  question: 'whats their go-to item?',
+  answer: 'sword',
+  accept: ['sword', 'the sword'],
+}))
 mock.module('./ai-trivia', () => ({
   generateCustomTrivia: mockGenerateCustomTrivia,
   generateChatTrivia: mockGenerateChatTrivia,
+  generatePersonTrivia: mockGeneratePersonTrivia,
 }))
 
 // directive-plant AI gate — mocked so tests never hit the API. default returns a valid
@@ -2118,6 +2132,48 @@ describe('custom-topic trivia: !trivia <topic>', () => {
   it('keeps an all-emote topic as-is rather than emptying it', async () => {
     await handleCommand('!b trivia OMEGALUL', { user: 'u', channel: 'ct-10' })
     expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('OMEGALUL', 'ct-10')
+  })
+})
+
+describe('person-targeted trivia: !trivia about @user', () => {
+  beforeEach(() => {
+    mockIsGameActive.mockImplementation(() => false)
+    mockGenerateCustomTrivia.mockClear()
+    mockGenerateCustomTrivia.mockImplementation(async () => ({ question: 'custom q?', answer: 'ans', accept: ['ans'] }))
+    mockGeneratePersonTrivia.mockClear()
+    mockGeneratePersonTrivia.mockImplementation(async () => ({ question: 'whats their go-to item?', answer: 'sword', accept: ['sword'] }))
+    mockGetUserFacts.mockClear(); mockGetUserFacts.mockImplementation(() => [])
+    mockGetUserMessages.mockClear(); mockGetUserMessages.mockImplementation(() => [])
+    mockGetUserTopItems.mockClear(); mockGetUserTopItems.mockImplementation(() => [])
+  })
+
+  it('routes "@user" to the person generator, built from logged facts + messages', async () => {
+    mockGetUserFacts.mockImplementation(() => ['mains vanessa', 'always types KEKW'])
+    mockGetUserMessages.mockImplementation(() => ['KEKW', 'KEKW that was nuts', 'vanessa is op', '!b dooltackle'])
+    const res = await handleCommand('!b trivia about @sw1ngggg', { user: 'asker', channel: 'pt-1' })
+    expect(mockGeneratePersonTrivia).toHaveBeenCalledTimes(1)
+    const [dossier, handle, channel] = mockGeneratePersonTrivia.mock.calls[0]
+    expect(handle).toBe('@sw1ngggg')
+    expect(channel).toBe('pt-1')
+    expect(dossier).toContain('mains vanessa')
+    expect(dossier).toContain('KEKW') // their own messages feed the dossier
+    expect(dossier).not.toContain('!b dooltackle') // commands stripped from the sample
+    expect(mockGetUserFacts).toHaveBeenCalledWith('sw1ngggg', expect.anything())
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled() // never the generic topic path
+    expect(res).toBe('Trivia! custom question (30s) @sw1ngggg') // launches + tags the target
+  })
+
+  it('misses cleanly (no API call) when we have no logged data on the @user', async () => {
+    const res = await handleCommand('!b trivia about @ghost', { user: 'asker', channel: 'pt-2' })
+    expect(mockGeneratePersonTrivia).not.toHaveBeenCalled()
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+    expect(res).toContain("don't know enough about @ghost")
+  })
+
+  it('a bare username with no @ stays a normal topic, not a person', async () => {
+    await handleCommand('!b trivia about sw1ngggg', { user: 'asker', channel: 'pt-3' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('sw1ngggg', 'pt-3')
+    expect(mockGeneratePersonTrivia).not.toHaveBeenCalled()
   })
 })
 

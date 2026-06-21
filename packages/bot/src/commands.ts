@@ -4,7 +4,7 @@ import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia } from './trivia'
-import { generateCustomTrivia, generateChatTrivia } from './ai-trivia'
+import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, type CustomTrivia } from './ai-trivia'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam } from './ai'
@@ -972,6 +972,52 @@ function recentChatLines(channel: string): string[] {
     .filter((l) => l.split(': ').slice(1).join(': ').trim().length > 0)
 }
 
+// "trivia about @someone" -> a person target. an explicit @mention is the only trigger,
+// so real-world topics ("birds", "napoleon") are never hijacked. the captured group is
+// the bare twitch handle. one token only — "@a b c" isn't a username.
+const PERSON_TOPIC_RE = /^@([a-z0-9_]{2,25})$/i
+
+// on the `!b` path, @mentions are stripped out of the command text before dispatch (they
+// survive only in the suffix tag), so "!b trivia about @x" reaches us as topic "about".
+// a leftover bare connector like this, paired with a mention, IS the person intent —
+// "trivia about cats" keeps its topic, "trivia about @x" loses it to the tag.
+const PERSON_CONNECTOR_RE = /^(?:about|on|for|regarding|concerning|covering)$/i
+
+// assemble what we've logged about a chatter into a compact dossier for the person-trivia
+// model. only in-channel data we already store — extracted facts, lookup/trivia stats, and
+// a sample of their own messages (where catchphrases live). returns null if the profile is
+// too thin to make a fair question, so the caller can miss honestly instead of inventing.
+function buildPersonDossier(username: string, channel: string): string | null {
+  const facts = db.getUserFacts(username, 6)
+  const stats = db.getUserStats(username, channel)
+  if (facts.length === 0 && (!stats || stats.chat_messages < 8)) return null
+
+  const lines: string[] = []
+  if (facts.length) lines.push(`facts: ${facts.join(' | ')}`)
+  if (stats) {
+    if (stats.favorite_item) lines.push(`most-looked-up item: ${stats.favorite_item}`)
+    const tops = db.getUserTopItems(username, 4)
+    if (tops.length) lines.push(`top items: ${tops.join(', ')}`)
+    const t: string[] = []
+    if (stats.trivia_wins) t.push(`${stats.trivia_wins} trivia wins`)
+    if (stats.trivia_best_streak) t.push(`best streak ${stats.trivia_best_streak}`)
+    if (stats.trivia_points) t.push(`${stats.trivia_points} trivia points`)
+    if (t.length) lines.push(`trivia: ${t.join(', ')}`)
+    if (stats.chat_messages) lines.push(`messages logged: ${stats.chat_messages}`)
+    if (stats.first_seen) lines.push(`first seen: ${stats.first_seen}`)
+  }
+  // their own recent messages — real recurring words/catchphrases live here. drop commands
+  // and overlong pastas so the sample reads as the person's voice, not noise.
+  const sample = db.getUserMessages(username, channel, 80)
+    .map((m) => m.replace(/\n/g, ' ').trim())
+    .filter((m) => m.length > 0 && m.length <= 120 && !m.startsWith('!'))
+    .slice(0, 25)
+  if (sample.length) lines.push(`recent messages:\n${sample.map((m) => `- ${m}`).join('\n')}`)
+
+  const text = lines.join('\n')
+  return text.length >= 20 ? text : null
+}
+
 async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: string): Promise<string | null> {
   const channel = ctx.channel
   if (!channel) return null
@@ -986,19 +1032,40 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   if (Date.now() - last < CUSTOM_GEN_CD) return null
 
   const isChatTrivia = CHAT_TRIVIA_RE.test(t)
+  // "trivia about @someone" -> quiz chat on that person, grounded in what we've logged
+  // about them. checked before the generic-topic path so a username never reaches the
+  // topic model (which knows nothing about them and drifts to an unrelated question).
+  // the @ may survive in the topic (top-level !trivia) or only in the suffix tag (!b).
+  const mention = suffix.match(/@(\w{2,25})/)?.[1] ?? null
+  let person: string | null = null
+  if (!isChatTrivia) {
+    const pm = t.startsWith('@') ? t.match(PERSON_TOPIC_RE) : null
+    if (pm) person = pm[1]
+    else if (mention && PERSON_CONNECTOR_RE.test(t)) person = mention
+    // a dangling connector with no target ("trivia about" alone) has nothing to quiz on —
+    // don't feed the bare word to the topic model (it drifts to a nonsense question).
+    else if (PERSON_CONNECTOR_RE.test(t)) return null
+  }
+
   customPending.add(channel)
   try {
-    const q = isChatTrivia
-      ? await generateChatTrivia(recentChatLines(channel), channel)
-      : await generateCustomTrivia(t, channel)
-    if (!q) {
-      return withSuffix(
-        isChatTrivia
-          ? `not enough chat to make a trivia about yet — let it cook`
-          : `couldn't make a trivia about "${t.slice(0, 40)}" — try a clearer topic`,
-        suffix,
-      )
+    let q: CustomTrivia | null
+    let missMsg: string
+    if (isChatTrivia) {
+      q = await generateChatTrivia(recentChatLines(channel), channel)
+      missMsg = `not enough chat to make a trivia about yet — let it cook`
+    } else if (person) {
+      const dossier = buildPersonDossier(person, channel)
+      if (!dossier) {
+        return withSuffix(`don't know enough about @${person} yet to quiz on — they gotta chat more`, suffix)
+      }
+      q = await generatePersonTrivia(dossier, `@${person}`, channel)
+      missMsg = `couldn't make a trivia about @${person} — try again`
+    } else {
+      q = await generateCustomTrivia(t, channel)
+      missMsg = `couldn't make a trivia about "${t.slice(0, 40)}" — try a clearer topic`
     }
+    if (!q) return withSuffix(missMsg, suffix)
     return withSuffix(startCustomTrivia(channel, q), suffix)
   } finally {
     customPending.delete(channel)

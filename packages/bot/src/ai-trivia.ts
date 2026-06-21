@@ -120,6 +120,51 @@ export async function generateChatTrivia(chatLines: string[], channel: string): 
   return null
 }
 
+// Trivia about a specific chatter ("!b trivia about @sw1ngggg"). Same constrained
+// single-call shape, but grounded ONLY in the dossier the caller assembles from what
+// we've logged about that person in THIS channel (extracted facts, stats, their own
+// messages). The model must never invent a real-world detail — questions are about the
+// person's in-channel persona (catchphrase, most-looked-up item, a stat), kept friendly
+// and SFW. No dossier fact to ask about -> {"ok":false}, so a thin profile fails clean.
+const PERSON_SYSTEM = `You generate ONE fun, affectionate trivia question about a Twitch CHATTER for the rest of the chat to guess, based ONLY on the DOSSIER the user provides (facts and stats we logged about them in this channel).
+
+The answer MUST be findable in the dossier: a logged fact, their most-looked-up item, a number/stat, or a word/catchphrase they clearly repeat in their messages. Refer to the person by the given HANDLE.
+
+Hard requirements:
+- Base EVERYTHING on the dossier. NEVER invent or guess a real name, age, location, job, gender, or any detail not present. If the dossier has no single objectively-answerable fact, return {"ok":false}.
+- SINGLE objective, verifiable answer. Short + typeable: 1-4 words, a number, or a username. "answer" is the single canonical form; put variants (casing, with/without @, articles) in "accept".
+- Provide 2-5 accepted variants in "accept".
+- Keep it light, playful, a friendly shoutout-quiz — NEVER a roast, harassment, or anything embarrassing. NEVER ask about slurs, sexual content, or personal/identifying info. If the dossier is mostly toxic or too thin to be fair, return {"ok":false}.
+
+Output ONLY a single minified JSON object, no markdown/prose/fences:
+{"ok":true,"question":"...","answer":"...","accept":["...","..."]}
+or
+{"ok":false}
+
+Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 4 words.`
+
+const MIN_DOSSIER_LEN = 20
+
+export async function generatePersonTrivia(dossier: string, handle: string, channel: string): Promise<CustomTrivia | null> {
+  if (!API_KEY) return null
+  if (!AI_CHANNELS.has(channel.toLowerCase())) return null
+  if (isOverDailyCap(channel)) {
+    log(`ai-trivia: daily cap hit for ${channel}, skipping person trivia`)
+    return null
+  }
+  const d = stripUnpairedSurrogates(dossier.trim()).slice(0, 2400)
+  if (d.length < MIN_DOSSIER_LEN) return null
+  const content = `HANDLE: ${handle}\nDOSSIER:\n${d}`
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0 && isOverDailyCap(channel)) break
+    const r = await attemptGen(PERSON_SYSTEM, content, channel)
+    if (r.ok) return r.q
+    if (!r.retry) return null
+  }
+  return null
+}
+
 type GenResult = { ok: true; q: CustomTrivia } | { ok: false; retry: boolean }
 
 async function attemptGen(system: string, userContent: string, channel: string): Promise<GenResult> {
