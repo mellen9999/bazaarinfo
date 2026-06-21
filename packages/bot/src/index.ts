@@ -373,6 +373,11 @@ dnd.restoreFromDb()
 // poll /helix/streams to track live state + game per channel.
 // (replaces stream.online/offline/channel.update EventSub — those exceed per-ws cost cap.)
 const liveState = new Map<string, string>() // channel -> game_name (empty string if no game set)
+const offlineMisses = new Map<string, number>() // channel -> consecutive polls it was absent
+// Helix /streams transiently omits a live stream now and then (eventual consistency / blips).
+// require 2 consecutive misses (~2 min) before declaring offline, so a single dropped poll
+// can't flap a channel offline->online and re-fire the "stream live" announcement.
+const OFFLINE_MISS_THRESHOLD = 2
 async function pollStreams(initial = false) {
   const chs = client.getChannels()
   if (chs.length === 0) return
@@ -389,24 +394,32 @@ async function pollStreams(initial = false) {
     for (const s of data.data) {
       const ch = s.user_login.toLowerCase()
       seen.add(ch)
+      offlineMisses.delete(ch) // present again -> reset any pending offline countdown
       const prev = liveState.get(ch)
       if (prev === undefined) {
-        log(`stream online: #${ch}${s.game_name ? ` [${s.game_name}]` : ''}`)
+        log(`stream online: #${ch}${s.game_name ? ` [${s.game_name}]` : ''}${initial ? ' (already live at boot)' : ''}`)
         setChannelLive(ch, s.game_name)
-        dnd.onStreamOnline(ch)
+        // a channel already live when the bot (re)starts hasn't transitioned — seed state
+        // silently. only a real offline->online flip mid-run fires the dnd announcement.
+        if (!initial) dnd.onStreamOnline(ch)
       } else if (prev !== s.game_name) {
         log(`channel update: #${ch} → ${s.game_name || '(no game)'}`)
         setChannelGame(ch, s.game_name)
       }
       liveState.set(ch, s.game_name)
     }
-    for (const ch of liveState.keys()) {
-      if (!seen.has(ch)) {
-        log(`stream offline: #${ch}`)
-        setChannelOffline(ch)
-        dnd.onStreamOffline(ch)
-        liveState.delete(ch)
+    for (const ch of [...liveState.keys()]) {
+      if (seen.has(ch)) continue
+      const misses = (offlineMisses.get(ch) ?? 0) + 1
+      if (misses < OFFLINE_MISS_THRESHOLD) {
+        offlineMisses.set(ch, misses) // tentative miss — wait for confirmation before offlining
+        continue
       }
+      log(`stream offline: #${ch}`)
+      setChannelOffline(ch)
+      dnd.onStreamOffline(ch)
+      liveState.delete(ch)
+      offlineMisses.delete(ch)
     }
     if (initial) log(`live channels: ${data.data.map((s) => `${s.user_login}[${s.game_name}]`).join(', ') || 'none'}`)
   } catch (e) { log(`stream poll failed: ${e}`) }
