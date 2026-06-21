@@ -2149,18 +2149,27 @@ describe('person-targeted trivia: !trivia about @user', () => {
 
   it('routes "@user" to the person generator, built from logged facts + messages', async () => {
     mockGetUserFacts.mockImplementation(() => ['mains vanessa', 'always types KEKW'])
-    mockGetUserMessages.mockImplementation(() => ['KEKW', 'KEKW that was nuts', 'vanessa is op', '!b dooltackle'])
+    mockGetUserMessages.mockImplementation(() => ['KEKW', 'KEKW that was nuts', 'KEKW', 'vanessa is op', '!b dooltackle'])
     const res = await handleCommand('!b trivia about @sw1ngggg', { user: 'asker', channel: 'pt-1' })
     expect(mockGeneratePersonTrivia).toHaveBeenCalledTimes(1)
     const [dossier, handle, channel] = mockGeneratePersonTrivia.mock.calls[0]
     expect(handle).toBe('@sw1ngggg')
     expect(channel).toBe('pt-1')
     expect(dossier).toContain('mains vanessa')
-    expect(dossier).toContain('KEKW') // their own messages feed the dossier
+    expect(dossier).toContain('signature emote (their most-spammed): KEKW') // counted, not guessed
     expect(dossier).not.toContain('!b dooltackle') // commands stripped from the sample
     expect(mockGetUserFacts).toHaveBeenCalledWith('sw1ngggg', expect.anything())
     expect(mockGenerateCustomTrivia).not.toHaveBeenCalled() // never the generic topic path
     expect(res).toBe('Trivia! custom question (30s) @sw1ngggg') // launches + tags the target
+  })
+
+  it('quizzes a chat-only regular (messages, no command/users-row stats)', async () => {
+    // never ran a command -> getUserStats null, but they chat plenty. must still work.
+    mockGetUserFacts.mockImplementation(() => [])
+    mockGetUserMessages.mockImplementation(() => ['Sadge', 'gg', 'Sadge', 'nice play', 'Sadge', 'lol', 'wp'])
+    await handleCommand('!b trivia about @lurkerbob', { user: 'asker', channel: 'pt-cor' })
+    expect(mockGeneratePersonTrivia).toHaveBeenCalledTimes(1)
+    expect(mockGeneratePersonTrivia.mock.calls[0][0]).toContain('signature emote (their most-spammed): Sadge')
   })
 
   it('misses cleanly (no API call) when we have no logged data on the @user', async () => {
