@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { sanitize, getAiCooldown, getGlobalAiCooldown, recordUsage, isModelRefusal, buildFTSQuery, capEmoteTotal, capRepeatedSpam } from './ai'
+import { sanitize, getAiCooldown, getGlobalAiCooldown, recordUsage, isModelRefusal, buildFTSQuery, capEmoteTotal, capRepeatedSpam, hasHallucinatedStats } from './ai'
 
 describe('sanitize', () => {
   it('strips markdown bold', () => {
@@ -377,6 +377,30 @@ describe('sanitize', () => {
     const exact = 'a'.repeat(150)
     const r = sanitize(exact)
     expect(r.text).toBe(exact)
+  })
+
+  // --- hallucinated game-stat detection ---
+  describe('hasHallucinatedStats', () => {
+    // unambiguous Bazaar stat claims — blocked even in creative/banter context
+    it('blocks Bazaar stat claims in creative context', () => {
+      expect(hasHallucinatedStats('All Talk gives +60 haste at gold tier baka', true)).toBe(true)
+      expect(hasHallucinatedStats('nullfrost altar gives +10/+10 to everything', true)).toBe(true)
+      expect(hasHallucinatedStats('it gives adjacent items +10% crit chance', true)).toBe(true)
+      expect(hasHallucinatedStats('flying gives items +25/50% damage', true)).toBe(true)
+      expect(hasHallucinatedStats('deals 100 damage to the enemy', true)).toBe(true)
+    })
+    // loose verb+number tells — only enforced outside creative (narrative false positives)
+    it('blocks loose stat tells only outside creative', () => {
+      expect(hasHallucinatedStats('base poison is 40', false)).toBe(true)
+      expect(hasHallucinatedStats('it gains 50 over time', false)).toBe(true)
+      expect(hasHallucinatedStats('i gained 50 pounds eating slop', true)).toBe(false)
+    })
+    // incidental narrative numbers must never trip the guard
+    it('passes incidental narrative numbers', () => {
+      expect(hasHallucinatedStats('the year is 2087 and mellen still hasnt showered', true)).toBe(false)
+      expect(hasHallucinatedStats('10/10 would recommend this stream', true)).toBe(false)
+      expect(hasHallucinatedStats('this build is a 10 out of 10', true)).toBe(false)
+    })
   })
 
   // --- speedrun is normal twitch vocab ---
