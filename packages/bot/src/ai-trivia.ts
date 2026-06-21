@@ -38,10 +38,11 @@ For an adult or risqué topic, reframe it into a CLEAN, broadcast-safe question 
 
 Hard requirements:
 - The question must be genuinely HARD — obscure-but-real, the kind that stumps casual fans, not a surface fact anyone would know.
-- It must have a SINGLE objective, verifiable answer. No opinion, no "favorite", no "which is best".
+- ONE INDISPUTABLE ANSWER. The answer must be a verifiable fact you are CERTAIN is correct, with no competing valid response. Before committing, sanity-check it — if you are not sure it is exactly right, ask a different question.
+- AVOID ambiguous "what is the term/word for ..." definition questions where several legitimate terms fit (e.g. an organism eating dead matter -> scavenger / necrophage / saprophage / saprotroph are all defensible). Prefer facts with a crisp, single answer: a specific name, place, date, year, number, or record holder.
 - The answer MUST be short and typeable in a chat box: 1-4 words, or a number. Never a sentence.
 - "answer" is the SINGLE canonical form ONLY — e.g. "Ti", never "Ti (or Si)". Put every alternate/spelling in "accept".
-- Provide 2-5 accepted answer variants: lowercase forms, with/without leading articles, common alternate spellings/abbreviations. Always include the canonical answer.
+- Provide 2-6 accepted variants: lowercase forms, with/without leading articles, common alternate spellings/abbreviations, AND any other name that is genuinely the SAME answer. Always include the canonical answer. (If a "variant" is actually a different valid answer, the question is too ambiguous — pick a sharper one instead.)
 
 ONLY refuse (return {"ok":false}) if there is NO broadcast-safe question to be had: sexually explicit/pornographic content, sexualizing minors, hate-slur topics, or harassing a private individual. Everything else — including adult topics reframed cleanly per above — gets a question. If in doubt, make the question.
 
