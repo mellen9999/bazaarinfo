@@ -381,13 +381,15 @@ describe('sanitize', () => {
 
   // --- hallucinated game-stat detection ---
   describe('hasHallucinatedStats', () => {
-    // unambiguous Bazaar stat claims — blocked even in creative/banter context
-    it('blocks Bazaar stat claims in creative context', () => {
+    // tooltip-notation fake facts (+N stat) — blocked even in creative/banter context
+    it('blocks +notation fake item facts in creative context', () => {
       expect(hasHallucinatedStats('All Talk gives +60 haste at gold tier baka', true)).toBe(true)
       expect(hasHallucinatedStats('nullfrost altar gives +10/+10 to everything', true)).toBe(true)
       expect(hasHallucinatedStats('it gives adjacent items +10% crit chance', true)).toBe(true)
       expect(hasHallucinatedStats('flying gives items +25/50% damage', true)).toBe(true)
-      expect(hasHallucinatedStats('deals 100 damage to the enemy', true)).toBe(true)
+      // bare number+keyword is a fabrication in a direct answer, hyperbole in banter
+      expect(hasHallucinatedStats('deals 100 damage to the enemy', false)).toBe(true)
+      expect(hasHallucinatedStats('deals 100 damage to the enemy', true)).toBe(false)
     })
     // loose verb+number tells — only enforced outside creative (narrative false positives)
     it('blocks loose stat tells only outside creative', () => {
@@ -400,6 +402,15 @@ describe('sanitize', () => {
       expect(hasHallucinatedStats('the year is 2087 and mellen still hasnt showered', true)).toBe(false)
       expect(hasHallucinatedStats('10/10 would recommend this stream', true)).toBe(false)
       expect(hasHallucinatedStats('this build is a 10 out of 10', true)).toBe(false)
+    })
+    // self-flex hyperbole ("9999 damage") is personality, not a fabricated item fact —
+    // it must survive in banter. bare big numbers only block in a direct answer.
+    it('passes bare self-flex hyperbole in creative, blocks it in direct answers', () => {
+      expect(hasHallucinatedStats('i have 9999 damage and i use it the first time you fall below 20% health', true)).toBe(false)
+      expect(hasHallucinatedStats('9999 damage stays on the table though', true)).toBe(false)
+      expect(hasHallucinatedStats('he is on the board right now with 900hp and a narwhal', true)).toBe(false)
+      // same bare stat in a direct question context = fabrication, still blocked
+      expect(hasHallucinatedStats('it deals 9999 damage', false)).toBe(true)
     })
   })
 
