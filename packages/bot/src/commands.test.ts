@@ -1054,6 +1054,32 @@ describe('!b edge cases', () => {
     expect(mockAiRespond).toHaveBeenCalled()
     expect(result).toBe('gold tier huh')
   })
+
+  // deictic questions point at recent chat, not an item — must reach AI even though
+  // fuzzy search would happily match "that" → "Stop That!".
+  it('deictic "what is that" routes to AI, not fuzzy item lookup', async () => {
+    const stopThat = makeCard({ Title: 'Stop That!' })
+    mockSearch.mockImplementation(() => [stopThat])
+    mockAiRespond.mockImplementation(() => ({ text: 'they meant the diablo leak', mentions: [] }))
+    const result = await handleCommand('!b what is that', { user: 'chatter', channel: 'stream' })
+    expect(mockAiRespond).toHaveBeenCalled()
+    expect(result).toBe('they meant the diablo leak')
+    expect(result).not.toContain('Stop That!')
+  })
+
+  it('"what do you mean" / "wdym" route to AI', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'i mean the thing above', mentions: [] }))
+    expect(await handleCommand('!b what do you mean', { user: 'c', channel: 'stream' })).toBe('i mean the thing above')
+    expect(await handleCommand('!b wdym', { user: 'c', channel: 'stream' })).toBe('i mean the thing above')
+  })
+
+  it('real item question with a name still does item lookup', async () => {
+    const card = makeCard({ Title: 'Leverage Momentum' })
+    mockExact.mockImplementation((name) => name === 'leverage momentum' ? card : undefined)
+    const result = await handleCommand('!b what is leverage momentum')
+    expect(result).toContain('Leverage Momentum')
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
 })
 
 // ---------------------------------------------------------------------------
