@@ -46,6 +46,7 @@ The bar — every question must be ALL of these:
 - SELF-CONTAINED: the question carries everything needed to find the answer. If you narrowed to a specific instance, either NAME that instance in the question (and ask about a property of it) OR make the instance itself the answer (and give enough identifying clues). NEVER reference an unnamed "this game / this bird / a certain X" that chat has no way to identify.
 - TRUE + SINGLE-ANSWER: exactly ONE correct, well-established answer, no competing valid responses. Use a fact you genuinely know — never fabricate.
 - ONE CLEAR ASK: the question requests exactly ONE thing, and its wording makes the answer TYPE obvious. NEVER bundle two questions ("how many X, and what is the third called?"). NEVER use a misdirecting lead-in — if the answer is a name or word, do NOT open with "how many" or any count framing that primes chat to type a number; if the answer is a number, don't phrase it like a name lookup. A reader should know from the wording whether to type a name, a number, or a word.
+- TYPEABLE ANSWER: the answer must be a crisp token a viewer can type verbatim and win — a proper noun, name, place, title, a single common word, or a number. NEVER a descriptive phrase, a verb phrase, or a sentence fragment that chat would have to word exactly right. BAD answers: "time moves when you move", "royal blood contact", "label the buttons", "rotate the eggs" — nobody types those exactly, so the round dies. If the cleanest fact would need a phrase answer, REPHRASE THE QUESTION so the answer collapses to one crisp noun. e.g. instead of asking Superhot's mechanic (answer "time moves when you move"), ask "What 2016 FPS advances time only when you move?" (answer "Superhot"). Pick the framing where the answer is a single nameable thing.
 - CLEAN of embellishment: ONE core verifiable fact only. Do NOT pad with extra specific claims (an award, an exact year, "the first to do X") unless you are CERTAIN each is true. Fabricated embellishments are the #1 failure — a clean simple true fact beats an impressive-sounding false one.
 - NOT a fuzzy definition: avoid "what is the term/word for ..." questions where several legitimate terms fit (dead-matter eater -> scavenger / saprophage / saprotroph all defensible). Prefer a crisp single answer: a specific name, title, place, date, year, number, or record holder.
 - NOT an ambiguous count: avoid "how many X" when the count depends on convention or changes over time (buttons on a controller — is the d-pad 0/1/4?; moons of a planet; episodes of an ongoing show). Only ask a count when there is ONE agreed number, and if you state an exclusion ("excluding Start and Select"), double-check your own answer actually respects it.
@@ -91,15 +92,34 @@ export const LENSES = [
 // short window. mirrors trivia.ts's recentTypes pattern; bounded, self-trimming.
 const recentLenses = new Map<string, number[]>()
 
-export function pickLens(channel: string): string {
+// pick k DISTINCT lenses for a best-of-N round, preferring angles not used recently in
+// this channel so consecutive rounds attack from fresh directions. updates the recent
+// window. k is clamped to the number of lenses; returns at least 1.
+export function pickDistinctLenses(channel: string, k: number): string[] {
+  const want = Math.max(1, Math.min(k, LENSES.length))
   const recent = recentLenses.get(channel) ?? []
-  const pool = LENSES.map((_, i) => i).filter((i) => !recent.includes(i))
-  const choices = pool.length ? pool : LENSES.map((_, i) => i)
-  const idx = choices[Math.floor(Math.random() * choices.length)]
-  recent.push(idx)
-  while (recent.length > 4) recent.shift()
+  const fresh = LENSES.map((_, i) => i).filter((i) => !recent.includes(i))
+  const bag = (fresh.length >= want ? fresh : LENSES.map((_, i) => i)).slice()
+  const chosen: number[] = []
+  while (chosen.length < want && bag.length) {
+    chosen.push(bag.splice(Math.floor(Math.random() * bag.length), 1)[0])
+  }
+  recent.push(...chosen)
+  while (recent.length > 6) recent.shift()
   recentLenses.set(channel, recent)
-  return LENSES[idx]
+  return chosen.map((i) => LENSES[i])
+}
+
+// how many candidate questions we generate per round. best-of-N: more angles tried in
+// parallel => higher chance one survives verification (low null rate, so questions stay
+// on-topic instead of falling to the curated pool) AND we get to ship the strongest of
+// several. parallel calls => no extra latency over a single attempt, only more tokens.
+const CANDIDATES = 3
+
+const BROADEN = 'Play it safe: pick the single most well-established, certainly-true fact you know that connects to this topic — zoom out to its broader subject if needed — and ask a clean question whose answer is one crisp nameable thing.'
+
+function lensInstruction(lens: string): string {
+  return `Favor THIS angle if you have a SOLID, verifiable fact for it; otherwise pick a better angle for this topic (never invent one to fit): ${lens}`
 }
 
 export async function generateCustomTrivia(topic: string, channel: string, avoid: string[] = []): Promise<CustomTrivia | null> {
@@ -118,31 +138,60 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
     ? `\n\nRecently asked here — do NOT repeat or closely paraphrase any of these; ask something different:\n${avoid.slice(-8).map((q) => `- ${q}`).join('\n')}`
     : ''
 
-  // one retry on a soft miss (refusal / unparseable / failed-validation) — the model
-  // occasionally fumbles a borderline-broad topic on the first pass but lands it on the
-  // second. hard misses (HTTP error, timeout, cap) don't retry: no point, and a retry
-  // would double the latency on a path that already aborts at 9s. the cap is re-checked
-  // before the retry so a spree can't slip a second call in over the daily backstop.
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (attempt > 0 && isOverDailyCap(channel)) break
-    // fresh lens per attempt: on a retry (verify-reject / unparseable) a new angle also
-    // steers away from the bad fact, not just toward more variety.
-    const lens = pickLens(channel)
-    const lensBlock = `\n\nFavor THIS angle if you have a SOLID, verifiable fact for it; otherwise pick a better angle for this topic (never invent one to fit): ${lens}`
-    // the first try didn't land — zoom out to the most rock-solid fact connected to the
-    // topic (its franchise/creator/genre/era) rather than risk another niche miss.
-    const broaden = attempt > 0
-      ? `\n\nYour previous attempt failed verification. Now play it safe: pick the single most well-established, certainly-true fact you know that connects to this topic — zoom out to its broader subject if needed — and ask a clean question about THAT.`
-      : ''
-    const r = await attemptGen(SYSTEM, `TOPIC: ${clean}${lensBlock}${broaden}${avoidBlock}`, channel)
-    if (!r.ok) { if (!r.retry) return null; continue }
-    // independent fact-check before we commit — a second model with no stake in the
-    // question catches wrong answers + fabricated embellishments (the #1 failure mode:
-    // "won X award in YEAR", a fear-term that isn't a fear). reject -> regenerate once.
-    if (await verifyTrivia(r.q, channel)) return r.q
-    log(`ai-trivia: verify rejected "${r.q.question.slice(0, 50)}" (ans: ${r.q.answer})`)
+  // round 1: CANDIDATES distinct-angle questions generated + verified in parallel.
+  const lenses = pickDistinctLenses(channel, CANDIDATES)
+  let passed = await generateAndVerify(channel, lenses.map(lensInstruction), clean, avoidBlock)
+  // round 2 only if round 1 produced nothing usable — a single play-it-safe broaden pass
+  // (zoom out to a rock-solid fact). cap re-checked so a spree can't dodge the backstop.
+  if (passed.length === 0 && !isOverDailyCap(channel)) {
+    passed = await generateAndVerify(channel, [BROADEN], clean, avoidBlock)
   }
-  return null
+  if (passed.length === 0) return null
+  return pickBestCandidate(passed)
+}
+
+// generate one question per instruction in parallel, dedupe, then verify the survivors in
+// parallel. returns only the candidates that pass adversarial verification (possibly []).
+async function generateAndVerify(channel: string, instructions: string[], clean: string, avoidBlock: string): Promise<CustomTrivia[]> {
+  const gens = await Promise.all(
+    instructions.map((ins) => attemptGen(SYSTEM, `TOPIC: ${clean}\n\n${ins}${avoidBlock}`, channel)),
+  )
+  const cands = dedupeCandidates(gens.flatMap((g) => (g.ok ? [g.q] : [])))
+  if (cands.length === 0) return []
+  const verdicts = await Promise.all(cands.map((q) => verifyTrivia(q, channel)))
+  const passed: CustomTrivia[] = []
+  cands.forEach((q, i) => {
+    if (verdicts[i]) passed.push(q)
+    else log(`ai-trivia: verify rejected "${q.question.slice(0, 50)}" (ans: ${q.answer})`)
+  })
+  return passed
+}
+
+// drop near-duplicate candidates (same normalized question or same answer) so best-of-N
+// doesn't ship two rephrasings of the same fact.
+function dedupeCandidates(cands: CustomTrivia[]): CustomTrivia[] {
+  const seenQ = new Set<string>()
+  const seenA = new Set<string>()
+  const out: CustomTrivia[] = []
+  for (const c of cands) {
+    const nq = c.question.toLowerCase().replace(/\s+/g, ' ').trim()
+    const na = c.answer.toLowerCase().trim()
+    if (seenQ.has(nq) || seenA.has(na)) continue
+    seenQ.add(nq)
+    seenA.add(na)
+    out.push(c)
+  }
+  return out
+}
+
+// among verified candidates, prefer the most TYPEABLE answer — fewest words wins, so a
+// crisp name/number beats a borderline phrase that slipped through. ties broken randomly
+// so the same topic still varies across rounds.
+function pickBestCandidate(cands: CustomTrivia[]): CustomTrivia {
+  const scored = cands.map((c) => ({ c, words: c.answer.trim().split(/\s+/).length }))
+  const min = Math.min(...scored.map((s) => s.words))
+  const best = scored.filter((s) => s.words === min).map((s) => s.c)
+  return best[Math.floor(Math.random() * best.length)]
 }
 
 // adversarial verification: a fresh call, no stake in the question, asked to REFUTE.
@@ -161,6 +210,7 @@ Reject (ok:false) if you find ANY of these problems:
 - Incoherence — the answer doesn't actually fit what's asked (asks for a "fear/phobia" but the answer isn't one).
 - Misdirecting or two-part wording — it bundles two questions, or its lead-in primes the wrong answer type (opens with "how many" but the answer is a name).
 - Not self-contained — refers to an unnamed specific thing ("this game", "a certain bird") the guesser can't identify.
+- A non-typeable ANSWER — it is a descriptive phrase, verb phrase, or sentence fragment rather than a crisp token a viewer types verbatim (a name, proper noun, place, title, single word, or number). "time moves when you move", "royal blood contact", "label the buttons" are BAD; reject them.
 
 Otherwise return ok:true. Do NOT reject merely because the topic is niche, obscure, or unfamiliar — only reject a concrete problem you can point to.
 
@@ -169,7 +219,7 @@ Output ONLY one minified JSON object, no prose outside it:
 or
 {"check":"...","ok":false,"reason":"<brief>"}`
 
-async function verifyTrivia(q: CustomTrivia, channel: string): Promise<boolean> {
+export async function verifyTrivia(q: CustomTrivia, channel: string): Promise<boolean> {
   if (!API_KEY) return true // can't verify without a key; don't block generation
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT)
@@ -365,8 +415,11 @@ function validate(text: string): CustomTrivia | null {
   // split it: the canonical answer is the primary form (so the reveal + hint count are
   // clean), and every alternate folds into accept so chat can still type either.
   const { canonical, alts } = splitAlternates(rawAnswer)
-  // chat must be able to type the answer — reject sentence-length answers.
-  if (canonical.split(/\s+/).length > 5) return null
+  // chat must type the answer verbatim to win, so it has to be a crisp token — a name,
+  // number, or short noun phrase, never a sentence/verb phrase. >4 words is almost always
+  // a descriptive phrase nobody types exactly; the semantic verifier + crispest-candidate
+  // preference catch the shorter phrase answers this word cap can't.
+  if (canonical.split(/\s+/).length > 4) return null
 
   const accept = Array.isArray(o.accept)
     ? o.accept.filter((a): a is string => typeof a === 'string' && a.trim().length > 0).map((a) => a.trim())
