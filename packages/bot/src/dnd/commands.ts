@@ -262,6 +262,33 @@ export function classifyDndIntent(text: string): { action: DndIntent; arg: strin
   return null
 }
 
+// a confused PLAYER in an active dungeon ("wtf do i do", "how do i play", "what now",
+// "help") gets a contextual action menu instead of a generic AI reply. high-precision: only
+// game-help phrasings, only for an actual player, only in an active dungeon — so it never
+// fires on normal chat. checked AFTER handleCombatIntent (a real action wins).
+const CI_CONFUSED = /\b(?:how|what)\s+(?:do|can|should)\s+i\b|\bwtf\s+do\s+i\b|\bnow\s+what\b|\bwhat\s+now\b|\bhow\s+(?:to|do\s+i)\s+play\b|\bcommands?\b|\bcontrols?\b|\bhow\s+does\s+this\s+(?:work|game)\b|\bwhat\s+do\s+i\s+(?:type|do|press|say)\b|\bidk\s+what\b|\bi'?m\s+(?:lost|confused|stuck)\b|^\s*help\s*\??\s*$/i
+
+export function handleDndHelp(text: string, ctx: CommandContext): string | null {
+  if (!ctx.channel || !ctx.user) return null
+  const channel = ctx.channel.toLowerCase()
+  if (!dndActive(channel)) return null
+  if (!db.getCharacter(ctx.user.toLowerCase(), channel)) return null // not a player
+  if (classifyDndIntent(text)) return null                           // it was an action, not confusion
+  if (!CI_CONFUSED.test(text)) return null
+
+  const w = db.getWorld(channel)
+  if (!w?.enabled) return null
+  const u = ctx.user
+  if (w.floorCleared) {
+    return w.encounterType === 'shop'
+      ? `@${u} at the shop — !b buy 1-4 to grab gear · !b move to leave`
+      : `@${u} floor cleared — !b move to descend deeper`
+  }
+  if (w.encounterType === 'shop') return `@${u} a merchant waits — !b buy 1-4 · !b move to skip`
+  if (w.encounterType === 'event') return `@${u} something stirs — !b explore to investigate`
+  return `@${u} you're in combat! → !b a to attack · !b spell for your ability · !b d to defend · !b flee to run · !b me for stats`
+}
+
 export async function handleCombatIntent(text: string, ctx: CommandContext): Promise<string | null> {
   if (!ctx.channel || !ctx.user) return null
   const channel = ctx.channel.toLowerCase()

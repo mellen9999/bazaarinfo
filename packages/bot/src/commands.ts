@@ -835,6 +835,9 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     // via say() at round-close) — stop, don't fall through to the AI. a string = a reply.
     const combat = await dndCmds.handleCombatIntent(cleanArgs, ctx)
     if (combat !== null) return combat ? withSuffix(combat, suffix) : null
+    // a confused player in the dungeon ("wtf do i do") gets a contextual menu, not a generic AI reply
+    const dndHelp = dndCmds.handleDndHelp(cleanArgs, ctx)
+    if (dndHelp) return withSuffix(dndHelp, suffix)
   }
 
   // spam wall interception — handle without AI. cap at 5 TOTAL tokens.
