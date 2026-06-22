@@ -170,8 +170,11 @@ export async function welcomePlayer(
   const def = getClassDef(cls)
   const role = def.role
   const enemyStr = enemies.length > 0 ? enemies.join(', ') : 'shadows'
-  const spellHint = spellHintFor(def)
-  const hint = `→ !b a to attack · !b spell for ${spellHint} · !b d to defend`
+  // sneak chassis has no castable — its signature auto-triggers on a normal attack — so the
+  // "!b spell for ..." frame reads wrong for it; give it a clean attack-only hint instead.
+  const hint = def.chassis === 'sneak'
+    ? `→ !b a to attack (auto Sneak Attack) · !b d to defend · !b flee to run`
+    : `→ !b a to attack · !b spell for ${spellHintFor(def)} · !b d to defend`
   const prompt = `Twitch chat D&D. @${username} descends as a ${cls} (${role}). Floor ${floor} (${encounterType}). Enemies: ${enemyStr}.
 Write ONE welcoming line, 130 chars max, lowercase, classic D&D dungeon tone. Just the scene — do NOT include any commands, "!b", or arrows. No emojis.`
   const result = await ask(channel, prompt, 72)
