@@ -283,9 +283,14 @@ const client = new TwitchClient(
       // so data is ready BEFORE they ask questions, not after
       maybeFetchTwitchInfo(username, channel)
 
-      // check trivia answers before command routing
+      // check trivia answers before command routing. isolated try so a throw here can
+      // never silently kill answer detection (which would make a live round "go dead").
       if (isGameActive(channel)) {
-        checkAnswer(channel, username, text, (ch, msg) => client.say(ch, msg, messageId))
+        try {
+          checkAnswer(channel, username, text, (ch, msg) => client.say(ch, msg, messageId))
+        } catch (e) {
+          log(`trivia checkAnswer error #${channel} [${username}]: ${e}`)
+        }
       }
 
       // handle !join / !part only in bot's own channel to avoid collisions with other bots

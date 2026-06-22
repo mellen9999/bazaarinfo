@@ -38,8 +38,9 @@ For an adult or risqué topic, reframe it into a CLEAN, broadcast-safe question 
 
 Hard requirements:
 - The question must be genuinely HARD — obscure-but-real, the kind that stumps casual fans, not a surface fact anyone would know.
-- ONE INDISPUTABLE ANSWER. The answer must be a verifiable fact you are CERTAIN is correct, with no competing valid response. Before committing, sanity-check it — if you are not sure it is exactly right, ask a different question.
+- SINGLE CLEAR ANSWER. Pick a fact with exactly ONE correct, well-established answer and no competing valid responses. Use a fact you actually know is true — never fabricate. You do NOT need to refuse: essentially every topic (skyrim, crows, anything) has a solid single-answer fact, so just choose one you're confident in rather than bailing.
 - AVOID ambiguous "what is the term/word for ..." definition questions where several legitimate terms fit (e.g. an organism eating dead matter -> scavenger / necrophage / saprophage / saprotroph are all defensible). Prefer facts with a crisp, single answer: a specific name, place, date, year, number, or record holder.
+- Make chat learn something — a satisfying "oh neat" fact, not a dry technicality.
 - The answer MUST be short and typeable in a chat box: 1-4 words, or a number. Never a sentence.
 - "answer" is the SINGLE canonical form ONLY — e.g. "Ti", never "Ti (or Si)". Put every alternate/spelling in "accept".
 - Provide 2-6 accepted variants: lowercase forms, with/without leading articles, common alternate spellings/abbreviations, AND any other name that is genuinely the SAME answer. Always include the canonical answer. (If a "variant" is actually a different valid answer, the question is too ambiguous — pick a sharper one instead.)
@@ -53,7 +54,7 @@ or
 
 Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 4 words.`
 
-export async function generateCustomTrivia(topic: string, channel: string): Promise<CustomTrivia | null> {
+export async function generateCustomTrivia(topic: string, channel: string, avoid: string[] = []): Promise<CustomTrivia | null> {
   if (!API_KEY) return null
   // governed exactly like the !b AI path: only spend in AI-enabled channels, and honor
   // the per-channel daily token backstop so a custom-trivia spree can't dodge the cap.
@@ -64,6 +65,10 @@ export async function generateCustomTrivia(topic: string, channel: string): Prom
   }
   const clean = stripUnpairedSurrogates(topic.trim()).slice(0, MAX_TOPIC_LEN)
   if (clean.length < 2) return null
+  // tell the model what was just asked so it never repeats a recent question verbatim.
+  const avoidBlock = avoid.length
+    ? `\n\nRecently asked here — do NOT repeat or closely paraphrase any of these; ask something different:\n${avoid.slice(-8).map((q) => `- ${q}`).join('\n')}`
+    : ''
 
   // one retry on a soft miss (refusal / unparseable / failed-validation) — the model
   // occasionally fumbles a borderline-broad topic on the first pass but lands it on the
@@ -72,7 +77,7 @@ export async function generateCustomTrivia(topic: string, channel: string): Prom
   // before the retry so a spree can't slip a second call in over the daily backstop.
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0 && isOverDailyCap(channel)) break
-    const r = await attemptGen(SYSTEM, `TOPIC: ${clean}`, channel)
+    const r = await attemptGen(SYSTEM, `TOPIC: ${clean}${avoidBlock}`, channel)
     if (r.ok) return r.q
     if (!r.retry) return null
   }

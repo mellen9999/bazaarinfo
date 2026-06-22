@@ -3,7 +3,7 @@ import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
-import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia } from './trivia'
+import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion } from './trivia'
 import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, type CustomTrivia } from './ai-trivia'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
@@ -633,6 +633,14 @@ function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: Tie
   return { tier: undefined, note: null }
 }
 
+// "who won the trivia?", "did tidolar win the quiz?", "trivia leaderboard" — interrogative
+// questions about trivia RESULTS, answered from the DB (never the AI, which invents winners).
+// scoped so a topic request like "trivia about winning" is NOT matched (no who/did, and
+// "trivia about" != "trivia leaderboard").
+const TRIVIA_RESULT_RE = /\bwho\b[^?]*\b(won|win|winner|winning)\b[^?]*\b(trivia|quiz|round|last\s*one)\b|\b(trivia|quiz)\s+(leaderboard|standings|scores?|rankings?|top)\b|\bdid\b[^?]*\bwin\b[^?]*\b(trivia|quiz|round)\b/i
+// of a matched result-question, which ones want the standings table vs the last winner.
+const TRIVIA_STANDINGS_RE = /\b(leaderboard|standings|scores?|rankings?|top)\b/i
+
 // strip conversational prefixes so "what is birdge" → "birdge"
 // "how about" / "what about" excluded — they're continuations, not direct lookups
 const QUESTION_PREFIX = /^(?:what(?:'?s | is | are )|tell me about |show me |look up |find me |can you (?:find |look up |show ))/i
@@ -738,6 +746,22 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   if (/^(how (do you|does this( bot)?) work|what are you|what is this)\b/i.test(cleanArgs)) {
     return 'twitch chatbot for The Bazaar by mellen. looks up items/heroes/monsters from bazaardb.gg, runs trivia, and answers questions. try: !b <item> | !b hero <name> | !b <question>'
+  }
+
+  // trivia-result questions ("who won the trivia?", "trivia leaderboard") answered from
+  // REAL data — never routed to the AI, which would invent a winner. tightly scoped to
+  // interrogative result-phrasing so a topic request ("trivia about winning") still starts
+  // a round instead of being hijacked.
+  if (ctx.channel && TRIVIA_RESULT_RE.test(cleanArgs)) {
+    const sfx = mentions.length ? ` ${mentions.join(' ')}` : ''
+    if (TRIVIA_STANDINGS_RE.test(cleanArgs)) {
+      return withSuffix(getTriviaScore(ctx.channel), sfx)
+    }
+    if (isGameActive(ctx.channel)) return withSuffix(`a round's live right now — get your answer in!`, sfx)
+    const last = db.getLastTriviaResult(ctx.channel)
+    if (!last) return withSuffix(`no trivia has run here yet — start one with !b trivia`, sfx)
+    if (last.winner) return withSuffix(`@${last.winner} won the last round (answer: ${last.answer})`, sfx)
+    return withSuffix(`nobody got the last round — the answer was ${last.answer}`, sfx)
   }
 
   // proxy ! and / commands — before dedup so cooldown messages always show
@@ -1086,7 +1110,13 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
       q = await generatePersonTrivia(dossier, `@${person}`, channel)
       missMsg = `couldn't make a trivia about @${person} — try again`
     } else {
-      q = await generateCustomTrivia(t, channel)
+      // pass recent questions so the model avoids repeats; if it still echoes one
+      // (norm-equal), regenerate once before giving up on uniqueness.
+      const avoid = recentQuestionList(channel)
+      q = await generateCustomTrivia(t, channel, avoid)
+      if (q && isRecentQuestion(channel, q.question)) {
+        q = await generateCustomTrivia(t, channel, avoid)
+      }
       missMsg = `couldn't make a trivia about "${t.slice(0, 40)}" — try a clearer topic`
     }
     if (!q) return withSuffix(missMsg, suffix)

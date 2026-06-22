@@ -865,9 +865,8 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
   }
   if (!q) return `couldn't generate a question, try again`
 
-  recentQ.push(q.question)
-  if (recentQ.length > RECENT_QUESTIONS_SIZE) recentQ.shift()
-  recentQuestions.set(channel, recentQ)
+  // (recentQuestions recording is centralized in launchRound so the custom AI path
+  // is deduped too — see below. the loop above still reads recentQ to pick a fresh one.)
 
   // track recent types per-channel (use generator index, not 1-indexed q.type)
   const recent = recentTypes.get(channel) ?? []
@@ -931,7 +930,28 @@ function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>): 
     say: globalSay,
   })
 
+  // record the question for BOTH built-in and custom rounds so neither repeats it
+  // soon (the custom AI path skipped this before, so it could ask the same Q twice).
+  const rq = recentQuestions.get(channel) ?? []
+  rq.push(q.question)
+  if (rq.length > RECENT_QUESTIONS_SIZE) rq.shift()
+  recentQuestions.set(channel, rq)
+  // diagnostic: every launch is logged so a round that later "goes dead" can be traced
+  // (when it started, its id) against answer/timeout activity.
+  log(`trivia: launched #${channel} game ${gameId} type ${q.type} "${q.question.slice(0, 50)}"`)
+
   return `Trivia! ${q.question} (30s)`
+}
+
+// recent-question check for the custom AI path (commands.ts) — avoids asking a near
+// duplicate of something asked in the last RECENT_QUESTIONS_SIZE rounds.
+export function recentQuestionList(channel: string): string[] {
+  return recentQuestions.get(channel) ?? []
+}
+
+export function isRecentQuestion(channel: string, question: string): boolean {
+  const n = norm(question)
+  return (recentQuestions.get(channel) ?? []).some((q) => norm(q) === n)
 }
 
 // start a round from an AI-generated question on a user-supplied topic. the active
@@ -968,10 +988,11 @@ function endTrivia(channel: string, expectedGameId?: number): string | null {
   clearHints(game)
   activeGames.delete(channel)
   lastGameEnd.set(channel, Date.now())
+  log(`trivia: ended #${channel} game ${game.gameId} (${game.participants.size} players, timeout)`)
 
-  // silent end if nobody played — no point announcing a timeout to dead chat
-  if (game.participants.size === 0) return null
-
+  // ALWAYS reveal the answer when a round ends — a posted question must get a posted
+  // answer so the bot is never seen to "go dead" mid-round (even if answers failed to
+  // register for any reason), and revealing teaches chat the answer.
   const emote = pickEmoteByMood(channel, 'sad')
   return `Time's up! The answer was: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`
 }
