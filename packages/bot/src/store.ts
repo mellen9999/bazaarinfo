@@ -1,5 +1,5 @@
 import type { BazaarCard, CardCache, Monster } from '@bazaarinfo/shared'
-import { buildIndex, buildTitleMap, searchCards, findExact, searchPrefix } from '@bazaarinfo/shared'
+import { buildIndex, buildTitleMap, searchCards, findExact, searchPrefix, searchAllWords } from '@bazaarinfo/shared'
 import Fuse from 'fuse.js'
 import { resolve } from 'path'
 import { log } from './log'
@@ -247,8 +247,14 @@ export function search(query: string, limit = 5) {
   }
   const scored = searchCards(index, resolved, limit * 2)
   const results = scored.filter((r) => r.score <= SCORE_GATE).map((r) => r.item)
-  // fallback to prefix match for short partial queries
-  if (results.length === 0) return searchPrefix(allCards, resolved, limit)
+  // fallbacks when fuzzy misses: prefix first ("boom" -> Boomerang), then a multi-word
+  // word-AND match ("champion belt" -> Championship Belt) that fuse's whole-string fuzzy
+  // can't bridge. without this the near-miss falls through to the AI, which paraphrases
+  // the item instead of returning the clean card.
+  if (results.length === 0) {
+    const prefix = searchPrefix(allCards, resolved, limit)
+    return prefix.length ? prefix : searchAllWords(allCards, resolved, limit)
+  }
   // boost exact word matches — "moose" should prefer "Staff of the Moose" over "Mouse Trap"
   const lower = resolved.toLowerCase()
   const wordRe = wordBoundaryRe(lower)

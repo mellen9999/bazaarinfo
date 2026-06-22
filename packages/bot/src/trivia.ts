@@ -675,13 +675,22 @@ function generateHint(rawAnswer: string): string {
     const high = low + magnitude
     return `Hint: between ${low} and ${high}`
   }
-  // for short answers (size, tier, hero), give first letter + length
+  // letter count never includes spaces ("Old One" is 6 letters, not 7).
+  const letterCount = answer.replace(/\s+/g, '').length
+  // for short answers (size, tier, hero), give first letter + length. multi-word answers
+  // keep their spaces as spaces (not underscores) and reveal each word's first letter, so
+  // "Old One" -> "O__ O__ (6 letters)", never "O______ (7 letters)".
   if (answer.length <= 10) {
+    const words = answer.split(/\s+/).filter(Boolean)
+    if (words.length > 1) {
+      const skel = words.map((w) => w[0].toUpperCase() + '_'.repeat(w.length - 1)).join(' ')
+      return `Hint: ${skel} (${letterCount} letters)`
+    }
     const blanks = '_'.repeat(answer.length - 1)
-    return `Hint: ${answer[0].toUpperCase()}${blanks} (${answer.length} letters)`
+    return `Hint: ${answer[0].toUpperCase()}${blanks} (${letterCount} letters)`
   }
   // for long answers, reveal first letter of each word
-  const words = answer.split(/\s+/)
+  const words = answer.split(/\s+/).filter(Boolean)
   const initials = words.map((w) => w[0].toUpperCase() + '_'.repeat(w.length - 1))
   return `Hint: ${initials.join(' ')}`
 }

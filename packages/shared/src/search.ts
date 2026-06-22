@@ -46,6 +46,32 @@ export function searchPrefix(
     .slice(0, limit)
 }
 
+// last-resort multi-word match: every query word must appear (exact, or a prefix either
+// direction) as some word in the card's title. catches "champion belt" -> "Championship
+// Belt" when fuse's whole-string fuzzy and the strict prefix both miss (fuse scores the
+// joined string poorly across the "ship" gap + space). cold path only (fuse already
+// missed), so splitting 1k titles per call is fine. ranked by count of exact word hits.
+export function searchAllWords(cards: BazaarCard[], query: string, limit = 5): BazaarCard[] {
+  const qWords = query.toLowerCase().split(/\s+/).filter((w) => w.length >= 2)
+  if (qWords.length < 2) return [] // single-word queries are already handled by fuse/prefix
+  const wordMatch = (qw: string, tw: string) =>
+    tw === qw || (qw.length >= 3 && tw.startsWith(qw)) || (tw.length >= 3 && qw.startsWith(tw)) || (qw.length >= 4 && tw.includes(qw))
+  const out: { card: BazaarCard; hits: number }[] = []
+  for (const c of cards) {
+    const tWords = c.Title.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s\-]+/)
+    let ok = true
+    let hits = 0
+    for (const qw of qWords) {
+      const tw = tWords.find((t) => wordMatch(qw, t))
+      if (!tw) { ok = false; break }
+      if (tw === qw) hits++
+    }
+    if (ok) out.push({ card: c, hits })
+  }
+  out.sort((a, b) => b.hits - a.hits)
+  return out.slice(0, limit).map((o) => o.card)
+}
+
 // build once at startup, pass to searchPrefix to avoid per-call allocations
 export function buildLowercaseTitles(cards: BazaarCard[]): string[] {
   return cards.map((c) => c.Title.toLowerCase())

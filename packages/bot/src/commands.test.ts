@@ -2138,6 +2138,21 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('OMEGALUL', 'ct-10', [])
   })
 
+  it('"Kripp chat" is a topic (deep lore), not a chat-log recall question', async () => {
+    mockGenerateChatTrivia.mockClear()
+    await handleCommand('!b trivia about Kripp chat', { user: 'u', channel: 'ct-kc' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('Kripp chat', 'ct-kc', [])
+    expect(mockGenerateChatTrivia).not.toHaveBeenCalled()
+  })
+
+  it('bare "chat" still routes to chat-log recall', async () => {
+    mockGenerateChatTrivia.mockClear()
+    mockGenerateCustomTrivia.mockClear()
+    await handleCommand('!b trivia about chat', { user: 'u', channel: 'ct-bc' })
+    expect(mockGenerateChatTrivia).toHaveBeenCalled()
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+  })
+
   it('strips invisible/format chars chat injects into the topic', async () => {
     // trailing U+034F (combining grapheme joiner) + a zero-width space mid-word
     await handleCommand('!b trivia se\u200Bx\u034F', { user: 'u', channel: 'ct-inv' })
