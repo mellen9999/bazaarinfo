@@ -50,14 +50,16 @@ describe('outgoing send pacer', () => {
       () => {},
     )
     const c = client as unknown as {
-      ircReady: boolean; SEND_GAP: number; ircOnlyChannels: Set<string>; ircSend: (l: string) => void
+      ircReady: boolean; SEND_GAP: number; ircOnlyChannels: Set<string>; ircSend: (l: string) => boolean
+      irc: { readyState: number }
     }
     c.ircReady = true
+    c.irc = { readyState: 1 }              // WebSocket.OPEN — pacer's transport-ready check passes
     c.SEND_GAP = 30                        // shrink for a fast test
     c.ircOnlyChannels = new Set(['chan'])  // force the IRC path — no network
     const sent: number[] = []
     const t0 = performance.now()
-    c.ircSend = () => { sent.push(performance.now() - t0) }
+    c.ircSend = () => { sent.push(performance.now() - t0); return true } // true = sent (else pacer requeues)
 
     // four replies land in the same instant
     client.say('chan', 'a'); client.say('chan', 'b')
@@ -72,5 +74,25 @@ describe('outgoing send pacer', () => {
     for (let i = 1; i < sent.length; i++) {
       expect(sent[i] - sent[i - 1]).toBeGreaterThanOrEqual(20)
     }
+  })
+
+  test('queue overflow never evicts the pacer-held head (trivia reveal survives a reconnect)', () => {
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [] },
+      () => {},
+    )
+    const c = client as unknown as {
+      ircReady: boolean; ircOnlyChannels: Set<string>; ircQueue: { channel: string; text: string }[]
+    }
+    c.ircOnlyChannels = new Set(['nl_kripp'])
+    c.ircReady = false // transport down mid-reconnect: the pacer holds the head, can't send it
+
+    // the trivia reveal is queued first (it becomes the held head)
+    client.say('nl_kripp', "Time's up! The answer was: FTL")
+    // then chat floods the queue well past MAX_QUEUE (50) during the reconnect window
+    for (let i = 0; i < 70; i++) client.say('nl_kripp', `reply ${i}`)
+
+    expect(c.ircQueue.length).toBeLessThanOrEqual(50)       // bounded
+    expect(c.ircQueue[0].text).toContain("Time's up")       // ...but the held reveal survived
   })
 })

@@ -776,14 +776,20 @@ export class TwitchClient {
       if (ok) { this.recordSend(channel); this.lastSendAt = Date.now() }
       return ok
     }
-    this.recordSend(channel)
-    this.lastSendAt = Date.now()
     const sent = await this.helixSend(channel, text, false, replyTo)
-    if (!sent) {
-      log(`helix failed for #${channel}, falling back to IRC PRIVMSG${replyTo ? ' (threaded)' : ''}`)
-      this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
+    if (sent) {
+      this.recordSend(channel)
+      this.lastSendAt = Date.now()
+      return true
     }
-    return true
+    // helix failed — fall back to IRC, but PROPAGATE the result. if the IRC socket is also
+    // closed (a reconnect coinciding with a helix failure), report false so the pacer
+    // requeues instead of dropping the line, and don't debit the bucket for a send that
+    // never went out.
+    log(`helix failed for #${channel}, falling back to IRC PRIVMSG${replyTo ? ' (threaded)' : ''}`)
+    const fbOk = this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
+    if (fbOk) { this.recordSend(channel); this.lastSendAt = Date.now() }
+    return fbOk
   }
 
   // drain the queue one message at a time, paced by SEND_GAP and the rate buckets.
@@ -921,8 +927,20 @@ export class TwitchClient {
     // every send goes through the single FIFO pacer — preserves order and guarantees
     // spacing, so no two replies can ever land in the same instant.
     if (this.ircQueue.length >= MAX_QUEUE) {
-      log('queue full, dropping oldest')
-      this.ircQueue.shift()
+      // NEVER evict the head the pacer is holding through a reconnect — it can't be sent yet
+      // but will once the socket recovers, and it's often a trivia reveal/win line; dropping
+      // it silently kills the round (the wave-2 "round went dead" vanish, via this 2nd path).
+      // when the head is held, shed the next-oldest instead so the held message survives.
+      const head = this.ircQueue[0]
+      const headHeld = head && (!this.ircReady ||
+        (this.ircOnlyChannels.has(head.channel) && this.irc?.readyState !== WebSocket.OPEN))
+      if (headHeld && this.ircQueue.length > 1) {
+        log('queue full, dropping second-oldest (head held by pacer)')
+        this.ircQueue.splice(1, 1)
+      } else {
+        log('queue full, dropping oldest')
+        this.ircQueue.shift()
+      }
     }
     this.ircQueue.push({ channel, text, replyTo })
     this.kickPacer()

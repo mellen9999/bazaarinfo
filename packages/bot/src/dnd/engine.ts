@@ -805,7 +805,10 @@ async function handleFloorClear(channel: string, world: WorldState) {
   say(channel, render.renderFloorClear(world.floor, loot, levelUps))
 
   if (world.floor === 10 && world.encounterType === 'boss') {
-    const survivors = db.getAllCharacters(channel).filter((p) => p.hp > 0 && p.respawnAt === null)
+    // ACTIVE players only — getAllCharacters returns every char ever created in the channel,
+    // so prestige/flawless (gated behind actually conquering the dungeon) was being handed to
+    // inactive full-HP lurkers who never fought the boss. match every other survivor-selection.
+    const survivors = db.getActivePlayers(channel).filter((p) => p.hp > 0 && p.respawnAt === null && !p.isDying)
     const flawless: string[] = []
     for (const p of survivors) {
       db.addPrestige(p.username, channel)
@@ -968,7 +971,11 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       // find lowest-HP active ally (including self)
       const allies = db.getActivePlayers(channel).filter((p) => p.hp > 0 && !p.isDying && p.respawnAt === null)
       const target = allies.length > 0 ? allies.reduce((a, b) => a.hp < b.hp ? a : b) : char
-      const newHp = db.healCharacter(target.username, channel, healAmt, target)
+      // mirror onto `char` when the cleric heals THEMSELVES (target and char are distinct
+      // objects for the same user), else the final upsert(char) below would clobber the heal
+      // with char's stale pre-heal hp. healing a different ally is safe (no re-upsert of them).
+      const healMirror = target.username === char.username ? char : target
+      const newHp = db.healCharacter(target.username, channel, healAmt, healMirror)
       // Guiding Bolt: clerics also smite a foe with radiant light (gives them real damage)
       let boltStr = ''
       const foe = livingEnemies[0]
@@ -1559,7 +1566,7 @@ export function isDndEnabled(channel: string): boolean {
 
 // free per-channel in-memory state + cancel pending timers (so they can't fire on a
 // disabled channel and the Maps don't accumulate entries for channels no longer in play)
-function clearChannelState(channel: string): void {
+export function clearChannelState(channel: string): void {
   const ch = channel.toLowerCase()
   for (const t of [debounceTimers.get(ch), joinAnnounceTimers.get(ch), deathSaveTimers.get(ch)]) {
     if (t) clearTimeout(t)
