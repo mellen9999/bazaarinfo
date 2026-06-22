@@ -578,6 +578,46 @@ describe('death stakes', () => {
   })
 })
 
+describe('heal persistence — no stale-upsert clobber', () => {
+  it('healCharacter(char) mutates the object so a following full upsert keeps the heal', async () => {
+    const { upsertCharacter, getCharacter, healCharacter } = await import('./db')
+    const ch = 'healchan'
+    upsertCharacter(makeChar({ username: 'woundy', channel: ch, hp: 5, maxHp: 30 }))
+    const char = getCharacter('woundy', ch)!
+    const newHp = healCharacter('woundy', ch, 10, char) // targeted heal + mirror onto char
+    expect(newHp).toBe(15)
+    expect(char.hp).toBe(15)              // in-memory object updated...
+    upsertCharacter(char)                 // ...so the full-row write can't revert it
+    expect(getCharacter('woundy', ch)!.hp).toBe(15)
+  })
+
+  it('clears dying/death-save flags on the passed char (potion-while-dying revive)', async () => {
+    const { upsertCharacter, getCharacter, healCharacter } = await import('./db')
+    const ch = 'healchan2'
+    upsertCharacter(makeChar({ username: 'downed', channel: ch, hp: 0, maxHp: 20, isDying: true, deathSuccesses: 1, deathFailures: 2 }))
+    const char = getCharacter('downed', ch)!
+    healCharacter('downed', ch, 8, char)
+    expect(char.hp).toBe(8)
+    expect(char.isDying).toBe(false)
+    expect(char.deathSuccesses).toBe(0)
+    expect(char.deathFailures).toBe(0)
+    upsertCharacter(char)
+    const persisted = getCharacter('downed', ch)!
+    expect(persisted.hp).toBe(8)
+    expect(persisted.isDying).toBe(false)
+  })
+
+  it('demonstrates the bug it fixes: NOT passing char lets the stale upsert revert the heal', async () => {
+    const { upsertCharacter, getCharacter, healCharacter } = await import('./db')
+    const ch = 'healchan3'
+    upsertCharacter(makeChar({ username: 'woundy3', channel: ch, hp: 5, maxHp: 30 }))
+    const char = getCharacter('woundy3', ch)!
+    healCharacter('woundy3', ch, 10)      // heals the DB but leaves char.hp stale at 5
+    upsertCharacter(char)                 // stale full-row write clobbers the heal
+    expect(getCharacter('woundy3', ch)!.hp).toBe(5) // why every heal+upsert site must pass char
+  })
+})
+
 // --- render.ts (pure) ---
 describe('multikillBanner', () => {
   it('n<2 → null', () => expect(multikillBanner('user', 1)).toBeNull())

@@ -537,7 +537,7 @@ setInterval(async () => {
 
 // graceful shutdown
 let shuttingDown = false
-function shutdown() {
+function shutdown(code = 0) {
   if (shuttingDown) return
   shuttingDown = true
   log('shutting down...')
@@ -545,11 +545,13 @@ function shutdown() {
   try { emoteEvents.close() } catch {}
   try { db.closeDb() } catch {}
   try { client.close() } catch {}
-  process.exit(0)
+  process.exit(code)
 }
-process.on('SIGTERM', shutdown)
-process.on('SIGINT', shutdown)
-process.on('uncaughtException', (e) => { log('uncaught exception:', e); shutdown() })
+process.on('SIGTERM', () => shutdown(0))
+process.on('SIGINT', () => shutdown(0))
+// a crash must exit non-zero so systemd Restart=on-failure actually restarts the bot —
+// exit 0 here would report clean success and leave it offline until the health probe pages.
+process.on('uncaughtException', (e) => { log('uncaught exception:', e); shutdown(1) })
 process.on('unhandledRejection', (e) => log('unhandled rejection:', e))
 
 // self-health: only exit if eventsub previously connected AND has gone silent for 5min

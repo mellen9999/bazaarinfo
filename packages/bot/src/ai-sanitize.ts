@@ -405,8 +405,8 @@ function recordEmoteUsed(channel: string, emote: string) {
   invalidateEmoteBlockCache(channel)
 }
 
-// shared state for emote cooldowns — also accessed by ai-cache for cleanup
-export const EMOTE_COOLDOWN_MS = 20 * 60_000
+// shared emote-cooldown state — also accessed by ai-cache for cleanup. the cooldown
+// DURATION lives in ai-cache.ts (single source of truth); a stale duplicate here was dead.
 export const recentEmotesByChannel = new Map<string, Map<string, number>>()
 
 // hard cap total emote tokens per message — defensive against AI ignoring prompt rule

@@ -1399,14 +1399,17 @@ export function pruneOldAiSpend(days = 60): void {
 
 export function pruneOldTriviaGames(days = 180) {
   try {
+    // trivia_games has `started_at`, not `created_at` — the old column name threw and the
+    // catch swallowed it, so this pruned NOTHING and both trivia tables grew unbounded.
+    // trivia_answers has no timestamp, so prune it via its games in the same window.
     const result = db.run(
       `DELETE FROM trivia_answers WHERE game_id IN (
-        SELECT id FROM trivia_games WHERE created_at < datetime('now', ?)
+        SELECT id FROM trivia_games WHERE started_at < datetime('now', ?)
       )`,
       [`-${days} days`],
     )
     const result2 = db.run(
-      `DELETE FROM trivia_games WHERE created_at < datetime('now', ?)`,
+      `DELETE FROM trivia_games WHERE started_at < datetime('now', ?)`,
       [`-${days} days`],
     )
     const total = (result.changes ?? 0) + (result2.changes ?? 0)

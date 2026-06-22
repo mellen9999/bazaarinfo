@@ -306,7 +306,7 @@ async function processQueue(channel: string) {
       let lifestealHealed = 0
       if (lifestealPct > 0) {
         lifestealHealed = Math.max(1, Math.floor(totalDmg * lifestealPct))
-        db.healCharacter(char.username, channel, lifestealHealed)
+        db.healCharacter(char.username, channel, lifestealHealed, char)
       }
 
       targetEnemy.hp = Math.max(0, targetEnemy.hp - totalDmg)
@@ -419,7 +419,7 @@ async function processQueue(channel: string) {
       const char = db.getCharacter(action.username, channel)
       if (!char) continue
       const regen = boons.boonMods(char).regenPerRound
-      if (regen > 0 && char.hp > 0) db.healCharacter(action.username, channel, regen)
+      if (regen > 0 && char.hp > 0) db.healCharacter(action.username, channel, regen, char)
       if (chassisOf(char) === 'rage' && char.rageTurnsLeft > 0) {
         char.rageTurnsLeft--
         if (char.rageTurnsLeft === 0) resultLines.push(`@${action.username}'s Rage ends.`)
@@ -596,10 +596,12 @@ async function resolveEnemyCounterattacks(channel: string, world: WorldState) {
       continue
     }
 
-    // pick random living target (enemies prefer living over dying)
+    // pick random living target (enemies prefer living over dying). use a fresh per-call
+    // sequence, NOT Date.now() — this loop is fully synchronous so the wall clock is
+    // constant across iterations and every enemy would focus-fire the same player.
     const eligible = livingTargets.length > 0 ? livingTargets : targets.filter((p) => p.isDying)
     if (eligible.length === 0) continue
-    const target = eligible[Math.floor((Date.now() % 999983) % eligible.length)]
+    const target = eligible[db.nextSequence(channel) % eligible.length]
     if (!target) continue
 
     // multiattack: loop enemy.multiattack times
@@ -966,7 +968,7 @@ function resolveSpell(char: Character, world: WorldState, channel: string): Spel
       // find lowest-HP active ally (including self)
       const allies = db.getActivePlayers(channel).filter((p) => p.hp > 0 && !p.isDying && p.respawnAt === null)
       const target = allies.length > 0 ? allies.reduce((a, b) => a.hp < b.hp ? a : b) : char
-      const newHp = db.healCharacter(target.username, channel, healAmt)
+      const newHp = db.healCharacter(target.username, channel, healAmt, target)
       // Guiding Bolt: clerics also smite a foe with radiant light (gives them real damage)
       let boltStr = ''
       const foe = livingEnemies[0]
@@ -1208,11 +1210,12 @@ export function resolveUseItem(username: string, channel: string, itemName: stri
   const bonus = combat.getItemBonus(item)
 
   if (bonus.onUseHeal > 0) {
+    const wasDying = char.isDying // healCharacter clears the flag on char; capture first
     char.inventory.splice(idx, 1)
-    const newHp = db.healCharacter(username, channel, bonus.onUseHeal)
+    const newHp = db.healCharacter(username, channel, bonus.onUseHeal, char)
     db.upsertCharacter(char)
     // using a healing potion also stabilizes if dying
-    if (char.isDying) {
+    if (wasDying) {
       db.stabilizeCharacter(username, channel)
       return `@${username} uses ${item} while dying — revived! ${newHp}/${char.maxHp}HP. Item consumed.`
     }
@@ -1356,7 +1359,7 @@ export async function resolveExplore(username: string, channel: string): Promise
     db.upsertWorld(world)
     const hasMeat = combat.hasMeatItems(char.inventory)
     if (!hasMeat) {
-      db.healCharacter(username, channel, char.maxHp)
+      db.healCharacter(username, channel, char.maxHp, char)
       if (!char.statusEffects.includes('blessed')) char.statusEffects.push('blessed')
       db.upsertCharacter(char)
       db.grantAchievement(username, channel, 'vegan')
@@ -1470,7 +1473,7 @@ export function resolveShortRest(username: string, channel: string): string | nu
   const conMod = getModifier(char.stats.con)
   const roll = Math.floor(Math.random() * die) + 1
   const healAmt = Math.max(1, roll + conMod)
-  const newHp = db.healCharacter(username, channel, healAmt)
+  const newHp = db.healCharacter(username, channel, healAmt, char)
 
   char.hitDice--
   // Curse chassis: restore spell slot on short rest

@@ -47,17 +47,22 @@ async function hmacVerify(token: string, secret: string): Promise<TwitchJwtPaylo
   const parts = token.split('.')
   if (parts.length !== 3) return null
 
-  const key = await getVerifyKey(secret)
+  // a malformed segment makes base64UrlDecode (atob) or JSON.parse throw — that must fail
+  // closed as an invalid token (-> 401), never propagate to an uncaught 500 on a public route.
+  try {
+    const key = await getVerifyKey(secret)
+    const data = enc.encode(`${parts[0]}.${parts[1]}`)
+    const signature = base64UrlDecode(parts[2])
+    const valid = await crypto.subtle.verify('HMAC', key, signature, data)
+    if (!valid) return null
 
-  const data = enc.encode(`${parts[0]}.${parts[1]}`)
-  const signature = base64UrlDecode(parts[2])
-  const valid = await crypto.subtle.verify('HMAC', key, signature, data)
-  if (!valid) return null
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[1])))
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null
 
-  const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[1])))
-  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null
-
-  return payload as TwitchJwtPayload
+    return payload as TwitchJwtPayload
+  } catch {
+    return null
+  }
 }
 
 export async function verifyTwitchJwt(authHeader: string | null): Promise<TwitchJwtPayload | null> {
