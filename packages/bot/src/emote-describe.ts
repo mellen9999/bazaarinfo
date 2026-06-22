@@ -111,14 +111,17 @@ const KNOWN: Record<string, EmoteDescription> = {
 }
 
 export async function loadDescriptionCache() {
+  let loadFailed = false
   try {
     const file = Bun.file(CACHE_PATH)
     if (await file.exists()) {
       cache = await file.json()
       log(`loaded ${Object.keys(cache).length} emote descriptions`)
     }
-  } catch {
+  } catch (e) {
+    loadFailed = true
     cache = {}
+    console.error(`emote cache parse failed, NOT overwriting — inspect ${CACHE_PATH}`, e)
   }
   // KNOWN always wins — these are hand-curated and override 7TV auto-descriptions
   let updated = 0
@@ -134,6 +137,7 @@ export async function loadDescriptionCache() {
   let scrubbed = 0
   for (const [name, entry] of Object.entries(cache)) {
     if (name in KNOWN) continue // already correct
+    if (!entry || typeof entry.desc !== 'string') { delete cache[name]; continue }
     const cleaned = cleanDesc(entry.desc, name)
     if (cleaned !== entry.desc) {
       entry.desc = cleaned
@@ -141,7 +145,7 @@ export async function loadDescriptionCache() {
     }
   }
 
-  if (updated > 0 || scrubbed > 0) {
+  if (!loadFailed && (updated > 0 || scrubbed > 0)) {
     log(`emote cache: ${updated} known overrides, ${scrubbed} descriptions scrubbed`)
     await saveCache()
   }

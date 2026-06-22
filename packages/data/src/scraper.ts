@@ -96,35 +96,55 @@ function toMonster(entry: DumpEntry): Monster | null {
 const MAX_RETRIES = 3
 const RETRY_DELAYS = [1000, 2000, 4000]
 
-function parseDump(dump: Record<string, DumpEntry>, onProgress?: (msg: string) => void): CardCache {
+// if more than this fraction of entries fail to parse, the dump is considered
+// structurally broken (e.g. schema change) and we refuse to swap in the new cache
+const SKIP_RATIO_THRESHOLD = 0.15
+
+interface ParseResult {
+  cache: CardCache
+  skipped: number  // hard failures (throw or unknown Type)
+  total: number    // all entries seen (excludes CombatEncounters without MonsterMetadata — those are expected)
+}
+
+function parseDumpWithStats(dump: Record<string, DumpEntry>, onProgress?: (msg: string) => void): ParseResult {
   const items: BazaarCard[] = []
   const skills: BazaarCard[] = []
   const monsters: Monster[] = []
   let skipped = 0
+  let total = 0
   const skippedNames: string[] = []
 
   for (const entry of Object.values(dump)) {
     try {
       switch (entry.Type) {
         case 'Item':
+          total++
           items.push(toCard(entry))
           break
         case 'Skill':
+          total++
           skills.push(toCard(entry))
           break
         case 'CombatEncounter': {
           const m = toMonster(entry)
-          if (m) monsters.push(m)
+          // CombatEncounters without MonsterMetadata are intentionally incomplete
+          // entries in the dump — don't count them as hard failures
+          if (m) {
+            total++
+            monsters.push(m)
+          }
           break
         }
         default:
+          total++
           skipped++
-          if (skipped <= 5) skippedNames.push(entry.Title ?? '(no title)')
+          if (skippedNames.length < 5) skippedNames.push(entry.Title ?? '(no title)')
           break
       }
     } catch (e) {
+      total++
       skipped++
-      if (skipped <= 5) skippedNames.push(entry.Title ?? '(no title)')
+      if (skippedNames.length < 5) skippedNames.push(entry.Title ?? '(no title)')
     }
   }
 
@@ -133,7 +153,11 @@ function parseDump(dump: Record<string, DumpEntry>, onProgress?: (msg: string) =
     onProgress?.(`skipped ${skipped} bad entries: ${names}`)
   }
 
-  return { items, skills, monsters, fetchedAt: new Date().toISOString() }
+  return { cache: { items, skills, monsters, fetchedAt: new Date().toISOString() }, skipped, total }
+}
+
+function parseDump(dump: Record<string, DumpEntry>, onProgress?: (msg: string) => void): CardCache {
+  return parseDumpWithStats(dump, onProgress).cache
 }
 
 type CooldownValue = number | Partial<Record<TierName, number>>
@@ -213,7 +237,12 @@ export async function scrapeDump(onProgress?: (msg: string) => void): Promise<Ca
         throw new Error('unexpected dump.json shape (not an object)')
       }
       const dump = raw as Record<string, DumpEntry>
-      const cache = parseDump(dump, onProgress)
+      const { cache, skipped, total } = parseDumpWithStats(dump, onProgress)
+      if (total > 50 && skipped / total > SKIP_RATIO_THRESHOLD) {
+        throw new Error(
+          `bad dump: ${skipped}/${total} entries failed to parse (schema change?) — keeping old cache`
+        )
+      }
       const cooldowns = await fetchCooldowns(onProgress)
       applyCooldowns(cache, cooldowns)
       if (cache.items.length < 50) {

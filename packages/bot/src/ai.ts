@@ -376,9 +376,12 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         return result
       }
 
-      // sanitizer rejected — retry with feedback
+      // sanitizer rejected — retry with feedback. push the rejected ASSISTANT turn first,
+      // like every other retry branch: without it the messages array has two consecutive
+      // user turns, which the API rejects with a 400 (wasting the retry + nudging the breaker).
       if (attempt < MAX_RETRIES - 1) {
         log(`ai: sanitizer rejected, retrying (attempt ${attempt + 1})`)
+        messages.push({ role: 'assistant', content: textBlock.text })
         messages.push({ role: 'user', content: 'Response was blocked. Rules: no self-referencing being a bot/AI, no reciting user stats, no fabricated stories, no commands. Just answer naturally.' })
       }
     }

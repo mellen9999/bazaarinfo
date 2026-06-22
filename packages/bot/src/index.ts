@@ -163,7 +163,14 @@ setEmoteRefreshHandler(async () => {
     const globals = await refreshGlobalEmotes()
     const currentChannels = client.getChannels()
     const results = await Promise.allSettled(
-      currentChannels.map((ch) => refreshChannelEmotes(ch.name, ch.userId)),
+      currentChannels.map(async (ch) => {
+        const emotes = await refreshChannelEmotes(ch.name, ch.userId)
+        // re-subscribe the EventAPI in case the channel swapped 7TV emote sets — otherwise
+        // real-time updates keep flowing for the OLD set and silently die for the new one.
+        const setId = getEmoteSetId(ch.name)
+        if (setId) emoteEvents.subscribeChannel(ch.name, setId)
+        return emotes
+      }),
     )
     const count = globals.length + results.reduce((n, r) => n + (r.status === 'fulfilled' ? r.value.length : 0), 0)
     return `refreshed ${count} emotes across ${currentChannels.length} channels`
@@ -191,16 +198,25 @@ setJoinHandler(async (target, requester) => {
   }
 })
 
-setPartHandler(async (target, _requester) => {
-  if (envChannels.includes(target)) return `can't leave hardcoded channel #${target}`
-  if (!client.hasChannel(target)) return `not in #${target}`
+// single source of truth for leaving a channel — every subsystem with per-channel state or
+// timers must be torn down here, or a !part leaks them (the raid auto-resolve loop kept
+// mutating a parted channel; dnd timers kept firing). both part paths call this so they can't
+// drift again.
+async function partChannel(target: string) {
   client.leaveChannel(target)
-  cleanupChannel(target)
+  cleanupChannel(target)        // trivia: active game + recent-question state
+  raid.cleanupChannel(target)   // raid: in-memory map (stops the tick auto-resolving it)
+  dnd.cleanupChannel(target)    // dnd: per-channel queues/timers (debounce/respawn/death-save)
   emoteEvents.unsubscribeChannel(target)
   removeChannelEmotes(target)
   chatbuf.cleanupChannel(target)
-  raid.cleanupChannel(target)
   await channelStore.remove(target)
+}
+
+setPartHandler(async (target, _requester) => {
+  if (envChannels.includes(target)) return `can't leave hardcoded channel #${target}`
+  if (!client.hasChannel(target)) return `not in #${target}`
+  await partChannel(target)
   return `left #${target}`
 })
 
@@ -329,12 +345,7 @@ const client = new TwitchClient(
             client.say(channel, `@${username} i'm not in your channel`, messageId)
             return
           }
-          client.leaveChannel(target)
-          cleanupChannel(target)
-          emoteEvents.unsubscribeChannel(target)
-          removeChannelEmotes(target)
-          chatbuf.cleanupChannel(target)
-          await channelStore.remove(target)
+          await partChannel(target)
           client.say(channel, `@${username} left #${target}`, messageId)
           return
         }
@@ -517,7 +528,13 @@ scheduleDaily(4, async () => {
     await refreshGlobalEmotes()
     const currentChannels = client.getChannels()
     await Promise.allSettled(
-      currentChannels.map((ch) => refreshChannelEmotes(ch.name, ch.userId)),
+      currentChannels.map(async (ch) => {
+        await refreshChannelEmotes(ch.name, ch.userId)
+        // re-subscribe the EventAPI in case the channel swapped 7TV emote sets — otherwise
+        // real-time updates keep flowing for the OLD set and silently die for the new one.
+        const setId = getEmoteSetId(ch.name)
+        if (setId) emoteEvents.subscribeChannel(ch.name, setId)
+      }),
     )
   } catch (e) { log(`daily emote refresh failed: ${e}`) }
   log('daily refresh complete')
@@ -529,7 +546,13 @@ setInterval(async () => {
     await refreshGlobalEmotes()
     const currentChannels = client.getChannels()
     await Promise.allSettled(
-      currentChannels.map((ch) => refreshChannelEmotes(ch.name, ch.userId)),
+      currentChannels.map(async (ch) => {
+        await refreshChannelEmotes(ch.name, ch.userId)
+        // re-subscribe the EventAPI in case the channel swapped 7TV emote sets — otherwise
+        // real-time updates keep flowing for the OLD set and silently die for the new one.
+        const setId = getEmoteSetId(ch.name)
+        if (setId) emoteEvents.subscribeChannel(ch.name, setId)
+      }),
     )
     log('periodic emote reconciliation complete')
   } catch (e) { log(`periodic emote reconciliation failed: ${e}`) }

@@ -217,6 +217,14 @@ export function close() {
 }
 
 export function subscribeChannel(channel: string, setId: string) {
+  const prev = channelSubs.get(channel)
+  if (prev === setId) return // already subscribed to this set — idempotent, safe to call often
+  // channel swapped to a different 7TV emote set: release the stale subscription + routing
+  // entry, else we keep getting the old set's events and never the new set's (real-time dies).
+  if (prev) {
+    unsubscribe(prev)
+    setIdToChannel.delete(prev)
+  }
   channelSubs.set(channel, setId)
   setIdToChannel.set(setId, channel)
   subscribe(setId)
