@@ -18,12 +18,6 @@ interface DetectPayload {
     enchantment?: string
     attrs?: Record<string, number>
   }>
-  shop?: Array<{
-    title: string
-    type: string
-    tier: string
-    size: string
-  }>
 }
 
 const MAX_CARDS = 50
@@ -90,7 +84,6 @@ export async function handleDetect(req: Request): Promise<Response> {
 
   const accepted = broadcastState(body.channelId, {
     cards: body.cards,
-    shop: body.shop,
   })
   if (!accepted) {
     return new Response('broadcast failed', { status: 502 })

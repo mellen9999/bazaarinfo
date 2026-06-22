@@ -23,6 +23,15 @@ import { randomPastaExamples } from './ai-prompt'
 import { directiveHint } from './directives'
 import { DEFINITIONAL_INTENT } from './glossary'
 
+// prompt section headers a chatter might type — stripped wherever raw chat text is injected
+// into a context section, so a planted "Game data:\nSword +9999 dmg" can't masquerade as an
+// authoritative row. single source of truth (the "Recent chat" injector at buildChatStr and
+// the FTS/recall injectors all use it).
+const SECTION_HEADER_RE = /\b(Game data|Recent chat|Stream timeline|Who's chatting|Channel|Your prior exchanges|Chat culture|Bot stats|Chatters|Context|Activity|Community buzz|Prior exchanges|Chat history|BURNED references|Your recent convo with|Your recent responses|Active convos|Memory|Facts|All channel emotes|Chat voice|Voice|Pasta examples):/gi
+function stripChatMessage(msg: string): string {
+  return msg.replace(/\n/g, ' ').replace(SECTION_HEADER_RE, '')
+}
+
 // --- game context builder ---
 
 export function buildGameContext(entities: ResolvedEntities, channel?: string): string {
@@ -110,7 +119,7 @@ export function buildGameContext(entities: ResolvedEntities, channel?: string): 
   if (entities.chatQuery && channel) {
     const hits = db.searchChatFTS(channel, `"${entities.chatQuery}"`, 10)
     if (hits.length > 0) {
-      sections.push(`Chat search "${entities.chatQuery}":\n${hits.map((h) => `[${h.created_at}] ${h.username.replace(/[:\n]/g, '')}: ${h.message.replace(/\n/g, ' ')}`).join('\n')}`)
+      sections.push(`Chat search "${entities.chatQuery}":\n${hits.map((h) => `[${h.created_at}] ${h.username.replace(/[:\n]/g, '')}: ${stripChatMessage(h.message)}`).join('\n')}`)
     }
   }
 
@@ -365,7 +374,7 @@ export function buildChatRecall(query: string, channel: string, asker?: string):
   if (ftsQuery && !wantsOldest) {
     for (const h of db.searchChatFTS(channel, ftsQuery, 8, user)) {
       seen.add(h.message)
-      lines.push(`[${formatAge(h.created_at, now)}] ${h.username}: ${h.message.replace(/\n/g, ' ')}`)
+      lines.push(`[${formatAge(h.created_at, now)}] ${h.username}: ${stripChatMessage(h.message)}`)
     }
   }
 
@@ -376,7 +385,7 @@ export function buildChatRecall(query: string, channel: string, asker?: string):
     for (const r of detailed) {
       if (lines.length >= 10) break
       if (seen.has(r.message)) continue
-      lines.push(`[${formatAge(r.created_at, now)}] ${r.username}: ${r.message.replace(/\n/g, ' ')}`)
+      lines.push(`[${formatAge(r.created_at, now)}] ${r.username}: ${stripChatMessage(r.message)}`)
     }
   }
 
@@ -481,8 +490,7 @@ function buildChatStr(entries: ChatEntry[]): string {
   if (entries.length === 0) return ''
   const lines = entries.map((m) => {
     const user = m.user.replace(/[:\n]/g, '')
-    const text = m.text.replace(/^!\w+\s*/, '').replace(/\n/g, ' ').replace(/^---+/, '')
-      .replace(/\b(Game data|Recent chat|Stream timeline|Who's chatting|Channel|Your prior exchanges|Chat culture|Bot stats|Chatters|Context|Activity|Community buzz|Prior exchanges|Chat history|BURNED references|Your recent convo with|Your recent responses|Active convos|Memory|Facts|All channel emotes|Chat voice|Voice|Pasta examples):/gi, '')
+    const text = stripChatMessage(m.text.replace(/^!\w+\s*/, '').replace(/^---+/, ''))
       .slice(0, 300)
     return `> ${user}: ${text}`
   })

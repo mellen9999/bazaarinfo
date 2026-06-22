@@ -391,6 +391,17 @@ describe('sanitize', () => {
       expect(hasHallucinatedStats('deals 100 damage to the enemy', false)).toBe(true)
       expect(hasHallucinatedStats('deals 100 damage to the enemy', true)).toBe(false)
     })
+    // other-game queries (PoE/D2/WoW) are allowed real numbers — the prompt promises "full
+    // nerd mode"; only Bazaar tooltip notation (+N/tier) stays blocked.
+    it('allows bare game numbers for other-game queries, still blocks Bazaar notation', () => {
+      expect(hasHallucinatedStats('in PoE, Fireball deals 50 fire damage base', false, true)).toBe(false)
+      expect(hasHallucinatedStats('D2 Blizzard does 400 cold damage', false, true)).toBe(false)
+      expect(hasHallucinatedStats('the boss has 5000 hp', false, true)).toBe(false)
+      // but Bazaar +notation is a fabrication regardless of otherGame
+      expect(hasHallucinatedStats('it gives +60 haste at gold tier', false, true)).toBe(true)
+      // and a Bazaar-context bare-number claim (otherGame=false) is still blocked
+      expect(hasHallucinatedStats('deals 100 damage to the enemy', false, false)).toBe(true)
+    })
     // loose verb+number tells — only enforced outside creative (narrative false positives)
     it('blocks loose stat tells only outside creative', () => {
       expect(hasHallucinatedStats('base poison is 40', false)).toBe(true)

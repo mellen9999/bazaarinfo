@@ -599,6 +599,7 @@ namespace BazaarInfoPlugin
                 Plugin.PlayerBoard.Clear();
                 Plugin.OpponentBoard.Clear();
                 Plugin.InstanceToTemplate.Clear();
+                Plugin.InstanceToSize.Clear();
                 Plugin.NextPlayerSkillSocket = 0;
                 Plugin.NextOpponentSkillSocket = 0;
 
@@ -834,6 +835,7 @@ namespace BazaarInfoPlugin
                             Plugin.OpponentBoard.Clear();
                             Plugin.ShopCards.Clear();
                             Plugin.InstanceToTemplate.Clear();
+                            Plugin.InstanceToSize.Clear();
                             Plugin.NextPlayerSkillSocket = 0;
                             Plugin.NextOpponentSkillSocket = 0;
                         }

@@ -17,16 +17,8 @@ interface DetectedCard {
   enchantment?: string
 }
 
-interface ShopCard {
-  title: string
-  type: string
-  tier: string
-  size: string
-}
-
 interface BroadcastPayload {
   cards: DetectedCard[]
-  shop?: ShopCard[]
 }
 
 const PROTOCOL_VERSION = 1
@@ -73,7 +65,6 @@ function fitForLimit(payload: BroadcastPayload): string | null {
     v: PROTOCOL_VERSION,
     cards: payload.cards.map(({ title, tier, x, y, w, h, owner, type, enchantment }) =>
       ({ title, tier, x, y, w, h, owner, type, enchantment })),
-    shop: payload.shop,
   }
   const slimMsg = JSON.stringify(slim)
   if (slimMsg.length <= 5000) return slimMsg

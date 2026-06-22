@@ -1,7 +1,8 @@
 // BazaarInfo EBS — Extension Backend Service
 // Relays companion card detections to viewers via Twitch PubSub
 
-import { readFileSync } from 'fs'
+import { readFileSync, watch } from 'fs'
+import { resolve, dirname, basename } from 'path'
 import type { CardCache } from '@bazaarinfo/shared'
 import { verifyTwitchJwt, deriveChannelSecret } from './auth'
 import { handleCards, setCardCache, getCardCache } from './routes/cards'
@@ -140,21 +141,52 @@ async function handleRequest(req: Request): Promise<Response> {
 
 const CACHE_PATH = process.env.CACHE_PATH ?? 'cache/items.json'
 
+// atomic read-then-swap: parse the full file and only swap the in-memory cache on success,
+// so a partial/corrupt read (the bot writes via temp+rename) never clobbers good data.
+function loadCache(initial = false): boolean {
+  try {
+    const cache = JSON.parse(readFileSync(CACHE_PATH, 'utf-8')) as CardCache
+    if (!Array.isArray(cache.items) || !Array.isArray(cache.skills) || !Array.isArray(cache.monsters)) {
+      throw new Error('cache missing required arrays')
+    }
+    setCardCache(cache)
+    console.log(`[ebs] loaded ${cache.items.length} items, ${cache.skills.length} skills, ${cache.monsters.length} monsters`)
+    return true
+  } catch (e) {
+    console.error(`[ebs] ${initial ? 'failed to load' : 'reload failed, keeping current'} card cache:`, e)
+    return false
+  }
+}
+
 // Load card cache from local file (written by the bot's scraper)
 function init() {
   console.log(`[ebs] loading card cache from ${CACHE_PATH}...`)
+  if (!loadCache(true)) process.exit(1)
+
+  // the bot re-scrapes and atomically rewrites CACHE_PATH (temp+rename) on dump changes and
+  // the daily refresh; without this, EBS served boot-time card data until a manual restart.
+  // watch the DIRECTORY (a rename swaps the inode, so a path-watch would go stale) and
+  // debounce, since one atomic write can emit several events.
   try {
-    const cache = JSON.parse(readFileSync(CACHE_PATH, 'utf-8')) as CardCache
-    setCardCache(cache)
-    console.log(`[ebs] loaded ${cache.items.length} items, ${cache.skills.length} skills, ${cache.monsters.length} monsters`)
+    const abs = resolve(CACHE_PATH)
+    let reloadTimer: ReturnType<typeof setTimeout> | null = null
+    watch(dirname(abs), (_event, filename) => {
+      if (filename !== basename(abs)) return
+      if (reloadTimer) clearTimeout(reloadTimer)
+      reloadTimer = setTimeout(() => { console.log('[ebs] card cache changed, reloading'); loadCache() }, 1000)
+    })
   } catch (e) {
-    console.error('[ebs] failed to load card cache:', e)
-    process.exit(1)
+    console.error('[ebs] could not watch card cache for changes:', e)
   }
 
   const server = Bun.serve({
     port: PORT,
     hostname: '127.0.0.1',
+    // server-enforced body ceiling: /detect's Content-Length check is bypassable via chunked
+    // transfer (no Content-Length), so without this an unauthenticated POST could make Bun
+    // buffer up to its 128MB default — memory-pressure DoS on a low-RAM host. 200k covers the
+    // 100k payload cap + headers; Bun rejects oversize bodies during read, before req.json().
+    maxRequestBodySize: 200_000,
     fetch: handleRequest,
     // last-resort guard: any uncaught throw in a route (malformed input, a bug) returns a
     // clean 500 instead of leaking Bun's default error page (with a stack) on a public route.

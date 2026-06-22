@@ -277,7 +277,11 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // reject hallucinated game stats when no game data was provided. unambiguous
       // Bazaar stat claims (keyword/tier/+X/+Y) are rejected even in creative/banter —
       // a roleplay reply that invents "+60 haste at gold tier" is still misinformation.
-      if (!hasGameData && hasHallucinatedStats(result.text, isCreative)) {
+      // an other-game query (a game term matched but no Bazaar entity resolved) is allowed
+      // real numbers — the prompt promises "full nerd mode" for other games; only Bazaar
+      // tooltip notation stays blocked. without this the bot silently refused PoE/D2/WoW Qs.
+      const isOtherGame = !hasGameData && GAME_TERMS.test(query)
+      if (!hasGameData && hasHallucinatedStats(result.text, isCreative, isOtherGame)) {
         log(`ai: hallucinated stats without game data, retrying (attempt ${attempt + 1})`)
         if (attempt < MAX_RETRIES - 1) {
           messages.push({ role: 'assistant', content: textBlock.text })
@@ -311,7 +315,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           const clauseBreak = Math.max(cut.lastIndexOf(' — '), cut.lastIndexOf(', '))
           if (clauseBreak > hardCap * 0.5) {
             result.text = cut.slice(0, clauseBreak).trim()
-          } else {
+          } else if (data.stop_reason === 'max_tokens' || result.text.length > 480) {
+            // only amputate mid-thought when the model was actually cut off, or we're over
+            // the hard 480-char Twitch limit. a COMPLETE slightly-over-cap one-liner ("she's
+            // the best take here") keeps its last words instead of being clipped to a fragment.
             result.text = cut.replace(/\s+\S*$/, '').trim()
           }
         }
