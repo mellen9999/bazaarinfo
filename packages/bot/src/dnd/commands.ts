@@ -235,7 +235,32 @@ const CI_ATTACK = new Set([
   'blast', 'throw', 'charge', 'whack', 'bonk', 'slay', 'fight', 'engage', 'maul', 'club', 'bash',
   'pummel', 'lunge', 'chop', 'wallop', 'clobber', 'jab', 'kick', 'attacking', 'hitting', 'fireball',
   'fireburst', 'zap', 'nuke', 'destroy', 'rush', 'assault', 'thwack', 'sock', 'deck', 'beat',
+  'burn', 'torch', 'incinerate', 'sear', 'melt', 'roast', 'fry', 'fireblast', 'scorch',
 ])
+const CI_ARTICLE = new Set(['the', 'a', 'an', 'my', 'some', 'that', 'this'])
+
+export type DndIntent = 'spell' | 'attack' | 'defend' | 'flee' | 'move' | 'explore' | 'use'
+
+// pure intent classifier: strip leading first-person filler, then map the head verb to an
+// action. returns null when there's no combat verb up front (so normal chat isn't hijacked).
+export function classifyDndIntent(text: string): { action: DndIntent; arg: string } | null {
+  const toks = text.toLowerCase().replace(/[^\w\s']/g, ' ').split(/\s+/).filter(Boolean)
+  while (toks.length && CI_FILLER.has(toks[0])) toks.shift()
+  const head = toks[0]
+  if (!head) return null
+  if (CI_SPELL.has(head)) return { action: 'spell', arg: '' }
+  if (CI_DEFEND.has(head)) return { action: 'defend', arg: '' }
+  if (CI_FLEE.has(head)) return { action: 'flee', arg: '' }
+  if (CI_USE.has(head)) {
+    const rest = toks.slice(1)
+    while (rest.length && CI_ARTICLE.has(rest[0])) rest.shift() // "drink THE antitoxin" -> "antitoxin"
+    return { action: 'use', arg: rest.join(' ') }
+  }
+  if (CI_MOVE.has(head)) return { action: 'move', arg: '' }
+  if (CI_EXPLORE.has(head)) return { action: 'explore', arg: '' }
+  if (CI_ATTACK.has(head)) return { action: 'attack', arg: '' }
+  return null
+}
 
 export async function handleCombatIntent(text: string, ctx: CommandContext): Promise<string | null> {
   if (!ctx.channel || !ctx.user) return null
@@ -243,19 +268,22 @@ export async function handleCombatIntent(text: string, ctx: CommandContext): Pro
   if (!dndActive(channel)) return null
   if (!db.getCharacter(ctx.user.toLowerCase(), channel)) return null // not a player — leave chat alone
 
-  const toks = text.toLowerCase().replace(/[^\w\s']/g, ' ').split(/\s+/).filter(Boolean)
-  while (toks.length && CI_FILLER.has(toks[0])) toks.shift()
-  const head = toks[0]
-  if (!head) return null
+  const intent = classifyDndIntent(text)
+  if (!intent) return null
 
-  if (CI_SPELL.has(head)) return handleSpell('', ctx)
-  if (CI_DEFEND.has(head)) return handleDefend('', ctx)
-  if (CI_FLEE.has(head)) return handleFlee('', ctx)
-  if (CI_USE.has(head)) return handleUse(toks.slice(1).join(' '), ctx)
-  if (CI_MOVE.has(head)) return await handleMove('', ctx)
-  if (CI_EXPLORE.has(head)) return await handleExplore('', ctx)
-  if (CI_ATTACK.has(head)) return handleAttack('', ctx)
-  return null
+  // queued actions (attack/spell/defend) resolve at round-close via say() and return null —
+  // map that to '' so the caller knows the message WAS a dnd action and must NOT fall through
+  // to the AI (which would post a duplicate, unrelated reply). null = not a combat intent.
+  const handled = (r: string | null): string => r ?? ''
+  switch (intent.action) {
+    case 'spell': return handled(handleSpell('', ctx))
+    case 'defend': return handled(handleDefend('', ctx))
+    case 'flee': return handled(handleFlee('', ctx))
+    case 'use': return handled(handleUse(intent.arg, ctx))
+    case 'move': return handled(await handleMove('', ctx))
+    case 'explore': return handled(await handleExplore('', ctx))
+    case 'attack': return handled(handleAttack('', ctx))
+  }
 }
 
 export function handleBuy(arg: string, ctx: CommandContext): string | null {

@@ -1093,3 +1093,41 @@ describe('dnd db', () => {
     })
   })
 })
+
+describe('classifyDndIntent — natural-language combat routing', () => {
+  // imported lazily so the store mock above is already installed
+  const { classifyDndIntent } = require('./commands') as typeof import('./commands')
+  const act = (s: string) => classifyDndIntent(s)?.action ?? null
+
+  it('routes spell phrasings', () => {
+    expect(act('I cast Fireburst at it')).toBe('spell')
+    expect(act('cast fireball')).toBe('spell')
+    expect(act("let's cast it")).toBe('spell')
+    expect(act('unleash hell')).toBe('spell')
+  })
+  it('routes attack phrasings', () => {
+    expect(act('attack the kimono')).toBe('attack')
+    expect(act("I'll hit it")).toBe('attack')
+    expect(act('imma smash that goblin')).toBe('attack')
+    expect(act('burn it down')).toBe('attack')
+  })
+  it('routes defend / flee / use / move / explore', () => {
+    expect(act('defend')).toBe('defend')
+    expect(act('I block')).toBe('defend')
+    expect(act('flee you fools')).toBe('flee')
+    expect(act("let's run")).toBe('flee')
+    expect(act('use potion of healing')).toBe('use')
+    expect(classifyDndIntent('drink the antitoxin')).toEqual({ action: 'use', arg: 'antitoxin' })
+    expect(act('descend')).toBe('move')
+    expect(act("let's descend to the next floor")).toBe('move')
+    expect(act('next floor')).toBe('move')
+    expect(act('explore the area')).toBe('explore')
+  })
+  it('does NOT hijack normal chat (no leading combat verb)', () => {
+    expect(act('hello chat how are you')).toBeNull()
+    expect(act('this game is fire lol')).toBeNull()       // "fire" not at the head
+    expect(act('that boss looks scary')).toBeNull()
+    expect(act('gg wp everyone')).toBeNull()
+    expect(act('')).toBeNull()
+  })
+})
