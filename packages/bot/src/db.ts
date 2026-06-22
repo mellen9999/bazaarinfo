@@ -914,6 +914,18 @@ export function getTriviaLeaderboard(channel: string, limit = 5): { username: st
   return stmts.triviaLeaderboard.all(channel, limit) as { username: string; points: number; trivia_wins: number }[]
 }
 
+// the most recent finished trivia round in a channel + who won it (null if it timed out
+// with no winner). lets "who won the trivia?" be answered from real data instead of the
+// AI inventing a winner. returns null if the channel has never run a round.
+export function getLastTriviaResult(channel: string): { question: string; answer: string; winner: string | null } | null {
+  const row = db.query(
+    `SELECT g.question_text AS question, g.correct_answer AS answer, u.username AS winner
+     FROM trivia_games g LEFT JOIN users u ON u.id = g.winner_id
+     WHERE g.channel = ? ORDER BY g.id DESC LIMIT 1`,
+  ).get(channel) as { question: string; answer: string; winner: string | null } | undefined
+  return row ? { question: row.question, answer: row.answer, winner: row.winner ?? null } : null
+}
+
 export function getTriviaStreak(userId: number): number {
   const row = db.query('SELECT trivia_streak FROM users WHERE id = ?').get(userId) as { trivia_streak: number } | undefined
   return row?.trivia_streak ?? 0
