@@ -227,6 +227,8 @@ const CI_SPELL = new Set(['cast', 'spell', 'conjure', 'channel', 'unleash', 'inc
 const CI_DEFEND = new Set(['defend', 'block', 'guard', 'brace', 'parry', 'dodge', 'shield', 'cover', 'protect', 'blocking', 'defending'])
 const CI_FLEE = new Set(['flee', 'run', 'escape', 'retreat', 'bail', 'nope', 'abscond', 'withdraw', 'leave', 'fleeing', 'running', 'yeet'])
 const CI_USE = new Set(['use', 'drink', 'quaff', 'consume', 'eat', 'pop', 'apply', 'equip', 'chug'])
+const CI_MOVE = new Set(['move', 'descend', 'next', 'advance', 'continue', 'proceed', 'onward', 'deeper', 'forward', 'down', 'progress', 'delve'])
+const CI_EXPLORE = new Set(['explore', 'search', 'loot', 'scavenge', 'investigate', 'scout', 'rummage'])
 const CI_ATTACK = new Set([
   'attack', 'hit', 'strike', 'swing', 'stab', 'slash', 'shoot', 'punch', 'smash', 'kill', 'murder',
   'blast', 'throw', 'charge', 'whack', 'bonk', 'slay', 'fight', 'engage', 'maul', 'club', 'bash',
@@ -249,6 +251,8 @@ export function handleCombatIntent(text: string, ctx: CommandContext): string | 
   if (CI_DEFEND.has(head)) return handleDefend('', ctx)
   if (CI_FLEE.has(head)) return handleFlee('', ctx)
   if (CI_USE.has(head)) return handleUse(toks.slice(1).join(' '), ctx)
+  if (CI_MOVE.has(head)) return handleMove('', ctx)
+  if (CI_EXPLORE.has(head)) return handleExplore('', ctx)
   if (CI_ATTACK.has(head)) return handleAttack('', ctx)
   return null
 }
