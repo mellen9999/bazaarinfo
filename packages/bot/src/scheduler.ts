@@ -25,16 +25,24 @@ function msUntil(targetHour: number): number {
 }
 
 export function scheduleDaily(hour: number, fn: () => Promise<void>) {
+  // sleep toward the target in <=1h chunks, re-deriving the PT wall-clock each chunk. a single
+  // fixed setTimeout computed in wall-clock minutes drifts an hour across a DST transition (a
+  // PT day is 23h/25h long); chunking makes the final hop recompute against the real clock.
   const schedule = () => {
     const ms = msUntil(hour)
-    log(`next daily run in ${(ms / 3600_000).toFixed(1)}h`)
+    if (ms > 3600_000) {
+      setTimeout(schedule, 3600_000)
+      return
+    }
+    log(`next daily run in ${(ms / 60_000).toFixed(0)}m`)
     setTimeout(async () => {
       try {
         await fn()
       } catch (e) {
         log(`scheduled task error: ${e}`)
       }
-      schedule()
+      // re-arm past the target minute so msUntil rolls to ~tomorrow (avoids a double-fire)
+      setTimeout(schedule, 60_000)
     }, ms)
   }
   schedule()
