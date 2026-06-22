@@ -45,6 +45,7 @@ The bar — every question must be ALL of these:
 - FAIR + GUESSABLE: challenging but landable. A knowledgeable fan or a sharp guesser can get it; a casual won't. Interesting beats obscure — never so niche that nobody in chat could possibly know or reason it out, and never a coin-flip nobody could deduce.
 - SELF-CONTAINED: the question carries everything needed to find the answer. If you narrowed to a specific instance, either NAME that instance in the question (and ask about a property of it) OR make the instance itself the answer (and give enough identifying clues). NEVER reference an unnamed "this game / this bird / a certain X" that chat has no way to identify.
 - TRUE + SINGLE-ANSWER: exactly ONE correct, well-established answer, no competing valid responses. Use a fact you genuinely know — never fabricate.
+- ONE CLEAR ASK: the question requests exactly ONE thing, and its wording makes the answer TYPE obvious. NEVER bundle two questions ("how many X, and what is the third called?"). NEVER use a misdirecting lead-in — if the answer is a name or word, do NOT open with "how many" or any count framing that primes chat to type a number; if the answer is a number, don't phrase it like a name lookup. A reader should know from the wording whether to type a name, a number, or a word.
 - CLEAN of embellishment: ONE core verifiable fact only. Do NOT pad with extra specific claims (an award, an exact year, "the first to do X") unless you are CERTAIN each is true. Fabricated embellishments are the #1 failure — a clean simple true fact beats an impressive-sounding false one.
 - NOT a fuzzy definition: avoid "what is the term/word for ..." questions where several legitimate terms fit (dead-matter eater -> scavenger / saprophage / saprotroph all defensible). Prefer a crisp single answer: a specific name, title, place, date, year, number, or record holder.
 
@@ -155,6 +156,7 @@ Return {"ok":false,"reason":"<brief>"} if you can identify ANY of these PROBLEMS
 - An embellishment — a suspiciously specific extra claim (an award won, an exact date, "the first to do X", a precise record) that you cannot confirm. Fabricated padding like this is the #1 failure; reject it.
 - More than one equally-valid answer (the question is ambiguous).
 - Incoherence — the answer doesn't actually fit what's asked (e.g. it asks for a "fear/phobia" but the answer isn't one).
+- Misdirecting or two-part wording — it bundles two questions, or its lead-in primes the wrong answer type (e.g. opens with "how many" but the answer is a name, so guessers type numbers). The wording must point clearly at the one answer's type.
 - Not self-contained — it refers to an unnamed specific thing ("this game", "a certain bird") the guesser has no way to identify.
 
 Otherwise return {"ok":true}.
