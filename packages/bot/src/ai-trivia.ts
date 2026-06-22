@@ -206,7 +206,7 @@ FIRST think in the "check" field: restate what is being asked, confirm the core 
 Reject (ok:false) if you find ANY of these problems:
 - A claim you know or strongly believe is FALSE — including a count that does NOT match the question's own stated conditions (e.g. it says "excluding X" but the answer is the count that includes X).
 - An unconfirmable embellishment — a specific award, exact date, record, or "first to do X" you cannot verify. Fabricated padding is the #1 failure.
-- AMBIGUITY: more than one equally-valid answer, OR a count whose value depends on convention so there is no single agreed number (e.g. "how many buttons does a controller have" — is the d-pad 0, 1, or 4? — reject; "how many moons does Jupiter have" changes yearly — reject). If the unit being counted is debatable, reject.
+- AMBIGUITY: more than one equally-valid answer. This includes (a) a "what is the term/word for X" definition question where several legitimate terms fit (an organism that eats dead matter -> scavenger / saprophage / saprotroph / detritivore / decomposer are all defensible -> reject), and (b) a count whose value depends on convention or changes over time ("how many buttons does a controller have" — is the d-pad 0, 1, or 4? — reject; "how many moons does Jupiter have" changes yearly — reject). If multiple answers could each be marked correct, reject.
 - Incoherence — the answer doesn't actually fit what's asked (asks for a "fear/phobia" but the answer isn't one).
 - Misdirecting or two-part wording — it bundles two questions, or its lead-in primes the wrong answer type (opens with "how many" but the answer is a name).
 - Not self-contained — refers to an unnamed specific thing ("this game", "a certain bird") the guesser can't identify.
