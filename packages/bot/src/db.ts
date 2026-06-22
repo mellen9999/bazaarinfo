@@ -1363,13 +1363,19 @@ export function pruneOldAskQueries(days = 90) {
 
 // --- per-channel AI spend ledger ---
 
-function utcDay(): string {
-  return new Date().toISOString().slice(0, 10)
+// the daily AI-spend cap is a per-DAY budget; key it on the PT calendar date (the stream
+// day) not UTC — 00:00 UTC is mid-evening PT, so a UTC key would reset the cap mid-stream
+// and let spend span two UTC days back-to-back. en-CA formats as YYYY-MM-DD.
+const _ptDayFmt = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
+})
+function ptDay(d: Date = new Date()): string {
+  return _ptDayFmt.format(d)
 }
 
 export function recordAiSpend(channel: string, inputTokens: number, outputTokens: number): void {
   try {
-    stmts.upsertAiSpend.run(channel.toLowerCase(), utcDay(), inputTokens, outputTokens)
+    stmts.upsertAiSpend.run(channel.toLowerCase(), ptDay(), inputTokens, outputTokens)
   } catch (e) {
     log(`ai_spend write failed: ${e}`)
   }
@@ -1378,18 +1384,18 @@ export function recordAiSpend(channel: string, inputTokens: number, outputTokens
 export interface DailySpend { input_tokens: number; output_tokens: number; calls: number }
 
 export function getDailyAiSpend(channel: string): DailySpend {
-  const row = stmts.selectAiSpend.get(channel.toLowerCase(), utcDay()) as DailySpend | null
+  const row = stmts.selectAiSpend.get(channel.toLowerCase(), ptDay()) as DailySpend | null
   return row ?? { input_tokens: 0, output_tokens: 0, calls: 0 }
 }
 
 export function getGlobalDailyAiSpend(): { tokens: number; calls: number } {
-  const row = stmts.totalAiSpend.get(utcDay()) as { tokens: number | null; calls: number | null } | null
+  const row = stmts.totalAiSpend.get(ptDay()) as { tokens: number | null; calls: number | null } | null
   return { tokens: row?.tokens ?? 0, calls: row?.calls ?? 0 }
 }
 
 export function pruneOldAiSpend(days = 60): void {
   try {
-    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
+    const cutoff = ptDay(new Date(Date.now() - days * 86_400_000))
     const result = db.run(`DELETE FROM ai_spend WHERE day < ?`, [cutoff])
     if (result.changes > 0) log(`pruned ${result.changes} ai_spend rows older than ${days}d`)
   } catch (e) {

@@ -288,6 +288,23 @@ describe('state (DB)', () => {
     expect(Date.now() - state.lastResolvedAt).toBeLessThan(60_000)
   })
 
+  it('rehydrates the pending vote + already-cast votes on restore (day >= 2)', () => {
+    testDb.run(`INSERT INTO users (id, username) VALUES (1, 'voter')`)
+    testDb.run(`INSERT INTO raids (id, channel, hero, day, status) VALUES (50, 'votechan', 'Vanessa', 3, 'active')`)
+    testDb.run(`INSERT INTO raid_votes (raid_id, day, user_id, choice) VALUES (50, 3, 1, 'galleon')`)
+    raidState.restoreFromDb()
+    const state = raidState.getRaid('votechan')!
+    expect(state.pendingVote).toBeTruthy()
+    expect(state.pendingVote!.options.length).toBe(2)
+    expect(state.pendingVote!.tally.get('voter')).toBe('galleon') // cast vote survived the restart
+  })
+
+  it('does not reconstruct a pending vote on day 1 (no vote window yet)', () => {
+    testDb.run(`INSERT INTO raids (id, channel, hero, day, status) VALUES (51, 'd1chan', 'Vanessa', 1, 'active')`)
+    raidState.restoreFromDb()
+    expect(raidState.getRaid('d1chan')!.pendingVote).toBeNull()
+  })
+
   it('submitPick records last-write-wins', () => {
     raidState.getOrCreateRaid('chan4')
     raidState.claimSlot('chan4', 'dave')

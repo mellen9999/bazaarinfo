@@ -19,6 +19,13 @@ function parseSqliteUtc(s: string | null | undefined): number {
   return Number.isFinite(t) ? t : 0
 }
 
+// the two daily vote choices are constant, so a pending vote can be fully reconstructed on
+// restart from the persisted raid_votes rows (the live tally is otherwise in-memory only).
+const RAID_VOTE_OPTIONS: [VoteOption, VoteOption] = [
+  { label: 'Galleon', monsterHint: 'sea' },
+  { label: "Witch's Hut", monsterHint: 'forest' },
+]
+
 // ---------- in-memory map ----------
 const raids = new Map<string, RaidState>()
 
@@ -83,6 +90,22 @@ function buildState(row: RaidRow): RaidState {
     }
   }
 
+  // rehydrate the current day's pending vote. votes are persisted to raid_votes but the live
+  // tally is in-memory only, so a restart mid-window dropped already-cast votes AND (because
+  // pendingVote was null) silently rejected new ones. a pending vote exists for every active
+  // day past the first (commitResolution creates it on each day-transition); options are
+  // constant so reconstruct, loading any votes already cast for this day.
+  let pendingVote: RaidState['pendingVote'] = null
+  if ((row.status as RaidState['status']) === 'active' && row.day >= 2) {
+    const voteRows = db.query(
+      `SELECT u.username AS username, v.choice AS choice FROM raid_votes v
+       JOIN users u ON u.id = v.user_id WHERE v.raid_id = ? AND v.day = ?`,
+    ).all(row.id, row.day) as { username: string; choice: string }[]
+    const tally = new Map<string, string>()
+    for (const vr of voteRows) tally.set(vr.username.toLowerCase(), vr.choice.toLowerCase())
+    pendingVote = { options: RAID_VOTE_OPTIONS, tally }
+  }
+
   return {
     raidId: row.id,
     channel: row.channel,
@@ -97,7 +120,7 @@ function buildState(row: RaidRow): RaidState {
     enabled: row.enabled === 1,
     slots,
     lastResolution,
-    pendingVote: null,
+    pendingVote,
   }
 }
 
@@ -351,11 +374,7 @@ export function commitResolution(channel: string, resolution: Resolution): RaidS
   state.day++
   for (const slot of state.slots) slot.submittedThisDay = null
 
-  const options: [VoteOption, VoteOption] = [
-    { label: 'Galleon', monsterHint: 'sea' },
-    { label: "Witch's Hut", monsterHint: 'forest' },
-  ]
-  state.pendingVote = { options, tally: new Map() }
+  state.pendingVote = { options: RAID_VOTE_OPTIONS, tally: new Map() }
 
   db.run(
     `UPDATE raids SET day = ?, wins = ?, losses = ?, hp = ?, gold = ?, last_resolved_at = datetime('now'), enabled = ? WHERE id = ?`,
