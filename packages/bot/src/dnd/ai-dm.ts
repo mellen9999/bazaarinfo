@@ -77,6 +77,16 @@ async function ask(channel: string, prompt: string, maxTokens = 60): Promise<str
   return (text ?? '').slice(0, 200)
 }
 
+// the command hint MUST live outside the AI text — the model used to be told to "end with
+// !b a to attack..." and the 200-char slice cut it mid-word ("!b spell to use f"), so players
+// couldn't read what to type. ask for atmosphere only, strip any arrow the model adds anyway,
+// cap it, then append the full hint so it's always intact.
+function withHint(atmosphere: string, hint: string): string {
+  const a = atmosphere.replace(/\s*(?:→|->).*$/, '').trim()
+  const cap = a.length > 200 ? a.slice(0, 197).replace(/\s+\S*$/, '') : a
+  return cap ? `${cap} ${hint}` : hint
+}
+
 // --- custom class generation ---
 const CLASS_GEN_SYSTEM = `You are a D&D 5e class designer for a Twitch dungeon-crawler. Given a class NAME (which may be silly, rude, or absurd — that's fine, lean into the humor), design a balanced level-1 class. Respond with ONLY a JSON object, no prose, no code fences:
 {"chassis":"<one of: rage surge smite sneak nuke heal chaos flurry curse>","baseStats":{"str":N,"dex":N,"con":N,"int":N,"wis":N,"cha":N},"hitDie":<6|8|10|12>,"atkStat":"<str|dex|con|int|wis|cha>","weapon":{"name":"<short weapon name>","die":<4|6|8|10|12>,"count":<1|2>},"acArchetype":"<unarmored|mail|plate|light|mage|monk>","signature":"<bespoke ability name, max 24 chars>","role":"<one vivid sentence describing the fighter>","desc":"<short stat+ability summary, max 80 chars>"}
@@ -141,11 +151,12 @@ export async function narrateFloor(
   }
   const enemyStr = alive.map((e) => `${e.name} (${e.hp}/${e.maxHp}HP)`).join(', ')
   const soloNote = playerCount <= 1 ? ' One adventurer stands alone.' : ''
+  const hint = '→ !b a to attack · !b d to defend · !b spell for class ability'
   const prompt = `Twitch chat D&D dungeon, floor ${floor}.${soloNote} ${playerCount} adventurer(s) face: ${enemyStr}.
-Write ONE tactical atmosphere line (170 chars max, lowercase, gritty D&D dungeon tone). End with: → !b a to attack · !b d to defend · !b spell for class ability. No emojis.`
+Write ONE tactical atmosphere line, 140 chars max, lowercase, gritty D&D dungeon tone. Just the scene — do NOT include any commands, "!b", or arrows. No emojis.`
   const result = await ask(channel, prompt, 72)
-  if (!result) return `floor ${floor}: ${enemyStr} — roll for initiative. → !b a to attack · !b d to defend · !b spell for class ability`
-  return result
+  if (!result) return `floor ${floor}: ${enemyStr} — roll for initiative. ${hint}`
+  return withHint(result, hint)
 }
 
 export async function welcomePlayer(
@@ -160,19 +171,22 @@ export async function welcomePlayer(
   const role = def.role
   const enemyStr = enemies.length > 0 ? enemies.join(', ') : 'shadows'
   const spellHint = spellHintFor(def)
+  const hint = `→ !b a to attack · !b spell for ${spellHint} · !b d to defend`
   const prompt = `Twitch chat D&D. @${username} descends as a ${cls} (${role}). Floor ${floor} (${encounterType}). Enemies: ${enemyStr}.
-Write ONE welcoming line (160 chars max, lowercase, classic D&D dungeon tone). End with: !b a to attack · !b spell to use ${spellHint} · !b d to defend. No emojis.`
+Write ONE welcoming line, 130 chars max, lowercase, classic D&D dungeon tone. Just the scene — do NOT include any commands, "!b", or arrows. No emojis.`
   const result = await ask(channel, prompt, 72)
-  if (!result) return `@${username} descends as ${cls} — ${role}. → !b a to attack · !b spell to ${spellHint} · !b d to defend`
-  return result
+  if (!result) return `@${username} descends as ${cls} — ${role}. ${hint}`
+  return withHint(result, hint)
 }
 
 export async function narrateBoss(channel: string, floor: number, bossName: string, bossHp: number, playerCount: number): Promise<string> {
   const soloNote = playerCount <= 1 ? ' One lone challenger steps forward.' : ` ${playerCount} challengers.`
+  const hint = '→ !b a to attack · !b spell · !b d to defend'
   const prompt = `Twitch chat D&D. A BOSS appears on floor ${floor}: ${bossName} (${bossHp}HP).${soloNote}
-Write ONE epic, hype boss-entrance line in Kripp's voice (170 chars max, lowercase, dramatic). Name the boss. End with: → !b a to attack · !b spell. No emojis.`
+Write ONE epic, hype boss-entrance line in Kripp's voice, 140 chars max, lowercase, dramatic. Name the boss. Just the line — do NOT include any commands, "!b", or arrows. No emojis.`
   const result = await ask(channel, prompt, 80)
-  return result
+  if (!result) return `a BOSS blocks your path: ${bossName} (${bossHp}HP). ${hint}`
+  return withHint(result, hint)
 }
 
 export async function narrateVeganShrine(channel: string, passed: boolean, username: string): Promise<string> {

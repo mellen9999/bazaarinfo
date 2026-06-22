@@ -222,6 +222,7 @@ const CI_FILLER = new Set([
   'i', "i'll", 'ill', 'imma', "i'ma", "i'm", 'im', 'ima', 'lemme', 'let', 'me', 'gonna', 'gon',
   'wanna', 'will', 'just', 'now', 'then', 'try', 'to', 'go', 'and', 'ok', 'okay', 'lol', 'time',
   'a', 'the', 'shall', 'gotta', 'must', 'finna', 'wna', 'gunna', 'bout', 'about', 'my', 'turn',
+  "let's", 'lets', 'ok', 'okay', 'yo', 'aight', 'alright', 'really',
 ])
 const CI_SPELL = new Set(['cast', 'spell', 'conjure', 'channel', 'unleash', 'incant', 'chant', 'invoke', 'summon', 'spellcast', 'casting'])
 const CI_DEFEND = new Set(['defend', 'block', 'guard', 'brace', 'parry', 'dodge', 'shield', 'cover', 'protect', 'blocking', 'defending'])
