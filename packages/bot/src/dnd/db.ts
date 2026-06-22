@@ -481,10 +481,21 @@ export function damageCharacter(username: string, channel: string, amount: numbe
   }
 }
 
-export function healCharacter(username: string, channel: string, amount: number): number {
+// Heals via a targeted UPDATE and returns the new hp. Pass the in-memory `char` whenever a
+// `upsertCharacter(char)` (full-row write) follows in the same flow: this mirrors the SQL
+// onto the object (hp clamped, dying/death-saves cleared) so the upsert can't clobber the
+// heal with the stale pre-heal hp. Without it, potions/lifesteal/regen silently revert.
+export function healCharacter(username: string, channel: string, amount: number, char?: Character): number {
   try {
     const rows = stmts.healChar.all(amount, username.toLowerCase(), channel.toLowerCase()) as { hp: number; max_hp: number }[]
-    return rows[0]?.hp ?? 0
+    const newHp = rows[0]?.hp ?? 0
+    if (char && rows[0]) {
+      char.hp = newHp
+      char.isDying = false
+      char.deathSuccesses = 0
+      char.deathFailures = 0
+    }
+    return newHp
   } catch (e) {
     log(`dnd: healCharacter error: ${e}`)
     return 0

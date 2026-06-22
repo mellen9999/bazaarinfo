@@ -156,6 +156,12 @@ function init() {
     port: PORT,
     hostname: '127.0.0.1',
     fetch: handleRequest,
+    // last-resort guard: any uncaught throw in a route (malformed input, a bug) returns a
+    // clean 500 instead of leaking Bun's default error page (with a stack) on a public route.
+    error(e) {
+      console.error('[ebs] unhandled request error:', e)
+      return new Response('internal error', { status: 500, headers: { 'Access-Control-Allow-Origin': '*' } })
+    },
   })
 
   console.log(`[ebs] listening on :${server.port}`)

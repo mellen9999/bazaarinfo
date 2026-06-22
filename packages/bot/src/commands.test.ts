@@ -494,7 +494,7 @@ describe('handleCommand routing', () => {
   })
 
   it('handles !b case-insensitively', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = await handleCommand('!B boomerang')
     expect(result).toBeTruthy()
     expect(result).toContain('Boomerang')
@@ -508,7 +508,7 @@ describe('handleCommand routing', () => {
   })
 
   it('trims whitespace from args', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = await handleCommand('!b   boomerang   ')
     expect(result).toContain('Boomerang')
   })
@@ -521,7 +521,7 @@ describe('handleCommand routing', () => {
   })
 
   it('only !b routes to handler', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     expect(await handleCommand('!b boomerang')).toBeTruthy()
   })
 })
@@ -571,7 +571,7 @@ describe('!b item lookup', () => {
   })
 
   it('includes shortlink in item response', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = await handleCommand('!b boomerang')
     expect(result).toContain('bzdb.to/boomerang')
   })
@@ -696,7 +696,7 @@ describe('!b enchantment (any order)', () => {
         },
       },
     })
-    mockExact.mockImplementation(() => card)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? card : undefined)
     expect(await handleCommand('!b icy boomerang')).toContain('[Boomerang - Icy]')
     expect(await handleCommand('!b boomerang icy')).toContain('[Boomerang - Icy]')
   })
@@ -839,7 +839,7 @@ describe('!b gold vs golden', () => {
         },
       },
     })
-    mockExact.mockImplementation(() => card)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? card : undefined)
   })
 
   it('"gold boomerang" → gold tier item lookup', async () => {
@@ -862,6 +862,15 @@ describe('!b gold vs golden', () => {
   it('"boomerang golden" → golden enchantment', async () => {
     const result = await handleCommand('!b boomerang golden')
     expect(result).toContain('[Boomerang - Golden]')
+  })
+
+  it('an item whose name starts with an enchant word resolves to the item, not the enchant', async () => {
+    // "Heavy Crossbow" is a real item; "heavy crossbow" must not be parsed as Heavy-enchanted
+    const heavyCrossbow = makeCard({ Title: 'Heavy Crossbow' })
+    mockExact.mockImplementation((name) => name === 'heavy crossbow' ? heavyCrossbow : undefined)
+    const result = (await handleCommand('!b heavy crossbow'))!
+    expect(result).toContain('Heavy Crossbow')
+    expect(result).not.toContain(' - Heavy]') // the enchantment format would be "[X - Heavy]"
   })
 })
 
@@ -1107,13 +1116,13 @@ describe('!b edge cases', () => {
 // ---------------------------------------------------------------------------
 describe('!b output format integration', () => {
   it('item output shows tooltip text', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = (await handleCommand('!b boomerang'))!
     expect(result).toContain('Deal 60 Damage')
   })
 
   it('enchantment output includes tags and tooltip', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = (await handleCommand('!b fiery boomerang'))!
     expect(result).toContain('[Boomerang - Fiery]')
     expect(result).toContain('[Burn]')
@@ -1126,7 +1135,7 @@ describe('!b output format integration', () => {
 // ---------------------------------------------------------------------------
 describe('analytics logging', () => {
   it('logs hit on exact item match', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     await handleCommand('!b boomerang', { user: 'tidolar', channel: 'mellen' })
     expect(mockLogCommand).toHaveBeenCalledWith(
       { user: 'tidolar', channel: 'mellen' },
@@ -1162,7 +1171,7 @@ describe('analytics logging', () => {
   })
 
   it('logs hit on enchantment lookup', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     await handleCommand('!b fiery boomerang', { user: 'test' })
     expect(mockLogCommand).toHaveBeenCalledWith(
       { user: 'test' },
@@ -1229,7 +1238,7 @@ describe('analytics logging', () => {
   })
 
   it('works without context (backwards compat)', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     await handleCommand('!b boomerang')
     expect(mockLogCommand).toHaveBeenCalled()
   })
@@ -1263,34 +1272,34 @@ describe('@mention passthrough', () => {
   })
 
   it('strips @mention from search but tags in response', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = await handleCommand('!b boomerang @hamstornado')
     expect(result).toContain('@hamstornado')
     expect(result).toContain('Boomerang')
   })
 
   it('strips @mention from search query', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     await handleCommand('!b boomerang @someone')
     expect(mockExact).toHaveBeenCalledWith('boomerang')
   })
 
   it('handles multiple mentions by tagging all', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = await handleCommand('!b boomerang @user1 @user2')
     expect(result).toContain('@user1')
     expect(result).toContain('@user2')
   })
 
   it('mention anywhere in args', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = await handleCommand('!b @someone boomerang')
     expect(result).toContain('@someone')
     expect(result).toContain('Boomerang')
   })
 
   it('no mention = no suffix', async () => {
-    mockExact.mockImplementation(() => boomerang)
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     const result = await handleCommand('!b boomerang')
     expect(result).not.toContain('@')
   })

@@ -766,19 +766,24 @@ export class TwitchClient {
   }
 
   // dispatch one message now (helix with IRC fallback), debiting the rate buckets.
-  private async sendOne(channel: string, text: string, replyTo?: string) {
-    this.recordSend(channel)
-    this.lastSendAt = Date.now()
+  // returns false ONLY when an irc-only send hit a closed socket (so the caller can requeue
+  // instead of dropping the line — the trivia-round "went dead" bug). debits the bucket only
+  // on a real send so a dropped+requeued message isn't double-counted.
+  private async sendOne(channel: string, text: string, replyTo?: string): Promise<boolean> {
     const prefix = replyTo ? `@reply-parent-msg-id=${replyTo} ` : ''
     if (this.ircOnlyChannels.has(channel)) {
-      this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
-      return
+      const ok = this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
+      if (ok) { this.recordSend(channel); this.lastSendAt = Date.now() }
+      return ok
     }
+    this.recordSend(channel)
+    this.lastSendAt = Date.now()
     const sent = await this.helixSend(channel, text, false, replyTo)
     if (!sent) {
       log(`helix failed for #${channel}, falling back to IRC PRIVMSG${replyTo ? ' (threaded)' : ''}`)
       this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
     }
+    return true
   }
 
   // drain the queue one message at a time, paced by SEND_GAP and the rate buckets.
@@ -792,9 +797,17 @@ export class TwitchClient {
       this.pacerTimer = null
       const next = this.ircQueue[0]
       if (!next) return
+      // transport down (reconnect blip)? NEVER shift+drop the head — leave it queued. if the
+      // socket is briefly closed but we're still marked ready, re-poll in 1s; if hard-unready,
+      // the reconnect path re-kicks the pacer on rejoin and the drain resumes.
+      if (!this.ircReady || (this.ircOnlyChannels.has(next.channel) && this.irc?.readyState !== WebSocket.OPEN)) {
+        if (this.ircReady) this.pacerTimer = setTimeout(() => { this.pacerTimer = null; this.kickPacer() }, 1000)
+        return
+      }
       if (!this.canSend(next.channel)) { this.kickPacer(); return }
       this.ircQueue.shift()
-      await this.sendOne(next.channel, next.text, next.replyTo)
+      const ok = await this.sendOne(next.channel, next.text, next.replyTo)
+      if (!ok) this.ircQueue.unshift(next) // send raced a socket close — requeue, don't lose it
       this.kickPacer()
     }, wait)
   }

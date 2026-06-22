@@ -368,8 +368,10 @@ export function parseArgs(words: string[]): ParsedArgs {
   }
 
   // extract enchantment from any position if other words remain for item
-  // require exact match or prefix within 2 chars of full name to avoid "shield"→"shielded"
-  if (remaining.length > 1 && remaining.length <= 8) {
+  // require exact match or prefix within 2 chars of full name to avoid "shield"→"shielded".
+  // but NOT if the whole phrase is itself a real item ("heavy crossbow" = the item Heavy
+  // Crossbow, not Heavy-enchanted crossbow) — ~12 items start with an enchant word.
+  if (remaining.length > 1 && remaining.length <= 8 && !store.exact(remaining.join(' '))) {
     for (let i = 0; i < remaining.length; i++) {
       const lower = remaining[i].toLowerCase()
       const matches = enchList.filter((e) => e.startsWith(lower))
