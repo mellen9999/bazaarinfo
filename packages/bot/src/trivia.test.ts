@@ -988,7 +988,7 @@ describe('nickname expansion', () => {
 // ---------------------------------------------------------------------------
 describe('getTriviaScore', () => {
   it('empty = no scores message', () => {
-    expect(getTriviaScore('#test')).toBe('no trivia scores yet')
+    expect(getTriviaScore('#test')).toBe('no trivia scores yet — !b trivia to start a round')
   })
 
   it('formats leaderboard', () => {

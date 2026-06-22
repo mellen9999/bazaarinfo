@@ -1013,7 +1013,7 @@ function endTrivia(channel: string, expectedGameId?: number): string | null {
   // answer so the bot is never seen to "go dead" mid-round (even if answers failed to
   // register for any reason), and revealing teaches chat the answer.
   const emote = pickEmoteByMood(channel, 'sad')
-  return `Time's up! The answer was: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`
+  return `time's up! answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`
 }
 
 // called on every message to check for trivia answers
@@ -1097,7 +1097,7 @@ export function checkAnswer(
     })
 
     const timeStr = secs.toFixed(1)
-    const speedTag = secs < 3 ? ' LEGENDARY' : secs < 5 ? ' FAST' : secs < 10 ? ' nice' : ''
+    const speedTag = secs < 3 ? ' LEGENDARY' : secs < 5 ? ' FAST' : secs < 10 ? ' NICE' : ''
     const streakTag = streak >= 5 ? ` (${streak} STREAK!!)` : streak >= 3 ? ` (${streak} streak)` : ''
     const emote = secs < 3 || streak >= 5
       ? pickEmoteByMood(channel, 'hype', 'celebration')
@@ -1105,7 +1105,7 @@ export function checkAnswer(
         ? pickEmoteByMood(channel, 'celebration', 'hype')
         : pickEmoteByMood(channel, 'happy', 'celebration')
     const firstTag = firstWin ? ' first win!' : ''
-    say(channel, `${username} got it in ${timeStr}s!${speedTag}${streakTag} +${points}pt${firstTag} Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`)
+    say(channel, `${username} got it in ${timeStr}s!${speedTag}${streakTag} +${points}pts${firstTag} Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`)
   } else {
     db.resetTriviaStreak(userId)
     // close-miss taunt — capped per round so 10 chatters guessing close
@@ -1150,7 +1150,7 @@ export function isGameActive(channel: string): boolean {
 
 export function getTriviaScore(channel: string): string {
   const leaders = db.getTriviaLeaderboard(channel, 5)
-  if (leaders.length === 0) return 'no trivia scores yet'
+  if (leaders.length === 0) return 'no trivia scores yet — !b trivia to start a round'
   const lines = leaders.map((l, i) => `${i + 1}. ${l.username} (${l.points}pts)`)
   return `Trivia top 5: ${lines.join(' | ')}`
 }

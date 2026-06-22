@@ -1172,7 +1172,7 @@ export function queueAttack(username: string, channel: string, target: string | 
 
   if (char.isDying) return `@${username} you're dying! Make death saves or wait for !b stabilize.`
   if (world.floorCleared) return `floor ${world.floor} cleared — !b move to descend`
-  if (world.encounterType === 'shop') return `in a shop — !b buy <1-4> or !b move`
+  if (world.encounterType === 'shop') return `in the shop — !b buy 1-4 · !b move to skip`
   if (world.encounterType === 'event') return `event floor — !b explore`
 
   const living = world.enemies.filter((e) => e.hp > 0)
@@ -1262,7 +1262,7 @@ export function resolveFlee(username: string, channel: string): string | null {
 export function resolveBuy(username: string, channel: string, arg: string): string | null {
   const world = db.getWorld(channel)
   if (!world || !world.enabled) return null
-  if (world.encounterType !== 'shop') return `no shop here — find one on floors 3 and 5`
+  if (world.encounterType !== 'shop') return `no shop here — the merchant only appears on floor 5`
 
   const char = db.getCharacter(username, channel)
   if (!char) return `!b join <class> to enter the dungeon`
@@ -1278,7 +1278,7 @@ export function resolveBuy(username: string, channel: string, arg: string): stri
   char.gold -= item.price
   char.inventory.push(item.name)
   db.upsertCharacter(char)
-  return `@${username} buys ${item.name} for ${item.price}g. (${char.gold}g left | inv: ${char.inventory.length}/6)`
+  return `@${username} buys ${item.name} for ${item.price}g (${char.gold}g left, inv ${char.inventory.length}/6). !b buy 1-4 for more · !b move to skip`
 }
 
 export async function resolveMove(username: string, channel: string): Promise<string | null> {

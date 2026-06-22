@@ -268,7 +268,7 @@ export function renderDeathSave(username: string, roll: number, successes: numbe
   if (revived) return `@${username} rolls death save: NAT 20 — REVIVED at 1HP! Back from the brink!`
   if (stable) return `@${username} rolls death save: ${roll} — stable. Holding on. An ally can !b stabilize @${username} to confirm.`
   const outcome = roll >= 10 ? `SUCCESS (${successes}/3)` : `FAILURE (${failures}/3)`
-  const hint = failures >= 2 ? ' — one more failure means death!' : failures >= 1 ? '' : ''
+  const hint = failures >= 2 ? ' — one more failure means death!' : failures === 1 ? ' — one more success stabilizes' : ''
   return trunc(`@${username} rolls death save: d20 → ${roll} — ${outcome}${hint}. !b stabilize @${username} to help.`)
 }
 

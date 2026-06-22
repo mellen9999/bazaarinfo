@@ -134,7 +134,7 @@ export function formatDayResults(day: number, monsters: Monster[]): string {
 
 export function formatEnchantment(card: BazaarCard, enchName: string, tier?: TierName): string {
   const ench = card.Enchantments[enchName]
-  if (!ench) return `No "${enchName}" enchantment for ${card.Title}`
+  if (!ench) return `no ${enchName} enchantment on ${card.Title}`
 
   const tooltips = ench.tooltips.map((t) =>
     compressTooltip(resolveTooltip(t.text, ench.tooltipReplacements ?? {}, tier)),

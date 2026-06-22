@@ -141,7 +141,7 @@ export async function narrateFloor(
 ): Promise<string> {
   const alive = enemies.filter((e) => e.hp > 0)
   if (encounterType === 'shop') {
-    return `floor ${floor} — a merchant's torch flickers in the dark. inspect the wares, spend wisely. → !b buy 1 · !b buy 2 · !b buy 3 · !b buy 4 · !b move to skip`
+    return `floor ${floor} — a merchant's torch flickers in the dark. inspect the wares, spend wisely. → !b buy 1-4 · !b move to skip`
   }
   if (encounterType === 'event') {
     return `floor ${floor} — something stirs in the shadows. ancient magic saturates the air. → !b explore to investigate`
