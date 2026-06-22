@@ -48,6 +48,7 @@ The bar — every question must be ALL of these:
 - ONE CLEAR ASK: the question requests exactly ONE thing, and its wording makes the answer TYPE obvious. NEVER bundle two questions ("how many X, and what is the third called?"). NEVER use a misdirecting lead-in — if the answer is a name or word, do NOT open with "how many" or any count framing that primes chat to type a number; if the answer is a number, don't phrase it like a name lookup. A reader should know from the wording whether to type a name, a number, or a word.
 - CLEAN of embellishment: ONE core verifiable fact only. Do NOT pad with extra specific claims (an award, an exact year, "the first to do X") unless you are CERTAIN each is true. Fabricated embellishments are the #1 failure — a clean simple true fact beats an impressive-sounding false one.
 - NOT a fuzzy definition: avoid "what is the term/word for ..." questions where several legitimate terms fit (dead-matter eater -> scavenger / saprophage / saprotroph all defensible). Prefer a crisp single answer: a specific name, title, place, date, year, number, or record holder.
+- NOT an ambiguous count: avoid "how many X" when the count depends on convention or changes over time (buttons on a controller — is the d-pad 0/1/4?; moons of a planet; episodes of an ongoing show). Only ask a count when there is ONE agreed number, and if you state an exclusion ("excluding Start and Select"), double-check your own answer actually respects it.
 
 Answer format:
 - The answer MUST be short and typeable in a chat box: 1-4 words, or a number. Never a sentence.
@@ -149,21 +150,24 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
 // correct one. fails open to false (reject) on any error so a wrong question can't slip
 // through on an API hiccup. cheap (short output), and only runs on the world-knowledge
 // custom path — NOT person/chat trivia, whose answers live in context the checker lacks.
-const VERIFY_SYSTEM = `You are a trivia fact-checker. You get a QUESTION and a claimed ANSWER. Your job is to catch BROKEN questions, not to second-guess every fact you don't personally recall.
+const VERIFY_SYSTEM = `You are a meticulous trivia fact-checker. You get a QUESTION and a claimed ANSWER. Catch BROKEN questions before they reach live chat.
 
-Return {"ok":false,"reason":"<brief>"} if you can identify ANY of these PROBLEMS:
-- A claim in the question that you know or strongly believe is FALSE.
-- An embellishment — a suspiciously specific extra claim (an award won, an exact date, "the first to do X", a precise record) that you cannot confirm. Fabricated padding like this is the #1 failure; reject it.
-- More than one equally-valid answer (the question is ambiguous).
-- Incoherence — the answer doesn't actually fit what's asked (e.g. it asks for a "fear/phobia" but the answer isn't one).
-- Misdirecting or two-part wording — it bundles two questions, or its lead-in primes the wrong answer type (e.g. opens with "how many" but the answer is a name, so guessers type numbers). The wording must point clearly at the one answer's type.
-- Not self-contained — it refers to an unnamed specific thing ("this game", "a certain bird") the guesser has no way to identify.
+FIRST think in the "check" field: restate what is being asked, confirm the core fact, and — for any count or number — RECOMPUTE it yourself step by step and confirm it honors EVERY stated condition in the question (if it says "excluding Start and Select", your count must actually exclude them). Then give the verdict.
 
-Otherwise return {"ok":true}.
+Reject (ok:false) if you find ANY of these problems:
+- A claim you know or strongly believe is FALSE — including a count that does NOT match the question's own stated conditions (e.g. it says "excluding X" but the answer is the count that includes X).
+- An unconfirmable embellishment — a specific award, exact date, record, or "first to do X" you cannot verify. Fabricated padding is the #1 failure.
+- AMBIGUITY: more than one equally-valid answer, OR a count whose value depends on convention so there is no single agreed number (e.g. "how many buttons does a controller have" — is the d-pad 0, 1, or 4? — reject; "how many moons does Jupiter have" changes yearly — reject). If the unit being counted is debatable, reject.
+- Incoherence — the answer doesn't actually fit what's asked (asks for a "fear/phobia" but the answer isn't one).
+- Misdirecting or two-part wording — it bundles two questions, or its lead-in primes the wrong answer type (opens with "how many" but the answer is a name).
+- Not self-contained — refers to an unnamed specific thing ("this game", "a certain bird") the guesser can't identify.
 
-IMPORTANT: do NOT reject a coherent, single-answer question merely because its topic is niche, obscure, or unfamiliar to you. Unfamiliarity is NOT a problem — only reject when you can point to something actually wrong. A clean, plausible, single-answer question about a niche subject PASSES.
+Otherwise return ok:true. Do NOT reject merely because the topic is niche, obscure, or unfamiliar — only reject a concrete problem you can point to.
 
-Output ONLY a single minified JSON object.`
+Output ONLY one minified JSON object, no prose outside it:
+{"check":"<your step-by-step verification, recomputing any count>","ok":true}
+or
+{"check":"...","ok":false,"reason":"<brief>"}`
 
 async function verifyTrivia(q: CustomTrivia, channel: string): Promise<boolean> {
   if (!API_KEY) return true // can't verify without a key; don't block generation
@@ -175,7 +179,9 @@ async function verifyTrivia(q: CustomTrivia, channel: string): Promise<boolean> 
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
       body: safeStringify({
         model: MODEL,
-        max_tokens: 80,
+        // room to reason in the "check" field before the verdict — recomputing a count or
+        // working through a constraint catches errors a bare yes/no verifier waves through.
+        max_tokens: 320,
         temperature: 0,
         system: VERIFY_SYSTEM,
         messages: [{ role: 'user', content: `QUESTION: ${q.question}\nANSWER: ${q.answer}` }],
