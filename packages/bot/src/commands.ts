@@ -826,6 +826,15 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     if (match) return await handler(match[1]?.trim() ?? cleanArgs, ctx, suffix)
   }
 
+  // natural-language dnd combat — a player in an active dungeon types "I cast Fireburst at
+  // it" / "attack the kimono" instead of the exact subcommand. checked before item lookup +
+  // AI so freeform combat doesn't fuzzy-match an item or get a generic AI reply. self-gates
+  // (active dungeon + the user is a player), so it never touches normal chat.
+  {
+    const combat = dndCmds.handleCombatIntent(cleanArgs, ctx)
+    if (combat) return withSuffix(combat, suffix)
+  }
+
   // spam wall interception — handle without AI. cap at 5 TOTAL tokens.
   // only known emotes count as payload; conversational filler ("pls Mr. Clanker") is dropped.
   // if no real emotes survive the filter, fall through to AI.
