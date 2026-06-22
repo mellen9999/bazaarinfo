@@ -140,6 +140,9 @@ export async function narrateFloor(
   playerCount: number,
 ): Promise<string> {
   const alive = enemies.filter((e) => e.hp > 0)
+  if (encounterType === 'entrance') {
+    return `the gates of the Depths yawn open before you. no enemies here — gather yourself. → !b move to descend · !b me for your character`
+  }
   if (encounterType === 'shop') {
     return `floor ${floor} — a merchant's torch flickers in the dark. inspect the wares, spend wisely. → !b buy 1-4 · !b move to skip`
   }
@@ -169,6 +172,16 @@ export async function welcomePlayer(
 ): Promise<string> {
   const def = getClassDef(cls)
   const role = def.role
+  // at the entrance there are no enemies and nothing to fight yet — welcome them calmly and
+  // teach the one command that matters (descend), not a wall of combat verbs. permadeath is
+  // brutal; a fresh adventurer deserves a beat to get oriented before the first blade.
+  if (encounterType === 'entrance') {
+    const ehint = `→ !b move to descend into the first fight · !b me for your character`
+    const prompt = `Twitch chat D&D. @${username} arrives at the gates of the Depths as a ${cls} (${role}). They have not entered yet — no enemies, just the dark entrance ahead.
+Write ONE atmospheric welcoming line, 130 chars max, lowercase, classic D&D dungeon tone. Just the scene — do NOT include any commands, "!b", or arrows. No emojis.`
+    const r = await ask(channel, prompt, 72)
+    return withHint(r || `@${username} steps to the gates of the Depths as ${cls} — ${role}.`, ehint)
+  }
   const enemyStr = enemies.length > 0 ? enemies.join(', ') : 'shadows'
   // sneak chassis has no castable — its signature auto-triggers on a normal attack — so the
   // "!b spell for ..." frame reads wrong for it; give it a clean attack-only hint instead.

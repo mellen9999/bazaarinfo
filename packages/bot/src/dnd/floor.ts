@@ -77,10 +77,11 @@ function rollHp(rng: () => number, count: number, die: number, mod: number): num
 }
 
 export function getFloorType(floor: number): EncounterType {
+  if (floor === 1) return 'entrance'  // calm threshold — orient + descend, no instant combat
   if (floor === 5) return 'shop'
   if (floor === 6 || floor === 10) return 'boss'
   if (floor === 4 || floor === 9) return 'event'  // 4 = varied event, 9 = vegan shrine (canon)
-  return 'combat'  // 1,2,3,7,8 — three combat floors feed the first boss
+  return 'combat'  // 2,3,7,8 — combat floors feed the bosses (floor 1 is the entrance)
 }
 
 // D&D 5e monster templates by floor tier

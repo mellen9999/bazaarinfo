@@ -23,6 +23,11 @@ export function renderFloor(world: WorldState, players: Character[]): string {
   const typeLabel = world.encounterType === 'boss' ? 'BOSS' : world.encounterType.toUpperCase()
   let line = `Floor ${world.floor} [${typeLabel}]`
 
+  if (world.encounterType === 'entrance') {
+    line += ` | the entrance to the Depths — !b move to descend into the first fight`
+    return trunc(line)
+  }
+
   if (world.encounterType === 'shop') {
     line += ` | Shop open — !b buy 1-4 to purchase, !b move to continue`
     return trunc(line)

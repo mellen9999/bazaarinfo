@@ -498,8 +498,10 @@ describe('getFloorType', () => {
     expect(getFloorType(4)).toBe('event')
     expect(getFloorType(9)).toBe('event')
   })
+  it('entrance on floor 1 (calm onboarding, no instant combat)', () => {
+    expect(getFloorType(1)).toBe('entrance')
+  })
   it('combat otherwise', () => {
-    expect(getFloorType(1)).toBe('combat')
     expect(getFloorType(2)).toBe('combat')
     expect(getFloorType(7)).toBe('combat')
     expect(getFloorType(8)).toBe('combat')
