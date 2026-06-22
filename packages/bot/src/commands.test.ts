@@ -701,9 +701,11 @@ describe('!b enchantment (any order)', () => {
     expect(await handleCommand('!b boomerang icy')).toContain('[Boomerang - Icy]')
   })
 
-  it('returns not found when enchantment item doesnt exist', async () => {
+  it('suggests alternatives when an enchant item lookup misses (no dead-end)', async () => {
+    mockSuggest.mockImplementation(() => ['Fiery Boomerang'])
     const result = await handleCommand('!b fiery nonexistent')
     expect(result).toContain('no item found for nonexistent')
+    expect(result).toContain('did you mean: Fiery Boomerang')
   })
 
   it('multi-word item after enchantment', async () => {

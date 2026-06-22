@@ -514,7 +514,7 @@ const subcommands: [RegExp, SubHandler][] = [
     if (!monster) {
       logMiss(query, ctx)
       const suggestions = store.suggest(query, 3)
-      if (suggestions.length) return withSuffix(`no monster found for ${query} — try: ${suggestions.join(', ')}`, suffix)
+      if (suggestions.length) return withSuffix(`no monster found for ${query} — did you mean: ${suggestions.join(', ')}?`, suffix)
       return aiOrQuip(`mob ${query}`, ctx, suffix)
     }
     logHit('mob', query, monster.Title, ctx)
@@ -542,7 +542,7 @@ const subcommands: [RegExp, SubHandler][] = [
     if (cards.length === 0) {
       logMiss(query, ctx)
       const suggestions = store.suggest(query, 3)
-      if (suggestions.length) return withSuffix(`no items found with tag ${query} — try: ${suggestions.join(', ')}`, suffix)
+      if (suggestions.length) return withSuffix(`no items found with tag ${query} — did you mean: ${suggestions.join(', ')}?`, suffix)
       return aiOrQuip(`tag ${query}`, ctx, suffix)
     }
     const displayTag = resolved ?? query
@@ -666,7 +666,13 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     const exact = store.exact(query)
     const candidates = exact ? [exact, ...store.search(query, 5)] : store.search(query, 5)
     const card = candidates.find((c) => c.Enchantments[enchant]) ?? candidates[0]
-    if (!card) { logMiss(query, ctx); return `no item found for ${query}` }
+    if (!card) {
+      logMiss(query, ctx)
+      const s = store.suggest(query, 3)
+      return s.length
+        ? withSuffix(`no item found for ${query} — did you mean: ${s.join(', ')}?`, suffix)
+        : aiOrQuip(`${query} ${enchant}`, ctx, suffix)
+    }
     logHit('enchant', query, `${card.Title}+${enchant}`, ctx, tier)
     return withSuffix(formatEnchantment(card, enchant, tier), suffix)
   }
@@ -705,7 +711,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   if (queryWords.length <= 2) {
     const suggestions = store.suggest(query, 3)
     if (suggestions.length > 0) {
-      return withSuffix(`no ${query} — did you mean: ${suggestions.join(', ')}?`, suffix)
+      return withSuffix(`no item found for ${query} — did you mean: ${suggestions.join(', ')}?`, suffix)
     }
   }
   // no item match — fall through to AI fallback in bazaarinfo()

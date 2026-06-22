@@ -202,7 +202,7 @@ describe('formatEnchantment', () => {
 
   it('returns error message for missing enchantment', () => {
     const result = formatEnchantment(makeCard(), 'Nonexistent')
-    expect(result).toBe('No "Nonexistent" enchantment for Boomerang')
+    expect(result).toBe('no Nonexistent enchantment on Boomerang')
   })
 
   it('resolves tiered values in enchantment tooltips with specific tier', () => {
