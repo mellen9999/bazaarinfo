@@ -36,6 +36,8 @@ Interpret the topic generously. It may be broad ("birds"), vague, misspelled, sl
 
 For a BROAD topic, secretly narrow it to ONE specific, less-obvious instance and ask about THAT — but do not default to the single most famous example every time. For "a 2010s video game" reach past the same five blockbusters (Skyrim/GTA V/Witcher 3) to the deep, surprising-but-real picks. For "birds" pick a specific species. Spread your picks: a regular asking this ten times in a row should get ten different subjects AND ten different angles, never the same shape twice.
 
+For a NICHE or obscure topic you only partly know (a specific older game, a small band, a cult film, "Guild Wars 1"): NEVER bail. Anchor on the most solid, well-established fact you genuinely know that connects to it. If you are not certain of a deep-cut detail, zoom OUT to the topic's franchise, creator, studio, genre, country, or era and ask a great verifiable question there instead — a fan asking "Guild Wars 1" is delighted by a sharp fact about Guild Wars, its developer ArenaNet, or its place in MMO history. There is ALWAYS a confident, true, interesting question reachable from any topic; find it rather than refusing.
+
 For an adult or risqué topic, reframe it into a CLEAN, broadcast-safe question — clinical, scientific, historical, or etymological — and ask THAT (e.g. "sex" -> a biology/reproduction term; "masturbation" -> a historical/medical fact). Never graphic, explicit, crude, or titillating. The question must read fine out loud on a family-friendly stream.
 
 The bar — every question must be ALL of these:
@@ -125,7 +127,12 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
     // steers away from the bad fact, not just toward more variety.
     const lens = pickLens(channel)
     const lensBlock = `\n\nFavor THIS angle if you have a SOLID, verifiable fact for it; otherwise pick a better angle for this topic (never invent one to fit): ${lens}`
-    const r = await attemptGen(SYSTEM, `TOPIC: ${clean}${lensBlock}${avoidBlock}`, channel)
+    // the first try didn't land — zoom out to the most rock-solid fact connected to the
+    // topic (its franchise/creator/genre/era) rather than risk another niche miss.
+    const broaden = attempt > 0
+      ? `\n\nYour previous attempt failed verification. Now play it safe: pick the single most well-established, certainly-true fact you know that connects to this topic — zoom out to its broader subject if needed — and ask a clean question about THAT.`
+      : ''
+    const r = await attemptGen(SYSTEM, `TOPIC: ${clean}${lensBlock}${broaden}${avoidBlock}`, channel)
     if (!r.ok) { if (!r.retry) return null; continue }
     // independent fact-check before we commit — a second model with no stake in the
     // question catches wrong answers + fabricated embellishments (the #1 failure mode:
@@ -141,15 +148,18 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
 // correct one. fails open to false (reject) on any error so a wrong question can't slip
 // through on an API hiccup. cheap (short output), and only runs on the world-knowledge
 // custom path — NOT person/chat trivia, whose answers live in context the checker lacks.
-const VERIFY_SYSTEM = `You are a strict trivia fact-checker. You get a QUESTION and a claimed ANSWER. Try to REFUTE it.
+const VERIFY_SYSTEM = `You are a trivia fact-checker. You get a QUESTION and a claimed ANSWER. Your job is to catch BROKEN questions, not to second-guess every fact you don't personally recall.
 
-Return {"ok":true} ONLY if you are confident that ALL hold:
-- EVERY factual claim in the question is true — no invented award, date, name, record, or embellishment.
-- The claimed ANSWER is correct AND is the single best answer (no other equally-valid answer exists).
-- The question is internally coherent (e.g. if it asks for a "fear/phobia", the answer is actually a fear).
-- The question is SELF-CONTAINED: it carries enough information to determine the answer, and never refers to an unnamed specific thing ("this game", "a certain bird") the guesser cannot identify.
+Return {"ok":false,"reason":"<brief>"} if you can identify ANY of these PROBLEMS:
+- A claim in the question that you know or strongly believe is FALSE.
+- An embellishment — a suspiciously specific extra claim (an award won, an exact date, "the first to do X", a precise record) that you cannot confirm. Fabricated padding like this is the #1 failure; reject it.
+- More than one equally-valid answer (the question is ambiguous).
+- Incoherence — the answer doesn't actually fit what's asked (e.g. it asks for a "fear/phobia" but the answer isn't one).
+- Not self-contained — it refers to an unnamed specific thing ("this game", "a certain bird") the guesser has no way to identify.
 
-If anything is false, doubtful, incoherent, or ambiguous, return {"ok":false,"reason":"<brief>"}. When unsure, return false.
+Otherwise return {"ok":true}.
+
+IMPORTANT: do NOT reject a coherent, single-answer question merely because its topic is niche, obscure, or unfamiliar to you. Unfamiliarity is NOT a problem — only reject when you can point to something actually wrong. A clean, plausible, single-answer question about a niche subject PASSES.
 
 Output ONLY a single minified JSON object.`
 

@@ -204,6 +204,8 @@ const {
   generateHint,
   generateWeakHint,
   setKrippPackForTest,
+  startFallbackTrivia,
+  setFallbackPackForTest,
 } = await import('./trivia')
 
 rebuildTriviaMaps()
@@ -1211,6 +1213,47 @@ describe('kripp channel-scoped pack', () => {
   })
 
   afterEach(() => setKrippPackForTest([]))
+})
+
+describe('custom-topic fallback pack — never dead-ends a topic request', () => {
+  const pack = [
+    { question: 'what is the hottest planet?', answer: 'Venus', accept: ['venus'] },
+    { question: 'how many hearts does an octopus have?', answer: 'three', accept: ['3'] },
+  ]
+
+  it('launches a real round with a curated question + accept variants', () => {
+    setFallbackPackForTest(pack)
+    resetForTest()
+    const msg = startFallbackTrivia('#fb')
+    expect(msg).toContain('Trivia!')
+    const g = getActiveGameForTest('#fb')!
+    expect(g).toBeDefined()
+    expect(pack.some((p) => p.question === g.question)).toBe(true)
+    // accept variants survive into the launched game (norm-applied)
+    expect(g.acceptedAnswers.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('avoids a question asked recently in the same channel when an alternative exists', () => {
+    setFallbackPackForTest(pack)
+    resetForTest()
+    // first launch + resolve so it lands in recentQuestions, then the next pick differs
+    const m1 = startFallbackTrivia('#fb2')!
+    const first = getActiveGameForTest('#fb2')!.question
+    checkAnswer('#fb2', 'viewer', getActiveGameForTest('#fb2')!.correctAnswer, mockSay)
+    const m2 = startFallbackTrivia('#fb2')
+    const second = getActiveGameForTest('#fb2')!.question
+    expect(m1).not.toBe(undefined)
+    expect(m2).not.toBe(null)
+    expect(second).not.toBe(first)
+  })
+
+  it('returns null only when the pack is empty (caller soft last-resort)', () => {
+    setFallbackPackForTest([])
+    resetForTest()
+    expect(startFallbackTrivia('#fb3')).toBeNull()
+  })
+
+  afterEach(() => setFallbackPackForTest([]))
 })
 
 describe('hint counts — alternate-answer cruft must not skew shape/length', () => {

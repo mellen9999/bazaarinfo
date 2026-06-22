@@ -3,7 +3,7 @@ import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
-import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, startKrippTrivia } from './trivia'
+import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, startKrippTrivia, startFallbackTrivia } from './trivia'
 import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, type CustomTrivia } from './ai-trivia'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
@@ -1152,7 +1152,14 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
       if (q && isRecentQuestion(channel, q.question)) {
         q = await generateCustomTrivia(t, channel, avoid)
       }
-      missMsg = `couldn't make a trivia about "${t.slice(0, 40)}" — try a clearer topic`
+      // a world-knowledge topic must NEVER dead-end. if the AI couldn't make one (niche
+      // subject the verifier won't confirm, daily cap, no key, API hiccup), fall back to a
+      // curated, always-true question so chat still gets a round — no "clearer topic" miss.
+      if (!q) {
+        const fb = startFallbackTrivia(channel)
+        return withSuffix(fb ?? `trivia's catching its breath — try again in a sec`, suffix)
+      }
+      return withSuffix(startCustomTrivia(channel, q), suffix)
     }
     if (!q) return withSuffix(missMsg, suffix)
     return withSuffix(startCustomTrivia(channel, q), suffix)
