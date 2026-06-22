@@ -25,6 +25,9 @@ from pathlib import Path
 
 import requests
 
+# Module-global session for connection reuse across requests
+_session = requests.Session()
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -231,14 +234,19 @@ GAME_STATES = {"ChoiceState", "EncounterState", "CombatState", "ReplayState", "L
 
 def load_card_db(cards_json: Path) -> dict:
     """Load template ID -> card info mapping from game's cards.json."""
-    with open(cards_json) as f:
+    with open(cards_json, encoding="utf-8") as f:
         data = json.load(f)
 
-    # cards.json wraps cards under a version key — find the list
+    # cards.json wraps cards under a version key — find the list.
+    # Keys are dotted version strings; sort numerically to avoid "1.2.3" > "1.10.0".
     cards = data
     if isinstance(data, dict):
-        # Try each key until we find one that holds a list
-        for key in sorted(data.keys(), reverse=True):
+        def _version_key(k: str):
+            try:
+                return tuple(int(p) for p in k.split("."))
+            except ValueError:
+                return (0,)
+        for key in sorted(data.keys(), key=_version_key, reverse=True):
             if isinstance(data[key], list) and len(data[key]) > 0:
                 cards = data[key]
                 break
@@ -344,37 +352,29 @@ def build_payload(state: dict) -> dict:
         if p:
             cards.append(p)
 
-    # Shop
-    shop = [
-        {"title": s["title"], "type": s["type"], "tier": s["tier"], "size": s["size"]}
-        for s in state["shop_cards"]
-    ]
-
-    return {"cards": cards, "shop": shop}
+    return {"cards": cards}
 
 
 def send_state(ebs_url: str, channel_id: str, secret: str, state: dict) -> bool:
     """POST current game state to EBS. Returns True on success."""
     if not state["show_overlay"]:
-        payload = {"cards": [], "shop": []}
+        payload = {"cards": []}
     else:
         payload = build_payload(state)
 
     try:
-        r = requests.post(
+        r = _session.post(
             f"{ebs_url}/detect",
             json={
                 "channelId": channel_id,
                 "secret": secret,
                 "cards": payload["cards"],
-                "shop": payload.get("shop", []),
             },
             timeout=5,
         )
         n = len(payload["cards"])
-        ns = len(payload.get("shop", []))
         if r.ok:
-            logger.info("Broadcast %d cards, %d shop", n, ns)
+            logger.info("Broadcast %d cards", n)
             return True
         else:
             logger.warning("EBS returned %d: %s", r.status_code, r.text[:200])
@@ -390,7 +390,6 @@ def new_state() -> dict:
         "player_board": {},      # instance_id -> {title, tier, size, socket}
         "opponent_board": {},    # instance_id -> {title, tier, size, socket}
         "player_skills": {},     # instance_id -> {title, tier, socket}
-        "shop_cards": [],        # [{title, type, tier, size}]
         "instance_map": {},      # instance_id -> template_id
         "show_overlay": False,
     }
@@ -492,11 +491,6 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
                 }
                 state["player_board"][instance_id] = entry
                 logger.info("+ %s (%s) -> Socket_%d", info["title"], info["tier"], socket_num)
-
-                # Remove from shop if present
-                state["shop_cards"] = [
-                    s for s in state["shop_cards"] if s["title"] != info["title"]
-                ]
             elif debug:
                 logger.debug("Unknown template: %s", template_id)
             return True
@@ -680,15 +674,13 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
             state["player_board"].clear()
             state["opponent_board"].clear()
             state["player_skills"].clear()
-            state["shop_cards"].clear()
             state["instance_map"].clear()
             state["show_overlay"] = False
             return True
 
         if to_state == "ChoiceState":
-            # New shop phase — clear opponent board + shop
+            # New shop phase — clear opponent board
             state["opponent_board"].clear()
-            state["shop_cards"].clear()
 
         state["show_overlay"] = to_state in GAME_STATES
 
@@ -701,7 +693,7 @@ def build_initial_state(log_path: Path, card_db: dict) -> dict:
     """Parse full log to build current game state."""
     state = new_state()
 
-    with open(log_path, errors="replace") as f:
+    with open(log_path, encoding="utf-8", errors="replace") as f:
         for line in f:
             process_line(line.strip(), state, card_db, debug=False)
 
@@ -729,8 +721,7 @@ def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, d
 
     last_send = time.monotonic()
     last_inode = log_path.stat().st_ino
-    last_size = log_path.stat().st_size
-    f = open(log_path, errors="replace")
+    f = open(log_path, encoding="utf-8", errors="replace")
     f.seek(0, 2)
 
     try:
@@ -758,25 +749,21 @@ def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, d
                     # 0<->n would otherwise spuriously trigger a full reparse). Truncation =
                     # a real size shrink (appends only grow, so a smaller size is genuine).
                     rotated = bool(last_inode and st.st_ino and st.st_ino != last_inode)
-                    if rotated or st.st_size < last_size:
+                    if rotated or st.st_size < f.tell():
                         logger.info("Log rotated/truncated, reopening and rebuilding state...")
                         f.close()
                         # Wait a moment for the new log to be written
                         time.sleep(0.5)
                         # Rebuild state from the new log
                         state = build_initial_state(log_path, card_db)
-                        f = open(log_path, errors="replace")
+                        f = open(log_path, encoding="utf-8", errors="replace")
                         f.seek(0, 2)
                         last_inode = log_path.stat().st_ino
-                        last_size = log_path.stat().st_size
                         if state["show_overlay"]:
                             send_state(ebs_url, channel_id, secret, state)
                             last_send = time.monotonic()
-                    else:
-                        last_size = st.st_size
                     continue
 
-                last_size = log_path.stat().st_size
                 line = line.strip()
                 if process_line(line, state, card_db, debug):
                     if send_state(ebs_url, channel_id, secret, state):
@@ -801,6 +788,12 @@ def validate_config(config: configparser.ConfigParser) -> bool:
             if not config.has_option(section, key) or not config.get(section, key).strip():
                 logger.error("Config missing %s.%s", section, key)
                 ok = False
+    if ok and config.has_option("ebs", "url"):
+        url = config.get("ebs", "url").strip()
+        localhost = url.startswith("http://localhost") or url.startswith("http://127.0.0.1")
+        if not url.startswith("https://") and not localhost:
+            logger.error("ebs.url must use https:// (got: %s)", url)
+            ok = False
     return ok
 
 
@@ -835,6 +828,10 @@ def setup_config(config_path: Path):
 
     with open(config_path, "w") as f:
         config.write(f)
+    try:
+        os.chmod(config_path, 0o600)
+    except OSError:
+        pass  # no-op on Windows; best-effort on POSIX
 
     print(f"\nConfig saved to {config_path}")
     print("Starting companion...\n")

@@ -30,7 +30,7 @@ function makeSlotValidator(validTiers: Set<string>) {
 function slotsEqual(a: DetectedSlot[], b: DetectedSlot[]): boolean {
   if (a.length !== b.length) return false
   for (let i = 0; i < a.length; i++) {
-    if (a[i].title !== b[i].title || a[i].x !== b[i].x || a[i].y !== b[i].y || a[i].tier !== b[i].tier) return false
+    if (a[i].title !== b[i].title || a[i].x !== b[i].x || a[i].y !== b[i].y || a[i].tier !== b[i].tier || a[i].enchantment !== b[i].enchantment || a[i].owner !== b[i].owner || a[i].type !== b[i].type) return false
   }
   return true
 }

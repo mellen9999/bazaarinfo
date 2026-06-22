@@ -37,12 +37,13 @@ function formatCooldown(cd: BazaarCard['Cooldown'], tier?: TierName): string {
 }
 
 export function truncate(str: string): string {
-  if (str.length <= MAX_LEN) return str
+  const cp = [...str]
+  if (cp.length <= MAX_LEN) return str
   const cut = str.lastIndexOf(' | ', MAX_LEN - 4)
-  if (cut > MAX_LEN * 0.5) return str.slice(0, cut) + '...'
+  if (cut > MAX_LEN * 0.5) return cp.slice(0, cut).join('') + '...'
   const space = str.lastIndexOf(' ', MAX_LEN - 4)
-  if (space > MAX_LEN * 0.5) return str.slice(0, space) + '...'
-  return str.slice(0, MAX_LEN - 3) + '...'
+  if (space > MAX_LEN * 0.5) return cp.slice(0, space).join('') + '...'
+  return cp.slice(0, MAX_LEN - 3).join('') + '...'
 }
 
 function resolveReplacement(val: ReplacementValue, tier?: TierName): string {

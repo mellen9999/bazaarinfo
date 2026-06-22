@@ -276,6 +276,18 @@ describe('state (DB)', () => {
     expect(state.slots.every((s) => s.username !== 'carol')).toBe(true)
   })
 
+  it('restores last_resolved_at as UTC, not shifted into the future on a non-UTC host', () => {
+    // SQLite datetime('now') is bare UTC; parsing it as local time (the old bug) put this
+    // ~7-8h in the future on a Pacific host, which froze the auto-resolve loop after a restart.
+    testDb.run(`INSERT INTO raids (channel, hero, last_resolved_at) VALUES ('utcchan', 'Vanessa', datetime('now'))`)
+    raidState.restoreFromDb()
+    const state = raidState.getRaid('utcchan')!
+    expect(state.lastResolvedAt).toBeGreaterThan(0)
+    // must be at/just-before now — never in the future (which is what local-parse produced)
+    expect(state.lastResolvedAt).toBeLessThanOrEqual(Date.now() + 1000)
+    expect(Date.now() - state.lastResolvedAt).toBeLessThan(60_000)
+  })
+
   it('submitPick records last-write-wins', () => {
     raidState.getOrCreateRaid('chan4')
     raidState.claimSlot('chan4', 'dave')

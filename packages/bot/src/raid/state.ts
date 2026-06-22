@@ -8,6 +8,17 @@ let db: Database
 
 export function setDb(d: Database) { db = d }
 
+// SQLite datetime('now') returns a bare "YYYY-MM-DD HH:MM:SS" in UTC with no zone marker;
+// `new Date()` parses a bare string as LOCAL time, shifting it by the host's offset. On the
+// Pacific prod host that put lastResolvedAt ~7-8h in the FUTURE after a restart, so every
+// restored raid's auto-resolve loop saw negative elapsed and froze until wall-clock caught
+// up. Force UTC. Returns 0 for null/unparseable so the caller treats it as "never resolved".
+function parseSqliteUtc(s: string | null | undefined): number {
+  if (!s) return 0
+  const t = new Date(s.replace(' ', 'T') + 'Z').getTime()
+  return Number.isFinite(t) ? t : 0
+}
+
 // ---------- in-memory map ----------
 const raids = new Map<string, RaidState>()
 
@@ -68,7 +79,7 @@ function buildState(row: RaidRow): RaidState {
       narrative: resRow.narrative,
       outcome: resRow.outcome as 'win' | 'loss',
       combatLog: {},
-      createdAt: new Date(resRow.created_at).getTime(),
+      createdAt: parseSqliteUtc(resRow.created_at),
     }
   }
 
@@ -82,7 +93,7 @@ function buildState(row: RaidRow): RaidState {
     wins: row.wins,
     losses: row.losses,
     status: row.status as RaidState['status'],
-    lastResolvedAt: row.last_resolved_at ? new Date(row.last_resolved_at).getTime() : 0,
+    lastResolvedAt: parseSqliteUtc(row.last_resolved_at),
     enabled: row.enabled === 1,
     slots,
     lastResolution,

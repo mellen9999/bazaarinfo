@@ -35,9 +35,13 @@ export const FABRICATION = /\b(it was a dream|someone had a dream|someone dreame
 export const STAT_FACT = /\+\d+%?\s*(damage|crit|shield|hp|heal|poison|burn|lifesteal|multicast|cooldown|haste|regen|freeze|slow)\b|\+\d+\s*\/\s*\+?\d+|\b\+?\d{2,}\s+(?:at|on)\s+(?:bronze|silver|gold|diamond|legendary)\b/i
 export const STAT_BARE = /\b\d{2,}\s*(damage|poison|burn|shield|heal|hp|health|crit|gold|regen|haste|freeze|slow|attack|lifesteal|multicast|cooldown|luck)\b/i
 export const STAT_LOOSE = /\b(deals?|gains?|grants?|gives?|adds?|stacks?|does|heals?)\s+(for\s+)?\+?\d{2,}\b|\b(base|starting)\s+\w+\s+is\s+\d{2,}\b/i
-export function hasHallucinatedStats(text: string, creative = false): boolean {
+// STAT_FACT (Bazaar tooltip notation: +X stat, B:/S: tiers) is ALWAYS a hallucination when
+// we have no game data — even in creative/banter. STAT_BARE/STAT_LOOSE (a bare "50 damage")
+// are only suspect for a BAZAAR query; for an other-game question (PoE/D2/WoW) the system
+// prompt explicitly wants real numbers, so otherGame suppresses those two.
+export function hasHallucinatedStats(text: string, creative = false, otherGame = false): boolean {
   if (STAT_FACT.test(text)) return true
-  if (creative) return false
+  if (creative || otherGame) return false
   return STAT_BARE.test(text) || STAT_LOOSE.test(text)
 }
 export const DIPLOMATIC_REFUSAL = /\b(can'?t (do|pick|choose) favorites?|play favorites|everyone is (great|special|equal)|not gonna (pick|choose) favorites?|not gonna rank (chatters?|people|users?|favorites?)|no favorites)\b/i
