@@ -267,18 +267,26 @@ export function classifyDndIntent(text: string): { action: DndIntent; arg: strin
 // game-help phrasings, only for an actual player, only in an active dungeon — so it never
 // fires on normal chat. checked AFTER handleCombatIntent (a real action wins).
 const CI_CONFUSED = /\b(?:how|what)\s+(?:do|can|should)\s+i\b|\bwtf\s+do\s+i\b|\bnow\s+what\b|\bwhat\s+now\b|\bhow\s+(?:to|do\s+i)\s+play\b|\bcommands?\b|\bcontrols?\b|\bhow\s+does\s+this\s+(?:work|game)\b|\bwhat\s+do\s+i\s+(?:type|do|press|say)\b|\bidk\s+what\b|\bi'?m\s+(?:lost|confused|stuck)\b|^\s*help\s*\??\s*$/i
+// a NON-player needs an explicit game reference before we onboard them (so "wtf do i do" in
+// unrelated chat isn't hijacked into a join pitch).
+const CI_ONBOARD = /\b(?:how\s+(?:do\s+i\s+|to\s+)?(?:play|join|start)|join|dnd|dungeon|depths|how\s+does\s+(?:this|the\s+game)\s+work|what\s+is\s+this\s+(?:game|dnd|dungeon))\b/i
 
 export function handleDndHelp(text: string, ctx: CommandContext): string | null {
   if (!ctx.channel || !ctx.user) return null
   const channel = ctx.channel.toLowerCase()
   if (!dndActive(channel)) return null
-  if (!db.getCharacter(ctx.user.toLowerCase(), channel)) return null // not a player
-  if (classifyDndIntent(text)) return null                           // it was an action, not confusion
-  if (!CI_CONFUSED.test(text)) return null
+  if (classifyDndIntent(text)) return null // it was an action, not confusion
 
   const w = db.getWorld(channel)
   if (!w?.enabled) return null
   const u = ctx.user
+  const char = db.getCharacter(ctx.user.toLowerCase(), channel)
+  if (!char) {
+    // curious non-player asking about the game -> onboard them to join (tight gate)
+    if (!CI_ONBOARD.test(text)) return null
+    return `@${u} the dungeon's open! !b join <class> to descend — wizard, barbarian, cleric, rogue, paladin, monk, sorcerer, warlock, fighter, or any name you dream up`
+  }
+  if (!CI_CONFUSED.test(text)) return null
   if (w.floorCleared) {
     return w.encounterType === 'shop'
       ? `@${u} at the shop — !b buy 1-4 to grab gear · !b move to leave`
