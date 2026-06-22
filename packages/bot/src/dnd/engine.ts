@@ -837,16 +837,8 @@ function startNewSeason(channel: string) {
   if (!world) return
   const newWorld: WorldState = {
     ...world,
-    floor: 1,
-    actionSequence: 0,
-    encounterType: floor.getFloorType(1),
-    enemies: scaledEnemies(world.season + 1, 1, activePartySize(channel)),
-    floorCleared: false,
-    scene: '',
     season: world.season + 1,
-    shopInventory: [],
-    veganShrineVisited: false,
-    longRestCounter: 0,
+    ...freshFloorOneFields(world.season + 1, activePartySize(channel)),
   }
   db.upsertWorld(newWorld)
   db.resetSeasonDeaths(channel)  // fresh stakes each season
@@ -1171,6 +1163,7 @@ export function queueAttack(username: string, channel: string, target: string | 
   }
 
   if (char.isDying) return `@${username} you're dying! Make death saves or wait for !b stabilize.`
+  if (world.encounterType === 'entrance') return `@${username} nothing to fight at the entrance — !b move to descend into the first floor`
   if (world.floorCleared) return `floor ${world.floor} cleared — !b move to descend`
   if (world.encounterType === 'shop') return `in the shop — !b buy 1-4 · !b move to skip`
   if (world.encounterType === 'event') return `event floor — !b explore`
@@ -1198,6 +1191,7 @@ export function queueSpell(username: string, channel: string): string | null {
   if (!world || !world.enabled) return null
   const char = db.getCharacter(username, channel)
   if (!char || char.hp <= 0 || char.respawnAt !== null || char.isDying) return `@${username} you're not in fighting shape`
+  if (world.encounterType === 'entrance') return `@${username} save it for the dungeon — !b move to descend into the first floor`
   if (world.floorCleared) return `floor ${world.floor} cleared — !b move to descend`
   enqueue(channel, { username, action: 'spell', target: null })
   return null
@@ -1537,23 +1531,36 @@ export function restoreFromDb(): void {
   log('dnd: state ready')
 }
 
+// shared floor-1 setup for every fresh run (new world / new season / dormant reset). floor
+// 1 is the entrance: no enemies, already "cleared" so the party can descend at will — a
+// calm orientation beat instead of instant combat. centralized so the three reset paths
+// can't drift. (if floor 1 were ever combat again, this still spawns its enemies.)
+function freshFloorOneFields(enemySeason: number, partySize: number): Pick<WorldState,
+  'floor' | 'actionSequence' | 'encounterType' | 'enemies' | 'floorCleared' | 'scene' | 'shopInventory' | 'veganShrineVisited' | 'longRestCounter'> {
+  const encounterType = floor.getFloorType(1)
+  const isEntrance = encounterType === 'entrance'
+  return {
+    floor: 1,
+    actionSequence: 0,
+    encounterType,
+    enemies: isEntrance ? [] : scaledEnemies(enemySeason, 1, partySize),
+    floorCleared: isEntrance,
+    scene: '',
+    shopInventory: [],
+    veganShrineVisited: false,
+    longRestCounter: 0,
+  }
+}
+
 export function createWorld(channel: string): WorldState {
   const existing = db.getWorld(channel)
   if (existing) return existing
 
   const w: WorldState = {
     channel: channel.toLowerCase(),
-    floor: 1,
-    actionSequence: 0,
-    encounterType: floor.getFloorType(1),
-    enemies: scaledEnemies(1, 1, 1),
-    floorCleared: false,
-    scene: '',
     season: 1,
     enabled: true,
-    shopInventory: [],
-    veganShrineVisited: false,
-    longRestCounter: 0,
+    ...freshFloorOneFields(1, 1),
   }
   db.upsertWorld(w)
   return w
@@ -1623,20 +1630,12 @@ function channelLastActivity(channel: string): number {
 export function resetIfDormant(channel: string): WorldState | null {
   const world = db.getWorld(channel)
   if (!world) return null
-  if (world.floor <= 1 && !world.floorCleared) return world  // already fresh — nothing to reset
+  if (world.floor <= 1) return world  // already on the entrance/first floor — nothing to reset
   const last = channelLastActivity(channel)
   if (last > 0 && Date.now() - last < DORMANT_RESET_MS) return world  // run still active
   const fresh: WorldState = {
     ...world,
-    floor: 1,
-    actionSequence: 0,
-    encounterType: floor.getFloorType(1),
-    enemies: scaledEnemies(world.season, 1, activePartySize(channel)),
-    floorCleared: false,
-    scene: '',
-    shopInventory: [],
-    veganShrineVisited: false,
-    longRestCounter: 0,
+    ...freshFloorOneFields(world.season, activePartySize(channel)),
   }
   db.upsertWorld(fresh)
   // drop any stale round state so a leftover timer can't resolve against the new floor

@@ -2,7 +2,7 @@
 export const ALL_CLASSES = ['Barbarian', 'Fighter', 'Paladin', 'Rogue', 'Wizard', 'Cleric', 'Sorcerer', 'Monk', 'Warlock'] as const
 export type DndClass = typeof ALL_CLASSES[number]
 
-export type EncounterType = 'combat' | 'shop' | 'event' | 'boss'
+export type EncounterType = 'entrance' | 'combat' | 'shop' | 'event' | 'boss'
 
 export interface AbilityScores {
   str: number; dex: number; con: number; int: number; wis: number; cha: number

@@ -287,6 +287,9 @@ export function handleDndHelp(text: string, ctx: CommandContext): string | null 
     return `@${u} the dungeon's open! !b join <class> to descend — wizard, barbarian, cleric, rogue, paladin, monk, sorcerer, warlock, fighter, or any name you dream up`
   }
   if (!CI_CONFUSED.test(text)) return null
+  if (w.encounterType === 'entrance') {
+    return `@${u} you're at the entrance — !b move to descend into the first fight · !b me for your character`
+  }
   if (w.floorCleared) {
     return w.encounterType === 'shop'
       ? `@${u} at the shop — !b buy 1-4 to grab gear · !b move to leave`
