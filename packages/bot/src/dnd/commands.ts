@@ -213,6 +213,46 @@ export function handleFlee(arg: string, ctx: CommandContext): string | null {
   return engine.resolveFlee(ctx.user, ctx.channel)
 }
 
+// --- natural-language combat ---
+// players type "I cast Fireburst at it", "attack the kimono", "burn it", "defend", "flee",
+// "use potion" — not the exact subcommand. classify the leading verb (after stripping common
+// first-person filler) and route. token-based so it's robust to "I'll"/"imma"/"lemme". gated
+// on an active dungeon + the user being an actual player so normal chat is never hijacked.
+const CI_FILLER = new Set([
+  'i', "i'll", 'ill', 'imma', "i'ma", "i'm", 'im', 'ima', 'lemme', 'let', 'me', 'gonna', 'gon',
+  'wanna', 'will', 'just', 'now', 'then', 'try', 'to', 'go', 'and', 'ok', 'okay', 'lol', 'time',
+  'a', 'the', 'shall', 'gotta', 'must', 'finna', 'wna', 'gunna', 'bout', 'about', 'my', 'turn',
+])
+const CI_SPELL = new Set(['cast', 'spell', 'conjure', 'channel', 'unleash', 'incant', 'chant', 'invoke', 'summon', 'spellcast', 'casting'])
+const CI_DEFEND = new Set(['defend', 'block', 'guard', 'brace', 'parry', 'dodge', 'shield', 'cover', 'protect', 'blocking', 'defending'])
+const CI_FLEE = new Set(['flee', 'run', 'escape', 'retreat', 'bail', 'nope', 'abscond', 'withdraw', 'leave', 'fleeing', 'running', 'yeet'])
+const CI_USE = new Set(['use', 'drink', 'quaff', 'consume', 'eat', 'pop', 'apply', 'equip', 'chug'])
+const CI_ATTACK = new Set([
+  'attack', 'hit', 'strike', 'swing', 'stab', 'slash', 'shoot', 'punch', 'smash', 'kill', 'murder',
+  'blast', 'throw', 'charge', 'whack', 'bonk', 'slay', 'fight', 'engage', 'maul', 'club', 'bash',
+  'pummel', 'lunge', 'chop', 'wallop', 'clobber', 'jab', 'kick', 'attacking', 'hitting', 'fireball',
+  'fireburst', 'zap', 'nuke', 'destroy', 'rush', 'assault', 'thwack', 'sock', 'deck', 'beat',
+])
+
+export function handleCombatIntent(text: string, ctx: CommandContext): string | null {
+  if (!ctx.channel || !ctx.user) return null
+  const channel = ctx.channel.toLowerCase()
+  if (!dndActive(channel)) return null
+  if (!db.getCharacter(ctx.user.toLowerCase(), channel)) return null // not a player — leave chat alone
+
+  const toks = text.toLowerCase().replace(/[^\w\s']/g, ' ').split(/\s+/).filter(Boolean)
+  while (toks.length && CI_FILLER.has(toks[0])) toks.shift()
+  const head = toks[0]
+  if (!head) return null
+
+  if (CI_SPELL.has(head)) return handleSpell('', ctx)
+  if (CI_DEFEND.has(head)) return handleDefend('', ctx)
+  if (CI_FLEE.has(head)) return handleFlee('', ctx)
+  if (CI_USE.has(head)) return handleUse(toks.slice(1).join(' '), ctx)
+  if (CI_ATTACK.has(head)) return handleAttack('', ctx)
+  return null
+}
+
 export function handleBuy(arg: string, ctx: CommandContext): string | null {
   if (!ctx.channel || !ctx.user) return null
   if (!dndActive(ctx.channel)) return null
