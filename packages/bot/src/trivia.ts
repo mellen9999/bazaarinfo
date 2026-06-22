@@ -25,6 +25,18 @@ try {
   krippPack = (parsed.questions ?? []).filter((q) => q.question && q.answer)
 } catch (e) { log(`trivia: kripp pack parse failed: ${e}`); krippPack = [] }
 
+// curated, human-verified general-knowledge pool — the guaranteed fallback for the
+// custom-topic path (commands.ts) so a topic request NEVER dead-ends with a "try a
+// clearer topic" message. fires when the AI path returns null for any reason (a niche
+// topic the verifier won't confirm, the daily cap, no API key, an API hiccup). these
+// launch with NO verify pass, so the file is human-vetted and accuracy is non-negotiable.
+let fallbackPack: PackQ[] = []
+try {
+  const raw = readFileSync(join(import.meta.dir, '../data/general-trivia.json'), 'utf-8')
+  const parsed = JSON.parse(raw) as { questions?: PackQ[] }
+  fallbackPack = (parsed.questions ?? []).filter((q) => q.question && q.answer)
+} catch (e) { log(`trivia: general pack parse failed: ${e}`); fallbackPack = [] }
+
 // test seam
 export function setKrippPackForTest(pack: PackQ[]) { krippPack = pack }
 function isKrippChannel(channel: string): boolean {
@@ -895,6 +907,22 @@ export function startKrippTrivia(channel: string): string | null {
   if (!isKrippChannel(channel) || krippPack.length === 0) return null
   return startTrivia(channel, 'kripp')
 }
+
+// guaranteed-launch fallback for the custom-topic path: a curated, always-true question
+// so chat ALWAYS gets a round even when the AI couldn't make one. picks a question not
+// asked recently in this channel, then routes through startCustomTrivia (which handles
+// the active-game race + canonical/accept normalization). returns null ONLY if the pack
+// failed to load (empty) — callers treat that as the single soft last-resort.
+export function startFallbackTrivia(channel: string): string | null {
+  if (fallbackPack.length === 0) return null
+  const recent = recentQuestions.get(channel) ?? []
+  const fresh = fallbackPack.filter((q) => !recent.some((r) => norm(r) === norm(q.question)))
+  const q = pickRandom(fresh.length > 0 ? fresh : fallbackPack)
+  return startCustomTrivia(channel, { question: q.question, answer: q.answer, accept: q.accept })
+}
+
+// test seam
+export function setFallbackPackForTest(pack: PackQ[]) { fallbackPack = pack }
 
 // 1-indexed type id for AI-generated custom-topic rounds. never produced by a
 // generator, so it never enters the adaptive type picker / recent-type buffer.

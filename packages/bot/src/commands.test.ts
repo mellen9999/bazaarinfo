@@ -121,6 +121,7 @@ mock.module('./ai', () => ({
 // --- mock trivia ---
 const mockIsGameActive = mock<(ch: string) => boolean>(() => false)
 const mockStartKrippTrivia = mock<(ch: string) => string | null>(() => null)
+const mockStartFallbackTrivia = mock<(ch: string) => string | null>(() => 'Trivia! fallback question (30s)')
 mock.module('./trivia', () => ({
   startTrivia: mock(() => 'Trivia! test question (30s to answer)'),
   getTriviaScore: mock(() => 'no trivia scores yet'),
@@ -139,6 +140,7 @@ mock.module('./trivia', () => ({
   recentQuestionList: mock(() => [] as string[]),
   isRecentQuestion: mock(() => false),
   startKrippTrivia: mockStartKrippTrivia,
+  startFallbackTrivia: mockStartFallbackTrivia,
 }))
 
 // custom-topic trivia generator — mocked so tests never hit the API. default returns
@@ -2090,6 +2092,8 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     mockGenerateCustomTrivia.mockImplementation(async () => ({ question: 'custom q?', answer: 'ans', accept: ['ans', 'answer'] }))
     mockStartKrippTrivia.mockClear()
     mockStartKrippTrivia.mockImplementation(() => null) // default: not a kripp channel / empty pack
+    mockStartFallbackTrivia.mockClear()
+    mockStartFallbackTrivia.mockImplementation(() => 'Trivia! fallback question (30s)') // default: pack loaded
   })
 
   it('routes a kripp-subject topic to the curated verified pack when available', async () => {
@@ -2117,10 +2121,21 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     expect(res).toBe('Trivia! custom question (30s)')
   })
 
-  it('returns a friendly miss line when generation fails/refuses', async () => {
+  it('falls back to a curated round (never "clearer topic") when generation fails', async () => {
     mockGenerateCustomTrivia.mockImplementation(async () => null)
+    mockStartFallbackTrivia.mockImplementation(() => 'Trivia! fallback question (30s)')
     const res = await handleCommand('!b trivia asdfqwer nonsense', { user: 'u', channel: 'ct-3' })
-    expect(res).toContain("couldn't make a trivia")
+    expect(mockStartFallbackTrivia).toHaveBeenCalled()
+    expect(res).toContain('Trivia!')
+    expect(res).not.toContain('clearer topic')
+  })
+
+  it('only soft-fails (no clearer-topic) if even the curated pack is empty', async () => {
+    mockGenerateCustomTrivia.mockImplementation(async () => null)
+    mockStartFallbackTrivia.mockImplementation(() => null)
+    const res = await handleCommand('!b trivia asdfqwer nonsense', { user: 'u', channel: 'ct-3b' })
+    expect(res).not.toContain('clearer topic')
+    expect(res).toContain('try again')
   })
 
   it('does not generate when a round is already running', async () => {
