@@ -989,7 +989,10 @@ export function stripTopicConnector(topic: string): string {
 
 // "trivia about chat / the last 5 min / what we just talked about" — the topic is the
 // conversation itself, so the question is built from the recent chat log, not a subject.
-const CHAT_TRIVIA_RE = /\b(chat|conversation|convo|the last \d+\s*(?:min|minute|sec|second|message|msg)s?|recent (?:chat|messages?|msgs?)|what (?:we|you|i|us|chat|y'?all|everyone) (?:just |were |been )?(?:talk|talked|said|saying|discuss|chatted|wrote)|this (?:stream|conversation|chat))\b/i
+// must be RECALL intent: a bare "chat"/"the chat" topic or an explicit "last N min /
+// recent messages / what we said" phrase. a qualified topic ("Kripp chat", "twitch chat",
+// "4chan") is a SUBJECT for deep-lore custom trivia, not a request to quiz the chat log.
+const CHAT_TRIVIA_RE = /^(?:the |this |our |these )?(?:chat|conversation|convo|messages?|msgs?)$|\b(?:the )?last \d+\s*(?:min|minute|sec|second|message|msg)s?\b|\brecent (?:chat|messages?|msgs?|convo)\b|\bwhat (?:we|you|i|us|chat|y'?all|everyone) (?:just |were |been )?(?:talk|talked|said|saying|discuss|chatted|wrote)|\bthis (?:stream|conversation)\b/i
 
 // pull the recent chat log for chat-trivia: drop the bot's own lines + empties,
 // strip a leading command trigger so messages read naturally.

@@ -41,6 +41,7 @@ Hard requirements:
 - SINGLE CLEAR ANSWER. Pick a fact with exactly ONE correct, well-established answer and no competing valid responses. Use a fact you actually know is true — never fabricate. You do NOT need to refuse: essentially every topic (skyrim, crows, anything) has a solid single-answer fact, so just choose one you're confident in rather than bailing.
 - AVOID ambiguous "what is the term/word for ..." definition questions where several legitimate terms fit (e.g. an organism eating dead matter -> scavenger / necrophage / saprophage / saprotroph are all defensible). Prefer facts with a crisp, single answer: a specific name, place, date, year, number, or record holder.
 - Make chat learn something — a satisfying "oh neat" fact, not a dry technicality.
+- ONE core verifiable fact only. Do NOT pad the question with extra specific claims (an award won, an exact year, "the first to do X") unless you are CERTAIN they are true — fabricated embellishments are the #1 way these questions go wrong. A clean simple true fact beats an impressive-sounding false one.
 - The answer MUST be short and typeable in a chat box: 1-4 words, or a number. Never a sentence.
 - "answer" is the SINGLE canonical form ONLY — e.g. "Ti", never "Ti (or Si)". Put every alternate/spelling in "accept".
 - Provide 2-6 accepted variants: lowercase forms, with/without leading articles, common alternate spellings/abbreviations, AND any other name that is genuinely the SAME answer. Always include the canonical answer. (If a "variant" is actually a different valid answer, the question is too ambiguous — pick a sharper one instead.)
@@ -78,10 +79,64 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0 && isOverDailyCap(channel)) break
     const r = await attemptGen(SYSTEM, `TOPIC: ${clean}${avoidBlock}`, channel)
-    if (r.ok) return r.q
-    if (!r.retry) return null
+    if (!r.ok) { if (!r.retry) return null; continue }
+    // independent fact-check before we commit — a second model with no stake in the
+    // question catches wrong answers + fabricated embellishments (the #1 failure mode:
+    // "won X award in YEAR", a fear-term that isn't a fear). reject -> regenerate once.
+    if (await verifyTrivia(r.q, channel)) return r.q
+    log(`ai-trivia: verify rejected "${r.q.question.slice(0, 50)}" (ans: ${r.q.answer})`)
   }
   return null
+}
+
+// adversarial verification: a fresh call, no stake in the question, asked to REFUTE.
+// returns true only if it confirms every claim is true AND the answer is the single
+// correct one. fails open to false (reject) on any error so a wrong question can't slip
+// through on an API hiccup. cheap (short output), and only runs on the world-knowledge
+// custom path — NOT person/chat trivia, whose answers live in context the checker lacks.
+const VERIFY_SYSTEM = `You are a strict trivia fact-checker. You get a QUESTION and a claimed ANSWER. Try to REFUTE it.
+
+Return {"ok":true} ONLY if you are confident that ALL hold:
+- EVERY factual claim in the question is true — no invented award, date, name, record, or embellishment.
+- The claimed ANSWER is correct AND is the single best answer (no other equally-valid answer exists).
+- The question is internally coherent (e.g. if it asks for a "fear/phobia", the answer is actually a fear).
+
+If anything is false, doubtful, incoherent, or ambiguous, return {"ok":false,"reason":"<brief>"}. When unsure, return false.
+
+Output ONLY a single minified JSON object.`
+
+async function verifyTrivia(q: CustomTrivia, channel: string): Promise<boolean> {
+  if (!API_KEY) return true // can't verify without a key; don't block generation
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), TIMEOUT)
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
+      body: safeStringify({
+        model: MODEL,
+        max_tokens: 80,
+        temperature: 0,
+        system: VERIFY_SYSTEM,
+        messages: [{ role: 'user', content: `QUESTION: ${q.question}\nANSWER: ${q.answer}` }],
+      }),
+      signal: controller.signal,
+    })
+    if (!res.ok) { log(`ai-trivia: verify API ${res.status}`); return false }
+    const parsed = await readJson<{ content?: { type: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } }>(res)
+    const u = parsed.data?.usage
+    if (u) recordAiSpend(channel, u.input_tokens ?? 0, u.output_tokens ?? 0)
+    const text = parsed.data?.content?.find((b) => b.type === 'text')?.text
+    if (!text) return false
+    const json = extractFirstJson(text)
+    if (!json) return false
+    try { return (JSON.parse(json) as { ok?: unknown }).ok === true } catch { return false }
+  } catch (e) {
+    if ((e as Error)?.name === 'AbortError') log('ai-trivia: verify timed out')
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // Trivia about what just happened in chat ("!b trivia about the last 5 min of

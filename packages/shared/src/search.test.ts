@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { buildIndex, searchCards, searchPrefix, buildTitleMap, findExact } from './search'
+import { buildIndex, searchCards, searchPrefix, buildTitleMap, findExact, searchAllWords } from './search'
 import type { BazaarCard } from './types'
 
 function makeCard(title: string): BazaarCard {
@@ -33,6 +33,24 @@ const cards = [
 
 const index = buildIndex(cards)
 const SCORE_GATE = 0.15
+
+describe('searchAllWords (multi-word AND fallback)', () => {
+  const belts = [makeCard('Championship Belt'), makeCard('Utility Belt'), makeCard('Belt'), makeCard('Letter Opener')]
+  it('matches "champion belt" -> Championship Belt (prefix word, fuse missed)', () => {
+    const r = searchAllWords(belts, 'champion belt', 5)
+    expect(r[0]?.Title).toBe('Championship Belt')
+  })
+  it('matches "champ belt" too', () => {
+    expect(searchAllWords(belts, 'champ belt', 5)[0]?.Title).toBe('Championship Belt')
+  })
+  it('requires ALL words to match (no partial)', () => {
+    // "rocket belt" — no card has both rocket AND belt
+    expect(searchAllWords([...belts, makeCard('Rocket Boots')], 'rocket belt', 5)).toEqual([])
+  })
+  it('ignores single-word queries (fuse/prefix own those)', () => {
+    expect(searchAllWords(belts, 'belt', 5)).toEqual([])
+  })
+})
 
 function gatedSearch(query: string, limit = 5) {
   return searchCards(index, query, limit).filter((r) => r.score <= SCORE_GATE)
