@@ -30,21 +30,32 @@ export interface CustomTrivia {
   accept: string[]
 }
 
-const SYSTEM = `You generate ONE trivia question about a user-supplied TOPIC for a live Twitch chat.
+const SYSTEM = `You generate ONE trivia question about a user-supplied TOPIC for a live Twitch chat. You are the best trivia writer alive: every question is fresh, surprising, fair, and rock-solid true.
 
-Interpret the topic generously. It may be broad ("birds"), vague, misspelled, slangy, a proper noun, an opinion or constraint phrase ("a 2010s game that isn't indie slop"), or adult/edgy ("sex", "drugs", "death") — ALWAYS find a specific, hard, verifiable fact within it and ask about that. Strip any attitude/opinion and extract the real subject (e.g. "2010s game that isn't indie slop" -> a major AAA 2010s game like The Witcher 3 or Red Dead 2 -> a fact about it). Narrow a broad topic yourself ("birds" -> a fact about one specific species). Treat an unfamiliar word as a real thing worth a question. You can ALWAYS make a question — never refuse a topic for being broad, simple, weird, messy, opinionated, short, unfamiliar, adult, or edgy.
+Interpret the topic generously. It may be broad ("birds"), vague, misspelled, slangy, a proper noun, an opinion or constraint phrase ("a 2010s game that isn't indie slop"), or adult/edgy ("sex", "drugs", "death") — ALWAYS find a specific, verifiable fact within it and ask about that. Strip any attitude/opinion and extract the real subject (e.g. "2010s game that isn't indie slop" -> a major 2010s game -> a fact about it). Treat an unfamiliar word as a real thing worth a question. You can ALWAYS make a question — never refuse a topic for being broad, simple, weird, messy, opinionated, short, unfamiliar, adult, or edgy.
+
+For a BROAD topic, secretly narrow it to ONE specific, less-obvious instance and ask about THAT — but do not default to the single most famous example every time. For "a 2010s video game" reach past the same five blockbusters (Skyrim/GTA V/Witcher 3) to the deep, surprising-but-real picks. For "birds" pick a specific species. Spread your picks: a regular asking this ten times in a row should get ten different subjects AND ten different angles, never the same shape twice.
 
 For an adult or risqué topic, reframe it into a CLEAN, broadcast-safe question — clinical, scientific, historical, or etymological — and ask THAT (e.g. "sex" -> a biology/reproduction term; "masturbation" -> a historical/medical fact). Never graphic, explicit, crude, or titillating. The question must read fine out loud on a family-friendly stream.
 
-Hard requirements:
-- The question must be genuinely HARD — obscure-but-real, the kind that stumps casual fans, not a surface fact anyone would know.
-- SINGLE CLEAR ANSWER. Pick a fact with exactly ONE correct, well-established answer and no competing valid responses. Use a fact you actually know is true — never fabricate. You do NOT need to refuse: essentially every topic (skyrim, crows, anything) has a solid single-answer fact, so just choose one you're confident in rather than bailing.
-- AVOID ambiguous "what is the term/word for ..." definition questions where several legitimate terms fit (e.g. an organism eating dead matter -> scavenger / necrophage / saprophage / saprotroph are all defensible). Prefer facts with a crisp, single answer: a specific name, place, date, year, number, or record holder.
-- Make chat learn something — a satisfying "oh neat" fact, not a dry technicality.
-- ONE core verifiable fact only. Do NOT pad the question with extra specific claims (an award won, an exact year, "the first to do X") unless you are CERTAIN they are true — fabricated embellishments are the #1 way these questions go wrong. A clean simple true fact beats an impressive-sounding false one.
+The bar — every question must be ALL of these:
+- SURPRISING: a satisfying "oh neat, I didn't know that" fact, never a surface fact everyone already knows, never a dry technicality. Chat should learn something.
+- FAIR + GUESSABLE: challenging but landable. A knowledgeable fan or a sharp guesser can get it; a casual won't. Interesting beats obscure — never so niche that nobody in chat could possibly know or reason it out, and never a coin-flip nobody could deduce.
+- SELF-CONTAINED: the question carries everything needed to find the answer. If you narrowed to a specific instance, either NAME that instance in the question (and ask about a property of it) OR make the instance itself the answer (and give enough identifying clues). NEVER reference an unnamed "this game / this bird / a certain X" that chat has no way to identify.
+- TRUE + SINGLE-ANSWER: exactly ONE correct, well-established answer, no competing valid responses. Use a fact you genuinely know — never fabricate.
+- CLEAN of embellishment: ONE core verifiable fact only. Do NOT pad with extra specific claims (an award, an exact year, "the first to do X") unless you are CERTAIN each is true. Fabricated embellishments are the #1 failure — a clean simple true fact beats an impressive-sounding false one.
+- NOT a fuzzy definition: avoid "what is the term/word for ..." questions where several legitimate terms fit (dead-matter eater -> scavenger / saprophage / saprotroph all defensible). Prefer a crisp single answer: a specific name, title, place, date, year, number, or record holder.
+
+Answer format:
 - The answer MUST be short and typeable in a chat box: 1-4 words, or a number. Never a sentence.
 - "answer" is the SINGLE canonical form ONLY — e.g. "Ti", never "Ti (or Si)". Put every alternate/spelling in "accept".
 - Provide 2-6 accepted variants: lowercase forms, with/without leading articles, common alternate spellings/abbreviations, AND any other name that is genuinely the SAME answer. Always include the canonical answer. (If a "variant" is actually a different valid answer, the question is too ambiguous — pick a sharper one instead.)
+
+Examples of the bar and variety (different topics, different angles, different answer shapes — illustrative only, NEVER reuse these):
+{"ok":true,"question":"Minecraft's creator, who sold it to Microsoft in 2014, is known by what one-word online handle?","answer":"Notch","accept":["notch","markus persson"]}
+{"ok":true,"question":"What is the only bird that can fly backwards?","answer":"hummingbird","accept":["humming bird","the hummingbird","hummingbirds"]}
+{"ok":true,"question":"The drink cappuccino takes its name from the brown robes of which order of friars?","answer":"Capuchin","accept":["capuchins","capuchin friars","capuchin monks","the capuchins"]}
+{"ok":true,"question":"What is the smallest bone in the human body?","answer":"stapes","accept":["the stapes","stirrup","stirrup bone"]}
 
 ONLY refuse (return {"ok":false}) if there is NO broadcast-safe question to be had: sexually explicit/pornographic content, sexualizing minors, hate-slur topics, or harassing a private individual. Everything else — including adult topics reframed cleanly per above — gets a question. If in doubt, make the question.
 
@@ -54,6 +65,38 @@ or
 {"ok":false}
 
 Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 4 words.`
+
+// rotating question "lenses" — a soft angle steer injected per generation so repeated
+// requests on the same broad topic ("a 2010s game") attack from a different direction
+// each round instead of the model always reaching for the same kind of fact. the model
+// is told to swap angles if it lacks a solid fact in this one, so this never forces a
+// fabrication — it only widens variety. topic-agnostic: every angle fits almost any
+// subject (a game, a person, a country, a chemical, an anime).
+export const LENSES = [
+  'an unexpected origin or etymology — why it has its name, or where it actually came from',
+  'a record or superlative — the first, only, biggest, smallest, fastest, or most of its kind',
+  'a surprising specific number — a count, year, measurement, or quantity few would guess',
+  'a hidden connection to something seemingly unrelated',
+  'a widely-believed misconception versus the surprising truth',
+  'the specific person or place behind it — a creator, inventor, namesake, or birthplace',
+  'an original name, codename, or working title from before it became what we know',
+  'a strange-but-true detail or a cause behind why it is the way it is',
+]
+
+// per-channel recent-lens memory so a channel does not see the same angle twice within a
+// short window. mirrors trivia.ts's recentTypes pattern; bounded, self-trimming.
+const recentLenses = new Map<string, number[]>()
+
+export function pickLens(channel: string): string {
+  const recent = recentLenses.get(channel) ?? []
+  const pool = LENSES.map((_, i) => i).filter((i) => !recent.includes(i))
+  const choices = pool.length ? pool : LENSES.map((_, i) => i)
+  const idx = choices[Math.floor(Math.random() * choices.length)]
+  recent.push(idx)
+  while (recent.length > 4) recent.shift()
+  recentLenses.set(channel, recent)
+  return LENSES[idx]
+}
 
 export async function generateCustomTrivia(topic: string, channel: string, avoid: string[] = []): Promise<CustomTrivia | null> {
   if (!API_KEY) return null
@@ -78,7 +121,11 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
   // before the retry so a spree can't slip a second call in over the daily backstop.
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0 && isOverDailyCap(channel)) break
-    const r = await attemptGen(SYSTEM, `TOPIC: ${clean}${avoidBlock}`, channel)
+    // fresh lens per attempt: on a retry (verify-reject / unparseable) a new angle also
+    // steers away from the bad fact, not just toward more variety.
+    const lens = pickLens(channel)
+    const lensBlock = `\n\nFavor THIS angle if you have a SOLID, verifiable fact for it; otherwise pick a better angle for this topic (never invent one to fit): ${lens}`
+    const r = await attemptGen(SYSTEM, `TOPIC: ${clean}${lensBlock}${avoidBlock}`, channel)
     if (!r.ok) { if (!r.retry) return null; continue }
     // independent fact-check before we commit — a second model with no stake in the
     // question catches wrong answers + fabricated embellishments (the #1 failure mode:
@@ -100,6 +147,7 @@ Return {"ok":true} ONLY if you are confident that ALL hold:
 - EVERY factual claim in the question is true — no invented award, date, name, record, or embellishment.
 - The claimed ANSWER is correct AND is the single best answer (no other equally-valid answer exists).
 - The question is internally coherent (e.g. if it asks for a "fear/phobia", the answer is actually a fear).
+- The question is SELF-CONTAINED: it carries enough information to determine the answer, and never refers to an unnamed specific thing ("this game", "a certain bird") the guesser cannot identify.
 
 If anything is false, doubtful, incoherent, or ambiguous, return {"ok":false,"reason":"<brief>"}. When unsure, return false.
 
