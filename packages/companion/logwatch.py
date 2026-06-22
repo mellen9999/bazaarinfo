@@ -154,9 +154,6 @@ RE_CARD_PURCHASED = re.compile(
 RE_CARDS_DISPOSED = re.compile(
     r"\[GameSimHandler\] Cards Disposed: (.+)"
 )
-RE_CARDS_DEALT = re.compile(
-    r"\[GameSimHandler\] Cards Dealt: (.+)"
-)
 RE_CARDS_SPAWNED = re.compile(
     r"\[GameSimHandler\] Cards Spawned: (.+)"
 )
@@ -395,7 +392,6 @@ def new_state() -> dict:
         "player_skills": {},     # instance_id -> {title, tier, socket}
         "shop_cards": [],        # [{title, type, tier, size}]
         "instance_map": {},      # instance_id -> template_id
-        "next_player_skill": 0,  # sequential skill socket counter
         "show_overlay": False,
     }
 
@@ -443,6 +439,26 @@ def parse_spawned_chunk(chunk: str) -> dict | None:
 
 
 _LINE_PREFIXES = ("BoardManager", "GameSimHandler", "AppState", "CardOperationUtility")
+
+
+def _next_skill_socket(state: dict) -> "int | None":
+    """Lowest free skill socket (0..11), or None if all 12 are taken. Computed from the
+    sockets currently in use, so a removed/reforged skill frees its slot — unlike the old
+    ever-incrementing counter, which leaked slots and dropped later skills past the cap."""
+    used = {s["socket"] for s in state["player_skills"].values()}
+    for i in range(12):
+        if i not in used:
+            return i
+    return None
+
+
+def _remove_skill(state: dict, inst_id: str) -> bool:
+    """Drop a skill instance from the overlay if present (on disposal/removal/reforge)."""
+    if inst_id in state["player_skills"]:
+        logger.info("- skill %s", state["player_skills"][inst_id]["title"])
+        del state["player_skills"][inst_id]
+        return True
+    return False
 
 
 def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
@@ -508,6 +524,8 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
             if did in state["opponent_board"]:
                 del state["opponent_board"][did]
                 changed = True
+            if _remove_skill(state, did):  # disposed skills must free their slot
+                changed = True
         return changed
 
     # Cards spawned (items re-appear after combat, opponent board, skills)
@@ -535,9 +553,8 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
                         for s in state["player_skills"].values()
                     )
                     if not already:
-                        socket_idx = state["next_player_skill"]
-                        state["next_player_skill"] = socket_idx + 1
-                        if socket_idx < 12:
+                        socket_idx = _next_skill_socket(state)
+                        if socket_idx is not None:
                             state["player_skills"][inst_id] = {
                                 "title": title,
                                 "tier": tier,
@@ -628,6 +645,8 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
             logger.info("- removed %s", state["player_board"][inst_id]["title"])
             del state["player_board"][inst_id]
             return True
+        if _remove_skill(state, inst_id):  # a removed/reforged skill frees its slot too
+            return True
         return False
 
     # Skill selected (from skill choice screen)
@@ -639,9 +658,8 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
         if inst_id not in state["player_skills"]:
             title = info["title"] if info else inst_id
             tier = info["tier"] if info else "Unknown"
-            socket_idx = state["next_player_skill"]
-            state["next_player_skill"] = socket_idx + 1
-            if socket_idx < 12:
+            socket_idx = _next_skill_socket(state)
+            if socket_idx is not None:
                 state["player_skills"][inst_id] = {
                     "title": title,
                     "tier": tier,
@@ -664,7 +682,6 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
             state["player_skills"].clear()
             state["shop_cards"].clear()
             state["instance_map"].clear()
-            state["next_player_skill"] = 0
             state["show_overlay"] = False
             return True
 
@@ -736,7 +753,12 @@ def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, d
                         logger.warning("Log file disappeared, waiting...")
                         time.sleep(2)
                         continue
-                    if st.st_ino != last_inode or st.st_size < last_size:
+                    # Real rotation = inode change (only trust it when both inodes are
+                    # nonzero — Windows reports st_ino=0 on some filesystems and flapping
+                    # 0<->n would otherwise spuriously trigger a full reparse). Truncation =
+                    # a real size shrink (appends only grow, so a smaller size is genuine).
+                    rotated = bool(last_inode and st.st_ino and st.st_ino != last_inode)
+                    if rotated or st.st_size < last_size:
                         logger.info("Log rotated/truncated, reopening and rebuilding state...")
                         f.close()
                         # Wait a moment for the new log to be written
