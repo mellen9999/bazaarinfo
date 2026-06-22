@@ -831,8 +831,10 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // AI so freeform combat doesn't fuzzy-match an item or get a generic AI reply. self-gates
   // (active dungeon + the user is a player), so it never touches normal chat.
   {
+    // null = not a dnd action (fall through). '' = a queued action handled silently (resolves
+    // via say() at round-close) — stop, don't fall through to the AI. a string = a reply.
     const combat = await dndCmds.handleCombatIntent(cleanArgs, ctx)
-    if (combat) return withSuffix(combat, suffix)
+    if (combat !== null) return combat ? withSuffix(combat, suffix) : null
   }
 
   // spam wall interception — handle without AI. cap at 5 TOTAL tokens.
