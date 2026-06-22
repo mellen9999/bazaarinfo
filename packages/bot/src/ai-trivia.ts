@@ -76,8 +76,8 @@ Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 
 // subject (a game, a person, a country, a chemical, an anime).
 export const LENSES = [
   'an unexpected origin or etymology — why it has its name, or where it actually came from',
-  'a record or superlative — the first, only, biggest, smallest, fastest, or most of its kind',
-  'a surprising specific number — a count, year, measurement, or quantity few would guess',
+  'a well-established record or superlative — a famous first, only, biggest, or fastest that is widely reported (not an obscure stat you cannot be sure of)',
+  'a surprising but well-documented number — a year, count, or measurement that is solidly recorded, never a precise figure you would have to guess at',
   'a hidden connection to something seemingly unrelated',
   'a widely-believed misconception versus the surprising truth',
   'the specific person or place behind it — a creator, inventor, namesake, or birthplace',
