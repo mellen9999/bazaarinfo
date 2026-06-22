@@ -236,7 +236,7 @@ const CI_ATTACK = new Set([
   'fireburst', 'zap', 'nuke', 'destroy', 'rush', 'assault', 'thwack', 'sock', 'deck', 'beat',
 ])
 
-export function handleCombatIntent(text: string, ctx: CommandContext): string | null {
+export async function handleCombatIntent(text: string, ctx: CommandContext): Promise<string | null> {
   if (!ctx.channel || !ctx.user) return null
   const channel = ctx.channel.toLowerCase()
   if (!dndActive(channel)) return null
@@ -251,8 +251,8 @@ export function handleCombatIntent(text: string, ctx: CommandContext): string | 
   if (CI_DEFEND.has(head)) return handleDefend('', ctx)
   if (CI_FLEE.has(head)) return handleFlee('', ctx)
   if (CI_USE.has(head)) return handleUse(toks.slice(1).join(' '), ctx)
-  if (CI_MOVE.has(head)) return handleMove('', ctx)
-  if (CI_EXPLORE.has(head)) return handleExplore('', ctx)
+  if (CI_MOVE.has(head)) return await handleMove('', ctx)
+  if (CI_EXPLORE.has(head)) return await handleExplore('', ctx)
   if (CI_ATTACK.has(head)) return handleAttack('', ctx)
   return null
 }

@@ -831,7 +831,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // AI so freeform combat doesn't fuzzy-match an item or get a generic AI reply. self-gates
   // (active dungeon + the user is a player), so it never touches normal chat.
   {
-    const combat = dndCmds.handleCombatIntent(cleanArgs, ctx)
+    const combat = await dndCmds.handleCombatIntent(cleanArgs, ctx)
     if (combat) return withSuffix(combat, suffix)
   }
 
