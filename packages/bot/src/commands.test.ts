@@ -120,6 +120,7 @@ mock.module('./ai', () => ({
 
 // --- mock trivia ---
 const mockIsGameActive = mock<(ch: string) => boolean>(() => false)
+const mockStartKrippTrivia = mock<(ch: string) => string | null>(() => null)
 mock.module('./trivia', () => ({
   startTrivia: mock(() => 'Trivia! test question (30s to answer)'),
   getTriviaScore: mock(() => 'no trivia scores yet'),
@@ -137,6 +138,7 @@ mock.module('./trivia', () => ({
   startCustomTrivia: mock(() => 'Trivia! custom question (30s)'),
   recentQuestionList: mock(() => [] as string[]),
   isRecentQuestion: mock(() => false),
+  startKrippTrivia: mockStartKrippTrivia,
 }))
 
 // custom-topic trivia generator — mocked so tests never hit the API. default returns
@@ -2075,6 +2077,21 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     mockIsGameActive.mockImplementation(() => false)
     mockGenerateCustomTrivia.mockClear()
     mockGenerateCustomTrivia.mockImplementation(async () => ({ question: 'custom q?', answer: 'ans', accept: ['ans', 'answer'] }))
+    mockStartKrippTrivia.mockClear()
+    mockStartKrippTrivia.mockImplementation(() => null) // default: not a kripp channel / empty pack
+  })
+
+  it('routes a kripp-subject topic to the curated verified pack when available', async () => {
+    mockStartKrippTrivia.mockImplementation(() => 'Trivia! kripp pack question (30s)')
+    const res = await handleCommand('!b trivia about kripp chat', { user: 'u', channel: 'ct-kp' })
+    expect(res).toBe('Trivia! kripp pack question (30s)')
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled() // curated pack, not the AI
+  })
+
+  it('falls back to AI for a kripp topic when no pack (non-kripp channel)', async () => {
+    mockStartKrippTrivia.mockImplementation(() => null)
+    await handleCommand('!b trivia about kripp', { user: 'u', channel: 'ct-kp2' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('kripp', 'ct-kp2', [])
   })
 
   it('routes an arbitrary topic to the AI generator then launches a custom round', async () => {
