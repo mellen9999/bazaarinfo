@@ -3,7 +3,7 @@ import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
-import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion } from './trivia'
+import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, startKrippTrivia } from './trivia'
 import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, type CustomTrivia } from './ai-trivia'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
@@ -994,6 +994,9 @@ export function stripTopicConnector(topic: string): string {
 // "4chan") is a SUBJECT for deep-lore custom trivia, not a request to quiz the chat log.
 const CHAT_TRIVIA_RE = /^(?:the |this |our |these )?(?:chat|conversation|convo|messages?|msgs?)$|\b(?:the )?last \d+\s*(?:min|minute|sec|second|message|msg)s?\b|\brecent (?:chat|messages?|msgs?|convo)\b|\bwhat (?:we|you|i|us|chat|y'?all|everyone) (?:just |were |been )?(?:talk|talked|said|saying|discuss|chatted|wrote)|\bthis (?:stream|conversation)\b/i
 
+// a kripp-subject topic -> route to the curated verified kripp pack (in kripp channels).
+const KRIPP_TOPIC_RE = /\bkripp(?:a|arrian|arian|errian)?\b|\boctavian\b/i
+
 // pull the recent chat log for chat-trivia: drop the bot's own lines + empties,
 // strip a leading command trigger so messages read naturally.
 function recentChatLines(channel: string): string[] {
@@ -1077,6 +1080,13 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   if (t.length < 2 || !/[a-z0-9]/i.test(t)) return null
   if (isGameActive(channel)) {
     return withSuffix(`a trivia round is already running — wait for it`, suffix)
+  }
+  // kripp-subject topics -> the curated, web-verified kripp pack. the AI fact-checker
+  // can't confirm niche streamer lore so the AI path would just NULL out; the pack is the
+  // verified, always-lands source. null when not a kripp channel/empty pack -> AI fallback.
+  if (KRIPP_TOPIC_RE.test(t)) {
+    const kr = startKrippTrivia(channel)
+    if (kr) return withSuffix(kr, suffix)
   }
   if (customPending.has(channel)) return null
   const last = customGenCooldown.get(channel) ?? 0

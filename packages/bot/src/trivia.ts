@@ -886,6 +886,16 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
   return launchRound(channel, q)
 }
 
+// curated, web-verified kripp pack round for a kripp-subject custom topic ("trivia about
+// kripp", "kripp chat"). the AI fact-checker can't confirm niche streamer lore so it
+// rejects it -> NULL; the curated pack is the verified, always-lands source for it.
+// returns null when this isn't a kripp channel / the pack is empty, so the caller falls
+// back to the AI path. otherwise returns startTrivia's announce (or its active/cooldown msg).
+export function startKrippTrivia(channel: string): string | null {
+  if (!isKrippChannel(channel) || krippPack.length === 0) return null
+  return startTrivia(channel, 'kripp')
+}
+
 // 1-indexed type id for AI-generated custom-topic rounds. never produced by a
 // generator, so it never enters the adaptive type picker / recent-type buffer.
 const CUSTOM_TYPE = 21
