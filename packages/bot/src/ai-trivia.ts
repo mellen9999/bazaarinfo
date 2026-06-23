@@ -36,6 +36,7 @@ const BAR = `The bar — every question must be ALL of these:
 - SURPRISING: a satisfying "oh neat, I didn't know that" fact, never a surface fact everyone already knows, never a dry technicality. Chat should learn something.
 - FAIR + GUESSABLE: challenging but landable. A knowledgeable fan or a sharp guesser can get it; a casual won't. Interesting beats obscure — never so niche that nobody in chat could possibly know or reason it out, and never a coin-flip nobody could deduce.
 - SELF-CONTAINED: the question carries everything needed to find the answer. NEVER reference an unnamed "this game / this bird / a certain X" that chat has no way to identify.
+- NEVER GIVES IT AWAY: the answer — and EVERY accepted form of it — must NOT appear anywhere in the question, and the wording must not telegraph it. A viewer must not be able to win by copying a word straight out of the question. No gimmes a casual answers with zero thought. AVOID eponym traps: do NOT name "the X Scale / X's Law / the X Effect" and then ask who it is named after when the answer is X — the name is already given. Find an angle where the answer is genuinely withheld.
 - TRUE + SINGLE-ANSWER: exactly ONE correct, well-established answer, no competing valid responses. Use a fact you genuinely know — never fabricate.
 - ONE CLEAR ASK: the question requests exactly ONE thing, and its wording makes the answer TYPE obvious. NEVER bundle two questions ("how many X, and what is the third called?"). NEVER use a misdirecting lead-in — if the answer is a name or word, do NOT open with "how many" or any count framing that primes chat to type a number; if the answer is a number, don't phrase it like a name lookup. A reader should know from the wording whether to type a name, a number, or a word.
 - TYPEABLE ANSWER: the answer must be a crisp token a viewer can type verbatim and win — a proper noun, name, place, title, a single common word, or a number. NEVER a descriptive phrase, a verb phrase, or a sentence fragment that chat would have to word exactly right. BAD answers: "time moves when you move", "royal blood contact", "label the buttons", "rotate the eggs" — nobody types those exactly, so the round dies. If the cleanest fact would need a phrase answer, REPHRASE THE QUESTION so the answer collapses to one crisp noun. e.g. instead of asking Superhot's mechanic (answer "time moves when you move"), ask "What 2016 FPS advances time only when you move?" (answer "Superhot"). Pick the framing where the answer is a single nameable thing.
@@ -134,7 +135,7 @@ export function pickDistinctLenses(channel: string, k: number): string[] {
 // parallel => higher chance one survives verification (low null rate, so questions stay
 // on-topic instead of falling to the curated pool) AND we get to ship the strongest of
 // several. parallel calls => no extra latency over a single attempt, only more tokens.
-const CANDIDATES = 3
+const CANDIDATES = 4
 
 const BROADEN = 'Play it safe: pick the single most well-established, certainly-true fact you know that connects to this topic — zoom out to its broader subject if needed — and ask a clean question whose answer is one crisp nameable thing.'
 
@@ -176,7 +177,7 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
   // so the answer must be a fact ABOUT it, never the subject's own name.
   const lenses = pickDistinctLenses(channel, CANDIDATES)
   const items = lenses.map((lens, i) => ({ subject: subjects[i % subjects.length], instruction: lensInstruction(lens) }))
-  let passed = await generateAndVerify(channel, items, clean, avoidBlock, !namesSubject)
+  let passed: Scored[] = await generateAndVerify(channel, items, clean, avoidBlock, !namesSubject)
   // round 2 only if round 1 produced nothing usable — a single play-it-safe broaden pass on
   // the raw topic (naming allowed). cap re-checked so a spree can't dodge the backstop.
   if (passed.length === 0 && !isOverDailyCap(channel)) {
@@ -224,7 +225,7 @@ async function generateAndVerify(
   topic: string,
   avoidBlock: string,
   guessTheSubject: boolean,
-): Promise<CustomTrivia[]> {
+): Promise<Scored[]> {
   const gens = await Promise.all(
     items.map(async (it) => {
       const content = `SUBJECT: ${it.subject}\nGUESS_THE_SUBJECT: ${guessTheSubject}\n\n${it.instruction}${avoidBlock}`
@@ -234,18 +235,38 @@ async function generateAndVerify(
         log(`ai-trivia: dropped tautology "${g.q.answer}" (subject named in topic: ${it.subject})`)
         return null
       }
+      // deterministic backstop to the verifier's GIVEAWAY rule: if a winning answer is
+      // sitting verbatim in the question, a viewer can copy it — drop it, no API call needed.
+      if (answerLeaks(g.q)) {
+        log(`ai-trivia: dropped giveaway "${g.q.answer}" (answer appears in the question)`)
+        return null
+      }
       return g.q
     }),
   )
   const cands = dedupeCandidates(gens.filter((q): q is CustomTrivia => q !== null))
   if (cands.length === 0) return []
   const verdicts = await Promise.all(cands.map((q) => verifyTrivia(q, channel)))
-  const passed: CustomTrivia[] = []
+  const passed: Scored[] = []
   cands.forEach((q, i) => {
-    if (verdicts[i]) passed.push(q)
+    if (verdicts[i].ok) passed.push({ q, quality: verdicts[i].quality })
     else log(`ai-trivia: verify rejected "${q.question.slice(0, 50)}" (ans: ${q.answer})`)
   })
   return passed
+}
+
+// deterministic giveaway check: true if any distinctive accepted answer appears as a
+// contiguous word run in the question (a viewer could copy it verbatim). Skips short and
+// pure-number forms — a 2-letter token or a bare count recurs harmlessly in normal wording.
+export function answerLeaks(q: CustomTrivia): boolean {
+  const norm = (s: string) => ` ${s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()} `
+  const nq = norm(q.question)
+  for (const a of [q.answer, ...q.accept]) {
+    const na = norm(a).trim()
+    if (na.length < 3 || /^\d+$/.test(na)) continue
+    if (nq.includes(` ${na} `)) return true
+  }
+  return false
 }
 
 // true when an answer merely restates the subject or the user's topic — e.g. topic "anger
@@ -281,14 +302,22 @@ function dedupeCandidates(cands: CustomTrivia[]): CustomTrivia[] {
   return out
 }
 
-// among verified candidates, prefer the most TYPEABLE answer — fewest words wins, so a
-// crisp name/number beats a borderline phrase that slipped through. ties broken randomly
-// so the same topic still varies across rounds.
-function pickBestCandidate(cands: CustomTrivia[]): CustomTrivia {
-  const scored = cands.map((c) => ({ c, words: c.answer.trim().split(/\s+/).length }))
-  const min = Math.min(...scored.map((s) => s.words))
-  const best = scored.filter((s) => s.words === min).map((s) => s.c)
-  return best[Math.floor(Math.random() * best.length)]
+// a verified candidate plus the verifier's quality rating (1-3), so the orchestrator can
+// ship the BEST survivor, not just any that passed.
+interface Scored {
+  q: CustomTrivia
+  quality: number
+}
+
+// pick the ship-worthy question: highest verifier quality first (best-of-all-time bar),
+// then the most TYPEABLE answer (fewest words) as a tie-break, then random so the same
+// topic still varies across rounds.
+function pickBestCandidate(cands: Scored[]): CustomTrivia {
+  const maxQ = Math.max(...cands.map((c) => c.quality))
+  const top = cands.filter((c) => c.quality === maxQ)
+  const minWords = Math.min(...top.map((c) => c.q.answer.trim().split(/\s+/).length))
+  const best = top.filter((c) => c.q.answer.trim().split(/\s+/).length === minWords)
+  return best[Math.floor(Math.random() * best.length)].q
 }
 
 // adversarial verification: a fresh call, no stake in the question, asked to REFUTE.
@@ -308,23 +337,41 @@ Reject (ok:false) if you find ANY of these problems:
 - Misdirecting or two-part wording — REJECT if the question bundles two asks OR if its opening primes the wrong TYPE of answer. Canonical fail: "How many walls surround the island — Wall Maria, Wall Rose, and what is the third called?" opens with "how many" (a reader types a NUMBER) but the real answer is a name ("Wall Sina") — reject. Any time the first words imply a count but the answer is a name/word (or the reverse), reject.
 - Not self-contained — refers to an unnamed specific thing ("this game", "a certain bird") the guesser can't identify.
 - A non-typeable ANSWER — it is a descriptive phrase, verb phrase, or sentence fragment rather than a crisp token a viewer types verbatim (a name, proper noun, place, title, single word, or number). "time moves when you move", "royal blood contact", "label the buttons" are BAD; reject them.
+- GIVEAWAY — the answer, ANY accepted form of it, or an obvious synonym appears in the question text, OR the answer is trivially derivable from words in the question. A viewer must not be able to win by copying a word straight out of the question. This includes EPONYM TRAPS: "the Novaco Scale is named after which psychologist?" gives away "Novaco"; "Newton's law... named after whom?" gives away "Newton" — reject. If the answer is sitting in the question, reject.
+- LOW-EFFORT / SPAMMY — a surface fact any casual instantly knows, a filler/definitional question, or one that teaches nothing. The bar is "oh neat, I didn't know that". A bot asking lazy gimmes looks like spam, not a smart trivia host — reject anything that doesn't clear that bar.
 
 Otherwise return ok:true. Do NOT reject merely because the topic is niche, obscure, or unfamiliar — only reject a concrete problem you can point to.
 
+Also rate the question's quality 1-3 (only meaningful when ok:true): 3 = excellent, genuinely surprising "oh neat" question with the answer well withheld; 2 = solid and fair; 1 = valid but weak/borderline. This ranks survivors — be honest, do not inflate.
+
 Output ONLY one minified JSON object, no prose outside it:
-{"check":"<your step-by-step verification, recomputing any count>","ok":true}
+{"check":"<your step-by-step verification, recomputing any count>","ok":true,"quality":3}
 or
 {"check":"...","ok":false,"reason":"<brief>"}`
 
-export async function verifyTrivia(q: CustomTrivia, channel: string): Promise<boolean> {
-  if (!API_KEY) return true // can't verify without a key; don't block generation
-  // max_tokens 320 leaves room to reason in the "check" field before the verdict —
+export interface Verdict {
+  ok: boolean
+  quality: number // 1-3 when ok, 0 when rejected — ranks survivors so the best one ships
+}
+
+export async function verifyTrivia(q: CustomTrivia, channel: string): Promise<Verdict> {
+  if (!API_KEY) return { ok: true, quality: 2 } // can't verify without a key; don't block generation
+  // pass every accepted form so the verifier can catch a giveaway hiding in an alternate, not
+  // just the canonical answer. max_tokens 320 leaves room to reason in the "check" field —
   // recomputing a count or working a constraint catches errors a bare yes/no waves through.
-  const text = await callApi(VERIFY_SYSTEM, `QUESTION: ${q.question}\nANSWER: ${q.answer}`, channel, 320, 0)
-  if (!text) return false // fail closed: an API hiccup must never let a wrong question through
+  const answers = [q.answer, ...q.accept.filter((a) => a.toLowerCase() !== q.answer.toLowerCase())].join(' / ')
+  const text = await callApi(VERIFY_SYSTEM, `QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`, channel, 320, 0)
+  if (!text) return { ok: false, quality: 0 } // fail closed: an API hiccup must never let a wrong question through
   const json = extractFirstJson(text)
-  if (!json) return false
-  try { return (JSON.parse(json) as { ok?: unknown }).ok === true } catch { return false }
+  if (!json) return { ok: false, quality: 0 }
+  try {
+    const o = JSON.parse(json) as { ok?: unknown; quality?: unknown }
+    if (o.ok !== true) return { ok: false, quality: 0 }
+    const quality = typeof o.quality === 'number' && o.quality >= 1 && o.quality <= 3 ? Math.round(o.quality) : 2
+    return { ok: true, quality }
+  } catch {
+    return { ok: false, quality: 0 }
+  }
 }
 
 // Trivia about what just happened in chat ("!b trivia about the last 5 min of
