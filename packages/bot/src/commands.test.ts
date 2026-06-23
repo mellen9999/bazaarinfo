@@ -125,6 +125,8 @@ mock.module('./trivia', () => ({
   startCustomTrivia: mock(() => 'Trivia! custom question (30s)'),
   recentQuestionList: mock(() => [] as string[]),
   isRecentQuestion: mock(() => false),
+  recentAnswerList: mock(() => [] as string[]),
+  isRecentAnswer: mock(() => false),
   startKrippTrivia: mockStartKrippTrivia,
   startFallbackTrivia: mockStartFallbackTrivia,
 }))
@@ -2092,18 +2094,18 @@ describe('custom-topic trivia: !trivia <topic>', () => {
   it('falls back to AI for a kripp topic when no pack (non-kripp channel)', async () => {
     mockStartKrippTrivia.mockImplementation(() => null)
     await handleCommand('!b trivia about kripp', { user: 'u', channel: 'ct-kp2' })
-    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('kripp', 'ct-kp2', [])
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('kripp', 'ct-kp2', [], [])
   })
 
   it('routes an arbitrary topic to the AI generator then launches a custom round', async () => {
     const res = await handleCommand('!b trivia roman history', { user: 'u', channel: 'ct-1' })
-    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('roman history', 'ct-1', [])
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('roman history', 'ct-1', [], [])
     expect(res).toBe('Trivia! custom question (30s)')
   })
 
   it('works via the top-level !trivia command too', async () => {
     const res = await handleCommand('!trivia the deep sea', { user: 'u', channel: 'ct-2' })
-    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('the deep sea', 'ct-2', [])
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('the deep sea', 'ct-2', [], [])
     expect(res).toBe('Trivia! custom question (30s)')
   })
 
@@ -2154,23 +2156,23 @@ describe('custom-topic trivia: !trivia <topic>', () => {
 
   it('strips emote spam from the topic before generating', async () => {
     await handleCommand('!b trivia birds KEKW Sadge', { user: 'u', channel: 'ct-8' })
-    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('birds', 'ct-8', [])
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('birds', 'ct-8', [], [])
   })
 
   it('strips emotes interleaved through the topic', async () => {
     await handleCommand('!b trivia LULW roman LUL history Kappa', { user: 'u', channel: 'ct-9' })
-    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('roman history', 'ct-9', [])
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('roman history', 'ct-9', [], [])
   })
 
   it('keeps an all-emote topic as-is rather than emptying it', async () => {
     await handleCommand('!b trivia OMEGALUL', { user: 'u', channel: 'ct-10' })
-    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('OMEGALUL', 'ct-10', [])
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('OMEGALUL', 'ct-10', [], [])
   })
 
   it('"Kripp chat" is a topic (deep lore), not a chat-log recall question', async () => {
     mockGenerateChatTrivia.mockClear()
     await handleCommand('!b trivia about Kripp chat', { user: 'u', channel: 'ct-kc' })
-    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('Kripp chat', 'ct-kc', [])
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('Kripp chat', 'ct-kc', [], [])
     expect(mockGenerateChatTrivia).not.toHaveBeenCalled()
   })
 
@@ -2185,7 +2187,7 @@ describe('custom-topic trivia: !trivia <topic>', () => {
   it('strips invisible/format chars chat injects into the topic', async () => {
     // trailing U+034F (combining grapheme joiner) + a zero-width space mid-word
     await handleCommand('!b trivia se\u200Bx\u034F', { user: 'u', channel: 'ct-inv' })
-    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('sex', 'ct-inv', [])
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('sex', 'ct-inv', [], [])
   })
 })
 
@@ -2235,7 +2237,7 @@ describe('person-targeted trivia: !trivia about @user', () => {
 
   it('a bare username with no @ stays a normal topic, not a person', async () => {
     await handleCommand('!b trivia about sw1ngggg', { user: 'asker', channel: 'pt-3' })
-    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('sw1ngggg', 'pt-3', [])
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('sw1ngggg', 'pt-3', [], [])
     expect(mockGeneratePersonTrivia).not.toHaveBeenCalled()
   })
 })
@@ -2275,7 +2277,7 @@ describe('trivia-result questions answered from real data (no AI fabrication)', 
     mockGenerateCustomTrivia.mockImplementation(async () => ({ question: 'q?', answer: 'a', accept: ['a'] }))
     await handleCommand('!b trivia about winning', { user: 'u', channel: 'c4' })
     expect(mockGetLastTriviaResult).not.toHaveBeenCalled()
-    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('winning', 'c4', [])
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('winning', 'c4', [], [])
   })
 })
 
@@ -2424,13 +2426,13 @@ describe('natural-language + chat trivia routing', () => {
 
   it('routes "make a trivia about happy gilmore" to the topic generator', async () => {
     const res = await handleCommand('!b make a trivia about happy gilmore', { user: 'u', channel: 'nlt-1' })
-    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('happy gilmore', 'nlt-1', [])
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('happy gilmore', 'nlt-1', [], [])
     expect(res).toBe('Trivia! custom question (30s)')
   })
 
   it('routes "do a quiz on cats" to the topic generator', async () => {
     await handleCommand('!b do a quiz on cats', { user: 'u', channel: 'nlt-2' })
-    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('cats', 'nlt-2', [])
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('cats', 'nlt-2', [], [])
   })
 
   it('routes a chat-about request to the chat-trivia generator, not the topic one', async () => {
@@ -2448,7 +2450,7 @@ describe('natural-language + chat trivia routing', () => {
 
   it('a normal topic that merely contains "chatgpt" is NOT chat trivia', async () => {
     await handleCommand('!b trivia about chatgpt', { user: 'u', channel: 'nlt-5' })
-    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('chatgpt', 'nlt-5', [])
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('chatgpt', 'nlt-5', [], [])
     expect(mockGenerateChatTrivia).not.toHaveBeenCalled()
   })
 })
