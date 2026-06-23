@@ -626,6 +626,10 @@ function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: Tie
 const TRIVIA_RESULT_RE = /\bwho\b[^?]*\b(won|win|winner|winning)\b[^?]*\b(trivia|quiz|round|last\s*one)\b|\b(trivia|quiz)\s+(leaderboard|standings|scores?|rankings?|top)\b|\bdid\b[^?]*\bwin\b[^?]*\b(trivia|quiz|round)\b/i
 // of a matched result-question, which ones want the standings table vs the last winner.
 const TRIVIA_STANDINGS_RE = /\b(leaderboard|standings|scores?|rankings?|top)\b/i
+// a whole-query standings ask, answered from the exact trivia table (free, no AI). anchored
+// so only a bare command matches — a conversational mention falls through to the AI, which
+// is itself grounded with the standings data (ai-build STANDINGS_RE) so it answers too.
+const BARE_STANDINGS_RE = /^(?:the\s+|trivia\s+|quiz\s+|show\s+(?:me\s+)?(?:the\s+)?)?(?:leaderboard|leaderboards|standings|scoreboard|rankings?)\??$|^who(?:'?s|\s+is|\s+are)?\s+(?:winning|leading|in\s+(?:the\s+)?lead|on\s+top|first|ahead)(?:\s+(?:the\s+|in\s+|at\s+)?(?:trivia|quiz))?\??$/i
 
 // strip conversational prefixes so "what is birdge" → "birdge"
 // "how about" / "what about" excluded — they're continuations, not direct lookups
@@ -754,6 +758,16 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     if (!last) return withSuffix(`no trivia has run here yet — start one with !b trivia`, sfx)
     if (last.winner) return withSuffix(`@${last.winner} won the last round (answer: ${last.answer})`, sfx)
     return withSuffix(`nobody got the last round — the answer was ${last.answer}`, sfx)
+  }
+
+  // a BARE standings ask ("leaderboard", "who's winning", "trivia rankings") → the exact
+  // trivia top-5 table, free + no hallucination risk. anchored to the whole query so a
+  // conversational mention ("i am talking about the leaderboard") falls through to the AI,
+  // which is grounded with the same standings data in ai-build (so it never deflects either).
+  if (ctx.channel && BARE_STANDINGS_RE.test(cleanArgs)) {
+    const sfx = mentions.length ? ` ${mentions.join(' ')}` : ''
+    if (isGameActive(ctx.channel)) return withSuffix(`a round's live right now — get your answer in!`, sfx)
+    return withSuffix(getTriviaScore(ctx.channel), sfx)
   }
 
   // proxy ! and / commands — before dedup so cooldown messages always show

@@ -2308,6 +2308,31 @@ describe('trivia-result questions answered from real data (no AI fabrication)', 
     expect(mockGetLastTriviaResult).not.toHaveBeenCalled()
     expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('winning', 'c4', [], [])
   })
+
+  it('a bare "leaderboard" ask returns the exact trivia table, free (no AI)', async () => {
+    const res = await handleCommand('!b leaderboard', { user: 'u', channel: 'cb1' })
+    expect(res).toBe('no trivia scores yet')
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  it('"who\'s winning" with no trivia word still routes to the standings table, not the AI', async () => {
+    const res = await handleCommand("!b who's winning", { user: 'u', channel: 'cb2' })
+    expect(res).toBe('no trivia scores yet')
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  it('a conversational leaderboard mention falls through to the (grounded) AI, not the bare table', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'you mean the trivia leaderboard? nobody yet', mentions: [] }))
+    const res = await handleCommand('!b i am talking about the leaderboard', { user: 'u', channel: 'cb3' })
+    expect(mockAiRespond).toHaveBeenCalled()
+    expect(res).toContain('trivia leaderboard')
+  })
+
+  it('a live round defers the bare standings ask instead of leaking the in-flight answer', async () => {
+    mockIsGameActive.mockImplementation(() => true)
+    const res = await handleCommand('!b standings', { user: 'u', channel: 'cb4' })
+    expect(res).toContain("round's live")
+  })
 })
 
 describe('chat-planted steering directives (vibes)', () => {
