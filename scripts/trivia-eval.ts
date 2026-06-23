@@ -9,7 +9,7 @@
 // isolated temp DB so the bot's data is untouched. the verifier is a temp-0 model call,
 // so a rare case may flip — investigate any FAIL, don't treat one as deterministic truth.
 import { initDb } from '../packages/bot/src/db'
-import { verifyTrivia } from '../packages/bot/src/ai-trivia'
+import { verifyPanel } from '../packages/bot/src/ai-trivia'
 
 initDb('/tmp/bzi-trivia-eval.db')
 const CHANNEL = 'mellen'
@@ -33,6 +33,7 @@ const CASES: Case[] = [
   { question: "In Happy Gilmore, Bob Barker famously brawls with Adam Sandler — what is Bob Barker's character's first name?", answer: 'Bob', accept: ['bob', 'bob barker'], expect: 'reject', why: 'GIVEAWAY — the answer "Bob" is sitting in the question ("Bob Barker")' },
   { question: 'The Novaco Anger Scale, a standard measure of anger, is named after which psychologist?', answer: 'Raymond Novaco', accept: ['novaco', 'raymond novaco'], expect: 'reject', why: 'GIVEAWAY eponym trap — "Novaco" is already in the question' },
   { question: 'What color is the sky on a clear day?', answer: 'blue', expect: 'reject', why: 'LOW-EFFORT — a casual answers instantly, teaches nothing, looks like spam' },
+  { question: 'Which martial art did The Price Is Right host Bob Barker practice for decades?', answer: 'judo', accept: ['judo'], expect: 'reject', why: 'plausible-but-WRONG — Barker practiced karate (trained by Chuck Norris); the solver lens re-derives and contradicts the claim' },
 
   // --- known GOOD: well-formed, true, single crisp answer; must pass ---
   { question: 'Minecraft\'s creator, who sold it to Microsoft in 2014, is known by what one-word online handle?', answer: 'Notch', expect: 'accept', why: 'true, single crisp answer' },
@@ -47,7 +48,7 @@ let pass = 0
 const fails: string[] = []
 for (let i = 0; i < CASES.length; i++) {
   const c = CASES[i]
-  const { ok } = await verifyTrivia({ question: c.question, answer: c.answer, accept: c.accept ?? [] }, CHANNEL)
+  const { ok } = await verifyPanel({ question: c.question, answer: c.answer, accept: c.accept ?? [] }, CHANNEL)
   const verdict = ok ? 'accept' : 'reject'
   const good = verdict === c.expect
   if (good) pass++
