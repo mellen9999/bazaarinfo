@@ -1,7 +1,6 @@
 import * as store from './store'
 import { ALIASES, HERO_ALIASES } from './store'
 import * as db from './db'
-import * as dndDb from './dnd/db'
 import { log } from './log'
 import { resolveTooltip } from '@bazaarinfo/shared'
 import type { Monster } from '@bazaarinfo/shared'
@@ -1112,17 +1111,6 @@ export function checkAnswer(
     clearHints(game)
     activeGames.delete(channel)
     lastGameEnd.set(channel, Date.now())
-
-    // non-blocking D&D XP grant for trivia wins
-    setImmediate(() => {
-      try {
-        const char = dndDb.getCharacter(username.toLowerCase(), channel.toLowerCase())
-        if (char) {
-          const { newLevel, leveledUp } = dndDb.addCharacterXp(username.toLowerCase(), channel.toLowerCase(), 15)
-          if (leveledUp) say(channel, `trivia win bonus: @${username} gains 15 XP in the Depths — Lv${newLevel} ${char.class}!`)
-        }
-      } catch (e) { log(`dnd: trivia xp error: ${e}`) }
-    })
 
     const timeStr = secs.toFixed(1)
     const speedTag = secs < 3 ? ' LEGENDARY' : secs < 5 ? ' FAST' : secs < 10 ? ' NICE' : ''

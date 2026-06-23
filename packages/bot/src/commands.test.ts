@@ -72,31 +72,17 @@ mock.module('./db', () => ({
 }))
 
 // --- mock dnd ---
-mock.module('./dnd', () => ({
-  handleJoin: mock(() => null),
-  handleAttack: mock(() => null),
-  handleDefend: mock(() => null),
-  handleSpell: mock(() => null),
-  handleUse: mock(() => null),
-  handleFlee: mock(() => null),
-  handleBuy: mock(() => null),
-  handleFloor: mock(() => null),
-  handleMove: mock(() => null),
-  handleExplore: mock(() => null),
-  handleStats: mock(() => null),
-  handleParty: mock(() => null),
-  handleRecap: mock(() => null),
-  handleLeaderboard: mock(() => null),
-  handleDndToggle: mock(() => null),
-  handleDndReset: mock(() => null),
-  handleDndSeason: mock(() => null),
-  initDndDb: mock(() => {}),
-  initEngine: mock(() => {}),
+mock.module('./dungeon', () => ({
+  statusLine: mock(() => 'the Depths lie silent — type `descend` to begin.'),
+  resetRun: mock(() => 'the Depths have been reset.'),
+  castInput: mock(() => {}),
+  initDungeon: mock(() => {}),
+  initDungeonDb: mock(() => {}),
   setIsLive: mock(() => {}),
   restoreFromDb: mock(() => {}),
   onStreamOnline: mock(() => {}),
   onStreamOffline: mock(() => {}),
-  createWorld: mock(() => null),
+  cleanup: mock(() => {}),
 }))
 
 

@@ -160,25 +160,6 @@ mock.module('./db', () => ({
   getDb: mock(() => null),
 }))
 
-mock.module('./dnd/db', () => ({
-  getCharacter: mock(() => null),
-  addCharacterXp: mock(() => ({ newLevel: 1, leveledUp: false })),
-  initDndDb: mock(() => {}),
-  upsertCharacter: mock(() => {}),
-  getWorld: mock(() => null),
-  upsertWorld: mock(() => {}),
-  getActivePlayers: mock(() => []),
-  getAllCharacters: mock(() => []),
-  nextSequence: mock(() => 0),
-  damageCharacter: mock(() => 0),
-  healCharacter: mock(() => 0),
-  killCharacter: mock(() => {}),
-  respawnCharacter: mock(() => {}),
-  logDndAction: mock(() => {}),
-  getRecentLog: mock(() => []),
-  getPendingRespawns: mock(() => []),
-  xpForLevel: mock(() => 100),
-}))
 
 mock.module('./log', () => ({
   log: mock(() => {}),
