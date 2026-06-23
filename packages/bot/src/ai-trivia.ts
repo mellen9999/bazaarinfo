@@ -30,20 +30,12 @@ export interface CustomTrivia {
   accept: string[]
 }
 
-const SYSTEM = `You generate ONE trivia question about a user-supplied TOPIC for a live Twitch chat. You are the best trivia writer alive: every question is fresh, surprising, fair, and rock-solid true.
-
-Interpret the topic generously. It may be broad ("birds"), vague, misspelled, slangy, a proper noun, an opinion or constraint phrase ("a 2010s game that isn't indie slop"), or adult/edgy ("sex", "drugs", "death") — ALWAYS find a specific, verifiable fact within it and ask about that. Strip any attitude/opinion and extract the real subject (e.g. "2010s game that isn't indie slop" -> a major 2010s game -> a fact about it). Treat an unfamiliar word as a real thing worth a question. You can ALWAYS make a question — never refuse a topic for being broad, simple, weird, messy, opinionated, short, unfamiliar, adult, or edgy.
-
-For a BROAD topic, secretly narrow it to ONE specific, less-obvious instance and ask about THAT — but do not default to the single most famous example every time. For "a 2010s video game" reach past the same five blockbusters (Skyrim/GTA V/Witcher 3) to the deep, surprising-but-real picks. For "birds" pick a specific species. Spread your picks: a regular asking this ten times in a row should get ten different subjects AND ten different angles, never the same shape twice.
-
-For a NICHE or obscure topic you only partly know (a specific older game, a small band, a cult film, "Guild Wars 1"): NEVER bail. Anchor on the most solid, well-established fact you genuinely know that connects to it. If you are not certain of a deep-cut detail, zoom OUT to the topic's franchise, creator, studio, genre, country, or era and ask a great verifiable question there instead — a fan asking "Guild Wars 1" is delighted by a sharp fact about Guild Wars, its developer ArenaNet, or its place in MMO history. There is ALWAYS a confident, true, interesting question reachable from any topic; find it rather than refusing.
-
-For an adult or risqué topic, reframe it into a CLEAN, broadcast-safe question — clinical, scientific, historical, or etymological — and ask THAT (e.g. "sex" -> a biology/reproduction term; "masturbation" -> a historical/medical fact). Never graphic, explicit, crude, or titillating. The question must read fine out loud on a family-friendly stream.
-
-The bar — every question must be ALL of these:
+// The shared quality bar + answer/output contract. Lives in ONE place so the stage-2
+// deep-cut writer and the round-2 broaden fallback enforce identical rules.
+const BAR = `The bar — every question must be ALL of these:
 - SURPRISING: a satisfying "oh neat, I didn't know that" fact, never a surface fact everyone already knows, never a dry technicality. Chat should learn something.
 - FAIR + GUESSABLE: challenging but landable. A knowledgeable fan or a sharp guesser can get it; a casual won't. Interesting beats obscure — never so niche that nobody in chat could possibly know or reason it out, and never a coin-flip nobody could deduce.
-- SELF-CONTAINED: the question carries everything needed to find the answer. If you narrowed to a specific instance, either NAME that instance in the question (and ask about a property of it) OR make the instance itself the answer (and give enough identifying clues). NEVER reference an unnamed "this game / this bird / a certain X" that chat has no way to identify.
+- SELF-CONTAINED: the question carries everything needed to find the answer. NEVER reference an unnamed "this game / this bird / a certain X" that chat has no way to identify.
 - TRUE + SINGLE-ANSWER: exactly ONE correct, well-established answer, no competing valid responses. Use a fact you genuinely know — never fabricate.
 - ONE CLEAR ASK: the question requests exactly ONE thing, and its wording makes the answer TYPE obvious. NEVER bundle two questions ("how many X, and what is the third called?"). NEVER use a misdirecting lead-in — if the answer is a name or word, do NOT open with "how many" or any count framing that primes chat to type a number; if the answer is a number, don't phrase it like a name lookup. A reader should know from the wording whether to type a name, a number, or a word.
 - TYPEABLE ANSWER: the answer must be a crisp token a viewer can type verbatim and win — a proper noun, name, place, title, a single common word, or a number. NEVER a descriptive phrase, a verb phrase, or a sentence fragment that chat would have to word exactly right. BAD answers: "time moves when you move", "royal blood contact", "label the buttons", "rotate the eggs" — nobody types those exactly, so the round dies. If the cleanest fact would need a phrase answer, REPHRASE THE QUESTION so the answer collapses to one crisp noun. e.g. instead of asking Superhot's mechanic (answer "time moves when you move"), ask "What 2016 FPS advances time only when you move?" (answer "Superhot"). Pick the framing where the answer is a single nameable thing.
@@ -56,13 +48,7 @@ Answer format:
 - "answer" is the SINGLE canonical form ONLY — e.g. "Ti", never "Ti (or Si)". Put every alternate/spelling in "accept".
 - Provide 2-6 accepted variants: lowercase forms, with/without leading articles, common alternate spellings/abbreviations, AND any other name that is genuinely the SAME answer. Always include the canonical answer. (If a "variant" is actually a different valid answer, the question is too ambiguous — pick a sharper one instead.)
 
-Examples of the bar and variety (different topics, different angles, different answer shapes — illustrative only, NEVER reuse these):
-{"ok":true,"question":"Minecraft's creator, who sold it to Microsoft in 2014, is known by what one-word online handle?","answer":"Notch","accept":["notch","markus persson"]}
-{"ok":true,"question":"What is the only bird that can fly backwards?","answer":"hummingbird","accept":["humming bird","the hummingbird","hummingbirds"]}
-{"ok":true,"question":"The drink cappuccino takes its name from the brown robes of which order of friars?","answer":"Capuchin","accept":["capuchins","capuchin friars","capuchin monks","the capuchins"]}
-{"ok":true,"question":"What is the smallest bone in the human body?","answer":"stapes","accept":["the stapes","stirrup","stirrup bone"]}
-
-ONLY refuse (return {"ok":false}) if there is NO broadcast-safe question to be had: sexually explicit/pornographic content, sexualizing minors, hate-slur topics, or harassing a private individual. Everything else — including adult topics reframed cleanly per above — gets a question. If in doubt, make the question.
+ONLY refuse (return {"ok":false}) if there is NO broadcast-safe question to be had: sexually explicit/pornographic content, sexualizing minors, hate-slur topics, or harassing a private individual. Everything else — including adult topics reframed cleanly — gets a question. If in doubt, make the question.
 
 Output ONLY a single minified JSON object, no markdown, no prose, no code fences:
 {"ok":true,"question":"...","answer":"...","accept":["...","..."]}
@@ -70,6 +56,40 @@ or
 {"ok":false}
 
 Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 4 words.`
+
+// STAGE 1 of the two-tier generator: pick the SUBJECT(S), do NOT write a question yet.
+// Splitting "what is this question about" from "what is the surprising fact" is the whole
+// point — it stops the model collapsing a named topic into a question whose answer is just
+// the topic restated ("anger management" -> answer "Anger Management").
+const SUBJECT_SYSTEM = `You are STAGE 1 of a two-stage trivia generator for a live Twitch chat. You do NOT write a question. You only choose the SUBJECT(S) a great question will be built on.
+
+Interpret the topic generously. It may be broad ("birds"), vague, misspelled, slangy, a proper noun, an opinion/constraint phrase ("a 2010s game that isn't indie slop"), or adult/edgy ("sex", "drugs"). Strip any attitude and extract the real subject. Treat an unfamiliar word as a real thing. NEVER refuse for being broad, simple, weird, niche, short, unfamiliar, adult, or edgy.
+
+Pick 1-3 SPECIFIC, concrete subjects you genuinely know well enough to have a SURPRISING, lesser-known fact ready about each:
+- If the topic already NAMES one specific thing (a single movie, person, game, place, song, event, product), return exactly that ONE subject and set "namesSubject": true.
+- If the topic is BROAD or a category, pick 2-3 specific, NON-OBVIOUS instances and set "namesSubject": false. Reach past the single most famous example: for "2010s games" skip Skyrim/GTA V/Witcher 3; for "birds" pick specific species. Vary your picks across repeated asks.
+- For a NICHE topic you only partly know, anchor on something solid — the specific thing, or zoom out to its franchise, creator, studio, genre, era, or country.
+- For an adult/edgy topic, pick a clean, broadcast-safe specific subject.
+- Add a short disambiguating tag in a name when useful, e.g. "Anger Management (2003 film)".
+
+Output ONLY one minified JSON object, no prose:
+{"namesSubject":true,"subjects":["Anger Management (2003 film)"]}
+or {"namesSubject":false,"subjects":["...","...","..."]}
+or {"subjects":[]} only if the topic is genuinely empty or unintelligible.`
+
+// STAGE 2: given an already-chosen subject, mine a surprising deep cut and frame it as one
+// typeable question. The no-name-back rule is what kills the "answer = the topic" failure.
+const DEEPCUT_SYSTEM = `You are STAGE 2 of a two-stage trivia generator for a live Twitch chat. You are GIVEN one specific SUBJECT (already chosen for you) and write ONE question about a SURPRISING, lesser-known-but-fun fact about THAT subject — the kind that makes chat go "oh neat, I didn't know that". You are the best trivia writer alive: fresh, fair, rock-solid true, never fabricated.
+
+Go DEEP, not surface. Skip the obvious headline everyone already knows; mine a deep cut you are CERTAIN is true — a casting/origin/behind-the-scenes detail, a record, a hidden connection, a namesake, an original title, a strange-but-true cause.
+
+Do NOT just name the subject back:
+- GUESS_THE_SUBJECT=false: the asker already named this subject, so its own name/title is a FORBIDDEN answer. NAME the subject in the question and ask about a PROPERTY of it — a person, place, year, number, or other name connected to it. The answer must be a fact ABOUT the subject, never the subject itself.
+- GUESS_THE_SUBJECT=true: you MAY instead make the subject itself the answer, giving enough identifying clues to land it — but still pick a surprising angle, not a textbook description.
+
+If you do NOT have a solid, surprising, verifiable fact for this exact subject, zoom OUT to its creator, franchise, studio, genre, era, or country and ask a great true question there instead — never fabricate to fill the slot.
+
+${BAR}`
 
 // rotating question "lenses" — a soft angle steer injected per generation so repeated
 // requests on the same broad topic ("a 2010s game") attack from a different direction
@@ -138,25 +158,75 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
     ? `\n\nRecently asked here — do NOT repeat or closely paraphrase any of these; ask something different:\n${avoid.slice(-8).map((q) => `- ${q}`).join('\n')}`
     : ''
 
-  // round 1: CANDIDATES distinct-angle questions generated + verified in parallel.
+  // STAGE 1: commit to a specific subject (or a few) before writing anything. This is what
+  // forces depth — the writer is handed "Anger Management (2003 film)" and told to mine a
+  // fact about it, instead of being free to ask a question whose answer IS the topic.
+  const { namesSubject, subjects } = await pickSubjects(clean, channel)
+  if (isOverDailyCap(channel)) return null // stage 1 may have tipped the daily cap
+
+  // STAGE 2: best-of-N deep-cut questions spread across the chosen subjects with distinct
+  // angles. one subject -> N angles drill into it; several subjects -> one angle each for
+  // variety. guessTheSubject is OFF when stage 1 says the topic already names the subject,
+  // so the answer must be a fact ABOUT it, never the subject's own name.
   const lenses = pickDistinctLenses(channel, CANDIDATES)
-  let passed = await generateAndVerify(channel, lenses.map(lensInstruction), clean, avoidBlock)
-  // round 2 only if round 1 produced nothing usable — a single play-it-safe broaden pass
-  // (zoom out to a rock-solid fact). cap re-checked so a spree can't dodge the backstop.
+  const items = lenses.map((lens, i) => ({ subject: subjects[i % subjects.length], instruction: lensInstruction(lens) }))
+  let passed = await generateAndVerify(channel, items, clean, avoidBlock, !namesSubject)
+  // round 2 only if round 1 produced nothing usable — a single play-it-safe broaden pass on
+  // the raw topic (naming allowed). cap re-checked so a spree can't dodge the backstop.
   if (passed.length === 0 && !isOverDailyCap(channel)) {
-    passed = await generateAndVerify(channel, [BROADEN], clean, avoidBlock)
+    passed = await generateAndVerify(channel, [{ subject: clean, instruction: BROADEN }], clean, avoidBlock, true)
   }
   if (passed.length === 0) return null
   return pickBestCandidate(passed)
 }
 
-// generate one question per instruction in parallel, dedupe, then verify the survivors in
-// parallel. returns only the candidates that pass adversarial verification (possibly []).
-async function generateAndVerify(channel: string, instructions: string[], clean: string, avoidBlock: string): Promise<CustomTrivia[]> {
+// STAGE 1 call: turn the raw topic into 1-3 concrete subjects + whether the topic already
+// names its subject. Fails soft to "the topic itself is the subject, naming allowed" so a
+// stage-1 hiccup degrades to the old single-stage behavior rather than dead-ending.
+async function pickSubjects(topic: string, channel: string): Promise<{ namesSubject: boolean; subjects: string[] }> {
+  const fallback = { namesSubject: false, subjects: [topic] }
+  const text = await callApi(SUBJECT_SYSTEM, `TOPIC: ${topic}`, channel, 200, 0.9)
+  if (!text) return fallback
+  const json = extractFirstJson(text)
+  if (!json) return fallback
+  try {
+    const o = JSON.parse(json) as { namesSubject?: unknown; subjects?: unknown }
+    const subjects = Array.isArray(o.subjects)
+      ? o.subjects
+          .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+          .map((s) => s.trim().slice(0, MAX_TOPIC_LEN))
+          .slice(0, 3)
+      : []
+    if (subjects.length === 0) return fallback
+    return { namesSubject: o.namesSubject === true, subjects }
+  } catch {
+    return fallback
+  }
+}
+
+// STAGE 2: one deep-cut question per (subject, angle) item in parallel, dedupe, then verify
+// the survivors in parallel. when guessTheSubject is false, drop any candidate whose answer
+// just restates the subject/topic — the exact "too basic" tautology this whole change kills.
+async function generateAndVerify(
+  channel: string,
+  items: { subject: string; instruction: string }[],
+  topic: string,
+  avoidBlock: string,
+  guessTheSubject: boolean,
+): Promise<CustomTrivia[]> {
   const gens = await Promise.all(
-    instructions.map((ins) => attemptGen(SYSTEM, `TOPIC: ${clean}\n\n${ins}${avoidBlock}`, channel)),
+    items.map(async (it) => {
+      const content = `SUBJECT: ${it.subject}\nGUESS_THE_SUBJECT: ${guessTheSubject}\n\n${it.instruction}${avoidBlock}`
+      const g = await attemptGen(DEEPCUT_SYSTEM, content, channel)
+      if (!g.ok) return null
+      if (!guessTheSubject && echoesSubject(g.q.answer, it.subject, topic)) {
+        log(`ai-trivia: dropped tautology "${g.q.answer}" (subject named in topic: ${it.subject})`)
+        return null
+      }
+      return g.q
+    }),
   )
-  const cands = dedupeCandidates(gens.flatMap((g) => (g.ok ? [g.q] : [])))
+  const cands = dedupeCandidates(gens.filter((q): q is CustomTrivia => q !== null))
   if (cands.length === 0) return []
   const verdicts = await Promise.all(cands.map((q) => verifyTrivia(q, channel)))
   const passed: CustomTrivia[] = []
@@ -165,6 +235,22 @@ async function generateAndVerify(channel: string, instructions: string[], clean:
     else log(`ai-trivia: verify rejected "${q.question.slice(0, 50)}" (ans: ${q.answer})`)
   })
   return passed
+}
+
+// true when an answer merely restates the subject or the user's topic — e.g. topic "anger
+// management" -> answer "Anger Management". Strips a disambiguating "(2003 film)" tag and
+// punctuation, then flags an exact match or an answer that is essentially the whole subject.
+function echoesSubject(answer: string, subject: string, topic: string): boolean {
+  const norm = (s: string) =>
+    s.toLowerCase().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
+  const a = norm(answer)
+  if (a.length < 2) return false
+  for (const ctx of [norm(subject), norm(topic)]) {
+    if (!ctx) continue
+    if (a === ctx) return true
+    if (ctx.includes(a) && a.length >= ctx.length * 0.6) return true
+  }
+  return false
 }
 
 // drop near-duplicate candidates (same normalized question or same answer) so best-of-N
@@ -221,38 +307,13 @@ or
 
 export async function verifyTrivia(q: CustomTrivia, channel: string): Promise<boolean> {
   if (!API_KEY) return true // can't verify without a key; don't block generation
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT)
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
-      body: safeStringify({
-        model: MODEL,
-        // room to reason in the "check" field before the verdict — recomputing a count or
-        // working through a constraint catches errors a bare yes/no verifier waves through.
-        max_tokens: 320,
-        temperature: 0,
-        system: VERIFY_SYSTEM,
-        messages: [{ role: 'user', content: `QUESTION: ${q.question}\nANSWER: ${q.answer}` }],
-      }),
-      signal: controller.signal,
-    })
-    if (!res.ok) { log(`ai-trivia: verify API ${res.status}`); return false }
-    const parsed = await readJson<{ content?: { type: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } }>(res)
-    const u = parsed.data?.usage
-    if (u) recordAiSpend(channel, u.input_tokens ?? 0, u.output_tokens ?? 0)
-    const text = parsed.data?.content?.find((b) => b.type === 'text')?.text
-    if (!text) return false
-    const json = extractFirstJson(text)
-    if (!json) return false
-    try { return (JSON.parse(json) as { ok?: unknown }).ok === true } catch { return false }
-  } catch (e) {
-    if ((e as Error)?.name === 'AbortError') log('ai-trivia: verify timed out')
-    return false
-  } finally {
-    clearTimeout(timer)
-  }
+  // max_tokens 320 leaves room to reason in the "check" field before the verdict —
+  // recomputing a count or working a constraint catches errors a bare yes/no waves through.
+  const text = await callApi(VERIFY_SYSTEM, `QUESTION: ${q.question}\nANSWER: ${q.answer}`, channel, 320, 0)
+  if (!text) return false // fail closed: an API hiccup must never let a wrong question through
+  const json = extractFirstJson(text)
+  if (!json) return false
+  try { return (JSON.parse(json) as { ok?: unknown }).ok === true } catch { return false }
 }
 
 // Trivia about what just happened in chat ("!b trivia about the last 5 min of
@@ -346,49 +407,43 @@ export async function generatePersonTrivia(dossier: string, handle: string, chan
   return null
 }
 
-type GenResult = { ok: true; q: CustomTrivia } | { ok: false; retry: boolean }
-
-async function attemptGen(system: string, userContent: string, channel: string): Promise<GenResult> {
+// single shared Anthropic call: builds the body, enforces the timeout, records spend, and
+// returns the model's text (or null on any error/timeout/empty). every stage of the
+// generator (subject pick, deep-cut write, verify) goes through here so the fetch, spend
+// tracking, and failure handling live in ONE place.
+async function callApi(system: string, content: string, channel: string, maxTokens: number, temperature: number): Promise<string | null> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT)
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': API_KEY!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: safeStringify({
-        model: MODEL,
-        max_tokens: 300,
-        temperature: 0.85,
-        system,
-        messages: [{ role: 'user', content: userContent }],
-      }),
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY!, 'anthropic-version': '2023-06-01' },
+      body: safeStringify({ model: MODEL, max_tokens: maxTokens, temperature, system, messages: [{ role: 'user', content }] }),
       signal: controller.signal,
     })
-    if (!res.ok) {
-      log(`ai-trivia: API ${res.status}`)
-      return { ok: false, retry: false }
-    }
+    if (!res.ok) { log(`ai-trivia: API ${res.status}`); return null }
     const parsed = await readJson<{ content?: { type: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } }>(res)
-    if (!parsed.data) return { ok: false, retry: false }
-    // track spend so custom trivia counts toward the daily cap + shows in ai_spend,
+    // track spend so every trivia call counts toward the daily cap + shows in ai_spend,
     // same as the !b path — no untracked API spend.
-    const u = parsed.data.usage
+    const u = parsed.data?.usage
     if (u) recordAiSpend(channel, u.input_tokens ?? 0, u.output_tokens ?? 0)
-    const text = parsed.data.content?.find((b) => b.type === 'text')?.text
-    if (!text) return { ok: false, retry: true }
-    const q = validate(text)
-    return q ? { ok: true, q } : { ok: false, retry: true }
+    return parsed.data?.content?.find((b) => b.type === 'text')?.text ?? null
   } catch (e) {
-    if ((e as Error)?.name === 'AbortError') log('ai-trivia: generation timed out')
+    if ((e as Error)?.name === 'AbortError') log('ai-trivia: call timed out')
     else log(`ai-trivia: ${(e as Error)?.message ?? e}`)
-    return { ok: false, retry: false }
+    return null
   } finally {
     clearTimeout(timer)
   }
+}
+
+type GenResult = { ok: true; q: CustomTrivia } | { ok: false; retry: boolean }
+
+async function attemptGen(system: string, userContent: string, channel: string): Promise<GenResult> {
+  const text = await callApi(system, userContent, channel, 300, 0.85)
+  if (!text) return { ok: false, retry: false }
+  const q = validate(text)
+  return q ? { ok: true, q } : { ok: false, retry: true }
 }
 
 // parse the model's JSON and enforce every constraint ourselves — never trust the
