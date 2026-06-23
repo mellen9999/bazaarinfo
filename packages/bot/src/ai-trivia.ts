@@ -21,7 +21,7 @@ function safeStringify(body: unknown): string {
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-sonnet-4-6'
-const TIMEOUT = 9_000
+const TIMEOUT = 12_000 // headroom for the verify panel: ~12 calls fire at once per round
 const MAX_TOPIC_LEN = 80
 
 export interface CustomTrivia {
@@ -413,12 +413,15 @@ export async function verifyTrivia(q: CustomTrivia, channel: string): Promise<Ve
 // solver (re-derives the answer, catches plausible-but-wrong), skeptic (hunts fabricated
 // detail). A question ships ONLY if ALL THREE accept — each fires only on a CONFIDENT,
 // concrete problem in its domain, so an obscure-but-true deep cut survives while a wrong or
-// gimme fact is vetoed. Quality is the average of the three ratings. Parallel ⇒ the panel
-// costs 3x tokens but the SAME wall-clock as one call. This is the best-of-all-time gate.
-// minimum mean quality to ship. floors out spammy/gimme questions by CONSENSUS — a single
-// lens calling something weak isn't enough to veto a classic-but-fine question (that
-// over-rejected good rounds), but if the panel collectively rates it ~1 it's spam, drop it.
-const QUALITY_FLOOR = 1.5
+// gimme fact is vetoed. Parallel ⇒ the panel costs 3x tokens but the SAME wall-clock as one
+// call. This is the best-of-all-time gate.
+//
+// minimum quality to ship — floors out true gimmes ("what color is the sky"). We take the
+// MAX rating across lenses, not the mean: the solver and skeptic focus on correctness and
+// reflexively stamp quality 1, so only the lens that actually judged the question should set
+// the bar. A real gimme gets a 1 from ALL three (max 1 -> dropped); a good question gets a
+// >=2 from at least one (kept). Avoids both over-rejecting good classics and shipping spam.
+const MIN_QUALITY = 2
 
 // run all three lenses in parallel, returning each verdict in [general, solver, skeptic]
 // order. exported so the eval/diagnostics can see WHICH lens vetoed, not just the aggregate.
@@ -432,11 +435,9 @@ export async function verifyPanel(q: CustomTrivia, channel: string): Promise<Ver
   const verdicts = await verifyAllLenses(q, channel)
   // an objective defect (false fact / leak / ambiguity / fabrication) — any lens vetoes.
   if (!verdicts.every((v) => v.ok)) return { ok: false, quality: 0 }
-  // subjective weakness — judged by consensus mean, not a single lens, so a good classic
-  // survives while a true gimme (all lenses rate ~1) is floored out.
-  const mean = verdicts.reduce((sum, v) => sum + v.quality, 0) / verdicts.length
-  if (mean < QUALITY_FLOOR) return { ok: false, quality: 0 }
-  return { ok: true, quality: Math.round(mean) }
+  const quality = Math.max(...verdicts.map((v) => v.quality))
+  if (quality < MIN_QUALITY) return { ok: false, quality: 0 } // consensus gimme — drop it
+  return { ok: true, quality }
 }
 
 // Trivia about what just happened in chat ("!b trivia about the last 5 min of
