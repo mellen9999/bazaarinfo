@@ -17,6 +17,7 @@ const CHANNEL = 'mellen'
 interface Case {
   question: string
   answer: string
+  accept?: string[]
   expect: 'accept' | 'reject'
   why: string
 }
@@ -29,6 +30,9 @@ const CASES: Case[] = [
   { question: 'How many moons does Jupiter have?', answer: '95', expect: 'reject', why: 'time-varying count — no single agreed number' },
   { question: 'Which planet, first discovered by Galileo in 1612, is the largest in the solar system?', answer: 'Jupiter', expect: 'reject', why: 'false embellishment — Jupiter was not "discovered in 1612" (naked-eye since antiquity)' },
   { question: 'What is the scientific term for an organism that feeds on dead and decaying matter?', answer: 'saprophage', expect: 'reject', why: 'ambiguous definition — scavenger / saprotroph / detritivore all fit' },
+  { question: "In Happy Gilmore, Bob Barker famously brawls with Adam Sandler — what is Bob Barker's character's first name?", answer: 'Bob', accept: ['bob', 'bob barker'], expect: 'reject', why: 'GIVEAWAY — the answer "Bob" is sitting in the question ("Bob Barker")' },
+  { question: 'The Novaco Anger Scale, a standard measure of anger, is named after which psychologist?', answer: 'Raymond Novaco', accept: ['novaco', 'raymond novaco'], expect: 'reject', why: 'GIVEAWAY eponym trap — "Novaco" is already in the question' },
+  { question: 'What color is the sky on a clear day?', answer: 'blue', expect: 'reject', why: 'LOW-EFFORT — a casual answers instantly, teaches nothing, looks like spam' },
 
   // --- known GOOD: well-formed, true, single crisp answer; must pass ---
   { question: 'Minecraft\'s creator, who sold it to Microsoft in 2014, is known by what one-word online handle?', answer: 'Notch', expect: 'accept', why: 'true, single crisp answer' },
@@ -43,7 +47,7 @@ let pass = 0
 const fails: string[] = []
 for (let i = 0; i < CASES.length; i++) {
   const c = CASES[i]
-  const ok = await verifyTrivia({ question: c.question, answer: c.answer, accept: [] }, CHANNEL)
+  const { ok } = await verifyTrivia({ question: c.question, answer: c.answer, accept: c.accept ?? [] }, CHANNEL)
   const verdict = ok ? 'accept' : 'reject'
   const good = verdict === c.expect
   if (good) pass++

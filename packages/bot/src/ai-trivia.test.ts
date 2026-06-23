@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { splitAlternates, pickDistinctLenses, LENSES } from './ai-trivia'
+import { splitAlternates, pickDistinctLenses, LENSES, answerLeaks } from './ai-trivia'
 
 describe('splitAlternates — fold answer alternates into accept', () => {
   it('splits a parenthetical alternate', () => {
@@ -44,5 +44,31 @@ describe('pickDistinctLenses — best-of-N varied angles per round', () => {
   it('keeps channels independent', () => {
     expect(pickDistinctLenses('#a', 2).every((l) => LENSES.includes(l))).toBe(true)
     expect(pickDistinctLenses('#b', 2).every((l) => LENSES.includes(l))).toBe(true)
+  })
+})
+
+describe('answerLeaks — deterministic giveaway guard', () => {
+  const mk = (question: string, answer: string, accept: string[] = []) => ({ question, answer, accept })
+
+  it('flags an answer sitting verbatim in the question', () => {
+    expect(answerLeaks(mk("what is Bob Barker's character's first name?", 'Bob', ['bob', 'bob barker']))).toBe(true)
+  })
+  it('flags an eponym leak hiding in an accepted form', () => {
+    // canonical "Raymond Novaco" isn't contiguous in the q, but accepted "novaco" is
+    expect(answerLeaks(mk('The Novaco Anger Scale is named after which psychologist?', 'Raymond Novaco', ['novaco', 'raymond novaco']))).toBe(true)
+  })
+  it('flags a multi-word answer present as a contiguous run', () => {
+    expect(answerLeaks(mk('Which bay does the San Francisco peninsula enclose?', 'San Francisco', ['san francisco']))).toBe(true)
+  })
+  it('passes a clean question where the answer is withheld', () => {
+    expect(answerLeaks(mk('What one-word handle is Minecraft\'s creator known by?', 'Notch', ['notch', 'markus persson']))).toBe(false)
+    expect(answerLeaks(mk('What is the only bird that can fly backwards?', 'hummingbird', ['the hummingbird']))).toBe(false)
+  })
+  it('ignores pure-number and tiny answers that recur harmlessly', () => {
+    expect(answerLeaks(mk('How many sides does a hexagon have, given it has 6 vertices?', '6', ['6']))).toBe(false)
+    expect(answerLeaks(mk('What note is A above middle C tuned to in Hz?', 'A', ['a']))).toBe(false)
+  })
+  it('does not false-positive on a shared word that is not the answer', () => {
+    expect(answerLeaks(mk('What is the name of the innermost of the three walls?', 'Wall Sina', ['wall sina', 'sina']))).toBe(false)
   })
 })
