@@ -338,11 +338,10 @@ Reject (ok:false) if you find ANY of these problems:
 - Not self-contained — refers to an unnamed specific thing ("this game", "a certain bird") the guesser can't identify.
 - A non-typeable ANSWER — it is a descriptive phrase, verb phrase, or sentence fragment rather than a crisp token a viewer types verbatim (a name, proper noun, place, title, single word, or number). "time moves when you move", "royal blood contact", "label the buttons" are BAD; reject them.
 - GIVEAWAY — the answer, ANY accepted form of it, or an obvious synonym appears in the question text, OR the answer is trivially derivable from words in the question. A viewer must not be able to win by copying a word straight out of the question. This includes EPONYM TRAPS: "the Novaco Scale is named after which psychologist?" gives away "Novaco"; "Newton's law... named after whom?" gives away "Newton" — reject. If the answer is sitting in the question, reject.
-- LOW-EFFORT / SPAMMY — a surface fact any casual instantly knows, a filler/definitional question, or one that teaches nothing. The bar is "oh neat, I didn't know that". A bot asking lazy gimmes looks like spam, not a smart trivia host — reject anything that doesn't clear that bar.
 
-Otherwise return ok:true. Do NOT reject merely because the topic is niche, obscure, or unfamiliar — only reject a concrete problem you can point to.
+Otherwise return ok:true. Do NOT reject merely because the topic is niche, obscure, or unfamiliar — and do NOT reject just because a question feels well-known. Only reject a concrete, objective problem you can point to. Weak-but-valid questions are handled by the quality score, not rejection.
 
-Also rate the question's quality 1-3 (only meaningful when ok:true): 3 = excellent, genuinely surprising "oh neat" question with the answer well withheld; 2 = solid and fair; 1 = valid but weak/borderline. This ranks survivors — be honest, do not inflate.
+Also rate the question's quality 1-3 (only meaningful when ok:true): 3 = excellent, genuinely surprising "oh neat" question with the answer well withheld; 2 = solid and fair; 1 = a surface gimme any casual instantly knows with zero thought ("what color is the sky"), filler, or otherwise weak. Be honest, do not inflate — this both ranks survivors AND, by consensus, floors out spammy questions.
 
 Output ONLY one minified JSON object, no prose outside it:
 {"check":"<your step-by-step verification, recomputing any count>","ok":true,"quality":3}
@@ -360,7 +359,7 @@ Reject (ok:false) if: your independent answer DIFFERS from the claim, OR you are
 
 Do NOT reject merely because the topic is obscure and you are unsure. If you genuinely cannot determine the answer but the claim is plausible and the question is well-formed, accept (ok:true). ONLY your CONFIDENT disagreement is grounds to reject — a wrong fact is far worse than a hard one.
 
-When accepting, rate quality 1-3 (3 = genuinely surprising "oh neat", 2 = solid, 1 = weak). Output ONLY one minified JSON object:
+When accepting, rate quality 1-3 (3 = genuinely surprising "oh neat", 2 = solid, 1 = a surface gimme any casual instantly knows or otherwise weak). Output ONLY one minified JSON object:
 {"check":"<your independent solve + comparison>","ok":true,"quality":3}
 or
 {"check":"...","ok":false,"reason":"<what you got vs the claim>"}`
@@ -373,7 +372,7 @@ In the "check" field: list EACH specific factual claim the question makes and ma
 
 Reject (ok:false) ONLY if you can NAME a specific claim you are confident is FALSE, or a load-bearing specific detail that is fabricated. Do NOT reject because a fact is merely obscure or you cannot fully confirm it — plausible-but-obscure is fine. When in doubt, accept.
 
-When accepting, rate quality 1-3 (3 = genuinely surprising, 2 = solid, 1 = weak). Output ONLY one minified JSON object:
+When accepting, rate quality 1-3 (3 = genuinely surprising, 2 = solid, 1 = a surface gimme any casual instantly knows or otherwise weak). Output ONLY one minified JSON object:
 {"check":"<claim-by-claim audit>","ok":true,"quality":3}
 or
 {"check":"...","ok":false,"reason":"<the specific false/fabricated claim>"}`
@@ -416,13 +415,22 @@ export async function verifyTrivia(q: CustomTrivia, channel: string): Promise<Ve
 // concrete problem in its domain, so an obscure-but-true deep cut survives while a wrong or
 // gimme fact is vetoed. Quality is the average of the three ratings. Parallel ⇒ the panel
 // costs 3x tokens but the SAME wall-clock as one call. This is the best-of-all-time gate.
+// minimum mean quality to ship. floors out spammy/gimme questions by CONSENSUS — a single
+// lens calling something weak isn't enough to veto a classic-but-fine question (that
+// over-rejected good rounds), but if the panel collectively rates it ~1 it's spam, drop it.
+const QUALITY_FLOOR = 1.5
+
 export async function verifyPanel(q: CustomTrivia, channel: string): Promise<Verdict> {
   if (!API_KEY) return { ok: true, quality: 2 } // can't verify without a key; don't block generation
   const lenses = [VERIFY_SYSTEM, VERIFY_SOLVE_SYSTEM, VERIFY_SKEPTIC_SYSTEM]
   const verdicts = await Promise.all(lenses.map((s) => runVerifier(s, q, channel)))
+  // an objective defect (false fact / leak / ambiguity / fabrication) — any lens vetoes.
   if (!verdicts.every((v) => v.ok)) return { ok: false, quality: 0 }
-  const quality = Math.round(verdicts.reduce((sum, v) => sum + v.quality, 0) / verdicts.length)
-  return { ok: true, quality }
+  // subjective weakness — judged by consensus mean, not a single lens, so a good classic
+  // survives while a true gimme (all lenses rate ~1) is floored out.
+  const mean = verdicts.reduce((sum, v) => sum + v.quality, 0) / verdicts.length
+  if (mean < QUALITY_FLOOR) return { ok: false, quality: 0 }
+  return { ok: true, quality: Math.round(mean) }
 }
 
 // Trivia about what just happened in chat ("!b trivia about the last 5 min of
