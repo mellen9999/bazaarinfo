@@ -246,7 +246,7 @@ async function generateAndVerify(
   )
   const cands = dedupeCandidates(gens.filter((q): q is CustomTrivia => q !== null))
   if (cands.length === 0) return []
-  const verdicts = await Promise.all(cands.map((q) => verifyPanel(q, channel)))
+  const verdicts = await Promise.all(cands.map((q) => verifyPanel(q, channel, topic)))
   const passed: Scored[] = []
   cands.forEach((q, i) => {
     if (verdicts[i].ok) passed.push({ q, quality: verdicts[i].quality })
@@ -338,6 +338,7 @@ Reject (ok:false) if you find ANY of these problems:
 - Not self-contained — refers to an unnamed specific thing ("this game", "a certain bird") the guesser can't identify.
 - A non-typeable ANSWER — it is a descriptive phrase, verb phrase, or sentence fragment rather than a crisp token a viewer types verbatim (a name, proper noun, place, title, single word, or number). "time moves when you move", "royal blood contact", "label the buttons" are BAD; reject them.
 - GIVEAWAY — the answer, ANY accepted form of it, or an obvious synonym appears in the question text, OR the answer is trivially derivable from words in the question. A viewer must not be able to win by copying a word straight out of the question. This includes EPONYM TRAPS: "the Novaco Scale is named after which psychologist?" gives away "Novaco"; "Newton's law... named after whom?" gives away "Newton" — reject. If the answer is sitting in the question, reject.
+- OFF-TOPIC — when a TOPIC line is given, the question MUST genuinely be about that topic: either about the topic itself, or about a person/place/work/event/thing that clearly BELONGS to it. A question on an unrelated subject that drifted in by mistake must be rejected (asked about "Romania" but the question is about a Diablo speedrun -> reject). Be generous about what belongs to a topic — a Romanian gymnast IS on-topic for "Romania", a boss in a game IS on-topic for that game, and a fact about a subject's creator, franchise, series, studio, or country of origin IS on-topic (a deliberate zoom-out, not drift). Reject only a REAL mismatch where the question shares no genuine connection to the topic, never a fair tangent. If no TOPIC line is given, skip this check.
 
 Otherwise return ok:true. Do NOT reject merely because the topic is niche, obscure, or unfamiliar — and do NOT reject just because a question feels well-known. Only reject a concrete, objective problem you can point to. Weak-but-valid questions are handled by the quality score, not rejection.
 
@@ -385,10 +386,13 @@ export interface Verdict {
 // run ONE verifier lens. fails closed (reject) on any error so a wrong question can't slip
 // through on an API hiccup. max_tokens 360 leaves room to reason in the "check" field before
 // the verdict — recomputing a count or independently solving catches errors a yes/no misses.
-async function runVerifier(system: string, q: CustomTrivia, channel: string): Promise<Verdict> {
+async function runVerifier(system: string, q: CustomTrivia, channel: string, topic = ''): Promise<Verdict> {
   // pass every accepted form so a lens can catch a giveaway/match hiding in an alternate.
   const answers = [q.answer, ...q.accept.filter((a) => a.toLowerCase() !== q.answer.toLowerCase())].join(' / ')
-  const text = await callApi(system, `QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`, channel, 360, 0)
+  // the user's TOPIC is fed only to the general lens, which owns the off-topic-drift check;
+  // the solver/skeptic stay laser-focused on correctness. blank topic => the check is skipped.
+  const topicLine = topic.trim() ? `TOPIC: ${topic.trim()}\n` : ''
+  const text = await callApi(system, `${topicLine}QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`, channel, 360, 0)
   if (!text) return { ok: false, quality: 0 }
   const json = extractFirstJson(text)
   if (!json) return { ok: false, quality: 0 }
@@ -425,14 +429,18 @@ const MIN_QUALITY = 2
 
 // run all three lenses in parallel, returning each verdict in [general, solver, skeptic]
 // order. exported so the eval/diagnostics can see WHICH lens vetoed, not just the aggregate.
-export async function verifyAllLenses(q: CustomTrivia, channel: string): Promise<Verdict[]> {
-  const lenses = [VERIFY_SYSTEM, VERIFY_SOLVE_SYSTEM, VERIFY_SKEPTIC_SYSTEM]
-  return Promise.all(lenses.map((s) => runVerifier(s, q, channel)))
+export async function verifyAllLenses(q: CustomTrivia, channel: string, topic = ''): Promise<Verdict[]> {
+  // only the general lens (first) receives the topic — it owns the off-topic-drift veto.
+  return Promise.all([
+    runVerifier(VERIFY_SYSTEM, q, channel, topic),
+    runVerifier(VERIFY_SOLVE_SYSTEM, q, channel),
+    runVerifier(VERIFY_SKEPTIC_SYSTEM, q, channel),
+  ])
 }
 
-export async function verifyPanel(q: CustomTrivia, channel: string): Promise<Verdict> {
+export async function verifyPanel(q: CustomTrivia, channel: string, topic = ''): Promise<Verdict> {
   if (!API_KEY) return { ok: true, quality: 2 } // can't verify without a key; don't block generation
-  const verdicts = await verifyAllLenses(q, channel)
+  const verdicts = await verifyAllLenses(q, channel, topic)
   // an objective defect (false fact / leak / ambiguity / fabrication) — any lens vetoes.
   if (!verdicts.every((v) => v.ok)) return { ok: false, quality: 0 }
   const quality = Math.max(...verdicts.map((v) => v.quality))

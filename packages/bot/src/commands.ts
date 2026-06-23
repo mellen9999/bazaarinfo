@@ -979,6 +979,18 @@ export function stripTopicConnector(topic: string): string {
   return stripped.length >= 2 ? stripped : topic.trim()
 }
 
+// strip a trailing "framing" clause that states WHY the round is being run, not WHAT it's
+// about — "...to see if kripp can answer", "...so chat can guess", "...and see who knows".
+// these address the audience, not the subject; left in they (a) derail the topic model and
+// (b) leak a name (a streamer handle) that hijacks routing — the literal Romania->kripp-D3
+// bug. only cuts at an unambiguous testing/purpose marker so a real title survives ("how to
+// train your dragon", "to kill a mockingbird" — neither uses see/test/stump/etc.).
+const TOPIC_FRAMING_RE = /\s+\b(?:to\s+(?:see|test|check|find\s+out|prove|stump|quiz|challenge)|(?:let'?s\s+|and\s+)?see\s+(?:if|who|whether|how)|so\s+(?:we|i|chat|that|everyone|you|u|kripp)\b)\b[\s\S]*$/i
+export function stripTopicFraming(topic: string): string {
+  const stripped = topic.replace(TOPIC_FRAMING_RE, '').trim()
+  return stripped.length >= 2 ? stripped : topic.trim()
+}
+
 // "trivia about chat / the last 5 min / what we just talked about" — the topic is the
 // conversation itself, so the question is built from the recent chat log, not a subject.
 // must be RECALL intent: a bare "chat"/"the chat" topic or an explicit "last N min /
@@ -987,7 +999,12 @@ export function stripTopicConnector(topic: string): string {
 const CHAT_TRIVIA_RE = /^(?:the |this |our |these )?(?:chat|conversation|convo|messages?|msgs?)$|\b(?:the )?last \d+\s*(?:min|minute|sec|second|message|msg)s?\b|\brecent (?:chat|messages?|msgs?|convo)\b|\bwhat (?:we|you|i|us|chat|y'?all|everyone) (?:just |were |been )?(?:talk|talked|said|saying|discuss|chatted|wrote)|\bthis (?:stream|conversation)\b/i
 
 // a kripp-subject topic -> route to the curated verified kripp pack (in kripp channels).
-const KRIPP_TOPIC_RE = /\bkripp(?:a|arrian|arian|errian)?\b|\boctavian\b/i
+// kripp/octavian must LEAD the topic — it's the SUBJECT ("kripp", "kripp's d3 runs",
+// "kripparrian lore"), not merely mentioned somewhere inside it ("Romania to see if kripp
+// can answer", where kripp is the audience). anchoring to the start is what separates
+// subject from incidental mention, so an off-topic ask never gets hijacked to the streamer
+// pack — the framing strip above is the first line of defense, this anchor is the backstop.
+const KRIPP_TOPIC_RE = /^(?:the\s+)?(?:kripp(?:a|arrian|arian|errian)?|octavian)\b/i
 
 // pull the recent chat log for chat-trivia: drop the bot's own lines + empties,
 // strip a leading command trigger so messages read naturally.
@@ -1067,7 +1084,7 @@ function buildPersonDossier(username: string, channel: string): string | null {
 async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: string): Promise<string | null> {
   const channel = ctx.channel
   if (!channel) return null
-  const t = stripTopicConnector(stripEmotesFromTopic(topic.trim()))
+  const t = stripTopicFraming(stripTopicConnector(stripEmotesFromTopic(topic.trim())))
   // need a real topic with at least one alphanumeric char; cap length before the API call.
   if (t.length < 2 || !/[a-z0-9]/i.test(t)) return null
   if (isGameActive(channel)) {

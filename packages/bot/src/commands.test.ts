@@ -2091,6 +2091,35 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     expect(mockGenerateCustomTrivia).not.toHaveBeenCalled() // curated pack, not the AI
   })
 
+  it('an incidental "kripp" mention does NOT hijack to the kripp pack (the Romania->D3 bug)', async () => {
+    // kripp pack IS available here, but the subject is Romania — "to see if kripp can
+    // answer" is framing addressed at the streamer, not the topic. must NOT serve D3 lore.
+    mockStartKrippTrivia.mockImplementation(() => 'Trivia! kripp pack question (30s)')
+    await handleCommand('!b trivia about Romania to see if kripp can answer', { user: 'u', channel: 'ct-rom' })
+    expect(mockStartKrippTrivia).not.toHaveBeenCalled()
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('Romania', 'ct-rom', [], [])
+  })
+
+  it('strips a trailing purpose/framing clause so the topic stays clean', async () => {
+    await handleCommand('!b trivia about deep sea creatures so chat can guess', { user: 'u', channel: 'ct-fr1' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('deep sea creatures', 'ct-fr1', [], [])
+    mockGenerateCustomTrivia.mockClear()
+    await handleCommand('!b trivia about the cold war and see who knows', { user: 'u', channel: 'ct-fr2' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('the cold war', 'ct-fr2', [], [])
+  })
+
+  it('a real title containing "to <verb>" survives the framing strip', async () => {
+    await handleCommand('!b trivia about how to train your dragon', { user: 'u', channel: 'ct-fr3' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('how to train your dragon', 'ct-fr3', [], [])
+  })
+
+  it('a genuine kripp-subject topic still routes to the curated pack', async () => {
+    mockStartKrippTrivia.mockImplementation(() => 'Trivia! kripp pack question (30s)')
+    const res = await handleCommand("!b trivia about kripp's d3 runs", { user: 'u', channel: 'ct-kp3' })
+    expect(res).toBe('Trivia! kripp pack question (30s)')
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+  })
+
   it('falls back to AI for a kripp topic when no pack (non-kripp channel)', async () => {
     mockStartKrippTrivia.mockImplementation(() => null)
     await handleCommand('!b trivia about kripp', { user: 'u', channel: 'ct-kp2' })
