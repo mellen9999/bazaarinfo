@@ -246,7 +246,7 @@ async function generateAndVerify(
   )
   const cands = dedupeCandidates(gens.filter((q): q is CustomTrivia => q !== null))
   if (cands.length === 0) return []
-  const verdicts = await Promise.all(cands.map((q) => verifyTrivia(q, channel)))
+  const verdicts = await Promise.all(cands.map((q) => verifyPanel(q, channel)))
   const passed: Scored[] = []
   cands.forEach((q, i) => {
     if (verdicts[i].ok) passed.push({ q, quality: verdicts[i].quality })
@@ -349,19 +349,48 @@ Output ONLY one minified JSON object, no prose outside it:
 or
 {"check":"...","ok":false,"reason":"<brief>"}`
 
+// SOLVER lens — the highest-value check: re-derives the answer independently and rejects on
+// mismatch. catches plausible-but-WRONG facts a single believe-the-claim verifier waves
+// through (e.g. "Bob Barker's real-life sport" -> claims golf, but the solver knows karate).
+const VERIFY_SOLVE_SYSTEM = `You are an independent solver fact-checking a trivia QUESTION before it reaches live chat. IGNORE the claimed answer at first.
+
+In the "check" field: work out the answer YOURSELF, from your own knowledge, step by step (recompute any count, honoring every stated condition). THEN compare your independent answer to the claimed ANSWER / ACCEPTED FORMS.
+
+Reject (ok:false) if: your independent answer DIFFERS from the claim, OR you are confident the claim is false, OR the question has no single determinable answer.
+
+Do NOT reject merely because the topic is obscure and you are unsure. If you genuinely cannot determine the answer but the claim is plausible and the question is well-formed, accept (ok:true). ONLY your CONFIDENT disagreement is grounds to reject — a wrong fact is far worse than a hard one.
+
+When accepting, rate quality 1-3 (3 = genuinely surprising "oh neat", 2 = solid, 1 = weak). Output ONLY one minified JSON object:
+{"check":"<your independent solve + comparison>","ok":true,"quality":3}
+or
+{"check":"...","ok":false,"reason":"<what you got vs the claim>"}`
+
+// SKEPTIC lens — hunts the #1 failure mode: a fabricated or unverifiable specific detail
+// (a made-up award, wrong year/number, false "first/only/biggest") smuggled in as padding.
+const VERIFY_SKEPTIC_SYSTEM = `You are a skeptical fact-checker. Your ONE job: catch a FABRICATED or UNVERIFIABLE specific claim hidden in a trivia QUESTION — a made-up award, a wrong date/number, a false "first/only/biggest/largest" superlative, or an invented name or detail. Fabricated embellishment is the #1 reason these questions are wrong.
+
+In the "check" field: list EACH specific factual claim the question makes and mark each true / false / can't-verify.
+
+Reject (ok:false) ONLY if you can NAME a specific claim you are confident is FALSE, or a load-bearing specific detail that is fabricated. Do NOT reject because a fact is merely obscure or you cannot fully confirm it — plausible-but-obscure is fine. When in doubt, accept.
+
+When accepting, rate quality 1-3 (3 = genuinely surprising, 2 = solid, 1 = weak). Output ONLY one minified JSON object:
+{"check":"<claim-by-claim audit>","ok":true,"quality":3}
+or
+{"check":"...","ok":false,"reason":"<the specific false/fabricated claim>"}`
+
 export interface Verdict {
   ok: boolean
   quality: number // 1-3 when ok, 0 when rejected — ranks survivors so the best one ships
 }
 
-export async function verifyTrivia(q: CustomTrivia, channel: string): Promise<Verdict> {
-  if (!API_KEY) return { ok: true, quality: 2 } // can't verify without a key; don't block generation
-  // pass every accepted form so the verifier can catch a giveaway hiding in an alternate, not
-  // just the canonical answer. max_tokens 320 leaves room to reason in the "check" field —
-  // recomputing a count or working a constraint catches errors a bare yes/no waves through.
+// run ONE verifier lens. fails closed (reject) on any error so a wrong question can't slip
+// through on an API hiccup. max_tokens 360 leaves room to reason in the "check" field before
+// the verdict — recomputing a count or independently solving catches errors a yes/no misses.
+async function runVerifier(system: string, q: CustomTrivia, channel: string): Promise<Verdict> {
+  // pass every accepted form so a lens can catch a giveaway/match hiding in an alternate.
   const answers = [q.answer, ...q.accept.filter((a) => a.toLowerCase() !== q.answer.toLowerCase())].join(' / ')
-  const text = await callApi(VERIFY_SYSTEM, `QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`, channel, 320, 0)
-  if (!text) return { ok: false, quality: 0 } // fail closed: an API hiccup must never let a wrong question through
+  const text = await callApi(system, `QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`, channel, 360, 0)
+  if (!text) return { ok: false, quality: 0 }
   const json = extractFirstJson(text)
   if (!json) return { ok: false, quality: 0 }
   try {
@@ -372,6 +401,28 @@ export async function verifyTrivia(q: CustomTrivia, channel: string): Promise<Ve
   } catch {
     return { ok: false, quality: 0 }
   }
+}
+
+// single general lens — exported as the eval/test seam and used standalone where a quick
+// check is enough. the live path uses verifyPanel (below) for the full diverse panel.
+export async function verifyTrivia(q: CustomTrivia, channel: string): Promise<Verdict> {
+  if (!API_KEY) return { ok: true, quality: 2 } // can't verify without a key; don't block generation
+  return runVerifier(VERIFY_SYSTEM, q, channel)
+}
+
+// PANEL: three independent lenses in parallel — general (format/leak/ambiguity/spam),
+// solver (re-derives the answer, catches plausible-but-wrong), skeptic (hunts fabricated
+// detail). A question ships ONLY if ALL THREE accept — each fires only on a CONFIDENT,
+// concrete problem in its domain, so an obscure-but-true deep cut survives while a wrong or
+// gimme fact is vetoed. Quality is the average of the three ratings. Parallel ⇒ the panel
+// costs 3x tokens but the SAME wall-clock as one call. This is the best-of-all-time gate.
+export async function verifyPanel(q: CustomTrivia, channel: string): Promise<Verdict> {
+  if (!API_KEY) return { ok: true, quality: 2 } // can't verify without a key; don't block generation
+  const lenses = [VERIFY_SYSTEM, VERIFY_SOLVE_SYSTEM, VERIFY_SKEPTIC_SYSTEM]
+  const verdicts = await Promise.all(lenses.map((s) => runVerifier(s, q, channel)))
+  if (!verdicts.every((v) => v.ok)) return { ok: false, quality: 0 }
+  const quality = Math.round(verdicts.reduce((sum, v) => sum + v.quality, 0) / verdicts.length)
+  return { ok: true, quality }
 }
 
 // Trivia about what just happened in chat ("!b trivia about the last 5 min of
