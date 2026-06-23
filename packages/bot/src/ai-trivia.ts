@@ -142,7 +142,7 @@ function lensInstruction(lens: string): string {
   return `Favor THIS angle if you have a SOLID, verifiable fact for it; otherwise pick a better angle for this topic (never invent one to fit): ${lens}`
 }
 
-export async function generateCustomTrivia(topic: string, channel: string, avoid: string[] = []): Promise<CustomTrivia | null> {
+export async function generateCustomTrivia(topic: string, channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
   if (!API_KEY) return null
   // governed exactly like the !b AI path: only spend in AI-enabled channels, and honor
   // the per-channel daily token backstop so a custom-trivia spree can't dodge the cap.
@@ -153,15 +153,21 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
   }
   const clean = stripUnpairedSurrogates(topic.trim()).slice(0, MAX_TOPIC_LEN)
   if (clean.length < 2) return null
-  // tell the model what was just asked so it never repeats a recent question verbatim.
-  const avoidBlock = avoid.length
+  // tell the model what was just asked so it never repeats a recent question verbatim, AND
+  // which answers were just used so it can't ship the same fact reworded (a repeat on the
+  // same topic lands on the same answer even when the question text differs).
+  const avoidQ = avoid.length
     ? `\n\nRecently asked here — do NOT repeat or closely paraphrase any of these; ask something different:\n${avoid.slice(-8).map((q) => `- ${q}`).join('\n')}`
     : ''
+  const avoidA = avoidAnswers.length
+    ? `\n\nDo NOT reuse any of these recent ANSWERS — pick a genuinely different fact/subject, even on the same topic:\n${avoidAnswers.slice(-12).map((a) => `- ${a}`).join('\n')}`
+    : ''
+  const avoidBlock = avoidQ + avoidA
 
   // STAGE 1: commit to a specific subject (or a few) before writing anything. This is what
   // forces depth — the writer is handed "Anger Management (2003 film)" and told to mine a
   // fact about it, instead of being free to ask a question whose answer IS the topic.
-  const { namesSubject, subjects } = await pickSubjects(clean, channel)
+  const { namesSubject, subjects } = await pickSubjects(clean, channel, avoidAnswers)
   if (isOverDailyCap(channel)) return null // stage 1 may have tipped the daily cap
 
   // STAGE 2: best-of-N deep-cut questions spread across the chosen subjects with distinct
@@ -183,9 +189,14 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
 // STAGE 1 call: turn the raw topic into 1-3 concrete subjects + whether the topic already
 // names its subject. Fails soft to "the topic itself is the subject, naming allowed" so a
 // stage-1 hiccup degrades to the old single-stage behavior rather than dead-ending.
-async function pickSubjects(topic: string, channel: string): Promise<{ namesSubject: boolean; subjects: string[] }> {
+async function pickSubjects(topic: string, channel: string, avoidAnswers: string[] = []): Promise<{ namesSubject: boolean; subjects: string[] }> {
   const fallback = { namesSubject: false, subjects: [topic] }
-  const text = await callApi(SUBJECT_SYSTEM, `TOPIC: ${topic}`, channel, 200, 0.9)
+  // for a broad topic, steer subject choice away from instances already used recently so
+  // repeated asks spread across different subjects instead of re-picking the same one.
+  const avoidLine = avoidAnswers.length
+    ? `\n\nAvoid subjects that would lead back to these recently-used answers: ${avoidAnswers.slice(-12).join(', ')}.`
+    : ''
+  const text = await callApi(SUBJECT_SYSTEM, `TOPIC: ${topic}${avoidLine}`, channel, 200, 0.9)
   if (!text) return fallback
   const json = extractFirstJson(text)
   if (!json) return fallback

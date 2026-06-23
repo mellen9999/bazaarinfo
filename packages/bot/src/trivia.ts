@@ -190,6 +190,10 @@ const HINT2_DELAY = 20_000 // strong hint: first-letter skeleton
 const COOLDOWN = 0
 const RECENT_BUFFER_SIZE = 10
 const RECENT_QUESTIONS_SIZE = 10
+// recent ANSWERS run a deeper window than questions: it's only consulted by the custom AI
+// path (so it can't starve a small built-in generator pool), and it catches the "same fact
+// reworded" dup that exact-question matching misses (topic asked twice -> same answer).
+const RECENT_ANSWERS_SIZE = 25
 const MIN_ANSWER_LENGTH = 1
 const MAX_CLOSE_MISS_PER_ROUND = 2
 
@@ -226,6 +230,7 @@ const activeGames = new Map<string, TriviaState>()
 const lastGameEnd = new Map<string, number>()
 const recentTypes = new Map<string, number[]>()
 const recentQuestions = new Map<string, string[]>()
+const recentAnswers = new Map<string, string[]>()
 let globalSay: SayFn = () => {}
 
 export function setSay(fn: SayFn) {
@@ -982,6 +987,13 @@ function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>): 
   rq.push(q.question)
   if (rq.length > RECENT_QUESTIONS_SIZE) rq.shift()
   recentQuestions.set(channel, rq)
+  // also remember the answer (deeper window) so the custom AI path can reject the same fact
+  // asked a different way — a reworded repeat lands on the same answer even when the
+  // question text differs. recorded for every path so the buffer reflects all rounds.
+  const ra = recentAnswers.get(channel) ?? []
+  ra.push(q.answer)
+  if (ra.length > RECENT_ANSWERS_SIZE) ra.shift()
+  recentAnswers.set(channel, ra)
   // diagnostic: every launch is logged so a round that later "goes dead" can be traced
   // (when it started, its id) against answer/timeout activity.
   log(`trivia: launched #${channel} game ${gameId} type ${q.type} "${q.question.slice(0, 50)}"`)
@@ -998,6 +1010,19 @@ export function recentQuestionList(channel: string): string[] {
 export function isRecentQuestion(channel: string, question: string): boolean {
   const n = norm(question)
   return (recentQuestions.get(channel) ?? []).some((q) => norm(q) === n)
+}
+
+// recent-answer check for the custom AI path — catches the same fact reworded (same answer,
+// different question text). pure-number answers are skipped: a count like "2" legitimately
+// recurs across unrelated questions, so blocking it would reject good fresh rounds.
+export function recentAnswerList(channel: string): string[] {
+  return recentAnswers.get(channel) ?? []
+}
+
+export function isRecentAnswer(channel: string, answer: string): boolean {
+  const n = norm(answer)
+  if (!n || /^\d+$/.test(n)) return false
+  return (recentAnswers.get(channel) ?? []).some((a) => norm(a) === n)
 }
 
 // start a round from an AI-generated question on a user-supplied topic. the active
@@ -1158,6 +1183,7 @@ export function cleanupChannel(channel: string) {
   lastGameEnd.delete(channel)
   recentTypes.delete(channel)
   recentQuestions.delete(channel)
+  recentAnswers.delete(channel)
 }
 
 export function isGameActive(channel: string): boolean {
@@ -1208,6 +1234,7 @@ export function resetForTest() {
   lastGameEnd.clear()
   recentTypes.clear()
   recentQuestions.clear()
+  recentAnswers.clear()
   forcedGenIdxForTest = null
 }
 

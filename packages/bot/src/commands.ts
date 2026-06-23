@@ -3,7 +3,7 @@ import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
-import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, startKrippTrivia, startFallbackTrivia } from './trivia'
+import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, recentAnswerList, isRecentAnswer, startKrippTrivia, startFallbackTrivia } from './trivia'
 import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, type CustomTrivia } from './ai-trivia'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
@@ -1115,12 +1115,14 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
       q = await generatePersonTrivia(dossier, `@${person}`, channel)
       missMsg = `couldn't make a trivia about @${person} — try again`
     } else {
-      // pass recent questions so the model avoids repeats; if it still echoes one
-      // (norm-equal), regenerate once before giving up on uniqueness.
+      // pass recent questions AND answers so the model avoids repeats up front; if it still
+      // echoes a recent question OR lands on a recent answer (same fact reworded), regenerate
+      // — up to 2 retries — before giving up on uniqueness.
       const avoid = recentQuestionList(channel)
-      q = await generateCustomTrivia(t, channel, avoid)
-      if (q && isRecentQuestion(channel, q.question)) {
-        q = await generateCustomTrivia(t, channel, avoid)
+      const avoidAnswers = recentAnswerList(channel)
+      q = await generateCustomTrivia(t, channel, avoid, avoidAnswers)
+      for (let i = 0; q && i < 2 && (isRecentQuestion(channel, q.question) || isRecentAnswer(channel, q.answer)); i++) {
+        q = await generateCustomTrivia(t, channel, avoid, avoidAnswers)
       }
       // a world-knowledge topic must NEVER dead-end. if the AI couldn't make one (niche
       // subject the verifier won't confirm, daily cap, no key, API hiccup), fall back to a
