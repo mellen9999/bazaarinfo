@@ -13,7 +13,7 @@ import { glossaryAnswer, isBareKeyword } from './glossary'
 import { getThread, getRecent } from './chatbuf'
 import { log } from './log'
 import * as raidCmds from './raid/commands'
-import * as dndCmds from './dnd/commands'
+import * as dungeon from './dungeon'
 
 const MAX_LEN = 480
 
@@ -582,33 +582,17 @@ const subcommands: [RegExp, SubHandler][] = [
     if (!ctx.channel) return null
     return withSuffix(getTriviaScore(ctx.channel), suffix)
   }],
-  // --- dnd game commands (offline only) ---
-  [/^join(?:\s+(.+))?$/i, async (query, ctx) => (await dndCmds.handleJoin(query ?? '', ctx)) ?? raidCmds.handleJoin('', ctx)],
-  [/^reroll(?:\s+([\s\S]+))?$/i, (query, ctx) => dndCmds.handleReroll(query ?? '', ctx)],
-  [/^(?:a|attack)(?:\s+(.*))?$/i, (query, ctx) => dndCmds.handleAttack(query ?? '', ctx)],
-  [/^(?:d|defend)$/i, (_q, ctx) => dndCmds.handleDefend('', ctx)],
-  [/^spell$/i, (_q, ctx) => dndCmds.handleSpell('', ctx)],
-  [/^use\s+(.+)$/i, (query, ctx) => dndCmds.handleUse(query, ctx)],
-  [/^flee$/i, (_q, ctx) => dndCmds.handleFlee('', ctx)],
-  [/^buy(?:\s+(.+))?$/i, (query, ctx) => dndCmds.handleBuy(query ?? '', ctx)],
-  [/^(?:floor|look)$/i, (_q, ctx) => dndCmds.handleFloor('', ctx)],
-  [/^move$/i, (_q, ctx) => dndCmds.handleMove('', ctx)],
-  [/^explore$/i, (_q, ctx) => dndCmds.handleExplore('', ctx)],
-  [/^me$/i, (_q, ctx) => dndCmds.handleStats('', ctx)],
-  [/^recap$/i, (_q, ctx) => dndCmds.handleRecap('', ctx)],
-  [/^depths(?:board)?$/i, (_q, ctx) => dndCmds.handleLeaderboard('', ctx)],
-  [/^(?:legends|hall)$/i, (_q, ctx) => dndCmds.handleLegends('', ctx)],
-  [/^(?:graveyard|graves|rip)$/i, (_q, ctx) => dndCmds.handleGraveyard('', ctx)],
-  [/^stabilize\s+@?(\S+)$/i, (query, ctx) => dndCmds.handleStabilize(query ?? '', ctx)],
-  [/^rest$/i, (_q, ctx) => dndCmds.handleRest('', ctx)],
-  [/^dnd\s+(on|off)$/i, (query, ctx) => dndCmds.handleDndToggle(query, ctx)],
-  [/^dnd\s+reset$/i, (_q, ctx) => dndCmds.handleDndReset('', ctx)],
-  [/^dnd\s+season$/i, (_q, ctx) => dndCmds.handleDndSeason('', ctx)],
+  // --- the depths (offline shared-hero dungeon) ---
+  // descend / attack / defend / special / flee / 1 / 2 all flow through the bare-keyword
+  // vote hook in index.ts (NOT !b routes). only the on-demand status + a mod reset are commands.
+  [/^depths\s+reset$/i, (_q, ctx) => (ctx.channel && ctx.isMod) ? dungeon.resetRun(ctx.channel) : null],
+  [/^depths$/i, (_q, ctx) => (ctx.channel ? dungeon.statusLine(ctx.channel) : null)],
   // --- raid game commands (silent) ---
+  [/^join(?:\s+(.+))?$/i, (_q, ctx) => raidCmds.handleJoin('', ctx)],
   [/^leave$/i, (_q, ctx) => raidCmds.handleLeave('', ctx)],
-  [/^pick\s+(.+)$/i, (query, ctx) => dndCmds.handlePick(query, ctx) ?? raidCmds.handlePick(query, ctx)],
+  [/^pick\s+(.+)$/i, (query, ctx) => raidCmds.handlePick(query, ctx)],
   [/^vote\s+(.+)$/i, (query, ctx) => raidCmds.handleVote(query, ctx)],
-  [/^party$/i, (_q, ctx) => dndCmds.handleParty('', ctx) ?? raidCmds.handleParty('', ctx)],
+  [/^party$/i, (_q, ctx) => raidCmds.handleParty('', ctx)],
   [/^shop$/i, (_q, ctx) => raidCmds.handleParty('', ctx)],
   [/^history$/i, (_q, ctx) => raidCmds.handleHistory('', ctx)],
   [/^resolve$/i, (_q, ctx) => raidCmds.handleResolve('', ctx)],
@@ -830,20 +814,6 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   for (const [pattern, handler] of subcommands) {
     const match = cleanArgs.match(pattern)
     if (match) return await handler(match[1]?.trim() ?? cleanArgs, ctx, suffix)
-  }
-
-  // natural-language dnd combat — a player in an active dungeon types "I cast Fireburst at
-  // it" / "attack the kimono" instead of the exact subcommand. checked before item lookup +
-  // AI so freeform combat doesn't fuzzy-match an item or get a generic AI reply. self-gates
-  // (active dungeon + the user is a player), so it never touches normal chat.
-  {
-    // null = not a dnd action (fall through). '' = a queued action handled silently (resolves
-    // via say() at round-close) — stop, don't fall through to the AI. a string = a reply.
-    const combat = await dndCmds.handleCombatIntent(cleanArgs, ctx)
-    if (combat !== null) return combat ? withSuffix(combat, suffix) : null
-    // a confused player in the dungeon ("wtf do i do") gets a contextual menu, not a generic AI reply
-    const dndHelp = dndCmds.handleDndHelp(cleanArgs, ctx)
-    if (dndHelp) return withSuffix(dndHelp, suffix)
   }
 
   // spam wall interception — handle without AI. cap at 5 TOTAL tokens.

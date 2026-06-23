@@ -23,7 +23,7 @@ import { writeAtomic } from './fs-util'
 import { log } from './log'
 import { readJson } from './http'
 import * as raid from './raid'
-import * as dnd from './dnd'
+import * as dungeon from './dungeon'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
 const CLIENT_ID = process.env.TWITCH_CLIENT_ID
@@ -206,7 +206,7 @@ async function partChannel(target: string) {
   client.leaveChannel(target)
   cleanupChannel(target)        // trivia: active game + recent-question state
   raid.cleanupChannel(target)   // raid: in-memory map (stops the tick auto-resolving it)
-  dnd.cleanupChannel(target)    // dnd: per-channel queues/timers (debounce/respawn/death-save)
+  dungeon.cleanup(target)    // dungeon: per-channel run + vote-window timer
   emoteEvents.unsubscribeChannel(target)
   removeChannelEmotes(target)
   chatbuf.cleanupChannel(target)
@@ -309,6 +309,15 @@ const client = new TwitchClient(
         }
       }
 
+      // dungeon: tally votes from chat. self-gates to offline channels + an active run, and
+      // never replies per-vote — only a resolved window posts a line. isolated so a throw
+      // here can't kill message handling.
+      try {
+        dungeon.castInput(channel, username, text)
+      } catch (e) {
+        log(`dungeon castInput error #${channel} [${username}]: ${e}`)
+      }
+
       // handle !join / !part only in bot's own channel to avoid collisions with other bots
       if (channel === BOT_USERNAME.toLowerCase()) {
         const trimmed = text.trim().toLowerCase()
@@ -381,10 +390,10 @@ setSay((ch, msg) => client.say(ch, msg))
 raid.initEngine((ch, msg) => client.say(ch, msg))
 raid.setIsLive((ch) => getLiveChannels().includes(ch.toLowerCase()))
 raid.restoreFromDb()
-dnd.initDndDb()
-dnd.initEngine((ch, msg) => client.say(ch, msg))
-dnd.setIsLive((ch) => getLiveChannels().includes(ch.toLowerCase()))
-dnd.restoreFromDb()
+dungeon.initDungeonDb()
+dungeon.initDungeon((ch, msg) => client.say(ch, msg))
+dungeon.setIsLive((ch) => getLiveChannels().includes(ch.toLowerCase()))
+dungeon.restoreFromDb()
 
 // poll /helix/streams to track live state + game per channel.
 // (replaces stream.online/offline/channel.update EventSub — those exceed per-ws cost cap.)
@@ -417,7 +426,7 @@ async function pollStreams(initial = false) {
         setChannelLive(ch, s.game_name)
         // a channel already live when the bot (re)starts hasn't transitioned — seed state
         // silently. only a real offline->online flip mid-run fires the dnd announcement.
-        if (!initial) dnd.onStreamOnline(ch)
+        if (!initial) dungeon.onStreamOnline(ch)
       } else if (prev !== s.game_name) {
         log(`channel update: #${ch} → ${s.game_name || '(no game)'}`)
         setChannelGame(ch, s.game_name)
@@ -433,7 +442,7 @@ async function pollStreams(initial = false) {
       }
       log(`stream offline: #${ch}`)
       setChannelOffline(ch)
-      dnd.onStreamOffline(ch)
+      dungeon.onStreamOffline(ch)
       liveState.delete(ch)
       offlineMisses.delete(ch)
     }
