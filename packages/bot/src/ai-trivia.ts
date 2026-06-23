@@ -420,10 +420,16 @@ export async function verifyTrivia(q: CustomTrivia, channel: string): Promise<Ve
 // over-rejected good rounds), but if the panel collectively rates it ~1 it's spam, drop it.
 const QUALITY_FLOOR = 1.5
 
+// run all three lenses in parallel, returning each verdict in [general, solver, skeptic]
+// order. exported so the eval/diagnostics can see WHICH lens vetoed, not just the aggregate.
+export async function verifyAllLenses(q: CustomTrivia, channel: string): Promise<Verdict[]> {
+  const lenses = [VERIFY_SYSTEM, VERIFY_SOLVE_SYSTEM, VERIFY_SKEPTIC_SYSTEM]
+  return Promise.all(lenses.map((s) => runVerifier(s, q, channel)))
+}
+
 export async function verifyPanel(q: CustomTrivia, channel: string): Promise<Verdict> {
   if (!API_KEY) return { ok: true, quality: 2 } // can't verify without a key; don't block generation
-  const lenses = [VERIFY_SYSTEM, VERIFY_SOLVE_SYSTEM, VERIFY_SKEPTIC_SYSTEM]
-  const verdicts = await Promise.all(lenses.map((s) => runVerifier(s, q, channel)))
+  const verdicts = await verifyAllLenses(q, channel)
   // an objective defect (false fact / leak / ambiguity / fabrication) — any lens vetoes.
   if (!verdicts.every((v) => v.ok)) return { ok: false, quality: 0 }
   // subjective weakness — judged by consensus mean, not a single lens, so a good classic
