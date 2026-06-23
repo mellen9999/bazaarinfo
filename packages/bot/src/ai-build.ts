@@ -572,6 +572,37 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     } catch {}
   }
 
+  // trivia standings injection — the bot tracks a per-channel TRIVIA leaderboard + each
+  // chatter's wins/points/streak/last-result. without this the model assumed "leaderboard"
+  // meant the streamer's unseeable in-game ranked ladder and deflected ("not something i can
+  // see"). fire on any standings / ranking / "who's winning" / "my points" intent and hand it
+  // the real rows so it answers from data, in voice. mirrors the BOT_STATS_RE injection above.
+  const STANDINGS_RE = /\b(leaderboard|leaderboards|standings|scoreboard|rankings?|ranked|top\s+(?:players?|scorers?|chatters?|winners?)|who(?:'?s|\s+is|\s+are)?\s+(?:winning|leading|ahead|on\s+top|in\s+(?:the\s+)?lead|first|number\s*one|no\.?\s*1)|am\s+i\s+(?:winning|leading|first|ahead|on\s+top)|where\s+(?:am\s+i|do\s+i\s+(?:rank|stand|place))|my\s+(?:trivia\s+)?(?:rank|ranking|standing|place|points?|score|streak|wins?|stats?))\b/i
+  let standingsLine = ''
+  if (STANDINGS_RE.test(query)) {
+    try {
+      const board = db.getTriviaLeaderboard(ctx.channel, 5)
+      if (board.length === 0) {
+        standingsLine = `\nTrivia standings: no trivia has been played in this channel yet — there is no leaderboard to show (you track a TRIVIA leaderboard, NOT the streamer's in-game ranked ladder — never claim to see that).`
+      } else {
+        const rows = board.map((l, i) => `${i + 1}. ${l.username} (${l.points}pts)`).join(' | ')
+        const parts = [`Trivia standings (this channel — REAL data, answer from this; it's YOUR trivia leaderboard, NOT the streamer's in-game rank, which you can't see):\n${rows}`]
+        const me = db.getUserStats(ctx.user, ctx.channel)
+        if (me && me.trivia_wins > 0) {
+          const rank = board.findIndex((l) => l.username.toLowerCase() === ctx.user.toLowerCase())
+          const place = rank >= 0 ? `, #${rank + 1}` : ', outside top 5'
+          const streak = me.trivia_best_streak ? `, best streak ${me.trivia_best_streak}` : ''
+          parts.push(`${ctx.user}'s trivia: ${me.trivia_wins} wins, ${me.trivia_points}pts${streak}${place}`)
+        } else {
+          parts.push(`${ctx.user} has no trivia wins yet`)
+        }
+        const last = db.getLastTriviaResult(ctx.channel)
+        if (last) parts.push(last.winner ? `last round: ${last.winner} won (answer: ${last.answer})` : `last round: nobody got it (answer: ${last.answer})`)
+        standingsLine = `\n${parts.join('\n')}`
+      }
+    } catch {}
+  }
+
   // activity context
   const activityLine = getActivityFor(query)
   const activityBlock = activityLine ? `\nActivity: ${activityLine}` : ''
@@ -780,6 +811,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'lessons', text: lessonsLine, base: 160 },
     { name: 'activity', text: activityBlock, base: 170 },
     { name: 'botStats', text: statsLine, base: 180 },
+    // standings is the direct answer when asked — high priority so the budget never evicts it.
+    { name: 'triviaStandings', text: standingsLine, base: 15 },
   ]
     .filter((s) => s.text)
     .map((s) => ({ ...s, prio: s.base - (s.boost ?? 0) }))
