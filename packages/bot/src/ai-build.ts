@@ -1,5 +1,6 @@
 import * as store from './store'
 import * as db from './db'
+import { isGameActive } from './trivia'
 import { getRedditDigest } from './reddit'
 import { getTopicalDigest } from './topical'
 import { getActivityFor } from './activity'
@@ -601,7 +602,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
         } else {
           parts.push(`${ctx.user} has no trivia wins yet`)
         }
-        const last = db.getLastTriviaResult(ctx.channel)
+        // getLastTriviaResult returns the NEWEST round, and createTriviaGame inserts at round
+        // START — so during a live round it's the in-flight answer. never surface it mid-round.
+        const last = isGameActive(ctx.channel) ? null : db.getLastTriviaResult(ctx.channel)
         if (last) parts.push(last.winner ? `last round: ${last.winner} won (answer: ${last.answer})` : `last round: nobody got it (answer: ${last.answer})`)
         standingsLine = `\n${parts.join('\n')}`
       }
@@ -614,8 +617,10 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // round's question+answer live in the DB (getLastTriviaResult); hand them over so the bot
   // resolves "that answer" to the real round instead of asking the chatter to re-explain.
   // gated to !standingsLine so we don't double-inject the last result (standings already has it).
+  // never inject during a live round — createTriviaGame inserts the answer at round START,
+  // so getLastTriviaResult would hand a chatter the in-flight answer ("!b fact check that").
   let triviaRefLine = ''
-  if (!standingsLine && TRIVIA_REF_RE.test(query)) {
+  if (!standingsLine && !isGameActive(ctx.channel) && TRIVIA_REF_RE.test(query)) {
     try {
       const last = db.getLastTriviaResult(ctx.channel)
       if (last) {
