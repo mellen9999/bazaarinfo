@@ -506,6 +506,11 @@ function buildChatStr(entries: ChatEntry[]): string {
   return kept.join('\n')
 }
 
+// fires when a chatter references the just-played trivia round ("fact check that answer",
+// "was that right", "the answer was wrong", "last trivia question") so the round's real
+// Q+A gets injected and the bot stops deflecting ("WHAT trivia answer? catch me up").
+export const TRIVIA_REF_RE = /\b(fact[\s-]?check|(?:that|the|your|last|previous|prior)\s+(?:trivia\s+)?(?:answer|question)|(?:was|were|is)\s+that\s+(?:(?:even|really|actually|answer)\s+)*(?:right|correct|wrong|true|legit|accurate|real|bs|cap|fake)|trivia\s+(?:answer|question)|(?:last|previous)\s+(?:trivia\s+)?round|answer\s+(?:was|is)\s+(?:right|wrong|correct|true|legit))\b/i
+
 export function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
   const isRememberReq = REMEMBER_RE.test(query) && !isAboutOtherUser(query)
   const chatDepth = ctx.mention ? 25 : 15
@@ -599,6 +604,23 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
         const last = db.getLastTriviaResult(ctx.channel)
         if (last) parts.push(last.winner ? `last round: ${last.winner} won (answer: ${last.answer})` : `last round: nobody got it (answer: ${last.answer})`)
         standingsLine = `\n${parts.join('\n')}`
+      }
+    } catch {}
+  }
+
+  // trivia-round reference injection — when a chatter says "fact check that trivia answer",
+  // "was that right", "the answer was wrong" etc. right after a round, the model had ZERO
+  // memory of the round it just ran and deflected ("WHAT trivia answer? catch me up"). the
+  // round's question+answer live in the DB (getLastTriviaResult); hand them over so the bot
+  // resolves "that answer" to the real round instead of asking the chatter to re-explain.
+  // gated to !standingsLine so we don't double-inject the last result (standings already has it).
+  let triviaRefLine = ''
+  if (!standingsLine && TRIVIA_REF_RE.test(query)) {
+    try {
+      const last = db.getLastTriviaResult(ctx.channel)
+      if (last) {
+        const outcome = last.winner ? `${last.winner} got it` : 'nobody got it'
+        triviaRefLine = `\nMost recent trivia round (REAL — this is the round the chatter means by "that"/"the" answer; answer or fact-check from THIS, never ask which round):\nQ: ${last.question}\nA: ${last.answer} (${outcome})`
       }
     } catch {}
   }
@@ -813,6 +835,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'botStats', text: statsLine, base: 180 },
     // standings is the direct answer when asked — high priority so the budget never evicts it.
     { name: 'triviaStandings', text: standingsLine, base: 15 },
+    // the round being fact-checked IS the answer — same top priority as standings.
+    { name: 'triviaRef', text: triviaRefLine, base: 14 },
   ]
     .filter((s) => s.text)
     .map((s) => ({ ...s, prio: s.base - (s.boost ?? 0) }))
