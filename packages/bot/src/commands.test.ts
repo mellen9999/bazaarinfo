@@ -1715,9 +1715,9 @@ describe('command proxy: cooldowns', () => {
     expect(await handleCommand('!b !jory')).toBe('!jory')
   })
 
-  it('slash commands have no cooldown', async () => {
-    expect(await handleCommand('!b /me dances', { user: 'a', channel: 'ch1' })).toBe('/me dances')
-    expect(await handleCommand('!b /me dances', { user: 'a', channel: 'ch2' })).toBe('/me dances')
+  it('slash commands have no cooldown (mod)', async () => {
+    expect(await handleCommand('!b /me dances', { user: 'a', channel: 'ch1', isMod: true })).toBe('/me dances')
+    expect(await handleCommand('!b /me dances', { user: 'a', channel: 'ch2', isMod: true })).toBe('/me dances')
   })
 
   it('cooldown is case insensitive', async () => {
@@ -1732,16 +1732,29 @@ describe('command proxy: cooldowns', () => {
 // Command proxy — slash commands (allowlist)
 // ---------------------------------------------------------------------------
 describe('command proxy: slash commands', () => {
-  it('allows /me', async () => {
-    expect(await handleCommand('!b /me dances')).toBe('/me dances')
+  it('allows /me for mods', async () => {
+    expect(await handleCommand('!b /me dances', { isMod: true })).toBe('/me dances')
+  })
+
+  it('blocks /me for non-mods', async () => {
+    expect(await handleCommand('!b /me is the channel owner')).toBeNull()
+    expect(await handleCommand('!b /me dances', { isMod: false })).toBeNull()
   })
 
   it('allows /announce for mods', async () => {
     expect(await handleCommand('!b /announce hello everyone', { isMod: true })).toBe('/announce hello everyone')
   })
 
-  it('allows /color', async () => {
-    expect(await handleCommand('!b /color blue')).toBe('/color blue')
+  it('blocks /announce for non-mods', async () => {
+    expect(await handleCommand('!b /announce hello everyone')).toBeNull()
+  })
+
+  it('allows /color for mods', async () => {
+    expect(await handleCommand('!b /color blue', { isMod: true })).toBe('/color blue')
+  })
+
+  it('blocks /color for non-mods', async () => {
+    expect(await handleCommand('!b /color blue')).toBeNull()
   })
 
   it('blocks every dangerous / command', async () => {
@@ -1762,8 +1775,8 @@ describe('command proxy: slash commands', () => {
     expect(await handleCommand('!b /sudo')).toBeNull()
   })
 
-  it('slash allowlist is case insensitive', async () => {
-    expect(await handleCommand('!b /ME dances')).toBe('/ME dances')
+  it('slash allowlist is case insensitive for mods', async () => {
+    expect(await handleCommand('!b /ME dances', { isMod: true })).toBe('/ME dances')
     expect(await handleCommand('!b /ANNOUNCE hi', { isMod: true })).toBe('/ANNOUNCE hi')
   })
 })
@@ -2506,5 +2519,135 @@ describe('natural-language + chat trivia routing', () => {
     await handleCommand('!b trivia about chatgpt', { user: 'u', channel: 'nlt-5' })
     expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('chatgpt', 'nlt-5', [], [])
     expect(mockGenerateChatTrivia).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// #9 regression — bang-command proxy denylist: morphological variant bypass
+// ---------------------------------------------------------------------------
+describe('command proxy: morphological mod-alias block (#9)', () => {
+  it('blocks !banuser (variant of ban)', async () => {
+    expect(await handleCommand('!b !banuser victim')).toBeNull()
+  })
+
+  it('blocks !timeoutuser (variant of timeout)', async () => {
+    expect(await handleCommand('!b !timeoutuser victim')).toBeNull()
+  })
+
+  it('blocks !purgeuser (variant of purge)', async () => {
+    expect(await handleCommand('!b !purgeuser victim')).toBeNull()
+  })
+
+  it('blocks !ban_victim (underscore embed)', async () => {
+    expect(await handleCommand('!b !ban_victim')).toBeNull()
+  })
+
+  it('blocks !kickme (self-kick variant)', async () => {
+    expect(await handleCommand('!b !kickme')).toBeNull()
+  })
+
+  it('blocks !nukechat (nuke variant)', async () => {
+    expect(await handleCommand('!b !nukechat')).toBeNull()
+  })
+
+  it('blocks !to (short timeout alias) direct', async () => {
+    expect(await handleCommand('!b !to victim')).toBeNull()
+  })
+
+  it('blocks !ro (short raid-on alias) direct', async () => {
+    expect(await handleCommand('!b !ro')).toBeNull()
+  })
+
+  it('does NOT block legit commands: jory, lurk, hug, quote, gamble, points, rank, clip', async () => {
+    for (const cmd of ['jory', 'lurk', 'hug', 'quote', 'gamble', 'points', 'rank', 'clip']) {
+      expect(await handleCommand(`!b !${cmd}`, { channel: `ch9-${cmd}` })).toBe(`!${cmd}`)
+    }
+  })
+
+  it('blocks !banuser via embedded proxy path (does not relay !banuser)', async () => {
+    const result = await handleCommand('!b hey run !banuser victim pls')
+    // must not relay as a command — may fall through to AI/quip but never proxy the token
+    if (result) expect(result).not.toMatch(/^!banuser/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// #10 regression — proxy must not relay the bot's own command prefixes
+// ---------------------------------------------------------------------------
+describe('command proxy: own command self-relay block (#10)', () => {
+  it('does not relay !b as a proxied command', async () => {
+    const result = await handleCommand('!b !b lol')
+    expect(result).not.toBe('!b lol')
+  })
+
+  it('does not relay !trivia as a proxied command', async () => {
+    const result = await handleCommand('!b !trivia kripp')
+    expect(result).not.toBe('!trivia kripp')
+  })
+
+  it('embedded !b is also blocked', async () => {
+    const result = await handleCommand('!b yo do !b lol for me')
+    expect(result).not.toBe('!b lol')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// #22 regression — /me and /color require mod privileges
+// ---------------------------------------------------------------------------
+describe('command proxy: /me and /color mod gate (#22)', () => {
+  it('non-mod cannot relay arbitrary /me action text', async () => {
+    expect(await handleCommand('!b /me is the channel owner')).toBeNull()
+    expect(await handleCommand('!b /me dances', { isMod: false })).toBeNull()
+  })
+
+  it('non-mod cannot relay /color', async () => {
+    expect(await handleCommand('!b /color blue')).toBeNull()
+  })
+
+  it('mod can relay /me', async () => {
+    expect(await handleCommand('!b /me dances', { isMod: true })).toBe('/me dances')
+  })
+
+  it('mod can relay /color', async () => {
+    expect(await handleCommand('!b /color blue', { isMod: true })).toBe('/color blue')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// #23 regression — enchant path calls validateTier (clamp + note)
+// ---------------------------------------------------------------------------
+describe('enchant path: validateTier parity (#23)', () => {
+  const bronzeOnly = makeCard({
+    Title: 'Bronze Sword',
+    Tiers: ['Bronze'],
+    Enchantments: {
+      Fiery: {
+        tags: ['Burn'],
+        tooltips: [{ text: 'Burn for {BurnAmount}', type: 'Active' }],
+        tooltipReplacements: { '{BurnAmount}': { Bronze: 5 } },
+      },
+    },
+    Shortlink: 'https://bzdb.to/bsword',
+  })
+
+  it('enchant with unavailable tier clamps to highest and appends note', async () => {
+    mockExact.mockImplementation((name) => name === 'bronze sword' ? bronzeOnly : undefined)
+    const result = await handleCommand('!b diamond fiery bronze sword')
+    expect(result).not.toBeNull()
+    expect(result).toContain('max tier is Bronze')
+  })
+
+  it('enchant with valid tier has no note', async () => {
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
+    const result = await handleCommand('!b gold fiery boomerang')
+    expect(result).not.toBeNull()
+    expect(result).not.toContain('max tier')
+  })
+
+  it('enchant with no tier has no note', async () => {
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
+    const result = await handleCommand('!b fiery boomerang')
+    expect(result).not.toBeNull()
+    expect(result).not.toContain('max tier')
   })
 })
