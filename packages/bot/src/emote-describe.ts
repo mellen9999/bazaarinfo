@@ -1,6 +1,9 @@
 import { log } from './log'
 import { writeAtomic } from './fs-util'
 import { join } from 'path'
+// db is imported lazily inside describeEmotes (the maintenance-script-only path) so this
+// module — pulled into the bot runtime via emotes.ts — stays free of a static db dependency
+// that would break the partial db mocks in trivia/commands tests.
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const CACHE_PATH = join(import.meta.dir, '../../..', 'cache', 'emote-descriptions.json')
@@ -248,5 +251,71 @@ async function describeBatch(
     log('emote describe batch failed:', e instanceof Error ? e.message : e)
     return []
   }
+}
+
+// daily token cap for maintenance runs — mirrors AI_DAILY_TOKEN_CAP env var used by the live bot
+const DESCRIBE_TOKEN_CAP = Math.max(0, parseInt(process.env.AI_DAILY_TOKEN_CAP ?? '0') || 0)
+
+/**
+ * Orchestrates describing all unknown emotes via describeBatch.
+ * Skips emotes already in cache, respects AI_DAILY_TOKEN_CAP, and
+ * persists cache after each batch for crash-safety.
+ * Returns count of newly described emotes.
+ */
+export async function describeEmotes(
+  emotes: { name: string, id: string, overlay?: boolean }[],
+): Promise<number> {
+  if (!API_KEY) {
+    console.error('ANTHROPIC_API_KEY not set — skipping describe')
+    return 0
+  }
+
+  // filter to emotes not yet described
+  const unknown = emotes.filter((e) => {
+    const existing = cache[e.name]
+    return !existing || !existing.desc
+  })
+  if (unknown.length === 0) {
+    log('all emotes already described')
+    return 0
+  }
+  log(`describing ${unknown.length} new emotes in batches of ${BATCH_SIZE}`)
+
+  let described = 0
+
+  // lazy db import — keeps this module's static graph db-free (see top-of-file note)
+  const getGlobalDailyAiSpend = DESCRIBE_TOKEN_CAP > 0
+    ? (await import('./db')).getGlobalDailyAiSpend
+    : null
+
+  for (let i = 0; i < unknown.length; i += BATCH_SIZE) {
+    // check global daily token cap before each batch
+    if (getGlobalDailyAiSpend) {
+      const spend = getGlobalDailyAiSpend()
+      if (spend.tokens >= DESCRIBE_TOKEN_CAP) {
+        console.error(`daily token cap reached (${spend.tokens}/${DESCRIBE_TOKEN_CAP}) — stopping`)
+        break
+      }
+    }
+
+    const batch = unknown.slice(i, i + BATCH_SIZE)
+    const results = await describeBatch(batch)
+
+    for (const r of results) {
+      const overlay = emotes.find((e) => e.name === r.name)?.overlay
+      cache[r.name] = { desc: r.desc, mood: r.mood, ...(overlay ? { overlay: true } : {}) }
+      described++
+    }
+
+    // persist after each batch — crash-safe progress
+    if (results.length > 0) await saveCache()
+
+    if (i + BATCH_SIZE < unknown.length) {
+      log(`batch done (${described} so far), waiting ${CHUNK_DELAY / 1000}s...`)
+      await new Promise((r) => setTimeout(r, CHUNK_DELAY))
+    }
+  }
+
+  return described
 }
 
