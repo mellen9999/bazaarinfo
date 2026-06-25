@@ -66,7 +66,7 @@ function buildState(row: RaidRow): RaidState {
       continue
     }
     let boardItems: BoardItem[] = []
-    try { boardItems = JSON.parse(sr.board_json) } catch {}
+    try { const p = JSON.parse(sr.board_json); if (Array.isArray(p)) boardItems = p } catch {}
     slots[sr.position] = {
       position: sr.position,
       username: sr.username ?? null,
@@ -256,12 +256,10 @@ export function submitPick(channel: string, username: string, shopSlot: number):
   )
   // last-write-wins via REPLACE
   const userId = getUserId(lower)
-  if (userId !== null) {
-    db.run(
-      `INSERT OR REPLACE INTO raid_submissions (raid_id, day, user_id, shop_slot) VALUES (?, ?, ?, ?)`,
-      [state.raidId, state.day, userId, shopSlot],
-    )
-  }
+  db.run(
+    `INSERT OR REPLACE INTO raid_submissions (raid_id, day, user_id, shop_slot) VALUES (?, ?, ?, ?)`,
+    [state.raidId, state.day, userId, shopSlot],
+  )
   return true
 }
 
@@ -274,18 +272,17 @@ export function submitVote(channel: string, username: string, choice: string): b
   if (!valid.includes(choice.toLowerCase())) return false
   state.pendingVote.tally.set(lower, choice.toLowerCase())
   const userId = getUserId(lower)
-  if (userId !== null) {
-    db.run(
-      `INSERT OR REPLACE INTO raid_votes (raid_id, day, user_id, choice) VALUES (?, ?, ?, ?)`,
-      [state.raidId, state.day, userId, choice.toLowerCase()],
-    )
-  }
+  db.run(
+    `INSERT OR REPLACE INTO raid_votes (raid_id, day, user_id, choice) VALUES (?, ?, ?, ?)`,
+    [state.raidId, state.day, userId, choice.toLowerCase()],
+  )
   return true
 }
 
-function getUserId(username: string): number | null {
-  const row = db.query(`SELECT id FROM users WHERE username = ?`).get(username.toLowerCase()) as { id: number } | null
-  return row?.id ?? null
+function getUserId(username: string): number {
+  const lower = username.toLowerCase()
+  db.run(`INSERT INTO users (username) VALUES (?) ON CONFLICT(username) DO NOTHING`, [lower])
+  return (db.query(`SELECT id FROM users WHERE username = ?`).get(lower) as { id: number }).id
 }
 
 // FIFO accumulation: each slot's board grows up to cap, then oldest picks fall off.

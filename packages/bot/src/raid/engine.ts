@@ -175,6 +175,7 @@ async function resolveChannelInner(channel: string) {
   const raid = state.getRaid(channel)
   if (!raid) return
 
+  const resolvedDay = raid.day
   const { board: partyBoard, namedPicks } = resolvePartyBoard(channel, raid.day, raid.hero, raid.raidId)
   const vote = state.resolveVote(channel)
   const monster = pickMonster(raid.day, vote?.winner.monsterHint)
@@ -204,7 +205,7 @@ async function resolveChannelInner(channel: string) {
   })
 
   say(channel, narrative)
-  log(`raid: [#${channel}] day ${raid.day} resolved — ${outcome}`)
+  log(`raid: [#${channel}] day ${resolvedDay} resolved — ${outcome}`)
 
   if (updated.status !== 'active') {
     const mvp = state.getRunMvp(updated.raidId)
