@@ -96,7 +96,17 @@ export function extractEntities(query: string): ResolvedEntities {
     result.glossary = lookupKeywords(query)
   }
 
-  const words = query.toLowerCase().split(/\s+/)
+  // word-count backstop: 40 covers any 200-char query (the ai.ts input cap) so it never
+  // drops a real entity, while bounding a pathological uncapped caller (e.g. a 32k-char
+  // query). exact/hero/tag scan all of these (cheap map lookups); the fuzzy fuse paths —
+  // the bitap hotspot at ~13ms/card-call on passive hardware — are budgeted below so a
+  // rambling no-entity query can't fan out into a wall of fuse calls.
+  const words = query.toLowerCase().split(/\s+/).slice(0, 40)
+  // fuzzy-fuse budgets, spent longest-phrase-first (the loop runs size 3→2→1), so the
+  // highest-signal phrases get the fuzzy slots. cards are the expensive index (~1450
+  // items); monsters are cheaper (~120) so get a roomier budget.
+  let cardFuzzyBudget = 7
+  let monsterFuzzyBudget = 12
 
   // day number
   const dayMatch = query.match(/day\s+(\d+)/i)
@@ -150,8 +160,11 @@ export function extractEntities(query: string): ResolvedEntities {
         }
       }
 
-      // fuzzy card match — after hero/tag so known names aren't consumed
-      if (result.cards.length < 3 && safe) {
+      // fuzzy card match — after hero/tag so known names aren't consumed.
+      // skip size===1 phrases (single short words are the bulk of fuse calls and the
+      // `safe` guard already distrusts them) and stop once the budget is spent.
+      if (result.cards.length < 3 && safe && size >= 2 && cardFuzzyBudget > 0) {
+        cardFuzzyBudget--
         const [fuzzy] = store.searchWithScore(phrase, 1)
         if (fuzzy && fuzzy.score < 0.3) {
           result.cards.push(fuzzy.item)
@@ -160,9 +173,13 @@ export function extractEntities(query: string): ResolvedEntities {
         }
       }
 
-      // monsters (max 2)
+      // monsters (max 2) — exact title scan always; fuzzy fuse only under budget
       if (result.monsters.length < 2 && safe) {
-        const monster = store.findMonster(phrase)
+        let monster = store.findMonsterExact(phrase)
+        if (!monster && monsterFuzzyBudget > 0) {
+          monsterFuzzyBudget--
+          monster = store.findMonsterFuzzy(phrase)
+        }
         if (monster) {
           result.monsters.push(monster)
           for (let j = 0; j < size; j++) matched.add(i + j)

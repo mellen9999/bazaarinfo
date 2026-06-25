@@ -510,7 +510,10 @@ function buildChatStr(entries: ChatEntry[]): string {
 // fires when a chatter references the just-played trivia round ("fact check that answer",
 // "was that right", "the answer was wrong", "last trivia question") so the round's real
 // Q+A gets injected and the bot stops deflecting ("WHAT trivia answer? catch me up").
-export const TRIVIA_REF_RE = /\b(fact[\s-]?check|(?:that|the|your|last|previous|prior)\s+(?:trivia\s+)?(?:answer|question)|(?:was|were|is)\s+that\s+(?:(?:even|really|actually|answer)\s+)*(?:right|correct|wrong|true|legit|accurate|real|bs|cap|fake)|trivia\s+(?:answer|question)|(?:last|previous)\s+(?:trivia\s+)?round|answer\s+(?:was|is)\s+(?:right|wrong|correct|true|legit))\b/i
+// fires when a chatter references the just-played trivia round so the real Q+A is injected.
+// every alternative requires an explicit trivia/round anchor — generic doubt phrases like
+// "is that real" or "that question about builds" must NOT match and inject stale context.
+export const TRIVIA_REF_RE = /\b(fact[\s-]?check\s+(?:that|the|this)?\s*(?:trivia\s+)?(?:answer|question|round)|(?:that|the|your|last|previous|prior)\s+trivia\s+(?:answer|question)|trivia\s+(?:answer|question|round)|(?:last|previous)\s+(?:trivia\s+)?round|(?:trivia\s+)?answer\s+(?:was|is)\s+(?:right|wrong|correct|true|legit))\b/i
 
 export function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
   const isRememberReq = REMEMBER_RE.test(query) && !isAboutOtherUser(query)
@@ -838,10 +841,10 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'lessons', text: lessonsLine, base: 160 },
     { name: 'activity', text: activityBlock, base: 170 },
     { name: 'botStats', text: statsLine, base: 180 },
-    // standings is the direct answer when asked — high priority so the budget never evicts it.
-    { name: 'triviaStandings', text: standingsLine, base: 15 },
-    // the round being fact-checked IS the answer — same top priority as standings.
-    { name: 'triviaRef', text: triviaRefLine, base: 14 },
+    // standings / triviaRef are the direct answer when asked — must sort BEFORE primaryPair
+    // (recentChat base -100, gameBlock base -90) so the budget loop never evicts them.
+    { name: 'triviaStandings', text: standingsLine, base: -110 },
+    { name: 'triviaRef', text: triviaRefLine, base: -109 },
   ]
     .filter((s) => s.text)
     .map((s) => ({ ...s, prio: s.base - (s.boost ?? 0) }))
