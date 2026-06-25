@@ -198,6 +198,14 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         log('ai: empty/malformed 200 body — retrying as transient')
         return { status: 503 }
       }
+      // record spend here — every dispatched request that returns a 200 body is billed
+      // by Anthropic, including hedge losers and retry attempts that are later discarded.
+      // recording at the winner-only site (post-sanitize) misses those tokens and makes
+      // the daily cap trip late. logAsk stays at the winner site (per-final-reply).
+      try {
+        const u = parsed.data.usage
+        if (u) db.recordAiSpend(ctx.channel, u.input_tokens ?? 0, u.output_tokens ?? 0)
+      } catch {}
       return { status: 200, data: parsed.data }
     } catch (e) {
       // externally aborted (hedge winner already returned) — silently drop, not a failure.
@@ -362,7 +370,8 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           const inT = data.usage?.input_tokens ?? 0
           const outT = data.usage?.output_tokens ?? 0
           db.logAsk(ctx, query, result.text, inT + outT, latency)
-          db.recordAiSpend(ctx.channel, inT, outT)
+          // recordAiSpend is called in fetchOnce at the 200-parse point so every
+          // dispatched request (retries + hedge loser) is counted; not here.
         } catch {}
         // hot cache for instant follow-up context
         cacheExchange(ctx.user, query, result.text, ctx.channel)

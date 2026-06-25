@@ -31,25 +31,36 @@ describe('fitToBudget — graceful section truncation', () => {
 })
 
 describe('TRIVIA_REF_RE — references to the just-played round inject the real Q+A', () => {
-  it('fires on fact-check / "that answer" asks that the deflection bug missed', () => {
+  // every match requires an explicit trivia/round anchor so generic doubt phrases
+  // ("is that real", "that question about builds") don't inject stale context.
+  it('fires on explicit trivia/round-anchored references', () => {
     for (const q of [
       'fact check that trivia answer',
-      'factcheck that',
-      'fact-check the answer',
-      'was that right',
-      'is that even correct',
-      'was that answer wrong',
+      'fact-check the answer',        // "answer" alone counts as anchor in fact-check path
+      'fact check the question',
+      'fact check that round',
       'that trivia answer is cap',
-      'the answer was wrong',
       'the trivia question',
       'what was the last trivia question',
+      'the answer was wrong',         // "answer was wrong" — trivia-answer result phrasing
+      'the answer is correct',
       'wait was the previous round legit',
-      'the answer is bs',
+      'previous trivia round',
+      'trivia answer was right',
     ]) expect(TRIVIA_REF_RE.test(q)).toBe(true)
   })
 
-  it('does not over-fire on unrelated chatter (no last-round noise injected)', () => {
+  it('does not fire on generic doubt/reaction phrases without a trivia/round anchor', () => {
     for (const q of [
+      // previously false-positives that injected stale trivia context:
+      'is that real',
+      'that question about builds',
+      'was that right',               // no trivia anchor
+      'is that even correct',         // no trivia anchor
+      'was that answer wrong',        // "that answer wrong" — word order doesn't match "answer was wrong"
+      'factcheck that',               // no answer/question/round specified
+      'the answer is bs',             // "bs" not in legit/right/wrong list
+      // unrelated chatter:
       "what's kripp's best item",
       'tell me a joke about hamstornado',
       'who is the strongest hero',

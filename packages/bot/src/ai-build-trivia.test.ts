@@ -1,9 +1,9 @@
 // trivia-round context injection — real DB + store, exercising buildUserMessage end to end.
-// guards two things: (1) a fact-check ask AFTER a round injects the real Q+A so the bot stops
-// deflecting; (2) it NEVER injects mid-round (createTriviaGame writes the answer at round start,
-// so getLastTriviaResult would otherwise hand a live chatter the in-flight answer).
+// guards three things: (1) a fact-check ask AFTER a round injects the real Q+A so the bot stops
+// deflecting; (2) it NEVER injects mid-round; (3) triviaStandings survives the context budget
+// loop even when recentChat + gameBlock fill most of the 3500-char cap.
 import { describe, it, expect, beforeAll } from 'bun:test'
-import { initDb, createTriviaGame } from './db'
+import { initDb, createTriviaGame, getOrCreateUser, recordTriviaWin } from './db'
 import { buildUserMessage } from './ai-build'
 import { loadStore } from './store'
 import { startTrivia, isGameActive, getActiveGameForTest } from './trivia'
@@ -37,5 +37,33 @@ describe('trivia-round reference injection', () => {
     // (a bare answer-substring check is unreliable: short answers collide with unrelated game data.)
     expect(r.text).not.toContain('Most recent trivia round')
     expect(r.text).not.toContain(`A: ${liveAnswer}`)
+  })
+})
+
+describe('triviaStandings budget eviction fix — standings survives a full context', () => {
+  // regression for #1: triviaStandings (base -110) must sort BEFORE primaryPair
+  // (recentChat base -100) so a full chat+game context can't push it out of the 3500-char cap.
+  it('standings line is present in the user message even when asked with a game query', () => {
+    const ch = '#standings-budget'
+    // seed a real leaderboard row so the standings block is non-empty
+    const gameId = createTriviaGame(ch, 21, 'Test Q?', 'Test A')
+    const uid = getOrCreateUser('topplayer')
+    recordTriviaWin(gameId, uid, 5000, 1, 10)
+
+    // ask something that triggers both standings and game-entity lookup —
+    // this is the worst case: primaryPair would be large (game data present)
+    const r = buildUserMessage('who is winning the leaderboard', { user: 'h', channel: ch } as any)
+    expect(r.text).toContain('Trivia standings')
+    // specifically confirm it was NOT evicted (text must include a standings row, not just the header)
+    expect(r.text).toContain('topplayer')
+  })
+
+  it('triviaRef line survives when a recent round exists and query references trivia', () => {
+    const ch = '#ref-budget'
+    createTriviaGame(ch, 21, 'Which hero is the oldest?', 'Vanessa')
+
+    const r = buildUserMessage('fact check that trivia answer', { user: 'h', channel: ch } as any)
+    expect(r.text).toContain('Most recent trivia round')
+    expect(r.text).toContain('Vanessa')
   })
 })

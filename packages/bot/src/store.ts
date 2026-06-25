@@ -320,13 +320,18 @@ function findByTitle<T extends { Title: string }>(list: T[], query: string): T |
     ?? list.find((x) => wordIncludes(x.Title.toLowerCase(), lower))
 }
 
-export function findMonster(query: string): Monster | undefined {
-  const byTitle = findByTitle(monsters, query)
-  if (byTitle) return byTitle
-  // fuse fallback for typos
+// exact (title) lookup — a cheap map/string scan. fuzzy fallback (monsterIndex.search)
+// is the bitap hotspot, split out so callers iterating many phrases can budget it.
+export function findMonsterExact(query: string): Monster | undefined {
+  return findByTitle(monsters, query)
+}
+export function findMonsterFuzzy(query: string): Monster | undefined {
   const results = monsterIndex.search(query, { limit: 1 })
   if (results.length > 0 && (results[0].score ?? 1) <= 0.2) return results[0].item
   return undefined
+}
+export function findMonster(query: string): Monster | undefined {
+  return findMonsterExact(query) ?? findMonsterFuzzy(query)
 }
 
 export function findCard(name: string): BazaarCard | undefined {
