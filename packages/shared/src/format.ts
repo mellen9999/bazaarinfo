@@ -39,11 +39,22 @@ function formatCooldown(cd: BazaarCard['Cooldown'], tier?: TierName): string {
 export function truncate(str: string): string {
   const cp = [...str]
   if (cp.length <= MAX_LEN) return str
-  const cut = str.lastIndexOf(' | ', MAX_LEN - 4)
-  if (cut > MAX_LEN * 0.5) return cp.slice(0, cut).join('') + '...'
-  const space = str.lastIndexOf(' ', MAX_LEN - 4)
-  if (space > MAX_LEN * 0.5) return cp.slice(0, space).join('') + '...'
-  return cp.slice(0, MAX_LEN - 3).join('') + '...'
+  // search for word boundaries in codepoint space so astral chars don't skew the index
+  const window = cp.slice(0, MAX_LEN - 3)
+  const minCut = Math.floor(MAX_LEN * 0.5)
+  // scan backward for ' | ' separator
+  for (let i = window.length - 3; i >= minCut; i--) {
+    if (window[i] === ' ' && window[i + 1] === '|' && window[i + 2] === ' ') {
+      return cp.slice(0, i).join('') + '...'
+    }
+  }
+  // scan backward for word boundary space
+  for (let i = window.length - 1; i >= minCut; i--) {
+    if (window[i] === ' ') {
+      return cp.slice(0, i).join('') + '...'
+    }
+  }
+  return window.join('') + '...'
 }
 
 function resolveReplacement(val: ReplacementValue, tier?: TierName): string {
@@ -94,8 +105,12 @@ const SIZE_LABEL: Record<string, string> = { Small: 'S', Medium: 'M', Large: 'L'
 function appendShortlink(text: string, shortlink?: string): string {
   if (!shortlink) return text
   const suffix = ` · ${shortlink.replace(RE_HTTPS, '')}`
-  if (text.length + suffix.length <= MAX_LEN) return text + suffix
-  return text
+  const cpText = [...text]
+  const cpSuf = [...suffix]
+  if (cpText.length + cpSuf.length <= MAX_LEN) return text + suffix
+  // attribution is required — truncate body to make room rather than dropping it
+  const room = MAX_LEN - cpSuf.length - 3
+  return cpText.slice(0, Math.max(0, room)).join('') + '...' + suffix
 }
 
 export function formatItem(card: BazaarCard, tier?: TierName): string {
