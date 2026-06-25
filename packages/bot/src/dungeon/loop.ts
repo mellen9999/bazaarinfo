@@ -215,7 +215,19 @@ function resolveFork(channel: string, run: Run): void {
 
 // --- lifecycle -----------------------------------------------------------------------
 
-export function onStreamOnline(channel: string): void { clearTimer(channel.toLowerCase()) } // freeze, silent
+export function onStreamOnline(channel: string): void {
+  const ch = channel.toLowerCase()
+  clearTimer(ch) // freeze, silent
+  // mirror restoreFromDb: drop the stale arm-state so the next vote after going offline
+  // can re-arm the window. without this, firstVoteAt stays non-zero and onCombatVote's
+  // arming branch never fires again — the vote window strands.
+  const run = runs.get(ch)
+  if (run && (run.phase === 'combat' || run.phase === 'fork')) {
+    run.firstVoteAt = 0
+    run.windowEndsAt = 0
+    persist(run)
+  }
+}
 export function onStreamOffline(channel: string): void {
   const ch = channel.toLowerCase()
   const run = runs.get(ch)

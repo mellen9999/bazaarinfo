@@ -100,27 +100,37 @@ export function resolveTurn(hero: Hero, enemy: Enemy, verb: Verb, rng: () => num
   } else if (verb === 'defend') {
     defended = true
   } else if (verb === 'special') {
-    hero.special -= 1; res.special = true
-    switch (hero.specialKind) {
-      case 'burst': {
-        let dmg = Math.round(hero.atk * 2.5)
-        if (enemy.staggered) { dmg = Math.round(dmg * 1.5); res.staggeredHit = true; enemy.staggered = false }
-        if (enemyGuarding) dmg = Math.round(dmg * 0.5)
-        enemy.hp -= dmg; res.heroDmg = dmg; break
-      }
-      case 'stun': {
-        let dmg = hero.atk
-        if (enemyGuarding) dmg = Math.round(dmg * 0.5)
-        enemy.hp -= dmg; res.heroDmg = dmg
-        enemy.stunned = true; break // skips its next action
-      }
-      case 'heal': {
-        res.healed = Math.min(hero.maxHp - hero.hp, Math.round(hero.maxHp * 0.45))
-        hero.hp += res.healed; break
-      }
-      case 'guard': {
-        res.shield = Math.round(hero.maxHp * 0.6)
-        hero.shield += res.shield; break
+    // heal at full HP would spend a permanent charge for zero effect — degrade to a normal
+    // attack instead, mirroring the chargeless-special degrade at the top of this function.
+    if (hero.specialKind === 'heal' && hero.hp >= hero.maxHp) {
+      verb = 'attack'; res.verb = 'attack'
+      let dmg = hero.atk
+      if (enemy.staggered) { dmg = Math.round(dmg * 1.5); res.staggeredHit = true; enemy.staggered = false }
+      if (enemyGuarding) dmg = Math.round(dmg * 0.4)
+      enemy.hp -= dmg; res.heroDmg = dmg
+    } else {
+      hero.special -= 1; res.special = true
+      switch (hero.specialKind) {
+        case 'burst': {
+          let dmg = Math.round(hero.atk * 2.5)
+          if (enemy.staggered) { dmg = Math.round(dmg * 1.5); res.staggeredHit = true; enemy.staggered = false }
+          if (enemyGuarding) dmg = Math.round(dmg * 0.5)
+          enemy.hp -= dmg; res.heroDmg = dmg; break
+        }
+        case 'stun': {
+          let dmg = hero.atk
+          if (enemyGuarding) dmg = Math.round(dmg * 0.5)
+          enemy.hp -= dmg; res.heroDmg = dmg
+          enemy.stunned = true; break // skips its next action
+        }
+        case 'heal': {
+          res.healed = Math.min(hero.maxHp - hero.hp, Math.round(hero.maxHp * 0.45))
+          hero.hp += res.healed; break
+        }
+        case 'guard': {
+          res.shield = Math.round(hero.maxHp * 0.6)
+          hero.shield += res.shield; break
+        }
       }
     }
   }
