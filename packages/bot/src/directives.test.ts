@@ -1,8 +1,9 @@
-import { describe, expect, it, beforeEach } from 'bun:test'
-import { addDirective, matchingDirectives, isMuted, listDirectives, clearDirectives, directiveHint, resetForTest } from './directives'
+import { describe, expect, it, beforeEach, afterEach, setSystemTime } from 'bun:test'
+import { addDirective, matchingDirectives, isMuted, listDirectives, clearDirectives, directiveHint, resetForTest, MAX_INSTRUCTION } from './directives'
 
 describe('directives', () => {
   beforeEach(() => resetForTest())
+  afterEach(() => setSystemTime()) // restore real clock even if a test throws mid-way
 
   it('topic steer matches only when the query contains a trigger keyword', () => {
     addDirective('ch', 'mellen', { trigger: ['topology'], instruction: 'work in GachiBlacksmith' })
@@ -58,6 +59,41 @@ describe('directives', () => {
   it('is isolated per channel', () => {
     addDirective('ch1', 'u', { instruction: 'x' })
     expect(listDirectives('ch2').length).toBe(0)
+  })
+
+  it('expires after the 20-min TTL (no zombie directives)', () => {
+    setSystemTime(new Date('2026-06-25T00:00:00Z'))
+    addDirective('ch', 'mellen', { instruction: 'talk like a pirate' })
+    expect(matchingDirectives('ch', 'anything', 'anyone').length).toBe(1)
+    // 19m later: still live
+    setSystemTime(new Date('2026-06-25T00:19:00Z'))
+    expect(matchingDirectives('ch', 'anything', 'anyone').length).toBe(1)
+    // 21m later: expired, and the channel bucket is reaped
+    setSystemTime(new Date('2026-06-25T00:21:00Z'))
+    expect(matchingDirectives('ch', 'anything', 'anyone').length).toBe(0)
+    expect(directiveHint('ch', 'anything', 'anyone')).toBe('')
+    expect(isMuted('ch', 'anyone')).toBe(false)
+  })
+
+  it('a persistent global steer is told to apply every answer, not just once', () => {
+    addDirective('ch', 'coaoaba', { instruction: 'end every message with BlueBirdge' })
+    const hint = directiveHint('ch', 'best vanessa item', 'wollip')
+    expect(hint).toContain('BlueBirdge')
+    expect(hint.toLowerCase()).toContain('every time') // persistence instruction present
+    expect(hint.toLowerCase()).toContain('never be mean') // safety guardrail still present
+  })
+
+  it('lists all matching steers together in one hint', () => {
+    addDirective('ch', 'a', { instruction: 'talk like a pirate' })
+    addDirective('ch', 'b', { instruction: 'end with KEKW' })
+    const hint = directiveHint('ch', 'anything', 'anyone')
+    expect(hint).toContain('talk like a pirate')
+    expect(hint).toContain('end with KEKW')
+  })
+
+  it('clips an over-long instruction to MAX_INSTRUCTION (no prompt bloat)', () => {
+    addDirective('ch', 'griefer', { instruction: 'x'.repeat(500) })
+    expect(listDirectives('ch')[0].instruction.length).toBe(MAX_INSTRUCTION)
   })
 
   it('scrubs prompt-structure chars from a stored instruction (injection hardening)', () => {

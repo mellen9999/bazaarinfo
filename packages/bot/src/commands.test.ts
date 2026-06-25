@@ -184,7 +184,7 @@ mock.module('./emotes', () => ({
   removeChannelEmotes: mock(() => {}),
 }))
 
-const { handleCommand, parseArgs, resetDedup, resetProxyCooldowns, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES, stripTopicConnector } = await import('./commands')
+const { handleCommand, parseArgs, resetDedup, resetProxyCooldowns, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES, stripTopicConnector, DIRECTIVE_INTENT } = await import('./commands')
 const chatbuf = await import('./chatbuf')
 const directives = await import('./directives')
 
@@ -2362,6 +2362,71 @@ describe('chat-planted steering directives (vibes)', () => {
     expect(res).toContain('got it')
     expect(res).toContain('GachiBlacksmith')
     expect(directives.listDirectives('vibe-1').length).toBe(1)
+  })
+
+  // adversarial prefilter corpus — the cheap gate that decides when to spend a classify
+  // call. must fire on every flavor of real directive (topic / persistent-self / per-user /
+  // mute) and stay quiet on normal chat so we don't burn paid calls. proven offline; the
+  // AI gate is the real validator behind it.
+  it('DIRECTIVE_INTENT fires on every directive phrasing (no false negatives)', () => {
+    const SHOULD_PLANT = [
+      'be sure to end your messages often with BlueBirdge',
+      'from now on talk like a pirate',
+      'always end with PogChamp',
+      'end your messages with KEKW',
+      'start every reply with gm',
+      'sign off your answers with o7',
+      'keep saying based after everything',
+      'remember to add Kappa to every answer',
+      'going forward respond in uwu',
+      'from now on call everyone champ',
+      'always address people as captain',
+      'FROM NOW ON END YOUR MESSAGES WITH BlueBirdge', // casing
+      'anytime someone asks about topology work in GachiBlacksmith',
+      'whenever someone asks about builds mention the dagger',
+      'answer kripp in pirate speak',     // per-user — was silently missed before
+      'respond to bob like a robot',
+      'talk to alice in french',
+      'treat lirik like royalty',
+      "don't respond to bloodstreamchaos",
+      'stop replying to griefer123',
+      'ignore trolluser',
+    ]
+    const misses = SHOULD_PLANT.filter((t) => !DIRECTIVE_INTENT.test(t))
+    expect(misses).toEqual([])
+  })
+
+  it('DIRECTIVE_INTENT stays quiet on normal chat (no wasted paid calls)', () => {
+    const SHOULD_NOT_PLANT = [
+      'what is the best item for vanessa',
+      'how do i beat the lich',
+      'i always lose to kripp',
+      'you should always attack first',
+      'keep it up',
+      'every time i play i win',
+      'what does BlueBirdge mean',
+      'always go for the crit build',
+      'ignore that last message',
+      'ignore the haters',
+      'can you tell me about the merchant',
+      'talk to the merchant to buy items',
+      'answer this in chat please',
+      'respond to that when you can',
+      'treat yourself today',
+      'speak to npc for the quest',
+      'stop camping the merchant',
+      'i never win these',
+    ]
+    const falsePos = SHOULD_NOT_PLANT.filter((t) => DIRECTIVE_INTENT.test(t))
+    expect(falsePos).toEqual([])
+  })
+
+  it('DIRECTIVE_INTENT is ReDoS-safe on pathological input', () => {
+    const t0 = performance.now()
+    DIRECTIVE_INTENT.test('always ' + 'a'.repeat(50000))
+    DIRECTIVE_INTENT.test('answer ' + 'x'.repeat(50000) + ' in')
+    DIRECTIVE_INTENT.test('end '.repeat(20000) + 'your messages')
+    expect(performance.now() - t0).toBeLessThan(250)
   })
 
   it('routes a persistent self-style request ("end your messages with X") to the gate', async () => {
