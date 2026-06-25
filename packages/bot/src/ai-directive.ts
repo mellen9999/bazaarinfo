@@ -37,6 +37,7 @@ const SYSTEM = `A Twitch chat user wants to plant a fun, TEMPORARY rule that cha
    - "target": the username if it's directed at one person ("answer kripp in pirate speak" -> "kripp"), else "".
    - "trigger": lowercase topic keywords if it's topic-based ("anytime someone asks about topology..." -> ["topology"]), else [].
    - "instruction": the short flavor, <= ${MAX_INSTRUCTION} chars (e.g. "work in the GachiBlacksmith emote", "answer in pirate speak").
+   - A persistent request about the bot's OWN style with no topic/user is a STEER with empty trigger and empty target ("from now on end your messages with the BlueBirdge emote" -> {"mute":false,"target":"","trigger":[],"instruction":"end every message with the BlueBirdge emote"}; "always talk like a pirate" -> instruction "talk like a pirate"). This colors every answer — that is intended, NOT a rule-override.
 
 Return {"ok":true,"mute":<bool>,"target":"<username or empty>","trigger":[...],"instruction":"<flavor or empty>"} for any benign, PLAYFUL directive — themes, emotes, accents, running jokes, and ignoring/muting a specific named user are all FINE (this is good chat fun).
 
