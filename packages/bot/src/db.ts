@@ -1015,15 +1015,16 @@ export function getUserMessagesSince(username: string, channel: string, sinceExp
 
 // count how many of a user's messages contain a word/phrase within a time window
 export function countUserWordUsage(username: string, channel: string, word: string, sinceExpr: string | null): number {
-  const pattern = `%${word}%`
+  const escaped = word.replace(/[\\%_]/g, (c) => '\\' + c)
+  const pattern = `%${escaped}%`
   if (sinceExpr === null) {
     const row = db.query(
-      `SELECT COUNT(*) as cnt FROM chat_messages WHERE LOWER(username) = ? AND channel = ? AND message LIKE ? COLLATE NOCASE`,
+      `SELECT COUNT(*) as cnt FROM chat_messages WHERE LOWER(username) = ? AND channel = ? AND message LIKE ? ESCAPE '\\' COLLATE NOCASE`,
     ).get(username.toLowerCase(), channel, pattern) as { cnt: number }
     return row.cnt
   }
   const row = db.query(
-    `SELECT COUNT(*) as cnt FROM chat_messages WHERE LOWER(username) = ? AND channel = ? AND created_at >= date('now', ?) AND message LIKE ? COLLATE NOCASE`,
+    `SELECT COUNT(*) as cnt FROM chat_messages WHERE LOWER(username) = ? AND channel = ? AND created_at >= date('now', ?) AND message LIKE ? ESCAPE '\\' COLLATE NOCASE`,
   ).get(username.toLowerCase(), channel, sinceExpr, pattern) as { cnt: number }
   return row.cnt
 }

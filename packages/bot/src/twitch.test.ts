@@ -96,3 +96,93 @@ describe('outgoing send pacer', () => {
     expect(c.ircQueue[0].text).toContain("Time's up")       // ...but the held reveal survived
   })
 })
+
+// regression #3: pacer failure backoff
+// when both helix and IRC are down, the pacer must NOT busy-loop (~930/sec).
+// it must back off 1s on each failure and drop a poison line after MAX_SEND_FAILS retries.
+describe('pacer failure backoff (#3)', () => {
+  test('failed send arms a 1s timer, not an immediate re-kick', async () => {
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [{ name: 'chan', userId: '99' }] },
+      () => {},
+    )
+    const c = client as unknown as {
+      ircReady: boolean; ircOnlyChannels: Set<string>; irc: { readyState: number }
+      sendOne: (ch: string, text: string, replyTo?: string) => Promise<boolean>
+      pacerTimer: unknown; lastSendAt: number; kickPacer: () => void
+      ircQueue: { channel: string; text: string; failCount?: number }[]
+    }
+    c.ircReady = true
+    c.irc = { readyState: 1 }
+    c.ircOnlyChannels = new Set()
+    // stub sendOne to always fail (simulates helix 5xx + dead IRC)
+    let callCount = 0
+    c.sendOne = async () => { callCount++; return false }
+
+    client.say('chan', 'hello')
+    await new Promise((r) => setTimeout(r, 50)) // let first attempt fire
+
+    // exactly one attempt in 50ms — the backoff timer fires at 1s, not immediately
+    expect(callCount).toBe(1)
+    // line is requeued with incremented failCount
+    expect(c.ircQueue.length).toBe(1)
+    expect(c.ircQueue[0].failCount).toBe(1)
+    // lastSendAt was bumped (forces SEND_GAP on next attempt)
+    expect(Date.now() - c.lastSendAt).toBeLessThan(200)
+    // pacerTimer is set (the 1s re-arm, not null)
+    expect(c.pacerTimer).not.toBeNull()
+  })
+
+  test('poison line drops after MAX_SEND_FAILS (8) retries', async () => {
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [{ name: 'chan', userId: '99' }] },
+      () => {},
+    )
+    const c = client as unknown as {
+      ircReady: boolean; ircOnlyChannels: Set<string>; irc: { readyState: number }
+      sendOne: (ch: string, text: string, replyTo?: string) => Promise<boolean>
+      pacerTimer: unknown; kickPacer: () => void
+      ircQueue: { channel: string; text: string; failCount?: number }[]
+    }
+    c.ircReady = true
+    c.irc = { readyState: 1 }
+    c.ircOnlyChannels = new Set()
+    c.sendOne = async () => false
+
+    // inject a pre-failed item at the drop threshold (failCount = 7, one more push drops it)
+    c.ircQueue.unshift({ channel: 'chan', text: 'poison', failCount: 7 })
+    // manually trigger the pacer cycle (bypass kickPacer guard by calling after unshift)
+    c.kickPacer()
+    await new Promise((r) => setTimeout(r, 50))
+
+    // the item was dropped (failCount 7 + 1 = 8 >= MAX_SEND_FAILS)
+    expect(c.ircQueue.length).toBe(0)
+  })
+})
+
+// regression #28: mixed-case channel names in config must not break helix routing
+describe('channel name normalisation (#28)', () => {
+  test('rebuildChannelMap lowercases keys so helix lookup matches IRC wire', () => {
+    const client = new TwitchClient(
+      {
+        token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot',
+        channels: [{ name: 'Kripp', userId: '999' }],
+      },
+      () => {},
+    )
+    const c = client as unknown as { _channelIdMap: Record<string, string>; hasChannel: (n: string) => boolean }
+    // map key must be lowercase so helix lookup for 'kripp' (IRC wire form) succeeds
+    expect(c._channelIdMap['kripp']).toBe('999')
+    expect(c._channelIdMap['Kripp']).toBeUndefined()
+  })
+
+  test('isPrivileged matches botUsername case-insensitively via lowercase compare', () => {
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'MyBot', channels: [] },
+      () => {},
+    )
+    const c = client as unknown as { isPrivileged: (ch: string) => boolean }
+    // own channel is always privileged regardless of how the name is cased
+    expect(c.isPrivileged('mybot')).toBe(true)
+  })
+})

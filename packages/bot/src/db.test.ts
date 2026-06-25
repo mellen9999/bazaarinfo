@@ -353,4 +353,39 @@ describe('db', () => {
     const results = db.searchAskFTS('test', 'nonexistent', 5)
     expect(results.length).toBe(0)
   })
+
+  // --- countUserWordUsage LIKE wildcard escaping ---
+
+  it('countUserWordUsage treats % as a literal character, not a wildcard', () => {
+    db.logChat('test', 'alice', 'i am at 50% health')
+    db.logChat('test', 'alice', 'pizza is great')
+    db.logChat('test', 'alice', 'another message with no percent')
+    db.flushWrites()
+
+    // literal "%" should match only the one message containing it
+    expect(db.countUserWordUsage('alice', 'test', '%', null)).toBe(1)
+    // literal "50%" should also match only that one message
+    expect(db.countUserWordUsage('alice', 'test', '50%', null)).toBe(1)
+    // literal "50" appears only in "50% health"
+    expect(db.countUserWordUsage('alice', 'test', '50', null)).toBe(1)
+    // plain word count is unaffected
+    expect(db.countUserWordUsage('alice', 'test', 'pizza', null)).toBe(1)
+    // underscore is treated literally too
+    db.logChat('test', 'alice', 'snake_case variable')
+    db.flushWrites()
+    expect(db.countUserWordUsage('alice', 'test', 'snake_case', null)).toBe(1)
+    // bare _ must not match single-char wildcard across all messages
+    expect(db.countUserWordUsage('alice', 'test', '_', null)).toBe(1)
+  })
+
+  it('countUserWordUsage sinceExpr path also escapes LIKE wildcards', () => {
+    db.logChat('test', 'bob', 'has a 100% win rate')
+    db.logChat('test', 'bob', 'unrelated message')
+    db.flushWrites()
+
+    // with sinceExpr, "%" still matches only the one message that literally contains %
+    expect(db.countUserWordUsage('bob', 'test', '%', '-1 year')).toBe(1)
+    // full phrase match
+    expect(db.countUserWordUsage('bob', 'test', '100%', '-1 year')).toBe(1)
+  })
 })
