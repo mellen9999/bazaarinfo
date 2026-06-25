@@ -9,6 +9,7 @@ import { handleCards, setCardCache, getCardCache } from './routes/cards'
 import { handleImage } from './routes/images'
 import { handleDetect } from './routes/detect'
 import { pubsubStats } from './pubsub'
+import { rateOk } from './ratelimit'
 
 const STARTED_AT = Date.now()
 
@@ -25,18 +26,6 @@ function allowedOrigin(req: Request): string | null {
     if (TWITCH_ORIGIN_RE.test(host)) return origin
   } catch {}
   return null
-}
-
-// Simple per-IP rate limiter: 60 req/min, resets every minute
-const MAX_RATE_ENTRIES = 10_000
-const hits = new Map<string, number>()
-setInterval(() => hits.clear(), 60_000)
-
-function rateOk(ip: string, max = 60): boolean {
-  const n = (hits.get(ip) ?? 0) + 1
-  if (hits.size >= MAX_RATE_ENTRIES && !hits.has(ip)) return false
-  hits.set(ip, n)
-  return n <= max
 }
 
 function cors(res: Response, origin: string | null): Response {
