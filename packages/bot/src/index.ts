@@ -35,7 +35,7 @@ if (!CHANNELS_RAW || !CLIENT_ID || !CLIENT_SECRET || !BOT_USERNAME) {
   process.exit(1)
 }
 
-const envChannels = CHANNELS_RAW.split(',').map((s) => s.trim()).filter(Boolean)
+const envChannels = CHANNELS_RAW.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
 
 // ensure bot's own channel is always joined (lobby for !join)
 if (!envChannels.includes(BOT_USERNAME.toLowerCase())) {

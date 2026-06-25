@@ -187,7 +187,7 @@ export class TwitchClient {
   private ircLastData = Date.now()
   private ircWatchdog: Timer | null = null
   private ircReconnecting = false
-  private ircQueue: { channel: string; text: string; replyTo?: string }[] = []
+  private ircQueue: { channel: string; text: string; replyTo?: string; failCount?: number }[] = []
   // single paced drain — at most one outgoing message per SEND_GAP, so simultaneous
   // reply completions go out spaced like human typing instead of a burst (which reads
   // as spam and risks the 30min lockout). first message after idle still goes immediately.
@@ -245,7 +245,9 @@ export class TwitchClient {
 
   private rebuildChannelMap() {
     const map: Record<string, string> = {}
-    for (const ch of this.config.channels) map[ch.name] = ch.userId
+    // belt-and-suspenders: lowercase keys so helix routing is case-insensitive regardless
+    // of how channel names entered the config (e.g. mixed-case TWITCH_CHANNELS env var).
+    for (const ch of this.config.channels) map[ch.name.toLowerCase()] = ch.userId
     this._channelIdMap = map
   }
 
@@ -813,7 +815,22 @@ export class TwitchClient {
       if (!this.canSend(next.channel)) { this.kickPacer(); return }
       this.ircQueue.shift()
       const ok = await this.sendOne(next.channel, next.text, next.replyTo)
-      if (!ok) this.ircQueue.unshift(next) // send raced a socket close — requeue, don't lose it
+      if (!ok) {
+        // both helix and IRC failed (e.g. token refresh window + socket mid-reconnect).
+        // bump lastSendAt so SEND_GAP applies on the retry path, then re-arm with a fixed
+        // 1s delay instead of looping back immediately — prevents ~930 POSTs/sec when
+        // both transports are persistently down.
+        const fails = (next.failCount ?? 0) + 1
+        const MAX_SEND_FAILS = 8 // ~8s total at 1s cadence, then give up so a poison line drops
+        if (fails >= MAX_SEND_FAILS) {
+          log(`dropping undeliverable line after ${fails} failures (#${next.channel}): ${next.text.slice(0, 60)}`)
+        } else {
+          this.ircQueue.unshift({ ...next, failCount: fails })
+          this.lastSendAt = Date.now()
+          this.pacerTimer = setTimeout(() => { this.pacerTimer = null; this.kickPacer() }, 1000)
+        }
+        return
+      }
       this.kickPacer()
     }, wait)
   }
