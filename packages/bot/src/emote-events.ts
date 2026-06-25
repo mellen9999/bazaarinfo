@@ -71,7 +71,16 @@ function startHeartbeatCheck() {
   }, heartbeatInterval)
 }
 
-function handleDispatch(body: any) {
+/** validate an emote name from the untrusted 7TV websocket — @internal exported for tests */
+export function validEmoteName(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const name = raw.trim()
+  if (!name || name.length > 64) return null
+  return name
+}
+
+/** @internal — exported for tests only */
+export function handleDispatch(body: any) {
   const setId = body?.condition?.object_id
   if (!setId) return
 
@@ -84,39 +93,42 @@ function handleDispatch(body: any) {
   if (!changes) return
 
   // pushed = emote added
-  if (changes.pushed?.length) {
+  if (Array.isArray(changes.pushed)) {
     for (const entry of changes.pushed) {
-      const emote = entry.value
-      if (!emote?.name) continue
+      if (!entry) continue
+      const name = validEmoteName(entry.value?.name)
+      if (!name) continue
       if (isGlobal) {
         // global emotes affect all channels — just log, full reconciliation handles it
-        log(`7TV global emote added: ${emote.name}`)
+        log(`7TV global emote added: ${name}`)
       } else {
-        addChannelEmote(channel!, emote.name)
-        log(`7TV emote added in #${channel}: ${emote.name}`)
+        addChannelEmote(channel!, name)
+        log(`7TV emote added in #${channel}: ${name}`)
       }
     }
   }
 
   // pulled = emote removed
-  if (changes.pulled?.length) {
+  if (Array.isArray(changes.pulled)) {
     for (const entry of changes.pulled) {
-      const emote = entry.old_value
-      if (!emote?.name) continue
+      if (!entry) continue
+      const name = validEmoteName(entry.old_value?.name)
+      if (!name) continue
       if (isGlobal) {
-        log(`7TV global emote removed: ${emote.name}`)
+        log(`7TV global emote removed: ${name}`)
       } else {
-        removeChannelEmote(channel!, emote.name)
-        log(`7TV emote removed in #${channel}: ${emote.name}`)
+        removeChannelEmote(channel!, name)
+        log(`7TV emote removed in #${channel}: ${name}`)
       }
     }
   }
 
   // updated = emote renamed
-  if (changes.updated?.length) {
+  if (Array.isArray(changes.updated)) {
     for (const entry of changes.updated) {
-      const oldName = entry.old_value?.name
-      const newName = entry.value?.name
+      if (!entry) continue
+      const oldName = validEmoteName(entry.old_value?.name)
+      const newName = validEmoteName(entry.value?.name)
       if (!oldName || !newName || oldName === newName) continue
       if (isGlobal) {
         log(`7TV global emote renamed: ${oldName} → ${newName}`)
@@ -135,7 +147,10 @@ function onMessage(event: MessageEvent) {
   switch (msg.op) {
     case OP_HELLO:
       sessionId = msg.d?.session_id ?? ''
-      heartbeatInterval = msg.d?.heartbeat_interval ?? 45_000
+      const hb = Number(msg.d?.heartbeat_interval)
+      heartbeatInterval = Number.isFinite(hb) && hb > 0
+        ? Math.min(Math.max(hb, 5_000), 120_000)
+        : 45_000
       lastHeartbeat = Date.now()
       missedBeats = 0
       startHeartbeatCheck()
@@ -163,7 +178,7 @@ function onMessage(event: MessageEvent) {
       break
 
     case OP_DISPATCH:
-      handleDispatch(msg.d)
+      try { handleDispatch(msg.d) } catch (e) { log(`7TV dispatch error: ${e}`) }
       break
   }
 }
