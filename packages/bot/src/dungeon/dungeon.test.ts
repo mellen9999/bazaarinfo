@@ -220,6 +220,90 @@ describe('votes — tally', () => {
   })
 })
 
+// regression #25 — heal at full HP must degrade to attack (no wasted charge)
+describe('combat — heal-at-full-HP degrades to attack, no charge spent', () => {
+  it('heal special at full HP: verb degrades to attack, charge preserved, damage dealt', () => {
+    const h = makeHero({ ...ARCH, specialKind: 'heal' })
+    // hero is already at full HP (makeHero sets hp = maxHp)
+    const chargeBefore = h.special
+    const e = enemy()
+    const r = resolveTurn(h, e, 'special', rng)
+    expect(r.verb).toBe('attack')       // degraded
+    expect(r.special).toBe(false)       // did not fire the special
+    expect(h.special).toBe(chargeBefore) // charge not spent
+    expect(r.healed).toBe(0)            // no heal happened
+    expect(r.heroDmg).toBeGreaterThan(0) // dealt attack damage instead
+  })
+
+  it('heal special below full HP: fires normally, spends charge, restores HP', () => {
+    const h = makeHero({ ...ARCH, specialKind: 'heal' })
+    h.hp = 10 // damaged
+    const chargeBefore = h.special
+    const r = resolveTurn(h, enemy(), 'special', rng)
+    expect(r.verb).toBe('special')
+    expect(r.special).toBe(true)
+    expect(h.special).toBe(chargeBefore - 1)
+    expect(r.healed).toBeGreaterThan(0)
+    expect(h.hp).toBeGreaterThan(10)
+  })
+})
+
+// regression #16 — combat/fork vote window strands after a go-live freeze
+// reproduce: vote (arms window) → go live (clears timer) → go offline → more votes →
+// without the fix firstVoteAt stays non-zero so onCombatVote's arming branch is skipped
+// and the window never resolves. with the fix, go-live resets firstVoteAt so re-arm fires.
+describe('loop — onStreamOnline resets firstVoteAt so offline votes re-arm the window (#16)', () => {
+  it('vote → go-live → go-offline → EARLY_RESOLVE votes resolve the round (no strand)', async () => {
+    // ensure DB is initialised before dungeon store calls
+    initDb('/tmp/bzi-dungeon-test.db')
+    store.initDungeonDb()
+
+    const loop = await import('./loop')
+
+    const ch = '#strandtest16'
+    const says: string[] = []
+    let live = false
+
+    loop.initDungeon((_c, msg) => says.push(msg))
+    loop.setIsLive((_c) => live)
+    loop.cleanup(ch)
+
+    // build a combat run in the DB and restore it (puts run in loop's private map)
+    const run = state.newRun(ch, 'u', Date.now())
+    state.startRun(run, ARCH)
+    // make sure hero has enough HP to survive; enemy has low enough HP to die from EARLY votes
+    run.hero!.atk = 999
+    store.saveRun(run)
+    loop.restoreFromDb()
+
+    // cast one vote while offline → arms the window (firstVoteAt becomes non-zero)
+    live = false
+    votes.clearVotes(ch)
+    loop.castInput(ch, 'user1', 'attack')
+
+    // stream goes live → onStreamOnline clears timer but (before fix) left firstVoteAt dirty
+    live = true
+    loop.onStreamOnline(ch)
+
+    // stream goes offline again
+    live = false
+    says.length = 0
+
+    // reach EARLY_RESOLVE (12) unique votes → should resolve; before fix firstVoteAt≠0
+    // blocks re-arm so the window never fires and says stays empty
+    votes.clearVotes(ch)
+    for (let i = 0; i < 12; i++) loop.castInput(ch, `voter${i}`, 'attack')
+
+    // give the (synchronous early-resolve path) a tick to process
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(says.length).toBeGreaterThan(0) // window resolved, something was said
+
+    loop.cleanup(ch)
+    store.deleteRun(ch)
+  })
+})
+
 describe('db — persistence round-trip (real sqlite)', () => {
   beforeAll(() => {
     initDb('/tmp/bzi-dungeon-test.db')
