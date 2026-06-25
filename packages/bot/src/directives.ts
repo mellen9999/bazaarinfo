@@ -32,8 +32,14 @@ const byChannel = new Map<string, Directive[]>()
 // strip prompt-structure characters from a planted instruction: no line breaks (can't
 // open a new prompt line), no square brackets (can't mimic [USER]/[MOD]/[CHAT VIBES]
 // labels), collapse whitespace, cap length.
+// covers ASCII controls + Unicode line/paragraph separators (U+2028/U+2029) + VT/FF/NEL
+// and fullwidth brackets U+FF3B/U+FF3D (homoglyph bypass).
+// regex literals kept ASCII-source via new RegExp + \\u escapes (a literal U+2028 in a
+// regex literal is itself a JS parse error).
+const LINE_BREAK_RE = new RegExp('[\\r\\n\\t\\v\\f\\u0085\\u2028\\u2029]+', 'g')
+const BRACKET_RE = new RegExp('[\\[\\]\\uFF3B\\uFF3D]', 'g')
 function scrubInstruction(s: string): string {
-  return s.replace(/[\r\n\t]+/g, ' ').replace(/[[\]]/g, '').replace(/\s{2,}/g, ' ').trim().slice(0, MAX_INSTRUCTION)
+  return s.replace(LINE_BREAK_RE, ' ').replace(BRACKET_RE, '').replace(/\s{2,}/g, ' ').trim().slice(0, MAX_INSTRUCTION)
 }
 
 function active(channel: string): Directive[] {
@@ -73,7 +79,12 @@ export function addDirective(channel: string, planter: string, input: DirectiveI
     planter,
     expiresAt: Date.now() + TTL_MS,
   })
-  while (list.length > MAX_PER_CHANNEL) list.shift() // ring buffer — newest wins
+  // ring buffer — evict oldest non-mute first to protect active mutes from steer-flood
+  // eviction. only drops a mute when every slot is a mute (still bounded at MAX_PER_CHANNEL).
+  while (list.length > MAX_PER_CHANNEL) {
+    const i = list.findIndex((d) => !d.mute)
+    list.splice(i >= 0 ? i : 0, 1)
+  }
   byChannel.set(ch, list)
 }
 
