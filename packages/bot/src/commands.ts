@@ -1216,10 +1216,15 @@ const triviaCommand: CommandHandler = (args, ctx) => runTrivia(ctx, args, '')
 // --- chat-planted steering directives ("vibes") ---
 // cheap prefilter for "plant a directive" intent — the AI gate is the real validator
 // (and rejects false positives), this just decides when to spend a classify call. covers
-// topic/per-user STEER ("anytime <who> asks ...") and MUTE ("don't respond to X").
+// topic/per-user STEER ("anytime <who> asks ..."), persistent self-style STEER ("from now
+// on end your messages with X"), and MUTE ("don't respond to X").
 const DIRECTIVE_INTENT = new RegExp([
   // steer: "anytime/whenever/when <who> asks/mentions/says ..."
   /(any\s?time|every\s?time|each\s?time|whenever|when(?:ever)?|from now on|going forward)\b[\s\S]{0,70}\b(asks?|asking|mentions?|says?|brings? up|talks? about|posts?|messages?)\b/.source,
+  // steer (bot's own persistent style): "always/from now on/be sure to … end/talk/add/sign …"
+  /\b(always|from\s?now\s?on|from here on(?:\s?out)?|going forward|for now on|keep|be sure to|make sure to|try to|remember to)\b[\s\S]{0,40}\b(end|start|begin|finish|sign|respond|repl|answer|talk|speak|writ|say|add|includ|use|act|behav|throw|drop|put|mention|call|greet|address|treat|emote)\w*/.source,
+  // steer: "end/start/sign off your/each/every messages|replies|answers …"
+  /\b(end|start|begin|finish|sign\s?off|signing\s?off|respond|repl|answer|talk|speak|writ|say)\w*[\s\S]{0,25}\b(your|each|every|all|the)\s+(messages?|replies|reply|responses?|answers?|posts?|texts?)\b/.source,
   // mute: "don't/stop/never respond|reply|answer|talk to ..."
   /\b(do\s?n'?t|do not|stop|never|quit|no longer)\s+(respond(?:ing)?|repl(?:y|ies|ying)|answer(?:ing)?|talk(?:ing)?|engag\w*)\b/.source,
   // mute: "ignore <name>"

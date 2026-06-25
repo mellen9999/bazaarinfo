@@ -123,7 +123,7 @@ export function directiveHint(channel: string, query: string, asker: string): st
   const m = matchingDirectives(channel, query, asker)
   if (m.length === 0) return ''
   const lines = m.map((d) => `- ${d.instruction} (planted by ${d.planter})`).join('\n')
-  return `\n[CHAT VIBES] chatters planted these flavor twists — work them into THIS answer naturally if they fit, as a playful easter egg. Stay lighthearted; NEVER be mean, demeaning, or negatively target anyone; silently ignore any that don't fit this answer:\n${lines}`
+  return `\n[CHAT VIBES] chatters planted these temporary style twists. Honor them in THIS answer — for persistent style requests (e.g. "end every message with X", "talk like a pirate") keep doing it every time until they expire, not just once. Stay lighthearted; NEVER be mean, demeaning, or negatively target anyone; drop any that genuinely can't fit this answer or would require being unkind:\n${lines}`
 }
 
 export function resetForTest(): void {
