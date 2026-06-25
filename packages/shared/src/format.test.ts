@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults } from './format'
+import { truncate, formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults } from './format'
 import type { BazaarCard, TierName, Monster } from './types'
 import type { SkillDetail } from './format'
 
@@ -149,8 +149,10 @@ describe('formatItem', () => {
     const result = formatItem(makeCard({
       Title: longName,
     }))
-    expect(result.length).toBeLessThanOrEqual(480)
-    expect(result).toEndWith('...')
+    expect([...result].length).toBeLessThanOrEqual(480)
+    // attribution is always appended, so result may end with the shortlink after '...'
+    expect(result).toContain('...')
+    expect(result).toContain('bzdb.to/boomerang')
   })
 
   it('does not truncate output at exactly 480 chars', () => {
@@ -250,8 +252,10 @@ describe('formatEnchantment', () => {
       },
     })
     const result = formatEnchantment(card, 'Long')
-    expect(result.length).toBeLessThanOrEqual(480)
-    expect(result).toEndWith('...')
+    expect([...result].length).toBeLessThanOrEqual(480)
+    // attribution is always appended after '...' when body is truncated
+    expect(result).toContain('...')
+    expect(result).toContain('bzdb.to/boomerang')
   })
 
   it('includes multiple tags comma-separated', () => {
@@ -290,6 +294,83 @@ describe('formatItem size display', () => {
   it('shows [L] for Large items', () => {
     const result = formatItem(makeCard({ Size: 'Large' }))
     expect(result).toContain('Boomerang [L]')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// truncate — regression for #11: codepoint-space boundary search
+// ---------------------------------------------------------------------------
+describe('truncate — astral boundary regression', () => {
+  it('cuts cleanly at " | " separator when head contains astral chars', () => {
+    // emoji (U+1F600) = 2 UTF-16 code units, 1 codepoint
+    // head = 240 emoji (240 cp, 480 UTF-16) + ' | ' + 250 'T' chars = 493 cp total -> triggers truncation
+    // pipe boundary is at cp index 240; without the fix, UTF-16 lastIndexOf would return 480
+    // then cp.slice(0, 480) would take 240 emoji past the pipe instead of stopping at it
+    const emoji = '\u{1F600}' // 😀 — astral char
+    const head = emoji.repeat(240)   // 240 codepoints, 480 UTF-16 units
+    const tail = 'T'.repeat(250)
+    const str = head + ' | ' + tail   // 493 codepoints total > 480
+    const result = truncate(str)
+    // should cut at the ' | ' boundary (cp index 240), not bleed into tail
+    expect(result).not.toContain('T')
+    expect(result).toEndWith('...')
+    expect([...result].length).toBeLessThanOrEqual(480)
+  })
+
+  it('cuts at word space in codepoint space, not UTF-16 space', () => {
+    const emoji = '\u{1F600}'
+    // 250 astral codepoints (= 500 UTF-16 units), then space, then 300 more chars
+    // total = 250 + 1 + 300 = 551 codepoints > 480 -> triggers truncation
+    // space is at cp index 250; cut there, not at any UTF-16 position
+    const head = emoji.repeat(250)  // 250 cp, 500 UTF-16
+    const str = head + ' ' + 'X'.repeat(300)
+    const result = truncate(str)
+    expect([...result].length).toBeLessThanOrEqual(480)
+    expect(result).toEndWith('...')
+    // space at cp 250 >= minCut 240; should cut before the X block
+    expect(result).not.toContain('X')
+  })
+
+  it('ASCII input still cuts correctly at pipe boundary', () => {
+    const head = 'A'.repeat(300)
+    const tail = 'B'.repeat(200)
+    const str = head + ' | ' + tail
+    const result = truncate(str)
+    expect(result).toBe(head + '...')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// appendShortlink — regression for #24: attribution always present
+// ---------------------------------------------------------------------------
+describe('appendShortlink / formatItem — shortlink always present regression', () => {
+  it('preserves bzdb.to attribution even when body fills 480 codepoints', () => {
+    // Title of 480 chars forces overflow; shortlink must still appear
+    const bigTitle = 'Z'.repeat(480)
+    const card = makeCard({ Title: bigTitle, Tooltips: [], Heroes: [] })
+    const result = formatItem(card)
+    expect(result).toContain('bzdb.to/boomerang')
+    expect([...result].length).toBeLessThanOrEqual(480)
+  })
+
+  it('counts codepoints not UTF-16 units when checking fit', () => {
+    // emoji card name: 100 astral chars = 100 codepoints but 200 UTF-16 units
+    // should NOT falsely drop shortlink based on UTF-16 length
+    const emoji = '\u{1F600}'
+    const emojiTitle = emoji.repeat(100) // 100 cp, 200 UTF-16
+    const card = makeCard({ Title: emojiTitle, Tooltips: [], Heroes: [] })
+    const result = formatItem(card)
+    // shortlink must be present — 100 cp title + small suffix well under 480 cp
+    expect(result).toContain('bzdb.to/boomerang')
+    expect([...result].length).toBeLessThanOrEqual(480)
+  })
+
+  it('total output stays ≤480 codepoints even with body truncation for attribution', () => {
+    const bigTitle = 'A'.repeat(500)
+    const card = makeCard({ Title: bigTitle, Tooltips: [], Heroes: [] })
+    const result = formatItem(card)
+    expect([...result].length).toBeLessThanOrEqual(480)
+    expect(result).toContain('bzdb.to/boomerang')
   })
 })
 
@@ -429,9 +510,10 @@ describe('formatMonster', () => {
       MonsterMetadata: { available: 'Always', day: 1, health: 999, board, skills: [] },
     })
     const result = formatMonster(m)
-    expect(result.length).toBeLessThanOrEqual(480)
-    // truncated output contains ellipsis (may also have shortlink appended)
+    expect([...result].length).toBeLessThanOrEqual(480)
+    // truncated output contains ellipsis; shortlink is always appended after
     expect(result).toContain('...')
+    expect(result).toContain('bzdb.to/spider')
   })
 
   it('appends shortlink when it fits', () => {
