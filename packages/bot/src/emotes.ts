@@ -41,6 +41,7 @@ export function getGlobalEmoteSetId(): string {
 
 // mutation fns for real-time EventAPI updates
 export function addChannelEmote(channel: string, name: string) {
+  if (!name || !name.trim() || name.length > 64) return
   const list = channelEmotes.get(channel) ?? []
   if (!list.includes(name)) {
     list.push(name)
@@ -64,6 +65,7 @@ export function removeChannelEmote(channel: string, name: string) {
 }
 
 export function renameChannelEmote(channel: string, oldName: string, newName: string) {
+  if (!newName || !newName.trim() || newName.length > 64) return
   const list = channelEmotes.get(channel)
   if (!list) return
   const idx = list.indexOf(oldName)
