@@ -1237,6 +1237,98 @@ describe('custom-topic fallback pack — never dead-ends a topic request', () =>
   afterEach(() => setFallbackPackForTest([]))
 })
 
+// ---------------------------------------------------------------------------
+// #7 — emoji/symbol answer must not yield an empty acceptedAnswers list
+// ---------------------------------------------------------------------------
+describe('custom trivia with emoji/symbol/CJK answer — always winnable (#7)', () => {
+  it('emoji answer (½) — acceptedAnswers is non-empty and checkAnswer wins', () => {
+    startCustomTrivia('#sym', { question: 'What fraction is half?', answer: '½', accept: ['1/2'] })
+    const g = getActiveGameForTest('#sym')!
+    expect(g.acceptedAnswers.length).toBeGreaterThan(0)
+    // the round must be winnable with the raw answer (trim+lower fallback)
+    checkAnswer('#sym', 'viewer', '½', mockSay)
+    expect(isGameActive('#sym')).toBe(false)
+  })
+
+  it('emoji answer (🅰️) — round is not stranded (acceptedAnswers non-empty)', () => {
+    startCustomTrivia('#emoji', { question: 'Which blood type?', answer: '🅰️', accept: [] })
+    const g = getActiveGameForTest('#emoji')!
+    expect(g.acceptedAnswers.length).toBeGreaterThan(0)
+    expect(isGameActive('#emoji')).toBe(true) // still active — just not stranded
+  })
+
+  it('CJK answer — acceptedAnswers non-empty', () => {
+    startCustomTrivia('#cjk', { question: 'Chinese for sword?', answer: '剑', accept: [] })
+    const g = getActiveGameForTest('#cjk')!
+    expect(g.acceptedAnswers.length).toBeGreaterThan(0)
+  })
+
+  it('normal ASCII answer still uses norm path (not fallback)', () => {
+    startCustomTrivia('#ascii', { question: 'What is this?', answer: "Philosopher's Stone", accept: [] })
+    const g = getActiveGameForTest('#ascii')!
+    // norm strips the apostrophe, so accepted should be "philosophers stone"
+    expect(g.acceptedAnswers).toContain('philosophers stone')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// #8 — emoji hint must not emit lone surrogates (mojibake)
+// ---------------------------------------------------------------------------
+describe('generateHint/generateWeakHint codepoint safety (#8)', () => {
+  const LONE_HIGH_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/
+  const LONE_LOW_SURROGATE = /(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+
+  it('emoji answer produces no lone surrogate in generateHint', () => {
+    const h = generateHint('😀')
+    expect(LONE_HIGH_SURROGATE.test(h)).toBe(false)
+    expect(LONE_LOW_SURROGATE.test(h)).toBe(false)
+  })
+
+  it('emoji answer — hint letter count is 1, not 2', () => {
+    // 😀 is U+1F600, one codepoint — must report 1 letter, not 2 UTF-16 units
+    const h = generateHint('😀')
+    expect(h).toContain('1 letters')
+  })
+
+  it('multi-char emoji sequence — no lone surrogate in generateWeakHint', () => {
+    const h = generateWeakHint('🅰️')
+    expect(LONE_HIGH_SURROGATE.test(h)).toBe(false)
+    expect(LONE_LOW_SURROGATE.test(h)).toBe(false)
+  })
+
+  it('astral char answer — hint first char is the whole codepoint', () => {
+    // 𝄞 (U+1D11E, musical symbol G clef) — must not be split
+    const h = generateHint('𝄞')
+    expect(LONE_HIGH_SURROGATE.test(h)).toBe(false)
+  })
+
+  it('ascii multi-word answer still works unchanged after codepoint refactor', () => {
+    expect(generateHint('Old One')).toBe('Hint: O__ O__ (6 letters)')
+    expect(generateWeakHint('Old One')).toBe('Hint: 2 words, 6 letters')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// #21 — big-number answer must not produce scientific-notation range hint
+// ---------------------------------------------------------------------------
+describe('generateHint/generateWeakHint with big numbers (#21)', () => {
+  it('number beyond MAX_SAFE_INTEGER returns digit-count hint, not 1e+N', () => {
+    const big = '1000000000000000000000' // 10^21, beyond MAX_SAFE_INTEGER
+    expect(generateHint(big)).toBe(`Hint: ${big.length} digits`)
+    expect(generateWeakHint(big)).toBe(`Hint: ${big.length} digits`)
+  })
+
+  it('hint for big number contains no "e+" scientific notation', () => {
+    expect(generateHint('9999999999999999999')).not.toContain('e+')
+    expect(generateWeakHint('9999999999999999999')).not.toContain('e+')
+  })
+
+  it('normal safe integers still get a range hint', () => {
+    expect(generateHint('4700')).toMatch(/between \d+ and \d+/)
+    expect(generateWeakHint('150')).toMatch(/between \d+ and \d+/)
+  })
+})
+
 describe('hint counts — alternate-answer cruft must not skew shape/length', () => {
   // bug: a custom-trivia answer "Ti (or Si)" produced "3 words, 8 letters" then
   // "T_________ (10 letters)" for what is really a 2-letter answer. hints must count

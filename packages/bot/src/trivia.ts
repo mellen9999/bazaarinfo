@@ -671,13 +671,17 @@ function generateWeakHint(rawAnswer: string): string {
   if (/^\d+$/.test(answer)) {
     const n = parseInt(answer)
     if (n < 10) return `Hint: single digit` // log10(0) is -Infinity → guard tiny values
+    // #21: huge numbers overflow Number precision → scientific-notation range is useless
+    if (!Number.isSafeInteger(n)) return `Hint: ${answer.length} digits`
     const magnitude = Math.pow(10, Math.floor(Math.log10(n)))
     const low = Math.floor(n / magnitude) * magnitude
     return `Hint: between ${low} and ${low + magnitude}`
   }
+  // #8: spread to codepoints so emoji/astral chars count as 1 letter each
+  const chars = [...answer]
   const words = answer.split(/\s+/)
-  if (words.length > 1) return `Hint: ${words.length} words, ${answer.replace(/\s+/g, '').length} letters`
-  return `Hint: ${answer.length} letters`
+  if (words.length > 1) return `Hint: ${words.length} words, ${[...answer.replace(/\s+/g, '')].length} letters`
+  return `Hint: ${chars.length} letters`
 }
 
 function generateHint(rawAnswer: string): string {
@@ -686,28 +690,38 @@ function generateHint(rawAnswer: string): string {
   if (/^\d+$/.test(answer)) {
     const n = parseInt(answer)
     if (n < 10) return `Hint: single digit` // guard log10(0) = -Infinity (NaN range)
+    // #21: huge numbers overflow Number precision → fall back to a digit-count hint
+    if (!Number.isSafeInteger(n)) return `Hint: ${answer.length} digits`
     const magnitude = Math.pow(10, Math.floor(Math.log10(n)))
     const low = Math.floor(n / magnitude) * magnitude
     const high = low + magnitude
     return `Hint: between ${low} and ${high}`
   }
+  // #8: spread to codepoints so emoji/astral chars are counted and indexed as whole chars.
   // letter count never includes spaces ("Old One" is 6 letters, not 7).
-  const letterCount = answer.replace(/\s+/g, '').length
+  const letterCount = [...answer.replace(/\s+/g, '')].length
   // for short answers (size, tier, hero), give first letter + length. multi-word answers
   // keep their spaces as spaces (not underscores) and reveal each word's first letter, so
   // "Old One" -> "O__ O__ (6 letters)", never "O______ (7 letters)".
-  if (answer.length <= 10) {
+  if ([...answer].length <= 10) {
     const words = answer.split(/\s+/).filter(Boolean)
     if (words.length > 1) {
-      const skel = words.map((w) => w[0].toUpperCase() + '_'.repeat(w.length - 1)).join(' ')
+      const skel = words.map((w) => {
+        const c = [...w]
+        return c[0].toUpperCase() + '_'.repeat(c.length - 1)
+      }).join(' ')
       return `Hint: ${skel} (${letterCount} letters)`
     }
-    const blanks = '_'.repeat(answer.length - 1)
-    return `Hint: ${answer[0].toUpperCase()}${blanks} (${letterCount} letters)`
+    const chars = [...answer]
+    const blanks = '_'.repeat(chars.length - 1)
+    return `Hint: ${chars[0].toUpperCase()}${blanks} (${letterCount} letters)`
   }
   // for long answers, reveal first letter of each word
   const words = answer.split(/\s+/).filter(Boolean)
-  const initials = words.map((w) => w[0].toUpperCase() + '_'.repeat(w.length - 1))
+  const initials = words.map((w) => {
+    const c = [...w]
+    return c[0].toUpperCase() + '_'.repeat(c.length - 1)
+  })
   return `Hint: ${initials.join(' ')}`
 }
 
@@ -938,7 +952,20 @@ const CUSTOM_TYPE = 21
 function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>): string {
   // normalize every accepted answer through the canonical normalizer so the guess
   // (also normed) compares symmetrically — no punctuation/hyphen/"the" false-negatives.
-  q.accepted = [...new Set(q.accepted.map(norm).filter(Boolean))]
+  // #7: for answers that norm to empty (emoji/symbol/CJK), keep the raw trim+lower form
+  // so the round stays winnable. checkAnswer uses the same fallback on the guess side,
+  // so "½" accepted == "½" cleaned from a viewer typing "½".
+  const normalizedSet = new Set<string>()
+  for (const a of q.accepted) {
+    const n = norm(a)
+    if (n) {
+      normalizedSet.add(n)
+    } else {
+      const raw = a.trim().toLowerCase()
+      if (raw) normalizedSet.add(raw)
+    }
+  }
+  q.accepted = [...normalizedSet]
 
   const gameId = db.createTriviaGame(channel, q.type, q.question, q.answer)
 
@@ -1084,7 +1111,10 @@ export function checkAnswer(
   // filter non-answers before cleaning/counting as attempt
   if (!looksLikeAnswer(trimmed, game)) return
 
-  const cleaned = norm(trimmed)
+  // #7: when norm strips everything (emoji/symbol/CJK guess), fall back to raw trim+lower
+  // so it can still match a symbol accepted list built by the same fallback in launchRound.
+  const normed = norm(trimmed)
+  const cleaned = normed || trimmed.toLowerCase()
   if (!cleaned) return
 
   const userId = db.getOrCreateUser(username)
