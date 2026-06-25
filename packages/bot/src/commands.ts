@@ -255,7 +255,14 @@ const BLOCKED_BANG_CMDS = new Set([
   'so', 'shoutout',
   // message deletion
   'delete',
+  // short aliases used by some bots for timeout/raid-on (to) and raid-off (ro)
+  'to', 'ro',
 ])
+
+// morphological guard: block command-name variants that enumerate around the denylist
+// (e.g. !banuser, !timeoutuser, !purgeuser, !ban_victim, !kickme)
+// flags: ban/timeout/purge/kick/mute/nuke/warn/vanish in any position with common suffixes
+const MOD_ALIAS_RE = /(?:^|_)(ban|timeout|purge|kick|mute|nuke|warn|vanish)(?:$|user|chat|s|_|me)/i
 
 // / commands: allowlist only — everything else blocked
 const ALLOWED_SLASH_CMDS = new Set([
@@ -661,8 +668,10 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
         ? withSuffix(`no item found for ${query} — did you mean: ${s.join(', ')}?`, suffix)
         : aiOrQuip(`${query} ${enchant}`, ctx, suffix)
     }
-    logHit('enchant', query, `${card.Title}+${enchant}`, ctx, tier)
-    return withSuffix(formatEnchantment(card, enchant, tier), suffix)
+    const ev = validateTier(card, tier)
+    logHit('enchant', query, `${card.Title}+${enchant}`, ctx, ev.tier)
+    const enchantResult = formatEnchantment(card, enchant, ev.tier)
+    return withSuffix(ev.note ? `${enchantResult} (${ev.note})` : enchantResult, suffix)
   }
 
   // items first (exact then fuzzy) — !b mob exists for explicit monster lookups
@@ -774,7 +783,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   const bangMatch = cleanArgs.match(/^!(\w+)(.*)$/)
   if (bangMatch) {
     const cmd = bangMatch[1].toLowerCase()
-    if (BLOCKED_BANG_CMDS.has(cmd)) {
+    if (BLOCKED_BANG_CMDS.has(cmd) || MOD_ALIAS_RE.test(cmd)) {
       return selfTimeoutDodge(ctx.channel, cmd)
     }
     return proxyWithCooldown(ctx.channel, cleanArgs, cmd)
@@ -783,7 +792,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (slashMatch) {
     const cmd = slashMatch[1].toLowerCase()
     if (!ALLOWED_SLASH_CMDS.has(cmd)) return null
-    if (cmd === 'announce' && !ctx.isMod) return null
+    if ((cmd === 'announce' || cmd === 'me' || cmd === 'color') && !ctx.isMod) return null
     return cleanArgs
   }
   // embedded command: "so can u run !jory pls" → "!jory"
@@ -796,7 +805,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     const embeddedMatch = cleanArgs.match(/!(\w+)(?:\s+(\d+))?/)
     if (embeddedMatch) {
       const cmd = embeddedMatch[1].toLowerCase()
-      if (!BLOCKED_BANG_CMDS.has(cmd)) {
+      if (!BLOCKED_BANG_CMDS.has(cmd) && !MOD_ALIAS_RE.test(cmd)) {
         const cmdStr = embeddedMatch[2] ? `!${embeddedMatch[1]} ${embeddedMatch[2]}` : `!${embeddedMatch[1]}`
         return proxyWithCooldown(ctx.channel, cmdStr, cmd)
       }
@@ -1269,6 +1278,10 @@ const commands: Record<string, CommandHandler> = {
   b: bazaarinfo,
   trivia: triviaCommand,
 }
+
+// #10: block the bot's own command names from the proxy so chatters can't self-relay !b/!trivia.
+// derived at module-init so it never drifts when new commands are added to the registry.
+for (const k of Object.keys(commands)) BLOCKED_BANG_CMDS.add(k)
 
 export async function handleCommand(text: string, ctx: CommandContext = {}): Promise<string | null> {
   // strip leading @mention so !b works in Twitch replies
