@@ -57,7 +57,7 @@ async function hmacVerify(token: string, secret: string): Promise<TwitchJwtPaylo
     if (!valid) return null
 
     const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[1])))
-    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null
+    if (typeof payload.exp !== 'number' || payload.exp <= 0 || payload.exp < Math.floor(Date.now() / 1000)) return null
 
     return payload as TwitchJwtPayload
   } catch {

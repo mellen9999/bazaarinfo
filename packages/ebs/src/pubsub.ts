@@ -30,6 +30,7 @@ interface QueueItem {
   message: string
   hash: string
   enqueuedAt: number
+  attempts: number
 }
 
 interface ChannelState {
@@ -91,7 +92,7 @@ export function broadcastState(channelId: string, payload: BroadcastPayload): bo
     return true
   }
 
-  state.queue.push({ message, hash, enqueuedAt: Date.now() })
+  state.queue.push({ message, hash, enqueuedAt: Date.now(), attempts: 0 })
 
   // bound queue: keep newest, drop oldest
   while (state.queue.length > MAX_QUEUE_PER_CHANNEL) state.queue.shift()
@@ -117,9 +118,17 @@ async function pump(channelId: string): Promise<void> {
         state.lastHash = item.hash
         state.backoffMs = 0
       } else {
+        item.attempts++
         state.backoffMs = Math.min(MAX_BACKOFF_MS, state.backoffMs === 0 ? 1_000 : state.backoffMs * 2)
-        // requeue at front, but only if newer items haven't piled up
-        if (state.queue.length === 0) state.queue.unshift(item)
+        // requeue at front if queue is empty and item hasn't hit the give-up cap.
+        // cap prevents a permanently-misconfigured channel (bad creds, wrong client_id)
+        // from pinning a poison message forever; transient outages self-heal well within 8 tries.
+        const MAX_ATTEMPTS = 8
+        if (state.queue.length === 0 && item.attempts < MAX_ATTEMPTS) {
+          state.queue.unshift(item)
+        } else if (item.attempts >= MAX_ATTEMPTS) {
+          console.error(`[pubsub] giving up on message after ${item.attempts} attempts (channel ${channelId})`)
+        }
       }
     }
   } finally {
