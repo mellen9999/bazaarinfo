@@ -1,9 +1,12 @@
-// Regression tests for three EBS confirmed bugs:
+// Regression tests for five EBS confirmed bugs:
 //   #2  rate-limiter map overflow evicts instead of blocking new viewers
 //   #26 pubsub pump drops poison message after MAX_ATTEMPTS, not forever
 //   #27 JWT exp=0/missing/non-numeric is rejected (fail-closed)
+//   #3  all-or-nothing frame validation: one bad card must not blank the whole overlay
+//   #4/#13 no server-side title length cap — oversized/empty titles accepted
 
 import { describe, it, expect, beforeEach } from 'bun:test'
+import { isValidCard, parsePayload } from './routes/detect-validate'
 
 // ── #2 rate-limiter ─────────────────────────────────────────────────────────
 
@@ -133,5 +136,90 @@ describe('JWT exp guard (#27 fail-closed on missing/zero/non-numeric exp)', () =
   it('accepts a valid future exp', () => {
     const future = Math.floor(Date.now() / 1000) + 300
     expect(expGuardRejects(future)).toBe(false)
+  })
+})
+
+// ── #3 drop-bad-keep-good card filtering ─────────────────────────────────────
+
+const GOOD_CARD = { title: 'Sword', tier: 'Bronze', x: 0.1, y: 0.1, w: 0.1, h: 0.1 }
+const BAD_CARD_OOB = { title: 'Bad', tier: 'Bronze', x: 1.5, y: 0.1, w: 0.1, h: 0.1 } // x out of range
+
+const BASE_FRAME = { channelId: '123456', secret: 'test-secret' }
+
+describe('parsePayload (#3 drop-bad-keep-good)', () => {
+  it('returns null for missing channelId (fatal)', () => {
+    expect(parsePayload({ secret: 'x', cards: [GOOD_CARD] })).toBeNull()
+  })
+
+  it('returns null for missing cards array (fatal)', () => {
+    expect(parsePayload({ ...BASE_FRAME, cards: 'not-an-array' })).toBeNull()
+  })
+
+  it('keeps all cards when all are valid', () => {
+    const result = parsePayload({ ...BASE_FRAME, cards: [GOOD_CARD, GOOD_CARD] })
+    expect(result).not.toBeNull()
+    expect(result!.cards.length).toBe(2)
+  })
+
+  it('drops the bad card and keeps the good one (one bad card must not blank overlay)', () => {
+    const result = parsePayload({ ...BASE_FRAME, cards: [GOOD_CARD, BAD_CARD_OOB] })
+    expect(result).not.toBeNull()
+    expect(result!.cards.length).toBe(1)
+    expect(result!.cards[0].title).toBe('Sword')
+  })
+
+  it('returns empty cards array (not null) when all cards are invalid', () => {
+    const result = parsePayload({ ...BASE_FRAME, cards: [BAD_CARD_OOB, BAD_CARD_OOB] })
+    expect(result).not.toBeNull()
+    expect(result!.cards.length).toBe(0)
+  })
+
+  it('enforces MAX_CARDS cap on valid cards', () => {
+    const manyCards = Array.from({ length: 60 }, () => ({ ...GOOD_CARD }))
+    const result = parsePayload({ ...BASE_FRAME, cards: manyCards })
+    expect(result).not.toBeNull()
+    expect(result!.cards.length).toBe(50)
+  })
+})
+
+// ── #4/#13 server-side title length cap ──────────────────────────────────────
+
+describe('isValidCard (#4/#13 title length cap)', () => {
+  const base = { tier: 'Bronze', x: 0.1, y: 0.1, w: 0.1, h: 0.1 }
+
+  it('accepts a valid 1-char title', () => {
+    expect(isValidCard({ ...base, title: 'A' })).toBe(true)
+  })
+
+  it('accepts an 80-char title (boundary)', () => {
+    expect(isValidCard({ ...base, title: 'A'.repeat(80) })).toBe(true)
+  })
+
+  it('rejects an 81-char title (over cap)', () => {
+    expect(isValidCard({ ...base, title: 'A'.repeat(81) })).toBe(false)
+  })
+
+  it('rejects an empty title', () => {
+    expect(isValidCard({ ...base, title: '' })).toBe(false)
+  })
+
+  it('rejects an oversized title matching the old PubSub overflow case (5000 chars)', () => {
+    expect(isValidCard({ ...base, title: 'X'.repeat(5000) })).toBe(false)
+  })
+
+  it('rejects oversized owner (>64)', () => {
+    expect(isValidCard({ ...base, title: 'Sword', owner: 'o'.repeat(65) })).toBe(false)
+  })
+
+  it('accepts owner at boundary (64 chars)', () => {
+    expect(isValidCard({ ...base, title: 'Sword', owner: 'o'.repeat(64) })).toBe(true)
+  })
+
+  it('rejects oversized type (>64)', () => {
+    expect(isValidCard({ ...base, title: 'Sword', type: 't'.repeat(65) })).toBe(false)
+  })
+
+  it('rejects oversized enchantment (>64)', () => {
+    expect(isValidCard({ ...base, title: 'Sword', enchantment: 'e'.repeat(65) })).toBe(false)
   })
 })
