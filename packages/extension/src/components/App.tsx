@@ -166,7 +166,7 @@ export function App() {
     <div class="overlay">
       {detected.map((slot) => (
         <HoverZone
-          key={`${slot.title}-${slot.x}-${slot.y}`}
+          key={`${slot.title}-${slot.tier}-${slot.owner ?? ''}-${slot.x}-${slot.y}`}
           {...slot}
           onHover={handleHover}
           onLeave={handleLeave}
