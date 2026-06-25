@@ -231,6 +231,14 @@ HIDDEN_STATES = {"StartRunAppState", "EndRunDefeatAppState", "EndRunVictoryAppSt
 # States where overlay should be shown
 GAME_STATES = {"ChoiceState", "EncounterState", "CombatState", "ReplayState", "LevelUpState"}
 
+# Maximum title length: well above any real card name, safely under PubSub 5000-byte limit
+_TITLE_MAX = 128
+
+
+def _cap(t: str) -> str:
+    """Truncate title to safe max length so one long name can't overflow PubSub."""
+    return t[:_TITLE_MAX]
+
 
 def load_card_db(cards_json: Path) -> dict:
     """Load template ID -> card info mapping from game's cards.json."""
@@ -266,7 +274,7 @@ def load_card_db(cards_json: Path) -> dict:
         tier = c.get("StartingTier", "Unknown")
         size = c.get("Size", "Medium")
         card_type = c.get("Type", "Item")
-        db[tid] = {"title": title, "tier": tier, "size": size, "type": card_type}
+        db[tid] = {"title": _cap(title), "tier": tier, "size": size, "type": card_type}
 
     logger.info("Loaded %d cards from %s", len(db), cards_json)
     return db
@@ -275,6 +283,10 @@ def load_card_db(cards_json: Path) -> dict:
 def make_item_payload(info: dict, owner: str) -> dict:
     """Build a card payload dict for an item on the board."""
     socket = info.get("socket", 5)
+    try:
+        socket = max(0, min(9, int(socket)))
+    except (TypeError, ValueError):
+        socket = 5
     size = info.get("size", "Medium")
     slots = SIZE_SLOTS.get(size, 2)
     if owner == "player":
@@ -539,7 +551,7 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
             is_skill = inst_id.startswith("skl_")
             if is_skill and parsed["owner"] == "Player":
                 if inst_id not in state["player_skills"]:
-                    title = info["title"] if info else inst_id
+                    title = info["title"] if info else _cap(inst_id)
                     tier = info["tier"] if info else "Unknown"
                     # Check if already tracked by name
                     already = any(
@@ -566,7 +578,7 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
             if parsed["section"] != "Hand":
                 continue
 
-            title = info["title"] if info else inst_id
+            title = info["title"] if info else _cap(inst_id)
             tier = info["tier"] if info else "Unknown"
             size = parsed["size"] or (info["size"] if info else "Medium")
 
@@ -650,7 +662,7 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
         tid = state["instance_map"].get(inst_id)
         info = card_db.get(tid) if tid else None
         if inst_id not in state["player_skills"]:
-            title = info["title"] if info else inst_id
+            title = info["title"] if info else _cap(inst_id)
             tier = info["tier"] if info else "Unknown"
             socket_idx = _next_skill_socket(state)
             if socket_idx is not None:
