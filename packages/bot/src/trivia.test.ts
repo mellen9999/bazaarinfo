@@ -165,6 +165,13 @@ mock.module('./log', () => ({
   log: mock(() => {}),
 }))
 
+// PauseChamp is the one emote the emote-stripping tests need recognized;
+// pickEmoteByMood returns undefined when no emotes are loaded (same as real empty-state).
+mock.module('./emotes', () => ({
+  isEmote: mock((name: string) => name === 'PauseChamp'),
+  pickEmoteByMood: mock(() => undefined),
+}))
+
 const {
   startTrivia,
   startCustomTrivia,
@@ -1347,5 +1354,38 @@ describe('hint counts — alternate-answer cruft must not skew shape/length', ()
     expect(generateWeakHint('San Francisco')).toBe('Hint: 2 words, 12 letters')
     // "&" name must not be split or miscounted
     expect(generateHint('Mortar')).toBe('Hint: M_____ (6 letters)')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// emote-prefix + guess-framing stripping in checkAnswer
+// ---------------------------------------------------------------------------
+describe('emote-prefix and guess-framing stripping', () => {
+  it('leading emote + answer wins — "PauseChamp dooltar"', () => {
+    startCustomTrivia('#strip1', { question: 'who?', answer: 'dooltar', accept: [] })
+    checkAnswer('#strip1', 'viewer', 'PauseChamp dooltar', mockSay)
+    expect(isGameActive('#strip1')).toBe(false)
+    expect(mockRecordTriviaWin).toHaveBeenCalledTimes(1)
+  })
+
+  it('guess-framing stripped — "is it sword of mercy?"', () => {
+    startCustomTrivia('#strip2', { question: 'what item?', answer: 'Sword of Mercy', accept: [] })
+    checkAnswer('#strip2', 'viewer', 'is it sword of mercy?', mockSay)
+    expect(isGameActive('#strip2')).toBe(false)
+    expect(mockRecordTriviaWin).toHaveBeenCalledTimes(1)
+  })
+
+  it('emote-only line with no real answer still loses', () => {
+    startCustomTrivia('#strip3', { question: 'who?', answer: 'dooltar', accept: [] })
+    checkAnswer('#strip3', 'viewer', 'PauseChamp', mockSay)
+    expect(isGameActive('#strip3')).toBe(true)
+    expect(mockRecordTriviaWin).not.toHaveBeenCalled()
+  })
+
+  it('framing-only with no real answer still loses', () => {
+    startCustomTrivia('#strip4', { question: 'what item?', answer: 'Sword of Mercy', accept: [] })
+    checkAnswer('#strip4', 'viewer', 'is it maybe?', mockSay)
+    expect(isGameActive('#strip4')).toBe(true)
+    expect(mockRecordTriviaWin).not.toHaveBeenCalled()
   })
 })
