@@ -975,6 +975,27 @@ describe('bare hero name routing', () => {
 })
 
 // ---------------------------------------------------------------------------
+// live event/patch queries route to AI (where the bazaardb patch line is injected)
+// ---------------------------------------------------------------------------
+describe('event/patch query routing', () => {
+  it('short meta query "whats new" hits the AI, not item lookup', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'patch 15.2 dropped jun 17, no event live', mentions: [] }))
+    const result = await handleCommand('!b whats new', { user: 'chatter', channel: 'stream' })
+    expect(mockAiRespond).toHaveBeenCalled()
+    expect(result).toContain('patch 15.2')
+  })
+
+  it('"is there an event" routes to AI, not a fuzzy item match', async () => {
+    mockExact.mockImplementation(() => undefined)
+    mockSearch.mockImplementation(() => [makeCard({ Title: 'Event Horizon' })])
+    mockAiRespond.mockImplementation(() => ({ text: 'no special event running rn', mentions: [] }))
+    const result = await handleCommand('!b is there an event', { user: 'chatter', channel: 'stream' })
+    expect(mockAiRespond).toHaveBeenCalled()
+    expect(result).not.toContain('Event Horizon')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // !b mob / monster
 // ---------------------------------------------------------------------------
 describe('!b mob/monster', () => {

@@ -9,6 +9,7 @@ import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam } from './ai'
 import { isLowValue } from './ai-query'
+import { META_QUERY_RE } from './intents'
 import { isEmote, findEmote } from './emotes'
 import { glossaryAnswer, isBareKeyword } from './glossary'
 import { getThread, getRecent } from './chatbuf'
@@ -741,8 +742,14 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
     if (isExact) return true
     // split CamelCase/PascalCase into words (LavaRoller → lava, roller)
     const titleWords = title.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s\-]+/)
-    // single-word query: must appear as substring in title (enrage ≠ Leverage Momentum)
-    if (queryWords.length === 1) return titleWords.some((tw) => tw.includes(queryWords[0]) || queryWords[0].includes(tw))
+    // single-word query: must appear as substring in title (enrage ≠ Leverage Momentum).
+    // short queries (<=4 chars like "new") are too ambiguous for mid-word substring matching
+    // ("new" ⊂ "Renewal") — require a word prefix so they fall through to the AI instead.
+    if (queryWords.length === 1) {
+      const q = queryWords[0]
+      if (q.length <= 4) return titleWords.some((tw) => tw.startsWith(q) || q.startsWith(tw))
+      return titleWords.some((tw) => tw.includes(q) || q.includes(tw))
+    }
     // multi-word: exact word overlap OR substring containment (pinkbirdge contains birdge)
     return titleWords.some((tw) => tw.length >= 3 && (queryWords.includes(tw) || queryWords.some((qw) => qw.length >= 3 && (qw.includes(tw) || tw.includes(qw)))))
   }
@@ -959,6 +966,10 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     || isContinuation
     || isDeictic
     || cleanArgs.split(/\s+/).length > 4
+    // "what's new / is there an event / current patch" → AI, which injects the live bazaardb
+    // patch line (ai-build META_QUERY_RE) and answers authoritatively instead of fuzzy-matching
+    // "new" to an item or dead-ending in "did you mean".
+    || META_QUERY_RE.test(cleanArgs)
     || /\b(continue|extend|expand|write|make|create|do|say|tell|give|sing|rap|roast|rate|rank|compare|explain|describe|imagine|pretend|spam|repeat|copypasta|pasta)\b/i.test(cleanArgs)
 
   // conversational queries go straight to AI — no item lookup, no fallback cooldown
