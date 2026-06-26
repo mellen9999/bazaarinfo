@@ -16,7 +16,6 @@ export const ALIASES: Record<string, string> = {
   mantis: 'YLW-M4NT1S',
   ufo: 'Boosted Saucer',
   saucer: 'Boosted Saucer',
-  pyg: 'Pygmalien',
   // core items by mechanic tag (title doesn't hint at the tag)
   'flying core': 'Launcher Core',
   'flight core': 'Launcher Core',
@@ -60,6 +59,7 @@ export const HERO_ALIASES: Record<string, string> = {
   mark: 'Mak',
   mac: 'Mak',
   pig: 'Pygmalien',
+  pyg: 'Pygmalien',
   pigmalien: 'Pygmalien',
   nessa: 'Vanessa',
   van: 'Vanessa',
@@ -296,6 +296,17 @@ export function findHeroName(query: string): string | undefined {
   if (direct) return direct
   const alias = HERO_ALIASES[query.toLowerCase()]
   return alias ? findInList(heroNames, alias) : undefined
+}
+
+// exact/alias hero match ONLY (no loose prefix/wordIncludes). lets a bare hero name beat a
+// mere fuzzy item match ("dooley" = the hero's pool, not "Dooley's Scarf") without hijacking
+// item queries that just share a stem.
+export function findExactHero(query: string): string | undefined {
+  const lower = query.toLowerCase()
+  const exact = heroNames.find((n) => n.toLowerCase() === lower)
+  if (exact) return exact
+  const alias = HERO_ALIASES[lower]
+  return alias ? heroNames.find((n) => n.toLowerCase() === alias.toLowerCase()) : undefined
 }
 
 export function findTagName(query: string): string | undefined {
