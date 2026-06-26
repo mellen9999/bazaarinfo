@@ -1,4 +1,5 @@
 import { log } from './log'
+import { fetchPatchInfo } from './patch'
 
 const TZ = 'America/Los_Angeles'
 const fmt = new Intl.DateTimeFormat('en-US', {
@@ -22,6 +23,30 @@ function msUntil(targetHour: number): number {
   let diff = targetMinutes - currentMinutes
   if (diff <= 0) diff += 1440 // 24h in minutes
   return diff * 60_000
+}
+
+// call once from index.ts startup: runs an immediate fetch then arms the daily 4am slot
+export async function schedulePatchRefresh() {
+  try {
+    const info = await fetchPatchInfo()
+    if (info) {
+      const event = info.activeEvent ? ` [event: ${info.activeEvent}]` : ''
+      log(`patch: ${info.latestPatch} (${info.patchDate}) ${info.sizeBadge}${event}`)
+    } else {
+      log('patch: startup fetch failed, will retry at 4am')
+    }
+  } catch (e) {
+    log(`patch: startup error: ${e}`)
+  }
+  scheduleDaily(4, async () => {
+    try {
+      const info = await fetchPatchInfo()
+      if (info) log(`patch refresh: ${info.latestPatch} (${info.patchDate})`)
+      else log('patch refresh: fetch failed, cache unchanged')
+    } catch (e) {
+      log(`patch schedule error: ${e}`)
+    }
+  })
 }
 
 export function scheduleDaily(hour: number, fn: () => Promise<void>) {

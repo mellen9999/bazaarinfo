@@ -153,6 +153,33 @@ describe('parseDump', () => {
     expect(cache.items).toHaveLength(0)
     expect(cache.skills).toHaveLength(0)
     expect(cache.monsters).toHaveLength(0)
+    expect((cache as any).events).toHaveLength(0)
+  })
+
+  it('collects EventEncounters separately from items', () => {
+    const dump: Record<string, any> = {
+      a: makeDumpEntry({ Type: 'Item', Title: 'Sword' }),
+      b: makeDumpEntry({
+        Type: 'EventEncounter',
+        Title: 'The Travel Agent',
+        Size: 'Medium',
+        BaseTier: 'Diamond',
+        Heroes: ['Common'],
+        Tags: ['EventEncounter', 'Common'],
+        HiddenTags: [],
+        Tiers: [],
+        Tooltips: [],
+        TooltipReplacements: {},
+        Enchantments: {},
+      }),
+    }
+    const cache = parseDump(dump)
+    expect(cache.items).toHaveLength(1)
+    expect(cache.skills).toHaveLength(0)
+    expect(cache.monsters).toHaveLength(0)
+    const events = (cache as any).events as any[]
+    expect(events).toHaveLength(1)
+    expect(events[0].Title).toBe('The Travel Agent')
   })
 })
 
