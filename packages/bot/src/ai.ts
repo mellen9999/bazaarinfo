@@ -91,10 +91,13 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   const isVip = AI_VIP.has(ctx.user.toLowerCase())
   const isGame = GAME_TERMS.test(query)
 
-  // per-channel daily token cap — silent throttle (VIP exempt)
+  // per-channel daily token cap (disabled by default; the Anthropic console $/mo wall is
+  // the real ceiling). if ever re-enabled, a DIRECT ask gets an honest tapped-out line —
+  // never the transient "hit me again" glitch, which lies and invites a doomed retry.
+  // passive/background lines stay silent.
   if (!isVip && isOverDailyCap(ctx.channel)) {
     log(`ai: daily cap hit for ${ctx.channel}, dropping`)
-    return null
+    return ctx.direct ? { text: 'tapped out my daily brain budget — back tomorrow', mentions: [] } : null
   }
   // repeat-query abuse — silent drop (VIP exempt). continuation asks ("continue",
   // "keep going", "more"…) are LEGITIMATELY repeated — each one extends the story with
