@@ -110,6 +110,7 @@ function parseDumpWithStats(dump: Record<string, DumpEntry>, onProgress?: (msg: 
   const items: BazaarCard[] = []
   const skills: BazaarCard[] = []
   const monsters: Monster[] = []
+  const events: BazaarCard[] = []
   let skipped = 0
   let total = 0
   const skippedNames: string[] = []
@@ -135,6 +136,12 @@ function parseDumpWithStats(dump: Record<string, DumpEntry>, onProgress?: (msg: 
           }
           break
         }
+        case 'EventEncounter':
+          // event-only cards: same structure as items but kept separate to avoid polluting item search
+          // Type field at runtime will be 'EventEncounter'; BazaarCard.Type union needs | 'EventEncounter' once integrator updates shared/src/types.ts
+          total++
+          events.push(toCard(entry))
+          break
         default:
           total++
           skipped++
@@ -152,8 +159,15 @@ function parseDumpWithStats(dump: Record<string, DumpEntry>, onProgress?: (msg: 
     const names = skippedNames.join(', ') + (skipped > 5 ? ` (+${skipped - 5} more)` : '')
     onProgress?.(`skipped ${skipped} bad entries: ${names}`)
   }
+  if (events.length > 0) onProgress?.(`parsed ${events.length} event encounters`)
 
-  return { cache: { items, skills, monsters, fetchedAt: new Date().toISOString() }, skipped, total }
+  // events is carried as a bonus field on the cache object; integrator must add
+  // events?: BazaarCard[] to CardCache in packages/shared/src/types.ts to access it typed
+  return {
+    cache: { items, skills, monsters, events, fetchedAt: new Date().toISOString() } as CardCache,
+    skipped,
+    total,
+  }
 }
 
 function parseDump(dump: Record<string, DumpEntry>, onProgress?: (msg: string) => void): CardCache {

@@ -18,7 +18,7 @@ export interface DumpEnchantment {
 export type ItemSize = 'Small' | 'Medium' | 'Large'
 
 export interface BazaarCard {
-  Type: 'Item' | 'Skill'
+  Type: 'Item' | 'Skill' | 'EventEncounter'
   Title: string
   Size: ItemSize
   BaseTier: TierName
@@ -65,5 +65,6 @@ export interface CardCache {
   items: BazaarCard[]
   skills: BazaarCard[]
   monsters: Monster[]
+  events?: BazaarCard[]
   fetchedAt: string
 }
