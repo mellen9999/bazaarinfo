@@ -2420,6 +2420,78 @@ describe('trivia-result questions answered from real data (no AI fabrication)', 
     const res = await handleCommand('!b standings', { user: 'u', channel: 'cb4' })
     expect(res).toContain("round's live")
   })
+
+  // defect 1 — "who has the most wins/points" never matched, deflected to AI
+  it('"who has the most wins" routes to standings table, not AI', async () => {
+    const res = await handleCommand('!b who has the most wins', { user: 'u', channel: 'cb1' })
+    expect(res).toBe('no trivia scores yet')
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  it('"who has the most points" routes to standings table', async () => {
+    const res = await handleCommand('!b who has the most points', { user: 'u', channel: 'cb1' })
+    expect(res).toBe('no trivia scores yet')
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  // defect 2 — "points leader" / "leading in points" never matched
+  it('"points leader" routes to standings table', async () => {
+    const res = await handleCommand('!b points leader', { user: 'u', channel: 'cb1' })
+    expect(res).toBe('no trivia scores yet')
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  it('"leading in points" routes to standings table', async () => {
+    const res = await handleCommand('!b leading in points', { user: 'u', channel: 'cb1' })
+    expect(res).toBe('no trivia scores yet')
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  // defect 3 — single-char typo "leaderbord" treated as item lookup noise
+  it('"leaderbord" (1-char typo) routes to standings table via typo tolerance', async () => {
+    const res = await handleCommand('!b leaderbord', { user: 'u', channel: 'cb1' })
+    expect(res).toBe('no trivia scores yet')
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  // defect 4 — first-person count "how many wins do i have" never matched
+  it('"how many trivia wins do i have" routes to standings table', async () => {
+    const res = await handleCommand('!b how many trivia wins do i have', { user: 'u', channel: 'cb1' })
+    expect(res).toBe('no trivia scores yet')
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  it('"how many points do i have" routes to standings table', async () => {
+    const res = await handleCommand('!b how many points do i have', { user: 'u', channel: 'cb1' })
+    expect(res).toBe('no trivia scores yet')
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  // defect 6 — present-tense "who's winning trivia" was routed to last-winner, not standings
+  it('"who\'s winning trivia" routes to standings table, not last-round winner', async () => {
+    mockGetLastTriviaResult.mockImplementation(() => ({ question: 'q?', answer: 'SPOILER', winner: 'tidolar' }))
+    const res = await handleCommand("!b who's winning trivia", { user: 'u', channel: 'cb1' })
+    expect(res).toBe('no trivia scores yet')
+    expect(res).not.toContain('SPOILER')
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  it('"who is winning trivia" routes to standings table, not last-round winner', async () => {
+    mockGetLastTriviaResult.mockImplementation(() => ({ question: 'q?', answer: 'SPOILER2', winner: 'someuser' }))
+    const res = await handleCommand('!b who is winning trivia', { user: 'u', channel: 'cb1' })
+    expect(res).toBe('no trivia scores yet')
+    expect(res).not.toContain('SPOILER2')
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  // "trivia about winning" must NOT be hijacked — it is a custom-topic round request
+  it('"trivia about winning" still starts a round, not a standings lookup', async () => {
+    mockGenerateCustomTrivia.mockClear()
+    mockGenerateCustomTrivia.mockImplementation(async () => ({ question: 'q?', answer: 'a', accept: ['a'] }))
+    await handleCommand('!b trivia about winning', { user: 'u', channel: 'cb1' })
+    expect(mockGetLastTriviaResult).not.toHaveBeenCalled()
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('winning', 'cb1', [], [])
+  })
 })
 
 describe('chat-planted steering directives (vibes)', () => {

@@ -515,6 +515,14 @@ function buildChatStr(entries: ChatEntry[]): string {
 // "is that real" or "that question about builds" must NOT match and inject stale context.
 export const TRIVIA_REF_RE = /\b(fact[\s-]?check\s+(?:that|the|this)?\s*(?:trivia\s+)?(?:answer|question|round)|(?:that|the|your|last|previous|prior)\s+trivia\s+(?:answer|question)|trivia\s+(?:answer|question|round)|(?:last|previous)\s+(?:trivia\s+)?round|(?:trivia\s+)?answer\s+(?:was|is)\s+(?:right|wrong|correct|true|legit))\b/i
 
+// trivia standings intent — fires when any part of the query mentions standings/leaderboard/ranking
+// or first-person count/comparison asks. unanchored (\b) — whole-query routing uses BARE_STANDINGS_RE.
+// "trivia about winning" does NOT match (no leaderboard/ranking/who/my/how-many keyword present).
+export const STANDINGS_RE = /\b(leaderboard|leaderboards|standings|scoreboard|rankings?|ranked|top\s+(?:players?|scorers?|chatters?|winners?)|who(?:'?s|\s+is|\s+are)?\s+(?:winning|leading|ahead|on\s+top|in\s+(?:the\s+)?lead|first|number\s*one|no\.?\s*1)|am\s+i\s+(?:winning|leading|first|ahead|on\s+top)|where\s+(?:am\s+i|do\s+i\s+(?:rank|stand|place))|my\s+(?:trivia\s+)?(?:rank|ranking|standing|place|points?|score|streak|wins?|stats?)|who(?:\s+has|\s+got|'s\s+got)\s+(?:the\s+)?(?:most|highest|best|top)\s+(?:wins?|points?|scores?)|(?:points?|scores?|wins?)\s+leader|lead(?:er|ing)\s+in\s+(?:points?|wins?|scores?)|how\s+many\s+(?:trivia\s+|my\s+)?(?:wins?|points?|scores?)\s+(?:(?:do|have|got)\s+)?i\b|(?:more|fewer|higher|better)\s+(?:trivia\s+)?(?:wins?|points?|scores?)\s+than)\b/i
+
+// detects @-mention win/point comparisons so both users' stats can be injected
+export const COMPARISON_RE = /\b(?:more|fewer|higher|better)\s+(?:trivia\s+)?(?:wins?|points?|scores?)\s+than\b/i
+
 export function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
   const isRememberReq = REMEMBER_RE.test(query) && !isAboutOtherUser(query)
   const chatDepth = ctx.mention ? 25 : 15
@@ -586,7 +594,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // meant the streamer's unseeable in-game ranked ladder and deflected ("not something i can
   // see"). fire on any standings / ranking / "who's winning" / "my points" intent and hand it
   // the real rows so it answers from data, in voice. mirrors the BOT_STATS_RE injection above.
-  const STANDINGS_RE = /\b(leaderboard|leaderboards|standings|scoreboard|rankings?|ranked|top\s+(?:players?|scorers?|chatters?|winners?)|who(?:'?s|\s+is|\s+are)?\s+(?:winning|leading|ahead|on\s+top|in\s+(?:the\s+)?lead|first|number\s*one|no\.?\s*1)|am\s+i\s+(?:winning|leading|first|ahead|on\s+top)|where\s+(?:am\s+i|do\s+i\s+(?:rank|stand|place))|my\s+(?:trivia\s+)?(?:rank|ranking|standing|place|points?|score|streak|wins?|stats?))\b/i
+  // STANDINGS_RE is defined at module level (exported for tests).
   let standingsLine = ''
   if (STANDINGS_RE.test(query)) {
     try {
@@ -604,6 +612,19 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
           parts.push(`${ctx.user}'s trivia: ${me.trivia_wins} wins, ${me.trivia_points}pts${streak}${place}`)
         } else {
           parts.push(`${ctx.user} has no trivia wins yet`)
+        }
+        // @-mention comparison ("do i have more wins than @bob") — inject target's stats
+        // using "you: N wins" form so STAT_LEAK ("you have N wins") does NOT blank it.
+        const atTarget = query.match(/@([a-zA-Z0-9_]+)/)
+        if (COMPARISON_RE.test(query) && atTarget) {
+          const targetUser = atTarget[1].toLowerCase()
+          const target = db.getUserStats(targetUser, ctx.channel)
+          const aWins = me?.trivia_wins ?? 0
+          const aPoints = me?.trivia_points ?? 0
+          const targetStr = target
+            ? `${targetUser}: ${target.trivia_wins} wins ${target.trivia_points}pts`
+            : `${targetUser}: no trivia stats`
+          parts.push(`comparison: you: ${aWins} wins ${aPoints}pts, ${targetStr}`)
         }
         // getLastTriviaResult returns the NEWEST round, and createTriviaGame inserts at round
         // START — so during a live round it's the in-flight answer. never surface it mid-round.
