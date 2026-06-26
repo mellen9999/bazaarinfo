@@ -5,11 +5,12 @@ import { loadStore, reloadStore, CACHE_PATH } from './store'
 import { handleCommand, setRefreshHandler, setEmoteRefreshHandler, setJoinHandler, setPartHandler, setStatusHandler, BOT_ADMINS } from './commands'
 import { getCacheInfo } from './store'
 import { ensureValidToken, refreshToken, getAccessToken } from './auth'
-import { scheduleDaily } from './scheduler'
+import { scheduleDaily, schedulePatchRefresh } from './scheduler'
 import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel } from './trivia'
+import { isMuted } from './directives'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
 import { refreshRedditDigest } from './reddit'
 import { refreshTopicalDigest } from './topical'
@@ -98,6 +99,8 @@ try {
 try {
   await loadStore()
   rebuildTriviaMaps()
+  // fetch bazaardb patch/event info on startup + arm the daily refresh (fail-soft inside)
+  schedulePatchRefresh()
 } catch (e) {
   log(`FATAL: no cache available — ${e}`)
   process.exit(1)
@@ -299,9 +302,16 @@ const client = new TwitchClient(
       // so data is ready BEFORE they ask questions, not after
       maybeFetchTwitchInfo(username, channel)
 
+      // privilege/mute flags computed up here: the raw-message game paths (trivia answers,
+      // dungeon votes) run BEFORE handleCommand and must honor the SAME directive-mute as
+      // every other command — otherwise a muted troll escapes the mute by winning trivia.
+      const privileged = badges.some((b) => b === 'subscriber' || b === 'moderator' || b === 'broadcaster' || b === 'vip')
+      const isMod = badges.some((b) => b === 'moderator' || b === 'broadcaster')
+      const muted = !isMod && !privileged && isMuted(channel, username)
+
       // check trivia answers before command routing. isolated try so a throw here can
       // never silently kill answer detection (which would make a live round "go dead").
-      if (isGameActive(channel)) {
+      if (isGameActive(channel) && !muted) {
         try {
           checkAnswer(channel, username, text, (ch, msg) => client.say(ch, msg, messageId))
         } catch (e) {
@@ -311,11 +321,13 @@ const client = new TwitchClient(
 
       // dungeon: tally votes from chat. self-gates to offline channels + an active run, and
       // never replies per-vote — only a resolved window posts a line. isolated so a throw
-      // here can't kill message handling.
-      try {
-        dungeon.castInput(channel, username, text)
-      } catch (e) {
-        log(`dungeon castInput error #${channel} [${username}]: ${e}`)
+      // here can't kill message handling. muted users can't vote (same mute invariant).
+      if (!muted) {
+        try {
+          dungeon.castInput(channel, username, text)
+        } catch (e) {
+          log(`dungeon castInput error #${channel} [${username}]: ${e}`)
+        }
       }
 
       // handle !join / !part only in bot's own channel to avoid collisions with other bots
@@ -360,8 +372,6 @@ const client = new TwitchClient(
         }
       }
 
-      const privileged = badges.some((b) => b === 'subscriber' || b === 'moderator' || b === 'broadcaster' || b === 'vip')
-      const isMod = badges.some((b) => b === 'moderator' || b === 'broadcaster')
       const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId, threadId })
       if (response) {
         // outbound pacing is handled solely by the twitch client's send buckets + FIFO
