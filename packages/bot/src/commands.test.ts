@@ -465,6 +465,36 @@ describe('parseArgs', () => {
     expect(result.tier).toBe('Gold')
     expect(result.item).toBe('')
   })
+
+  it('whole-phrase exact card is never tier-spliced ("diamond heart" stays Diamond Heart)', () => {
+    mockExact.mockImplementation((n) => n.toLowerCase() === 'diamond heart' ? ({ Title: 'Diamond Heart' } as BazaarCard) : undefined)
+    const result = parseArgs(['diamond', 'heart'])
+    expect(result.item).toBe('diamond heart')
+    expect(result.tier).toBeUndefined()
+    expect(result.enchant).toBeUndefined()
+  })
+
+  it('whole-phrase guard is singular-tolerant ("diamond hearts" stays an item)', () => {
+    mockExact.mockImplementation((n) => n.toLowerCase() === 'diamond heart' ? ({ Title: 'Diamond Heart' } as BazaarCard) : undefined)
+    const result = parseArgs(['diamond', 'hearts'])
+    expect(result.item).toBe('diamond hearts')
+    expect(result.tier).toBeUndefined()
+  })
+
+  it('plural of an enchant-prefixed item is not split ("heavy crossbows")', () => {
+    mockGetEnchantments.mockImplementation(() => ['heavy'])
+    mockExact.mockImplementation((n) => n.toLowerCase() === 'heavy crossbow' ? ({ Title: 'Heavy Crossbow' } as BazaarCard) : undefined)
+    const result = parseArgs(['heavy', 'crossbows'])
+    expect(result.enchant).toBeUndefined()
+    expect(result.item).toBe('heavy crossbows')
+  })
+
+  it('genuine tier query still strips when the phrase is not an exact card', () => {
+    mockExact.mockImplementation(() => undefined)
+    const result = parseArgs(['diamond', 'subscraper'])
+    expect(result.tier).toBe('Diamond')
+    expect(result.item).toBe('subscraper')
+  })
 })
 
 // ---------------------------------------------------------------------------

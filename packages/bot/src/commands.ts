@@ -368,6 +368,14 @@ export function parseArgs(words: string[]): ParsedArgs {
   let tier: TierName | undefined
   let enchant: string | undefined
 
+  // whole-phrase guard: if the ENTIRE phrase is a literal card title, never splice a
+  // tier/enchant token out of it. "diamond heart" is the skill Diamond Heart — not a
+  // Diamond-tier "heart" (which fuzzy-resolves to Dragon Heart: a silent wrong answer).
+  // singular-tolerant so "diamond hearts" resolves too. genuine tier queries
+  // ("diamond subscraper") aren't exact card titles, so they still strip normally.
+  const phrase = remaining.join(' ')
+  if (store.exact(phrase) || store.exact(phrase.replace(/s$/, ''))) return { item: phrase }
+
   // extract tier from any position (exact match wins over enchant prefix)
   const tierIdx = remaining.findIndex((w) => TIERS.includes(w.toLowerCase()))
   if (tierIdx !== -1) {
@@ -379,7 +387,7 @@ export function parseArgs(words: string[]): ParsedArgs {
   // require exact match or prefix within 2 chars of full name to avoid "shield"→"shielded".
   // but NOT if the whole phrase is itself a real item ("heavy crossbow" = the item Heavy
   // Crossbow, not Heavy-enchanted crossbow) — ~12 items start with an enchant word.
-  if (remaining.length > 1 && remaining.length <= 8 && !store.exact(remaining.join(' '))) {
+  if (remaining.length > 1 && remaining.length <= 8 && !store.exact(remaining.join(' ')) && !store.exact(remaining.join(' ').replace(/s$/, ''))) {
     for (let i = 0; i < remaining.length; i++) {
       const lower = remaining[i].toLowerCase()
       const matches = enchList.filter((e) => e.startsWith(lower))
