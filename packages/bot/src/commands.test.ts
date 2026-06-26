@@ -15,6 +15,7 @@ const mockGetItems = mock<() => BazaarCard[]>(() => [])
 const mockGetMonsters = mock<() => Monster[]>(() => [])
 const mockGetSkills = mock<() => BazaarCard[]>(() => [])
 const mockFindHeroName = mock<(query: string) => string | undefined>(() => undefined)
+const mockFindExactHero = mock<(query: string) => string | undefined>(() => undefined)
 const mockFindTagName = mock<(query: string) => string | undefined>(() => undefined)
 const mockSuggest = mock<(query: string, limit?: number) => string[]>(() => [])
 const mockGetHeroNames = mock<() => string[]>(() => [])
@@ -34,6 +35,7 @@ mock.module('./store', () => ({
   getMonsters: mockGetMonsters,
   getSkills: mockGetSkills,
   findHeroName: mockFindHeroName,
+  findExactHero: mockFindExactHero,
   findTagName: mockFindTagName,
   suggest: mockSuggest,
   getHeroNames: mockGetHeroNames,
@@ -254,12 +256,14 @@ beforeEach(() => {
   mockMonstersByDay.mockReset()
   mockFindSkill.mockReset()
   mockFindHeroName.mockReset()
+  mockFindExactHero.mockReset()
   mockFindTagName.mockReset()
   mockSuggest.mockReset()
   mockByTag.mockImplementation(() => [])
   mockMonstersByDay.mockImplementation(() => [])
   mockFindSkill.mockImplementation(() => undefined)
   mockFindHeroName.mockImplementation(() => undefined)
+  mockFindExactHero.mockImplementation(() => undefined)
   mockFindTagName.mockImplementation(() => undefined)
   mockSuggest.mockImplementation(() => [])
   mockAiRespond.mockReset()
@@ -927,6 +931,46 @@ describe('!b hero', () => {
     const result = (await handleCommand('!b hero pyg'))!
     expect(result.length).toBeLessThanOrEqual(480)
     expect(result).toEndWith('...')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// bare hero name routing (no `hero` keyword) — !b dooley / !b vanessa / !b pyg
+// ---------------------------------------------------------------------------
+describe('bare hero name routing', () => {
+  it('exact hero name beats a fuzzy item match (!b dooley -> hero pool, not Dooley\'s Scarf)', async () => {
+    mockExact.mockImplementation(() => undefined)
+    mockSearch.mockImplementation(() => [makeCard({ Title: "Dooley's Scarf" })])
+    mockFindExactHero.mockImplementation((q) => q.toLowerCase() === 'dooley' ? 'Dooley' : undefined)
+    mockByHero.mockImplementation(() => [boomerang])
+    const result = (await handleCommand('!b dooley'))!
+    expect(result).toContain('[Dooley]')
+    expect(result).toContain('Boomerang')
+    expect(result).not.toContain("Dooley's Scarf")
+  })
+
+  it('alias resolves to hero (!b pyg -> Pygmalien pool)', async () => {
+    mockExact.mockImplementation(() => undefined)
+    mockFindExactHero.mockImplementation((q) => q.toLowerCase() === 'pyg' ? 'Pygmalien' : undefined)
+    mockByHero.mockImplementation(() => [boomerang])
+    expect((await handleCommand('!b pyg'))!).toContain('[Pygmalien]')
+  })
+
+  it('an exact ITEM still wins over a hero name (no hijack)', async () => {
+    mockExact.mockImplementation((n) => n.toLowerCase() === 'vanessa' ? makeCard({ Title: 'Vanessa' }) : undefined)
+    mockFindExactHero.mockImplementation(() => 'Vanessa')
+    mockByHero.mockImplementation(() => [boomerang])
+    expect((await handleCommand('!b vanessa'))!).not.toContain('[Vanessa]')
+  })
+
+  it('loose hero match answers when item + monster both miss (!b vaness)', async () => {
+    mockExact.mockImplementation(() => undefined)
+    mockSearch.mockImplementation(() => [])
+    mockFindMonster.mockImplementation(() => undefined)
+    mockFindExactHero.mockImplementation(() => undefined)
+    mockFindHeroName.mockImplementation((q) => q.toLowerCase().startsWith('vaness') ? 'Vanessa' : undefined)
+    mockByHero.mockImplementation(() => [boomerang])
+    expect((await handleCommand('!b vaness'))!).toContain('[Vanessa]')
   })
 })
 

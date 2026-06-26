@@ -1,5 +1,5 @@
 import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, truncate, resolveTooltip, compressTooltip, TIER_ORDER } from '@bazaarinfo/shared'
-import type { TierName, Monster, SkillDetail } from '@bazaarinfo/shared'
+import type { TierName, Monster, SkillDetail, BazaarCard } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
@@ -543,9 +543,8 @@ const subcommands: [RegExp, SubHandler][] = [
       logMiss(query, ctx)
       return aiOrQuip(`hero ${query}`, ctx, suffix)
     }
-    const displayName = resolved ?? query
     logHit('hero', query, `${items.length} items`, ctx)
-    return withSuffix(truncate(`[${displayName}] ${items.map((i) => i.Title).join(', ')}`), suffix)
+    return heroPoolReply(resolved ?? query, items, suffix)
   }],
   [/^enchant(?:s|ments)?$/i, (_query, ctx, suffix) => {
     const names = store.getEnchantments().map(capitalize)
@@ -657,6 +656,12 @@ function stripQuestionPrefix(s: string): string {
   return stripped.length >= 2 ? stripped : s
 }
 
+// shared hero-pool reply ("[Vanessa] item, item, …") used by the `hero <name>` subcommand
+// and by itemLookup's bare-hero routing.
+function heroPoolReply(heroName: string, items: BazaarCard[], suffix: string): string {
+  return withSuffix(truncate(`[${heroName}] ${items.map((i) => i.Title).join(', ')}`), suffix)
+}
+
 async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string | null> {
   const stripped = stripQuestionPrefix(cleanArgs)
   const words = stripped.split(/\s+/)
@@ -687,6 +692,20 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   const exactCard = store.exact(query)
   const card = exactCard ?? store.search(query, 1)[0]
 
+  // a bare hero name beats a mere fuzzy item match: "dooley"/"vanessa"/"pyg" mean the hero's
+  // whole pool, not a card that just shares the stem ("Dooley's Scarf"). only when there's no
+  // EXACT item and the query exactly IS a hero name/alias, so item queries aren't hijacked.
+  if (!exactCard) {
+    const hero = store.findExactHero(query)
+    if (hero) {
+      const heroItems = store.byHero(hero)
+      if (heroItems.length > 0) {
+        logHit('hero', query, `${heroItems.length} items`, ctx)
+        return heroPoolReply(hero, heroItems, suffix)
+      }
+    }
+  }
+
   // reject fuzzy matches where the query doesn't meaningfully overlap with the title
   const queryWords = query.toLowerCase().split(/\s+/)
   const isRelevantMatch = (title: string, isExact: boolean) => {
@@ -710,6 +729,17 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   if (monster && isRelevantMatch(monster.Title, false)) {
     logHit('mob', query, monster.Title, ctx)
     return withSuffix(formatMonster(monster, resolveSkills(monster)), suffix)
+  }
+
+  // item + monster both missed — a loose hero-name match (typo/prefix/alias) still answers
+  // with that hero's pool rather than deflecting to "no item found".
+  const looseHero = store.findHeroName(query)
+  if (looseHero) {
+    const heroItems = store.byHero(query)
+    if (heroItems.length > 0) {
+      logHit('hero', query, `${heroItems.length} items`, ctx)
+      return heroPoolReply(looseHero, heroItems, suffix)
+    }
   }
 
   logMiss(query, ctx)
