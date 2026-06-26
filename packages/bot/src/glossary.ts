@@ -111,6 +111,10 @@ export const DEFINITIONAL_INTENT =
 const BUILD_INTENT =
   /\b(best|worst|good|bad|meta|tier|build|recommend|synerg\w*|combo|counter|better|strongest|weakest|viable|worth|op|broken|items?|skills?)\b/i
 
+// comparison connectives: "poison vs burn", "compare freeze and slow", etc.
+// "or" is deliberately excluded — "poison or burn" is NOT a comparison.
+const COMPARISON_RE = /\b(vs|versus|compared? to|difference between|compare)\b/i
+
 // True when the query is exactly one glossary keyword (no extra words). Used so
 // "!b flying" answers the mechanic, but "flying items" / "best flying" do not.
 export function isBareKeyword(query: string): boolean {
@@ -123,10 +127,22 @@ export function isBareKeyword(query: string): boolean {
 // keyword ("flying"), but NOT on a build/list ask ("best flying item"). Returns
 // null when it's not a keyword-definition query. Caller still gives an exact item
 // name priority for a bare query (so an item literally named like a keyword wins).
+// Also handles comparisons ("poison vs burn") when >=2 keywords are found.
 export function glossaryAnswer(query: string): string | null {
   const q = query.trim()
   const bare = isBareKeyword(q)
   if (!bare) {
+    // comparison path: "poison vs burn", "compare freeze and slow" → return both defs.
+    // deterministic, no API call; safe even mid-round (only mechanic rules, no game state).
+    if (COMPARISON_RE.test(q)) {
+      const hits = lookupKeywords(q, 3)
+      if (hits.length >= 2) {
+        let out = hits.join(' | ')
+        if (out.length > 460) out = out.slice(0, 457).replace(/\s+\S*$/, '') + '…'
+        return out
+      }
+      return null
+    }
     if (!DEFINITIONAL_INTENT.test(q)) return null
     if (BUILD_INTENT.test(q)) return null
   }

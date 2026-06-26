@@ -89,11 +89,17 @@ export function extractEntities(query: string): ResolvedEntities {
   // correct, and a missed inject = the model invents the mechanic (the Flying bug),
   // so the trigger errs broad. lookupKeywords only returns hits for real keywords,
   // so a question with none ("are aquatic items good") injects nothing.
+  // also populates on comparison queries ("poison vs burn") so the AI gets the
+  // authoritative Keyword block even when the deterministic glossaryAnswer path is skipped.
   const bareKeyword = query.trim().split(/\s+/).length <= 2
   const interrogative = /\?/.test(query)
     || /\b(what|whats|wat|how|hows|why|does|do|is|are|can|could|will|would|should|which|whether|explain|define|definition|meaning|means?|effect|bonus|works?|wtf|wdym|tell me)\b/i.test(query)
+  const COMPARISON_GATE_RE = /\b(vs|versus|compared? to|difference between|compare)\b/i
   if (interrogative || bareKeyword) {
     result.glossary = lookupKeywords(query)
+  } else if (COMPARISON_GATE_RE.test(query)) {
+    const compHits = lookupKeywords(query)
+    if (compHits.length >= 2) result.glossary = compHits
   }
 
   // word-count backstop: 40 covers any 200-char query (the ai.ts input cap) so it never

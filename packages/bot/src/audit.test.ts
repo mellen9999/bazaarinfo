@@ -1191,11 +1191,16 @@ describe('SEC: query length limits', () => {
 })
 
 describe('SEC: dedup prevents spam amplification', () => {
-  it('duplicate queries in same channel suppressed', async () => {
+  it('duplicate query is not re-amplified — short identical-per-query note, never a re-send', async () => {
     const ctx = { user: 'spammer', channel: 'dedup_test_channel' }
     const r1 = await handleCommand('!b subscraper', ctx)
     expect(r1).toBeTruthy()
     const r2 = await handleCommand('!b subscraper', ctx)
-    expect(r2).toBeNull() // deduped
+    // the expensive/amplifying path is still suppressed: r2 is NOT a fresh full lookup, just a
+    // short note that's identical for repeated identical queries — so twitch's own 30s
+    // identical-message filter collapses repeats and it can't amplify (vs the old silent null,
+    // which read as ignoring a real re-ask).
+    expect(r2).not.toBe(r1)
+    expect(r2).toContain('posted that just now')
   })
 })

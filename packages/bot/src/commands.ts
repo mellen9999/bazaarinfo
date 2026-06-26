@@ -7,7 +7,7 @@ import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop,
 import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, type CustomTrivia } from './ai-trivia'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
-import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam } from './ai'
+import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam, CONTINUE_RE } from './ai'
 import { isLowValue } from './ai-query'
 import { META_QUERY_RE } from './intents'
 import { isEmote, findEmote } from './emotes'
@@ -328,7 +328,7 @@ function proxyWithCooldown(channel: string | undefined, cmdStr: string, cmd: str
   const last = proxyCooldowns.get(key)
   if (last && now - last < cd) {
     const left = Math.ceil((cd - (now - last)) / 1000)
-    return `!${cmd} is on cooldown (${left}s)`
+    return `on cooldown: ${cmd} (${left}s)`
   }
   proxyCooldowns.set(key, now)
   if (proxyCooldowns.size > 200) {
@@ -649,6 +649,10 @@ const TRIVIA_STANDINGS_RE = /\b(leaderboard|standings|scores?|rankings?|top)\b/i
 // is itself grounded with the standings data (ai-build STANDINGS_RE) so it answers too.
 const BARE_STANDINGS_RE = /^(?:the\s+|trivia\s+|quiz\s+|show\s+(?:me\s+)?(?:the\s+)?)?(?:leaderboard|leaderboards|standings|scoreboard|rankings?)\??$|^who(?:'?s|\s+is|\s+are)?\s+(?:winning|leading|in\s+(?:the\s+)?lead|on\s+top|first|ahead)(?:\s+(?:the\s+|in\s+|at\s+)?(?:trivia|quiz))?\??$|^who(?:\s+has|\s+got|'s\s+got)\s+(?:the\s+)?(?:most|highest|best|top)\s+(?:wins?|points?|scores?)\??$|^(?:points?|scores?|wins?)\s+leader(?:board)?\??$|^lead(?:er|ing)\s+in\s+(?:points?|wins?|scores?)\??$|^how\s+many\s+(?:trivia\s+|my\s+)?(?:wins?|points?|scores?)\s+(?:(?:do|have|got)\s+)?i\b.*$|^(?:do\s+i\s+have\s+)?(?:more|fewer|higher|better)\s+(?:trivia\s+)?(?:wins?|points?|scores?)\s+than\s+@\w+\??$/i
 
+// non-anchored standings clause — for compound queries ("what does burn do and who's winning")
+// where BARE_STANDINGS_RE (anchored) doesn't match but a standings intent is still present.
+const EMBEDDED_STANDINGS_RE = /\b(leaderboard|standings|scoreboard|rankings?|who(?:'?s|\s+is)?\s+(?:winning|leading|on top)|most\s+wins|most\s+points)\b/i
+
 // minimal levenshtein for single-token typo matching (standings keyword proximity check)
 function levenshtein(a: string, b: string): number {
   if (a === b) return 0
@@ -824,7 +828,9 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (!cleanArgs) return tryAiRespond(buildBareBQuery(ctx.channel), ctx, mentions)
   if (cleanArgs === 'help' || cleanArgs === 'info') return tryAiRespond('what does this bot do', ctx, mentions)
 
-  if (/^(how (do you|does this( bot)?) work|what are you|what is this)\b/i.test(cleanArgs)) {
+  // end-anchored so only a pure identity ask fires — trailing words ("doing rn",
+  // "card do", "talking about") fall through to the isDeictic → tryAiRespond path.
+  if (/^(how (do you|does this( bot)?) work|what are you|what is this( bot)?)\??$/i.test(cleanArgs)) {
     return 'twitch chatbot for The Bazaar by mellen. looks up items/heroes/monsters from bazaardb.gg, runs trivia, and answers questions. try: !b <item> | !b hero <name> | !b <question>'
   }
 
@@ -848,10 +854,13 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // trivia top-5 table, free + no hallucination risk. anchored to the whole query so a
   // conversational mention ("i am talking about the leaderboard") falls through to the AI,
   // which is grounded with the same standings data in ai-build (so it never deflects either).
+  // mid-round: the standings table is always safe — only the trivia-result/last-winner path
+  // (TRIVIA_RESULT_RE branch above) needs the isGameActive guard to avoid leaking the answer.
   if (ctx.channel && (BARE_STANDINGS_RE.test(cleanArgs) || (!store.exact(cleanArgs) && isStandingsTypo(cleanArgs)))) {
     const sfx = mentions.length ? ` ${mentions.join(' ')}` : ''
-    if (isGameActive(ctx.channel)) return withSuffix(`a round's live right now — get your answer in!`, sfx)
-    return withSuffix(getTriviaScore(ctx.channel), sfx)
+    const score = getTriviaScore(ctx.channel)
+    const midRound = isGameActive(ctx.channel) ? ` (round's live — get an answer in!)` : ''
+    return withSuffix(score + midRound, sfx)
   }
 
   // proxy ! and / commands — before dedup so cooldown messages always show
@@ -880,17 +889,32 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     const embeddedMatch = cleanArgs.match(/!(\w+)(?:\s+(\d+))?/)
     if (embeddedMatch) {
       const cmd = embeddedMatch[1].toLowerCase()
-      if (!BLOCKED_BANG_CMDS.has(cmd) && !MOD_ALIAS_RE.test(cmd)) {
-        const cmdStr = embeddedMatch[2] ? `!${embeddedMatch[1]} ${embeddedMatch[2]}` : `!${embeddedMatch[1]}`
-        return proxyWithCooldown(ctx.channel, cmdStr, cmd)
+      // skip the proxy short-circuit when a substantive lookup subject precedes the !cmd:
+      // "tell me about pegasus and run !uptime" → do the pegasus lookup, not the proxy.
+      // strip transition filler words; if real content (>=4 chars) remains before the !cmd,
+      // there is a lookup subject — fall through to the normal handling path.
+      const beforeCmd = cleanArgs.slice(0, embeddedMatch.index ?? 0)
+        .replace(/\b(run|do|fire|also|and|or|pls|please|can|u|me|that|it|this)\b/gi, ' ')
+        .replace(/\s+/g, ' ').trim()
+      const hasSubjectBefore = beforeCmd.length >= 4
+      if (!hasSubjectBefore) {
+        if (!BLOCKED_BANG_CMDS.has(cmd) && !MOD_ALIAS_RE.test(cmd)) {
+          const cmdStr = embeddedMatch[2] ? `!${embeddedMatch[1]} ${embeddedMatch[2]}` : `!${embeddedMatch[1]}`
+          return proxyWithCooldown(ctx.channel, cmdStr, cmd)
+        }
+        const dodge = selfTimeoutDodge(ctx.channel, cmd)
+        if (dodge) return dodge
       }
-      const dodge = selfTimeoutDodge(ctx.channel, cmd)
-      if (dodge) return dodge
     }
   }
 
-  // suppress duplicate lookups within 30s per channel (same user only)
-  if (ctx.channel && ctx.user && isDuplicate(ctx.channel, `${ctx.user}:${cleanArgs}`)) return null
+  // suppress duplicate lookups within 30s per channel (same user only).
+  // continuations ("continue", "more"…) are exempt — each one extends an active bit.
+  // on a dup, return a DISTINCT terse note (twitch silently drops exact re-sends anyway).
+  if (ctx.channel && ctx.user && !CONTINUE_RE.test(cleanArgs) && isDuplicate(ctx.channel, `${ctx.user}:${cleanArgs}`)) {
+    const sfx = mentions.length ? ` ${mentions.join(' ')}` : ''
+    return withSuffix(`↑ ${cleanArgs}, posted that just now`, sfx)
+  }
 
   const suffix = mentions.length ? ` ${mentions.join(' ')}` : ''
 
@@ -917,11 +941,15 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // spam wall interception — handle without AI. cap at 5 TOTAL tokens.
   // only known emotes count as payload; conversational filler ("pls Mr. Clanker") is dropped.
   // if no real emotes survive the filter, fall through to AI.
+  // if the non-emote tokens ask a question ("spam KEKW and tell me whats the meta"),
+  // fall through to normal handling so the question gets answered.
   const spamMatch = cleanArgs.match(/^spam\s+(?:this\s+)?(.+)/i)
   if (spamMatch) {
     const tokens = spamMatch[1].trim().split(/\s+/).filter(Boolean)
     const emotes = [...new Set(tokens.map((t) => findEmote(t)).filter((e): e is string => !!e))]
-    if (emotes.length > 0 && emotes.length <= 5 && emotes.every((t) => t.length <= 30)) {
+    const nonEmoteText = tokens.filter((t) => !findEmote(t)).join(' ')
+    const hasQuestion = /[?]/.test(spamMatch[1]) || /\b(what|who|when|where|why|how|tell|is|are|does|do|can|could|would|whats|whos)\b/i.test(nonEmoteText)
+    if (!hasQuestion && emotes.length > 0 && emotes.length <= 5 && emotes.every((t) => t.length <= 30)) {
       const out: string[] = []
       while (out.length < 5) out.push(emotes[out.length % emotes.length])
       return withSuffix(out.join(' '), suffix)
@@ -947,10 +975,15 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // keyword/mechanic definition — deterministic, BEFORE item lookup + AI so
   // "what is flying" returns the verified rule, not the fuzzy item "Flying Pig".
   // a bare keyword that is also an exact item name lets the item win.
+  // compound: when a standings clause also appears ("what does burn do and who's winning"),
+  // append the live standings table — both paths are deterministic and free.
   {
     const gloss = glossaryAnswer(cleanArgs)
     if (gloss && !(isBareKeyword(cleanArgs) && store.exact(cleanArgs.trim()))) {
       try { db.logCommand(ctx, 'glossary', cleanArgs, 'keyword') } catch {}
+      if (ctx.channel && EMBEDDED_STANDINGS_RE.test(cleanArgs)) {
+        return withSuffix(gloss + ' | ' + getTriviaScore(ctx.channel), suffix)
+      }
       return withSuffix(gloss, suffix)
     }
   }
@@ -1302,6 +1335,9 @@ const triviaCommand: CommandHandler = (args, ctx) => runTrivia(ctx, args, '')
 // topic/per-user STEER ("anytime <who> asks ..."), persistent self-style STEER ("from now
 // on end your messages with X"), and MUTE ("don't respond to X").
 export const DIRECTIVE_INTENT = new RegExp([
+  // steer: "if anyone/someone/people/chat asks/mentions/says ..." (conditional form)
+  // subject restricted to anyone/someone/people/chat — not free \w+ (avoids false positives)
+  /\bif\s+(?:any\s?one|some\s?one|somebody|anybody|people|chat)\s+(asks?|mentions?|says?|brings? up|talks? about)\b/.source,
   // steer: "anytime/whenever/when <who> asks/mentions/says ..."
   /(any\s?time|every\s?time|each\s?time|whenever|when(?:ever)?|from now on|going forward)\b[\s\S]{0,70}\b(asks?|asking|mentions?|says?|brings? up|talks? about|posts?|messages?)\b/.source,
   // steer (bot's own persistent style): "always/from now on/be sure to … end/talk/add/sign …"
@@ -1337,6 +1373,13 @@ async function handlePlantDirective(text: string, ctx: CommandContext, suffix: s
 
   const parsed = await parseDirective(text, channel)
   if (!parsed) return null // not a directive, AI-rejected, AI off, or cap hit → caller falls through to a normal answer
+
+  // the broadcaster is always exempt from mutes (enforced at the isGameActive+isMod check too),
+  // but a planted mute targeting them would waste an eviction-protected slot and falsely confirm.
+  // catch it here before storing so the confirmation "got it — ignoring X" is never emitted.
+  if (parsed.mute && parsed.targetUser?.toLowerCase() === channel.toLowerCase()) {
+    return withSuffix(`can't mute the broadcaster`, suffix)
+  }
 
   addDirective(channel, ctx.user, parsed)
   if (parsed.mute) {
