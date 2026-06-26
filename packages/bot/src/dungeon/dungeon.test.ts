@@ -304,6 +304,85 @@ describe('loop — onStreamOnline resets firstVoteAt so offline votes re-arm the
   })
 })
 
+describe('loop — input normalization (punctuation, caps, emote spam)', () => {
+  const ch = '#normtest'
+  let loop: typeof import('./loop')
+
+  beforeAll(async () => {
+    initDb('/tmp/bzi-dungeon-test.db')
+    store.initDungeonDb()
+    loop = await import('./loop')
+    loop.initDungeon(() => {})
+    loop.setIsLive(() => false)
+  })
+
+  function setupCombatRun(): void {
+    loop.cleanup(ch)
+    store.deleteRun(ch)
+    votes.clearVotes(ch)
+    const run = state.newRun(ch, 'u', Date.now())
+    state.startRun(run, ARCH)
+    run.hero!.atk = 999
+    store.saveRun(run)
+    loop.restoreFromDb()
+    votes.clearVotes(ch)
+  }
+
+  it('"DESCEND!!!" starts a run (punctuation stripped from start-word compare)', () => {
+    loop.cleanup(ch)
+    store.deleteRun(ch)
+    votes.clearVotes(ch)
+    loop.castInput(ch, 'user1', 'DESCEND!!!')
+    // run is now recruiting — archetype vote should register
+    loop.castInput(ch, 'user1', 'warrior')
+    expect(votes.topChoices(ch, 1)[0]?.choice).toBe('warrior')
+    loop.cleanup(ch)
+    store.deleteRun(ch)
+  })
+
+  it('"attack!" registers as attack (trailing punctuation stripped from token)', () => {
+    setupCombatRun()
+    loop.castInput(ch, 'user1', 'attack!')
+    expect(votes.tallyWinner(ch, ['attack', 'defend', 'special', 'flee'])?.choice).toBe('attack')
+    loop.cleanup(ch)
+  })
+
+  it('"ATTACK!!" registers as attack (caps + double punctuation)', () => {
+    setupCombatRun()
+    loop.castInput(ch, 'user1', 'ATTACK!!')
+    expect(votes.tallyWinner(ch, ['attack', 'defend', 'special', 'flee'])?.choice).toBe('attack')
+    loop.cleanup(ch)
+  })
+
+  it('"ATTACK x4" registers as attack (multiplier suffix, 2 distinct tokens)', () => {
+    setupCombatRun()
+    loop.castInput(ch, 'user1', 'ATTACK x4')
+    expect(votes.tallyWinner(ch, ['attack', 'defend', 'special', 'flee'])?.choice).toBe('attack')
+    loop.cleanup(ch)
+  })
+
+  it('"attack Kreygasm Kreygasm Kreygasm" registers as attack (4 tokens, 2 distinct)', () => {
+    setupCombatRun()
+    loop.castInput(ch, 'user1', 'attack Kreygasm Kreygasm Kreygasm')
+    expect(votes.tallyWinner(ch, ['attack', 'defend', 'special', 'flee'])?.choice).toBe('attack')
+    loop.cleanup(ch)
+  })
+
+  it('"attack attack attack attack" registers as attack (4 repeated tokens, 1 distinct)', () => {
+    setupCombatRun()
+    loop.castInput(ch, 'user1', 'attack attack attack attack')
+    expect(votes.tallyWinner(ch, ['attack', 'defend', 'special', 'flee'])?.choice).toBe('attack')
+    loop.cleanup(ch)
+  })
+
+  it('a real sentence with 4+ distinct words is rejected', () => {
+    setupCombatRun()
+    loop.castInput(ch, 'user1', 'i want to attack now')
+    expect(votes.tallyWinner(ch, ['attack', 'defend', 'special', 'flee'])).toBeNull()
+    loop.cleanup(ch)
+  })
+})
+
 describe('db — persistence round-trip (real sqlite)', () => {
   beforeAll(() => {
     initDb('/tmp/bzi-dungeon-test.db')
