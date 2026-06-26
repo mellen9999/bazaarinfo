@@ -2,6 +2,8 @@ import * as store from './store'
 import * as db from './db'
 import { isGameActive } from './trivia'
 import { getRedditDigest } from './reddit'
+import { getPatchInfo } from './patch'
+import { META_QUERY_RE } from './intents'
 import { getTopicalDigest } from './topical'
 import { getActivityFor } from './activity'
 import { getRecent, getSummary, getActiveThreads } from './chatbuf'
@@ -523,6 +525,7 @@ export const STANDINGS_RE = /\b(leaderboard|leaderboards|standings|scoreboard|ra
 // detects @-mention win/point comparisons so both users' stats can be injected
 export const COMPARISON_RE = /\b(?:more|fewer|higher|better)\s+(?:trivia\s+)?(?:wins?|points?|scores?)\s+than\b/i
 
+
 export function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
   const isRememberReq = REMEMBER_RE.test(query) && !isAboutOtherUser(query)
   const chatDepth = ctx.mention ? 25 : 15
@@ -658,9 +661,18 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const activityLine = getActivityFor(query)
   const activityBlock = activityLine ? `\nActivity: ${activityLine}` : ''
 
+  // live patch/event awareness — authoritative from bazaardb patchnotes (fail-soft: getPatchInfo
+  // returns null on any fetch/parse failure or stale cache, so we inject nothing and never
+  // hallucinate a patch). only on a meta "what's new / is there an event" query.
+  const patch = META_QUERY_RE.test(query) ? getPatchInfo() : null
+  const patchLine = patch
+    ? `\nCurrent game patch (authoritative, from bazaardb.gg — answer "what's new / is there an event" from THIS, don't deflect): ${patch.latestPatch} (${patch.patchDate}, size ${patch.sizeBadge}); active event: ${patch.activeEvent ?? 'none — no special limited-time event is running right now'}.`
+    : ''
+
   // skip reddit digest + emotes when we have specific game data or short queries
   const digest = getRedditDigest()
-  const skipReddit = hasGameData || query.length < 20
+  // exempt meta words so a bare "patch" / "event" / "what's new" keeps the community digest
+  const skipReddit = hasGameData || (query.length < 20 && !META_QUERY_RE.test(query))
   const redditLine = (!skipReddit && digest) ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
   // when the query is about the community/meta/news, reddit buzz is high-value and
   // must survive the budget — otherwise it stays last and gets evicted every time.
@@ -866,6 +878,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // (recentChat base -100, gameBlock base -90) so the budget loop never evicts them.
     { name: 'triviaStandings', text: standingsLine, base: -110 },
     { name: 'triviaRef', text: triviaRefLine, base: -109 },
+    // live patch/event line is the direct answer to "what's new" — keep it ahead of primaryPair
+    { name: 'patch', text: patchLine, base: -108 },
   ]
     .filter((s) => s.text)
     .map((s) => ({ ...s, prio: s.base - (s.boost ?? 0) }))

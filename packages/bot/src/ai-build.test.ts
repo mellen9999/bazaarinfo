@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { fitToBudget, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE } from './ai-build'
+import { META_QUERY_RE } from './intents'
 
 describe('fitToBudget — graceful section truncation', () => {
   it('returns text unchanged when it fits', () => {
@@ -131,5 +132,21 @@ describe('COMPARISON_RE — detects @-mention win/point comparison for dual-user
     expect(COMPARISON_RE.test('who has the most wins')).toBe(false)
     expect(COMPARISON_RE.test('leaderboard')).toBe(false)
     expect(COMPARISON_RE.test('how many wins do i have')).toBe(false)
+  })
+})
+
+describe('META_QUERY_RE — live patch/event questions route to the bazaardb patch line', () => {
+  it('fires on what-is-new / event / patch phrasings', () => {
+    for (const q of [
+      'whats new', "what's new in the game", 'is there a new event', 'any events right now',
+      'tell me about this new event', 'current patch', 'latest patch notes', 'any updates',
+      'whats happening', 'is there an event', 'new season',
+    ]) expect(META_QUERY_RE.test(q)).toBe(true)
+  })
+
+  it('does not fire on ordinary item/card queries', () => {
+    for (const q of [
+      'eyepatch', 'patchwork', 'vanessa', 'fiery boomerang', 'diamond heart', 'whats subscraper',
+    ]) expect(META_QUERY_RE.test(q)).toBe(false)
   })
 })
