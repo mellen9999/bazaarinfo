@@ -47,26 +47,27 @@ export function castInput(channel: string, user: string, text: string): void {
   if (isLiveFn(ch)) return
   const t = text.trim().toLowerCase()
   if (!t) return
-  const tokens = t.split(/\s+/)
+  // normalize once: strip non-alphanumeric per token (handles "attack!", caps already lowered)
+  const tokens = t.split(/\s+/).map(w => w.replace(/[^a-z0-9]/g, '')).filter(Boolean)
   const run = runs.get(ch)
 
   // no run (or finished) -> only the start word does anything.
   if (!run || run.phase === 'idle' || run.phase === 'over') {
-    if (t === START_WORD) startRun(ch, user)
+    if (t.replace(/[^a-z0-9]/g, '') === START_WORD) startRun(ch, user)
     return
   }
 
   if (run.phase === 'recruiting') {
-    if (t === START_WORD) return // already recruiting
+    if (t.replace(/[^a-z0-9]/g, '') === START_WORD) return // already recruiting
     if (tokens.length > 5 || t.length > 40) return // ignore long chatter; keep concise suggestions
     if (/^https?:\/\//.test(t)) return
-    votes.castVote(ch, user, t) // free-text archetype suggestion
+    votes.castVote(ch, user, t) // free-text archetype suggestion (raw t for name fidelity)
     return
   }
 
   if (run.phase === 'combat') {
     const boss = run.enemy?.isBoss ?? false
-    if (tokens.length > 3) return // a verb vote is short; ignore sentences
+    if (new Set(tokens).size > 3) return // short verb vote; reject real sentences (not emote spam)
     const verb = VERBS.find((v) => tokens.includes(v) && (v !== 'flee' || !boss))
     if (!verb) return
     votes.castVote(ch, user, verb)
