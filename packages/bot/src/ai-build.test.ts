@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { fitToBudget, TRIVIA_REF_RE } from './ai-build'
+import { fitToBudget, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE } from './ai-build'
 
 describe('fitToBudget — graceful section truncation', () => {
   it('returns text unchanged when it fits', () => {
@@ -68,5 +68,68 @@ describe('TRIVIA_REF_RE — references to the just-played round inject the real 
       'spam Pog 5 times',
       'is dooley good right now',
     ]) expect(TRIVIA_REF_RE.test(q)).toBe(false)
+  })
+})
+
+describe('STANDINGS_RE — new intent phrasings ground AI with real leaderboard data', () => {
+  it('matches new phrasings that previously deflected or fabricated', () => {
+    for (const q of [
+      // defect 1 — "who has the most" family
+      'who has the most wins',
+      'who has the most points',
+      "who's got the highest score",
+      'who got the top wins',
+      // defect 2 — leader/leading phrasing
+      'points leader',
+      'score leader',
+      'wins leader',
+      'leading in points',
+      'leader in wins',
+      // defect 4 — first-person count
+      'how many trivia wins do i have',
+      'how many points do i have',
+      'how many wins have i got',
+      // defect 5 — @-mention comparison
+      'do i have more wins than @bob',
+      'more points than @alice',
+      'fewer wins than @charlie',
+    ]) expect(STANDINGS_RE.test(q)).toBe(true)
+  })
+
+  it('does not hijack "trivia about winning" (topic round request)', () => {
+    // "trivia about X" routes to custom round generation — must NOT be grounded as standings
+    expect(STANDINGS_RE.test('trivia about winning')).toBe(false)
+  })
+
+  it('preserves existing phrasings', () => {
+    for (const q of [
+      'leaderboard',
+      'standings',
+      'scoreboard',
+      "who's winning",
+      'who is leading',
+      'my trivia stats',
+      'where do i rank',
+      'am i winning',
+      'top players',
+    ]) expect(STANDINGS_RE.test(q)).toBe(true)
+  })
+})
+
+describe('COMPARISON_RE — detects @-mention win/point comparison for dual-user injection', () => {
+  it('fires on comparison phrasings', () => {
+    for (const q of [
+      'do i have more wins than @bob',
+      'more points than @alice',
+      'fewer wins than @charlie',
+      'higher score than @dave',
+      'better points than @eve',
+    ]) expect(COMPARISON_RE.test(q)).toBe(true)
+  })
+
+  it('does not fire on non-comparison standings questions', () => {
+    expect(COMPARISON_RE.test('who has the most wins')).toBe(false)
+    expect(COMPARISON_RE.test('leaderboard')).toBe(false)
+    expect(COMPARISON_RE.test('how many wins do i have')).toBe(false)
   })
 })

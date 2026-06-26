@@ -638,13 +638,42 @@ function validateTier(card: { Tiers: TierName[] }, tier?: TierName): { tier: Tie
 // questions about trivia RESULTS, answered from the DB (never the AI, which invents winners).
 // scoped so a topic request like "trivia about winning" is NOT matched (no who/did, and
 // "trivia about" != "trivia leaderboard").
-const TRIVIA_RESULT_RE = /\bwho\b[^?]*\b(won|win|winner|winning)\b[^?]*\b(trivia|quiz|round|last\s*one)\b|\b(trivia|quiz)\s+(leaderboard|standings|scores?|rankings?|top)\b|\bdid\b[^?]*\bwin\b[^?]*\b(trivia|quiz|round)\b/i
+// present-tense win|winning intentionally omitted — "who's winning" means current standings
+// (handled by BARE_STANDINGS_RE), not who won the last round.
+const TRIVIA_RESULT_RE = /\bwho\b[^?]*\b(won|winner)\b[^?]*\b(trivia|quiz|round|last\s*one)\b|\b(trivia|quiz)\s+(leaderboard|standings|scores?|rankings?|top)\b|\bdid\b[^?]*\bwin\b[^?]*\b(trivia|quiz|round)\b/i
 // of a matched result-question, which ones want the standings table vs the last winner.
 const TRIVIA_STANDINGS_RE = /\b(leaderboard|standings|scores?|rankings?|top)\b/i
 // a whole-query standings ask, answered from the exact trivia table (free, no AI). anchored
 // so only a bare command matches — a conversational mention falls through to the AI, which
 // is itself grounded with the standings data (ai-build STANDINGS_RE) so it answers too.
-const BARE_STANDINGS_RE = /^(?:the\s+|trivia\s+|quiz\s+|show\s+(?:me\s+)?(?:the\s+)?)?(?:leaderboard|leaderboards|standings|scoreboard|rankings?)\??$|^who(?:'?s|\s+is|\s+are)?\s+(?:winning|leading|in\s+(?:the\s+)?lead|on\s+top|first|ahead)(?:\s+(?:the\s+|in\s+|at\s+)?(?:trivia|quiz))?\??$/i
+const BARE_STANDINGS_RE = /^(?:the\s+|trivia\s+|quiz\s+|show\s+(?:me\s+)?(?:the\s+)?)?(?:leaderboard|leaderboards|standings|scoreboard|rankings?)\??$|^who(?:'?s|\s+is|\s+are)?\s+(?:winning|leading|in\s+(?:the\s+)?lead|on\s+top|first|ahead)(?:\s+(?:the\s+|in\s+|at\s+)?(?:trivia|quiz))?\??$|^who(?:\s+has|\s+got|'s\s+got)\s+(?:the\s+)?(?:most|highest|best|top)\s+(?:wins?|points?|scores?)\??$|^(?:points?|scores?|wins?)\s+leader(?:board)?\??$|^lead(?:er|ing)\s+in\s+(?:points?|wins?|scores?)\??$|^how\s+many\s+(?:trivia\s+|my\s+)?(?:wins?|points?|scores?)\s+(?:(?:do|have|got)\s+)?i\b.*$|^(?:do\s+i\s+have\s+)?(?:more|fewer|higher|better)\s+(?:trivia\s+)?(?:wins?|points?|scores?)\s+than\s+@\w+\??$/i
+
+// minimal levenshtein for single-token typo matching (standings keyword proximity check)
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0
+  const la = a.length, lb = b.length
+  if (la === 0) return lb
+  if (lb === 0) return la
+  const row = Array.from({ length: lb + 1 }, (_, i) => i)
+  for (let i = 1; i <= la; i++) {
+    let prev = i
+    for (let j = 1; j <= lb; j++) {
+      const cur = a[i - 1] === b[j - 1] ? row[j - 1] : Math.min(row[j - 1], row[j], prev) + 1
+      row[j - 1] = prev
+      prev = cur
+    }
+    row[lb] = prev
+  }
+  return row[lb]
+}
+
+const STANDINGS_WORDS = ['leaderboard', 'leaderboards', 'standings', 'scoreboard', 'rankings']
+// returns true if q is a single-token typo (edit dist <=1) of a standings keyword
+function isStandingsTypo(q: string): boolean {
+  if (q.includes(' ')) return false
+  const clean = q.toLowerCase().replace(/\?+$/, '')
+  return STANDINGS_WORDS.some((k) => levenshtein(clean, k) <= 1)
+}
 
 // strip conversational prefixes so "what is birdge" → "birdge"
 // "how about" / "what about" excluded — they're continuations, not direct lookups
@@ -812,7 +841,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // trivia top-5 table, free + no hallucination risk. anchored to the whole query so a
   // conversational mention ("i am talking about the leaderboard") falls through to the AI,
   // which is grounded with the same standings data in ai-build (so it never deflects either).
-  if (ctx.channel && BARE_STANDINGS_RE.test(cleanArgs)) {
+  if (ctx.channel && (BARE_STANDINGS_RE.test(cleanArgs) || (!store.exact(cleanArgs) && isStandingsTypo(cleanArgs)))) {
     const sfx = mentions.length ? ` ${mentions.join(' ')}` : ''
     if (isGameActive(ctx.channel)) return withSuffix(`a round's live right now — get your answer in!`, sfx)
     return withSuffix(getTriviaScore(ctx.channel), sfx)
