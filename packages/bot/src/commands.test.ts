@@ -104,6 +104,8 @@ mock.module('./ai', () => ({
   dedupeMention: mock((t: string) => t),
   capEmoteTotal: mock((t: string) => t),
   capRepeatedSpam: mock((t: string) => t),
+  // exported constant — must be the real regex so the dedup exemption works in tests
+  CONTINUE_RE: /^(continue|keep going|go on|carry on|more\b|next\b|finish( it)?|expand|extend|again\b|and then|then what)/i,
 }))
 
 // --- mock trivia ---
@@ -1765,7 +1767,7 @@ describe('command proxy: cooldowns', () => {
   it('second use within window shows cooldown', async () => {
     await handleCommand('!b !jory', ctx)
     const result = await handleCommand('!b !jory', ctx)
-    expect(result).toContain('!jory is on cooldown')
+    expect(result).toContain('on cooldown: jory')
     expect(result).toMatch(/\d+s/)
   })
 
@@ -1795,13 +1797,13 @@ describe('command proxy: cooldowns', () => {
   it('cooldown applies to embedded commands too', async () => {
     await handleCommand('!b !jory', ctx)
     const result = await handleCommand('!b yo run !jory pls', ctx)
-    expect(result).toContain('!jory is on cooldown')
+    expect(result).toContain('on cooldown: jory')
   })
 
   it('embedded command triggers cooldown for direct use', async () => {
     await handleCommand('!b hey do !jory pls', ctx)
     const result = await handleCommand('!b !jory', ctx)
-    expect(result).toContain('!jory is on cooldown')
+    expect(result).toContain('on cooldown: jory')
   })
 
   it('no cooldown without channel context', async () => {
@@ -2898,5 +2900,245 @@ describe('enchant path: validateTier parity (#23)', () => {
     const result = await handleCommand('!b fiery boomerang')
     expect(result).not.toBeNull()
     expect(result).not.toContain('max tier')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// FIX 1 — identity gate end-anchored (trailing words fall through to AI)
+// ---------------------------------------------------------------------------
+describe('identity gate: end-anchored regex', () => {
+  it('pure "what are you" returns the identity blurb', async () => {
+    const r = await handleCommand('!b what are you')
+    expect(r).toContain('twitch chatbot')
+  })
+
+  it('pure "what is this" returns the identity blurb', async () => {
+    const r = await handleCommand('!b what is this')
+    expect(r).toContain('twitch chatbot')
+  })
+
+  it('pure "what are you?" (with question mark) returns the blurb', async () => {
+    const r = await handleCommand('!b what are you?')
+    expect(r).toContain('twitch chatbot')
+  })
+
+  it('"what are you doing rn" does NOT return blurb (falls through to AI)', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'answering your stuff', mentions: [] }))
+    const r = await handleCommand('!b what are you doing rn', { user: 'u', channel: 'ig-1' })
+    expect(r).not.toContain('twitch chatbot')
+    expect(mockAiRespond).toHaveBeenCalled()
+  })
+
+  it('"what is this card do" does NOT return blurb', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'it deals damage', mentions: [] }))
+    const r = await handleCommand('!b what is this card do', { user: 'u', channel: 'ig-2' })
+    expect(r).not.toContain('twitch chatbot')
+  })
+
+  it('"what are you talking about lol" does NOT return blurb', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'about the item above', mentions: [] }))
+    const r = await handleCommand('!b what are you talking about lol', { user: 'u', channel: 'ig-3' })
+    expect(r).not.toContain('twitch chatbot')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// FIX 2 — mid-round standings returns score table, not the nag alone
+// ---------------------------------------------------------------------------
+describe('bare standings: mid-round returns score table + live note', () => {
+  beforeEach(() => { mockIsGameActive.mockReset(); mockIsGameActive.mockImplementation(() => false) })
+
+  it('mid-round leaderboard ask returns the score table (never just the nag)', async () => {
+    mockIsGameActive.mockImplementation(() => true)
+    const r = await handleCommand('!b leaderboard', { user: 'u', channel: 'fix2-ch' })
+    expect(r).toContain('no trivia scores yet')
+    expect(r).toContain("round's live")
+    expect(r).not.toBe("a round's live right now — get your answer in!")
+  })
+
+  it('no active round: leaderboard returns just the score table (no live note)', async () => {
+    const r = await handleCommand('!b leaderboard', { user: 'u', channel: 'fix2-ch2' })
+    expect(r).toBe('no trivia scores yet')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// FIX 3 — dedup note / continuation exemption / cooldown format
+// ---------------------------------------------------------------------------
+describe('dedup: distinct note instead of silent null', () => {
+  it('second identical query within 30s returns terse note, not null', async () => {
+    mockExact.mockImplementation((n) => n === 'boomerang' ? boomerang : undefined)
+    const ctx = { user: 'u', channel: 'dd-ch' }
+    const first = await handleCommand('!b boomerang', ctx)
+    expect(first).toContain('Boomerang')
+    const second = await handleCommand('!b boomerang', ctx)
+    expect(second).not.toBeNull()
+    expect(second).toContain('posted that just now')
+    expect(second).toContain('boomerang')
+  })
+
+  it('dedup note starts with ↑ not the literal answer (distinct from original)', async () => {
+    mockExact.mockImplementation((n) => n === 'boomerang' ? boomerang : undefined)
+    const ctx = { user: 'u', channel: 'dd-ch2' }
+    await handleCommand('!b boomerang', ctx)
+    const r = await handleCommand('!b boomerang', ctx)
+    expect(r).toMatch(/^↑/)
+  })
+
+  it('continuation queries ("continue", "more") are exempt from dedup', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'more story', mentions: [] }))
+    const ctx = { user: 'u', channel: 'dd-cont' }
+    await handleCommand('!b continue', ctx)
+    const second = await handleCommand('!b continue', ctx)
+    // must not return the dedup note — continuations are always freshly processed
+    expect(second).not.toContain('posted that just now')
+    expect(second).not.toMatch(/^↑/)
+  })
+
+  it('"keep going" is also exempt from dedup', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'going on', mentions: [] }))
+    const ctx = { user: 'u', channel: 'dd-kg' }
+    await handleCommand('!b keep going', ctx)
+    const second = await handleCommand('!b keep going', ctx)
+    expect(second).not.toContain('posted that just now')
+  })
+})
+
+describe('cooldown notice: does not start with "!"', () => {
+  it('proxy cooldown message starts with "on cooldown:", not "!"', async () => {
+    const ctx = { channel: 'cd-fmt-ch' }
+    await handleCommand('!b !lurk', ctx)
+    const second = await handleCommand('!b !lurk', ctx)
+    expect(second).not.toBeNull()
+    expect(second!.startsWith('!')).toBe(false)
+    expect(second).toContain('on cooldown: lurk')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// FIX 4 — directive "if X asks" conditional form + broadcaster mute guard
+// ---------------------------------------------------------------------------
+describe('DIRECTIVE_INTENT: "if X asks" conditional form', () => {
+  it('"if anyone asks about X" matches DIRECTIVE_INTENT', () => {
+    expect(DIRECTIVE_INTENT.test('if anyone asks about poison add a tip')).toBe(true)
+    expect(DIRECTIVE_INTENT.test('if someone asks about builds do it in pirate speak')).toBe(true)
+    expect(DIRECTIVE_INTENT.test('if anybody mentions burn explain it')).toBe(true)
+    expect(DIRECTIVE_INTENT.test('if chat asks about items respond formally')).toBe(true)
+    expect(DIRECTIVE_INTENT.test('if people talk about shields add the details')).toBe(true)
+  })
+
+  it('free-subject "if kripp asks" does NOT match (restricted to anyone/someone/people/chat)', () => {
+    // a free username subject is not in the allowed list — AI gate is not invoked
+    expect(DIRECTIVE_INTENT.test('if kripp asks about items do the thing')).toBe(false)
+  })
+})
+
+describe('handlePlantDirective: broadcaster mute guard', () => {
+  beforeEach(() => {
+    directives.resetForTest()
+    mockParseDirective.mockClear()
+  })
+
+  it('trying to mute the broadcaster returns rejection, not confirmation', async () => {
+    mockParseDirective.mockImplementation(async () => ({
+      trigger: [],
+      targetUser: 'bcastchan',
+      mute: true,
+      instruction: '',
+    }))
+    const r = await handleCommand("!b don't respond to bcastchan", {
+      user: 'viewer1',
+      channel: 'bcastchan',
+    })
+    expect(r).toContain("can't mute the broadcaster")
+    // directive must NOT have been stored
+    expect(directives.listDirectives('bcastchan').length).toBe(0)
+  })
+
+  it('muting a non-broadcaster target still works normally', async () => {
+    mockParseDirective.mockImplementation(async () => ({
+      trigger: [],
+      targetUser: 'someviewer',
+      mute: true,
+      instruction: '',
+    }))
+    const r = await handleCommand("!b don't respond to someviewer", {
+      user: 'viewer2',
+      channel: 'otherchan',
+    })
+    expect(r).toContain('ignoring someviewer')
+    expect(directives.listDirectives('otherchan').length).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// FIX 6 — multi-intent short-circuits (targeted)
+// ---------------------------------------------------------------------------
+describe('fix6a: spam path with embedded question falls through', () => {
+  it('"spam KEKW and tell me whats the meta build rn" routes to AI, not spam', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'meta is shield stacking', mentions: [] }))
+    const r = await handleCommand('!b spam KEKW and tell me whats the meta build rn', { user: 'u', channel: 'fix6a-1' })
+    expect(mockAiRespond).toHaveBeenCalled()
+    expect(r).not.toBe('KEKW KEKW KEKW KEKW KEKW')
+    expect(r).not.toContain('KEKW KEKW KEKW')
+  })
+
+  it('"spam KEKW" with no question still works normally (5x emote)', async () => {
+    const r = await handleCommand('!b spam KEKW', { user: 'u', channel: 'fix6a-2' })
+    expect(r).toContain('KEKW KEKW KEKW KEKW KEKW')
+  })
+
+  it('"spam KEKW pls" (no question word) still spams', async () => {
+    const r = await handleCommand('!b spam KEKW pls', { user: 'u', channel: 'fix6a-3' })
+    // "pls" is not a question word — spam should fire
+    expect(r).toContain('KEKW')
+    // 5 KEKW
+    const count = (r?.match(/KEKW/g) ?? []).length
+    expect(count).toBe(5)
+  })
+})
+
+describe('fix6b: embedded proxy skips when substantive subject precedes the !cmd', () => {
+  it('"tell me about pegasus and run !uptime" — does the lookup, not the proxy', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'pegasus info here', mentions: [] }))
+    const r = await handleCommand('!b tell me about pegasus and run !uptime', { user: 'u', channel: 'fix6b-1' })
+    // should NOT proxy !uptime
+    expect(r).not.toBe('!uptime')
+    // falls through to AI or item lookup
+    expect(r).not.toBeNull()
+  })
+
+  it('"yo run !jory pls" still proxies (no substantive subject)', async () => {
+    const r = await handleCommand('!b yo run !jory pls', { user: 'u', channel: 'fix6b-2' })
+    expect(r).toBe('!jory')
+  })
+
+  it('"run !jory 932 please" still proxies', async () => {
+    const r = await handleCommand('!b run !jory 932 please', { user: 'u', channel: 'fix6b-3' })
+    expect(r).toBe('!jory 932')
+  })
+})
+
+describe('fix6c: glossary + standings compound result', () => {
+  it('"what does burn do and who is winning" returns glossary + standings', async () => {
+    const r = await handleCommand('!b what does burn do and who is winning', { user: 'u', channel: 'fix6c-1' })
+    expect(r).not.toBeNull()
+    expect(r).toContain('Burn:')
+    expect(r).toContain('no trivia scores yet')
+  })
+
+  it('"what is poison and who is on the leaderboard" returns both', async () => {
+    const r = await handleCommand('!b what is poison and who is on the leaderboard', { user: 'u', channel: 'fix6c-2' })
+    expect(r).not.toBeNull()
+    expect(r).toContain('Poison:')
+    expect(r).toContain('no trivia scores yet')
+  })
+
+  it('a lone glossary query without standings still works normally', async () => {
+    const r = await handleCommand('!b what does burn do', { user: 'u', channel: 'fix6c-3' })
+    expect(r).not.toBeNull()
+    expect(r).toContain('Burn:')
+    // no standings appended when no standings clause present
+    expect(r).not.toContain('no trivia scores yet')
   })
 })

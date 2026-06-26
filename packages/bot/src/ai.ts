@@ -37,6 +37,10 @@ export function safeStringify(body: unknown): string {
 
 // --- constants ---
 
+// exported so commands.ts can exempt continuations from the 30s dedup window.
+// single source of truth — never duplicate this regex.
+export const CONTINUE_RE = /^(continue|keep going|go on|carry on|more\b|next\b|finish( it)?|expand|extend|again\b|and then|then what)/i
+
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const CHAT_MODEL = 'claude-sonnet-4-6'
 const MAX_TOKENS_GAME = 100
@@ -103,7 +107,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   // "keep going", "more"…) are LEGITIMATELY repeated — each one extends the story with
   // new content — so they're exempt; otherwise the 3rd "continue" reads as spam and the
   // bot bails on an active bit.
-  const isContinue = /^(continue|keep going|go on|carry on|more\b|next\b|finish( it)?|expand|extend|again\b|and then|then what)/i.test(query.trim())
+  const isContinue = CONTINUE_RE.test(query.trim())
   if (!isVip && !isContinue && isRepeatAbuse(ctx.user, query)) {
     log(`ai: repeat abuse from ${ctx.user}, dropping`)
     return null
