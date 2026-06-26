@@ -4,7 +4,7 @@ import * as db from './db'
 import { log } from './log'
 import { resolveTooltip } from '@bazaarinfo/shared'
 import type { Monster } from '@bazaarinfo/shared'
-import { pickEmoteByMood } from './emotes'
+import { pickEmoteByMood, isEmote } from './emotes'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
@@ -858,6 +858,17 @@ const CHAT_NOISE = new Set([
   'w', 'l', 'hi', 'hey', 'yo', 'sup', 'bye',
 ])
 
+// leading guess-framing patterns that add no information but often wrap the real answer
+const GUESS_FRAMING_RE = /^(?:is it|maybe|gotta be|i think it'?s|it'?s|the answer is)\s+/i
+
+// drop leading emote tokens then strip guess-framing + trailing ? so
+// "PauseChamp dooltar" and "is it sword of mercy?" resolve to the bare answer.
+function stripGuessNoise(text: string): string {
+  const tokens = text.split(/\s+/)
+  const withoutEmotes = tokens.filter((t) => !isEmote(t)).join(' ').trim()
+  return withoutEmotes.replace(GUESS_FRAMING_RE, '').replace(/\?+$/, '').trim()
+}
+
 function looksLikeAnswer(text: string, game: TriviaState): boolean {
   if (text.length < MIN_ANSWER_LENGTH) return false
   // skip messages that start with ! (bot commands)
@@ -1121,9 +1132,17 @@ export function checkAnswer(
   game.participants.add(username)
   db.recordTriviaAttempt(userId)
 
+  // also try with leading emotes + guess-framing stripped; win on either form
+  const strippedTrimmed = stripGuessNoise(trimmed)
+  const strippedNormed = norm(strippedTrimmed)
+  const strippedCleaned = strippedNormed || strippedTrimmed.toLowerCase()
+
   // "any ..." questions are multi-answer pools — exact+alias only (no fuzzy false-wins).
   const allowFuzzy = !game.correctAnswer.startsWith('any')
   let isCorrect = matchAnswer(cleaned, game.acceptedAnswers, allowFuzzy)
+  if (!isCorrect && strippedCleaned && strippedCleaned !== cleaned) {
+    isCorrect = matchAnswer(strippedCleaned, game.acceptedAnswers, allowFuzzy)
+  }
   // type 11 (exact monster HP) is brutal — accept a guess within ±10% of the true value
   // so "4400" wins for a 4700 HP monster instead of enraging a close, knowledgeable guess.
   if (!isCorrect && game.questionType === 11 && game.acceptedAnswers.length === 1) {
