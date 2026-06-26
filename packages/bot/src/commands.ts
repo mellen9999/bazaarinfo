@@ -8,6 +8,7 @@ import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, type Cu
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam } from './ai'
+import { isLowValue } from './ai-query'
 import { isEmote, findEmote } from './emotes'
 import { glossaryAnswer, isBareKeyword } from './glossary'
 import { getThread, getRecent } from './chatbuf'
@@ -900,8 +901,12 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
       try { db.logCommand(ctx, 'ai', cleanArgs, 'fallback') } catch {}
       return response
     }
-    // never go silent on a creative/conversational ask — a transient AI miss
-    // (timeout, retry-exhaustion) still gets an answer. every !b is answered.
+    // a deliberate low-value reaction (gg/lol/pog, punctuation, 1-2 chars) is a DECLINE,
+    // not a transient failure — stay silent rather than lie with a "glitched, run it back"
+    // line that invites a doomed retry. aiBusyLine is strictly for real-query transient misses.
+    if (isLowValue(cleanArgs)) return null
+    // never go silent on a real creative/conversational ask — a transient AI miss
+    // (timeout, retry-exhaustion) still gets an answer. every real !b is answered.
     return withSuffix(aiBusyLine(), suffix)
   }
 
