@@ -356,9 +356,10 @@ const GOODBYE = /^(bye|gn|cya|later|peace|deuces|adios|night|goodnight|nini|gnig
 const STATUS_CHECK = /^(are you (alive|there|working|on|up|awake|ok|dead)|you (there|up|alive|on|awake|dead|working)|still (alive|there|working|on|up)|alive\??|working\??|you good\??|u good\??|u there\??|u alive\??|bot\??)$/i
 
 export function isLowValue(query: string): boolean {
-  if (query.length <= 2 && !GREETINGS.test(query)) return true
+  // codepoint-aware so CJK/script greetings (你好, 안녕) aren't miscounted/rejected as noise
+  if ([...query].length <= 2 && !GREETINGS.test(query) && !/\p{L}/u.test(query)) return true
   if (/^[!./]/.test(query)) return true
-  if (/^[^a-zA-Z0-9]*$/.test(query)) return true
+  if (/^[^\p{L}\p{N}]*$/u.test(query)) return true
   if (REACTIONS.test(query.trim())) return true
   return false
 }
