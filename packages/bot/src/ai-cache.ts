@@ -168,25 +168,49 @@ export function recordUsage(user?: string, isGame = false, channel?: string) {
 }
 
 // --- circuit breaker ---
-
-const CB_THRESHOLD = 5
-const CB_COOLDOWN = 300_000
-let cbFailures = 0
+// trips on a high failure RATE within a recent window, not on N *consecutive* failures.
+// a partial upstream slowdown (say half the calls time out at the 12s deadline) never
+// chains 5 failures in a row — every success reset the old consecutive counter — so the
+// breaker never opened, and every other user ate a full deadline wait then a transient-miss
+// fallback. that's the "backed up 45s then dumped a wall of glitch lines" failure mode.
+// windowed-rate tripping catches it: once open we shed load instantly with one honest line
+// instead of holding the queue, and a short cooldown lets a brief blip recover fast.
+const CB_WINDOW = 20_000      // outcomes older than this are forgotten
+const CB_MIN_SAMPLES = 5      // need a few recent calls before judging
+const CB_FAIL_RATIO = 0.5     // trip when at least half the window failed
+const CB_COOLDOWN = 30_000    // open duration — short so "rebooting" matches reality
+let cbOutcomes: { t: number; ok: boolean }[] = []
 let cbOpenUntil = 0
 
-export function cbRecordSuccess() { cbFailures = 0 }
+function cbPrune(now: number) {
+  const cutoff = now - CB_WINDOW
+  let i = 0
+  while (i < cbOutcomes.length && cbOutcomes[i].t < cutoff) i++
+  if (i > 0) cbOutcomes.splice(0, i)
+}
+export function cbRecordSuccess() {
+  const now = Date.now()
+  cbPrune(now)
+  cbOutcomes.push({ t: now, ok: true })
+}
 export function cbRecordFailure() {
-  cbFailures++
-  if (cbFailures >= CB_THRESHOLD) {
-    cbOpenUntil = Date.now() + CB_COOLDOWN
-    log(`ai: circuit breaker OPEN — ${CB_THRESHOLD} consecutive failures, cooling down ${CB_COOLDOWN / 1000}s`)
+  const now = Date.now()
+  cbPrune(now)
+  cbOutcomes.push({ t: now, ok: false })
+  const fails = cbOutcomes.reduce((n, o) => n + (o.ok ? 0 : 1), 0)
+  if (cbOutcomes.length >= CB_MIN_SAMPLES && fails / cbOutcomes.length >= CB_FAIL_RATIO) {
+    cbOpenUntil = now + CB_COOLDOWN
+    cbOutcomes = []   // reset so the post-cooldown probe burst is judged fresh
+    log(`ai: circuit breaker OPEN — ${fails} failures in last ${CB_WINDOW / 1000}s, cooling down ${CB_COOLDOWN / 1000}s`)
   }
 }
 export function cbIsOpen(): boolean {
   if (cbOpenUntil === 0) return false
   if (Date.now() >= cbOpenUntil) {
+    // cooldown elapsed: close and let traffic re-probe. if upstream is still down, the
+    // next CB_MIN_SAMPLES failures re-trip it — a bounded probe burst, no flapping.
     cbOpenUntil = 0
-    cbFailures = 0
+    cbOutcomes = []
     log('ai: circuit breaker CLOSED — retrying')
     return false
   }
