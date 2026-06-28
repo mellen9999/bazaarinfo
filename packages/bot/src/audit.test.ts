@@ -115,10 +115,11 @@ describe('system prompt', () => {
   // runaway-growth guard, not a tight budget: the system prompt is cached
   // server-side (cache_control ephemeral in ai.ts), so size is paid once per
   // cache window, not per call. raised 6700->8000 after personality tuning, then
-  // ->8600 for the real-death/tragedy sensitivity rule (genie incident).
-  it('is under 8600 chars (runaway-growth guard)', () => {
+  // ->8600 for the real-death/tragedy sensitivity rule (genie incident), ->8800
+  // for the no-latency-excuses brush-off rule.
+  it('is under 8800 chars (runaway-growth guard)', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt.length).toBeLessThan(8600)
+    expect(prompt.length).toBeLessThan(8800)
   })
 
   it('contains core identity', () => {

@@ -38,12 +38,14 @@ function noMatchMsg(query: string): string {
 }
 
 // transient-AI-miss fallback for creative/conversational asks — keeps the "answer
-// every !b" contract when the model times out or exhausts retries. on-vibe, retryable.
+// every !b" contract when the model times out or exhausts retries. these stay HONEST
+// (it's upstream latency, not the bot "glitching") and DON'T beg an instant retry — an
+// "ask again now" line during a slowdown just amplifies the load that caused the miss.
 const AI_BUSY_LINES = [
-  'brain glitched on that one — hit me again',
-  'lost my train of thought, run it back',
-  'that one broke me for a sec, try once more',
-  'merchant fumbled the scroll — ask again',
+  'ai servers are lagging rn, give it a few seconds',
+  'upstream hiccup on that one, try again in a bit',
+  'brain server is crawling right now, one sec',
+  'merchant fumbled the scroll — slow servers, ask again shortly',
 ]
 let aiBusyIdx = 0
 function aiBusyLine(): string {
