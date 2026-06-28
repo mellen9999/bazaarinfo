@@ -135,7 +135,9 @@ export function pickDistinctLenses(channel: string, k: number): string[] {
 // parallel => higher chance one survives verification (low null rate, so questions stay
 // on-topic instead of falling to the curated pool) AND we get to ship the strongest of
 // several. parallel calls => no extra latency over a single attempt, only more tokens.
-const CANDIDATES = 4
+// 6 (was 4): the unanimous 3-lens gate + solver "differs => reject" wipes verifiable-but-
+// debatable topics to zero survivors at 4; two more angles keep them off the curated pool.
+const CANDIDATES = 6
 
 const BROADEN = 'Play it safe: pick the single most well-established, certainly-true fact you know that connects to this topic — zoom out to its broader subject if needed — and ask a clean question whose answer is one crisp nameable thing.'
 

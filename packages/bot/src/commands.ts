@@ -52,6 +52,10 @@ function aiBusyLine(): string {
   return AI_BUSY_LINES[aiBusyIdx++ % AI_BUSY_LINES.length]
 }
 
+// trivial words allowed around an emote in "<emote> spam" intent — stripped before the
+// all-tokens-are-emotes check so "the 67 spam" still fires but "stop the 67 spam" doesn't.
+const SPAM_FILLER = new Set(['this', 'it', 'the', 'a', 'some', 'pls', 'please', 'x', 'times'])
+
 /** shared AI call + post-processing (dedup emotes/mentions, append missing @mentions) */
 async function tryAiRespond(query: string, ctx: CommandContext, mentions: string[] = []): Promise<string | null> {
   let result: Awaited<ReturnType<typeof aiRespond>> = null
@@ -958,6 +962,22 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     }
   }
 
+  // emote-FIRST spam intent — chat says it both ways ("spam 67" AND "67 spam"). stricter
+  // than the leading form: every non-filler token must be a known emote, so a complaint
+  // ("stop the 67 spam") or a question never triggers a wall. without this the emote-first
+  // order fell through to AI, which posted the emote once instead of the 5x wall.
+  const spamTrail = cleanArgs.match(/^(.+?)\s+spam(?:\s+(?:this|it|pls|please))?$/i)
+  if (spamTrail) {
+    const tokens = spamTrail[1].trim().split(/\s+/).filter(Boolean)
+    const nonFiller = tokens.filter((t) => !SPAM_FILLER.has(t.toLowerCase()))
+    const emotes = [...new Set(nonFiller.map((t) => findEmote(t)).filter((e): e is string => !!e))]
+    if (nonFiller.length > 0 && emotes.length === nonFiller.length && emotes.length <= 5 && emotes.every((t) => t.length <= 30)) {
+      const out: string[] = []
+      while (out.length < 5) out.push(emotes[out.length % emotes.length])
+      return withSuffix(out.join(' '), suffix)
+    }
+  }
+
   // bare emote = spam intent. chat-norm for "!b <emote>" is participation,
   // not "what does this emote mean" — let the AI handle the question form
   // (e.g. "what is X?"), but a single emote name always = 5x spam.
@@ -1145,7 +1165,10 @@ const CHAT_TRIVIA_RE = /^(?:the |this |our |these )?(?:chat|conversation|convo|m
 // can answer", where kripp is the audience). anchoring to the start is what separates
 // subject from incidental mention, so an off-topic ask never gets hijacked to the streamer
 // pack — the framing strip above is the first line of defense, this anchor is the backstop.
-const KRIPP_TOPIC_RE = /^(?:the\s+)?(?:kripp(?:a|arrian|arian|errian)?|octavian)\b/i
+// the optional "nl" prefix catches the channel's own login form ("nl_kripp"/"nl kripp") —
+// that IS the kripp subject, but without it the handle drops into the AI pipeline, drifts
+// off-subject, and dead-ends in a generic fallback question.
+const KRIPP_TOPIC_RE = /^(?:the\s+)?(?:nl[_\s]?)?(?:kripp(?:a|arrian|arian|errian)?|octavian)\b/i
 
 // pull the recent chat log for chat-trivia: drop the bot's own lines + empties,
 // strip a leading command trigger so messages read naturally.
@@ -1284,10 +1307,13 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
       }
       // a world-knowledge topic must NEVER dead-end. if the AI couldn't make one (niche
       // subject the verifier won't confirm, daily cap, no key, API hiccup), fall back to a
-      // curated, always-true question so chat still gets a round — no "clearer topic" miss.
+      // curated, always-true question so chat still gets a round — but LABEL it as a random
+      // substitute. silently serving an unrelated question reads as "the bot ignored my
+      // topic"; saying so up front keeps it honest (and still never dead-ends).
       if (!q) {
         const fb = startFallbackTrivia(channel)
-        return withSuffix(fb ?? `trivia's catching its breath — try again in a sec`, suffix)
+        if (!fb) return withSuffix(`trivia's catching its breath — try again in a sec`, suffix)
+        return withSuffix(`couldn't cook one about "${t.slice(0, 40)}" — random one instead: ${fb}`, suffix)
       }
       return withSuffix(startCustomTrivia(channel, q), suffix)
     }
