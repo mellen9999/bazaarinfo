@@ -171,7 +171,7 @@ mock.module('./ai-directive', () => ({
 }))
 
 // --- mock emotes ---
-const TEST_EMOTES = new Set(['KEKW', 'Sadge', 'LULW', 'LICK', 'PogChamp', 'LUL', 'OMEGALUL', 'Kappa'])
+const TEST_EMOTES = new Set(['KEKW', 'Sadge', 'LULW', 'LICK', 'PogChamp', 'LUL', 'OMEGALUL', 'Kappa', '67'])
 mock.module('./emotes', () => ({
   isEmote: mock((name: string) => TEST_EMOTES.has(name)),
   findEmote: mock((name: string) => TEST_EMOTES.has(name) ? name : undefined),
@@ -1982,6 +1982,29 @@ describe('spam wall cap', () => {
     expect(t.length).toBe(5)
     expect(out).not.toMatch(/pls|Clanker/)
   })
+
+  // emote-FIRST order ("67 spam") — the live miss: it fell through to AI and posted once
+  it('handles emote-first spam intent "67 spam" → 5 copies', async () => {
+    const out = await handleCommand('!b 67 spam', { user: 'u', channel: 'c' })
+    const t = tokens(out).filter((w) => w === '67')
+    expect(t.length).toBe(5)
+  })
+
+  it('emote-first works with a real emote name too ("KEKW spam")', async () => {
+    const out = await handleCommand('!b KEKW spam', { user: 'u', channel: 'c' })
+    expect(tokens(out).filter((w) => w === 'KEKW').length).toBe(5)
+  })
+
+  it('emote-first allows trivial filler ("the 67 spam")', async () => {
+    const out = await handleCommand('!b the 67 spam', { user: 'u', channel: 'c' })
+    expect(tokens(out).filter((w) => w === '67').length).toBe(5)
+  })
+
+  it('emote-first does NOT fire on a complaint ("stop the 67 spam")', async () => {
+    const out = await handleCommand('!b stop the 67 spam', { user: 'u', channel: 'c' })
+    // not a 5x wall — a non-emote word ("stop") means it's not a spam request
+    expect(tokens(out).filter((w) => w === '67').length).toBeLessThan(5)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -2236,6 +2259,13 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('kripp', 'ct-kp2', [], [])
   })
 
+  it('routes the channel login form "nl_kripp" to the curated pack, not the AI pipeline', async () => {
+    mockStartKrippTrivia.mockImplementation(() => 'Trivia! kripp pack question (30s)')
+    const res = await handleCommand('!b trivia about nl_kripp', { user: 'u', channel: 'ct-nlk' })
+    expect(res).toBe('Trivia! kripp pack question (30s)')
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+  })
+
   it('routes an arbitrary topic to the AI generator then launches a custom round', async () => {
     const res = await handleCommand('!b trivia roman history', { user: 'u', channel: 'ct-1' })
     expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('roman history', 'ct-1', [], [])
@@ -2248,13 +2278,16 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     expect(res).toBe('Trivia! custom question (30s)')
   })
 
-  it('falls back to a curated round (never "clearer topic") when generation fails', async () => {
+  it('falls back to a curated round (never "clearer topic") when generation fails, LABELED with the topic', async () => {
     mockGenerateCustomTrivia.mockImplementation(async () => null)
     mockStartFallbackTrivia.mockImplementation(() => 'Trivia! fallback question (30s)')
     const res = await handleCommand('!b trivia asdfqwer nonsense', { user: 'u', channel: 'ct-3' })
     expect(mockStartFallbackTrivia).toHaveBeenCalled()
     expect(res).toContain('Trivia!')
     expect(res).not.toContain('clearer topic')
+    // the substitute must announce itself, not masquerade as the requested topic
+    expect(res).toContain("couldn't cook one about")
+    expect(res).toContain('asdfqwer')
   })
 
   it('only soft-fails (no clearer-topic) if even the curated pack is empty', async () => {
