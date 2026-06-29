@@ -192,6 +192,10 @@ export class TwitchClient {
   // reply completions go out spaced like human typing instead of a burst (which reads
   // as spam and risks the 30min lockout). first message after idle still goes immediately.
   private pacerTimer: Timer | null = null
+  // true while a send is in flight (the pacer callback nulls pacerTimer before its async
+  // sendOne await). without this, a concurrent say()->kickPacer during that await sees
+  // pacerTimer===null and schedules a SECOND drain → two helix POSTs race / reorder.
+  private draining = false
   private lastSendAt = 0
   private readonly SEND_GAP = 400
   // twitch chat rate limiting uses TWO account-wide buckets, each refilling over 30s
@@ -797,7 +801,7 @@ export class TwitchClient {
   // drain the queue one message at a time, paced by SEND_GAP and the rate buckets.
   // re-arms itself while messages remain; only one timer is ever in flight.
   private kickPacer() {
-    if (this.pacerTimer || !this.ircReady || this.ircQueue.length === 0) return
+    if (this.pacerTimer || this.draining || !this.ircReady || this.ircQueue.length === 0) return
     const head = this.ircQueue[0]
     // wait for whichever binds: the rate bucket (poll in 1s) or the inter-message gap.
     const wait = this.canSend(head.channel) ? Math.max(0, this.SEND_GAP - (Date.now() - this.lastSendAt)) : 1000
@@ -814,7 +818,15 @@ export class TwitchClient {
       }
       if (!this.canSend(next.channel)) { this.kickPacer(); return }
       this.ircQueue.shift()
-      const ok = await this.sendOne(next.channel, next.text, next.replyTo)
+      // hold the single-drain invariant across the async send: kickPacer() is guarded on
+      // `draining`, so a concurrent say() queues its line but can't open a parallel drain.
+      this.draining = true
+      let ok: boolean
+      try {
+        ok = await this.sendOne(next.channel, next.text, next.replyTo)
+      } finally {
+        this.draining = false
+      }
       if (!ok) {
         // both helix and IRC failed (e.g. token refresh window + socket mid-reconnect).
         // bump lastSendAt so SEND_GAP applies on the retry path, then re-arm with a fixed

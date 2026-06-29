@@ -136,6 +136,11 @@ async function resolveRecruit(channel: string, run: Run): Promise<void> {
   votes.clearVotes(channel)
   const archetype = await generateArchetype(top, channel) // never null -> default kit
   if (isLiveFn(channel)) { clearTimer(channel); return }   // re-check: AI call can span a go-live
+  // ownership re-check: a mod `depths reset` (or any run replacement) during the ~12-24s
+  // archetype await would have runs.delete'd this run + deleted its DB row. without this guard
+  // the stale closure resurrects the deleted row (persist re-INSERTs) and posts a hero-reveal
+  // for a run that no longer exists — memory/DB desync + a ghost run on next restart.
+  if (runs.get(channel) !== run) return
   state.startRun(run, archetype)
   reopen(run)
   say(channel, render.renderHeroReveal(run))

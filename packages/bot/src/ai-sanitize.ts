@@ -421,11 +421,14 @@ export const EMOTE_CAP_PER_MSG = 5
 
 // catches AI emote-spam outputs that bypass the channel-emote cap (token shaped like an emote,
 // but absent from getEmotesForChannel — e.g. 7TV emotes not yet in the cache for this channel).
-// only acts on PascalCase/ALL-CAPS tokens repeated 6+ times in a row; leaves lowercase repeats alone
-// (so "the the the the the the the" is untouched).
+// acts on emote-SHAPED tokens repeated 6+ times in a row: PascalCase/ALL-CAPS (KEKW, OMEGALUL)
+// AND lowercase-initial camelCase (monkaS, widepeepoHappy, peepoBlanket — the bulk of 7TV).
+// plain all-lowercase words are left alone (so "the the the the the the the" is untouched), since
+// they're indistinguishable from prose.
 export function capRepeatedSpam(text: string, max = EMOTE_CAP_PER_MSG): string {
   return text.replace(/(\b\w{2,15}\b)((?:\s+\1\b){5,})/g, (full, tok: string) => {
-    if (!/^[A-Z]/.test(tok)) return full
+    const emoteShaped = /^[A-Z]/.test(tok) || /^[a-z]\w*[A-Z]/.test(tok)
+    if (!emoteShaped) return full
     return Array(max).fill(tok).join(' ')
   })
 }

@@ -43,6 +43,18 @@ export const CONTINUE_RE = /^(continue|keep going|go on|carry on|more\b|next\b|f
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const CHAT_MODEL = 'claude-sonnet-4-6'
+
+// circuit-breaker-open lines — the breaker trips during the exact high-load window where
+// many users hit !b at once, and Twitch silently drops a bot's identical consecutive lines.
+// a single constant would leave most concurrent askers with dead air, so rotate an honest,
+// non-retry-nagging pool (mirrors AI_BUSY_LINES in commands.ts) to dodge the dup filter.
+const CB_OPEN_LINES = [
+  'brain is rebooting, give it a sec',
+  'upstream ai is down rn, back in a moment',
+  'ai server hiccup — recovering, try shortly',
+  'merchant dropped the scroll, servers catching up',
+]
+let cbOpenIdx = 0
 const MAX_TOKENS_GAME = 100
 const MAX_TOKENS_CHAT = 80
 const MAX_TOKENS_PASTA = 200
@@ -90,7 +102,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (query.length > AI_MAX_QUERY_LEN) query = query.slice(0, AI_MAX_QUERY_LEN)
   if (!ctx.user || !ctx.channel) return null
   if (!AI_CHANNELS.has(ctx.channel.toLowerCase())) return null
-  if (cbIsOpen()) return { text: 'brain is rebooting, try again in a sec', mentions: [] }
+  if (cbIsOpen()) return { text: CB_OPEN_LINES[cbOpenIdx++ % CB_OPEN_LINES.length], mentions: [] }
 
   const isVip = AI_VIP.has(ctx.user.toLowerCase())
   const isGame = GAME_TERMS.test(query)

@@ -114,19 +114,38 @@ export function getChannelTopEmotes(channel: string): string[] {
 
 const buildingStyle = new Set<string>()
 
+function buildAndStore(channel: string, now: number) {
+  if (buildingStyle.has(channel)) return // in-flight guard
+  buildingStyle.add(channel)
+  try {
+    const style = buildStyle(channel)
+    styleCache.set(channel, style)
+    lastRefresh.set(channel, now)
+  } finally {
+    buildingStyle.delete(channel)
+  }
+}
+
 function ensureCache(channel: string) {
   const now = Date.now()
   const last = lastRefresh.get(channel) ?? 0
-  if (now - last > REFRESH_INTERVAL || !styleCache.has(channel)) {
-    if (buildingStyle.has(channel)) return // in-flight guard
+  if (!styleCache.has(channel)) {
+    // cold cache — must build synchronously; the caller needs data now (startup preload path).
+    buildAndStore(channel, now)
+  } else if (now - last > REFRESH_INTERVAL && !buildingStyle.has(channel)) {
+    // warm but stale — buildStyle scans ~5000 rows synchronously (bun:sqlite), so rebuilding
+    // in-band would freeze the event loop on the one unlucky !b that crosses the 6h boundary.
+    // serve the existing (slightly stale) style now and rebuild off the hot path instead.
     buildingStyle.add(channel)
-    try {
-      const style = buildStyle(channel)
-      styleCache.set(channel, style)
-      lastRefresh.set(channel, now)
-    } finally {
-      buildingStyle.delete(channel)
-    }
+    setTimeout(() => {
+      try {
+        const style = buildStyle(channel)
+        styleCache.set(channel, style)
+        lastRefresh.set(channel, now)
+      } finally {
+        buildingStyle.delete(channel)
+      }
+    }, 0)
   }
 }
 

@@ -3035,6 +3035,24 @@ describe('dedup: distinct note instead of silent null', () => {
     const second = await handleCommand('!b keep going', ctx)
     expect(second).not.toContain('posted that just now')
   })
+
+  it('dynamic subcommands (score/stats/skip) are exempt — their output changes between calls', async () => {
+    const ctx = { user: 'u', channel: 'dd-dyn' }
+    await handleCommand('!b score', ctx)
+    const second = await handleCommand('!b score', ctx)
+    // a repeat !b score must re-read live standings, not return the stale dedup note
+    expect(second).not.toContain('posted that just now')
+    expect(second).not.toMatch(/^↑/)
+  })
+})
+
+describe('bare !b stats targets the caller', () => {
+  it('"!b stats" with no @target returns the asker\'s own stats, not user "stats"', async () => {
+    const r = await handleCommand('!b stats', { user: 'cooluser', channel: 'st-ch' })
+    // formatStats mock echoes the target; must be the caller, never the literal word "stats"
+    expect(r).toContain('cooluser')
+    expect(r).not.toContain('[stats]')
+  })
 })
 
 describe('cooldown notice: does not start with "!"', () => {
