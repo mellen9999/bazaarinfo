@@ -370,6 +370,14 @@ export function suggest(query: string, limit = 3): string[] {
   return scored.filter((r) => r.score <= SUGGEST_GATE).map((r) => r.item.Title)
 }
 
+// did-you-mean for a missed MONSTER lookup — searches the monster index, never the card
+// index (so a monster typo gets monster names back, not item titles).
+export function monsterSuggest(query: string, limit = 3): string[] {
+  return monsterIndex.search(resolveAlias(query), { limit })
+    .filter((r) => (r.score ?? 1) <= 0.25)
+    .map((r) => r.item.Title)
+}
+
 export function getHeroNames(): string[] { return heroNames }
 export function getTagNames(): string[] { return tagNames }
 const TOOLTIP_STOP_WORDS = new Set([

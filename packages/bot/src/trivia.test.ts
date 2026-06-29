@@ -175,6 +175,7 @@ mock.module('./emotes', () => ({
 const {
   startTrivia,
   startCustomTrivia,
+  skipTrivia,
   checkAnswer,
   isGameActive,
   getTriviaScore,
@@ -358,6 +359,16 @@ describe('looksLikeAnswer', () => {
 
   it('allows multi-word answers', () => {
     expect(looksLikeAnswer('tower shield', game())).toBe(true)
+  })
+
+  // FIX 1 regression: chat-slang that exactly matches an accepted answer must NOT be filtered
+  it('chat-noise token that IS an accepted answer returns true', () => {
+    // "copium" is in CHAT_NOISE but is also a valid answer here
+    expect(looksLikeAnswer('copium', game({ acceptedAnswers: ['copium'] }))).toBe(true)
+  })
+
+  it('chat-noise token that is NOT an accepted answer still returns false', () => {
+    expect(looksLikeAnswer('copium', game({ acceptedAnswers: ['boomerang'] }))).toBe(false)
   })
 })
 
@@ -1387,5 +1398,45 @@ describe('emote-prefix and guess-framing stripping', () => {
     checkAnswer('#strip4', 'viewer', 'is it maybe?', mockSay)
     expect(isGameActive('#strip4')).toBe(true)
     expect(mockRecordTriviaWin).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// FIX 3 regression — multi-answer reveal must include example items
+// ---------------------------------------------------------------------------
+describe('revealAnswer — pool descriptions include e.g. items', () => {
+  it('"any Toxic item" timeout reveal includes "e.g." with real accepted titles', () => {
+    startCustomTrivia('#reveal1', {
+      question: 'Name a Toxic item',
+      answer: 'any Toxic item',
+      accept: ['venom flask', 'poison ring'],
+    })
+    const g = getActiveGameForTest('#reveal1')!
+    expect(g.correctAnswer).toBe('any Toxic item')
+    const msg = skipTrivia('#reveal1')
+    expect(msg).toContain('e.g.')
+    expect(msg).toMatch(/e\.g\. \w/)
+  })
+
+  it('"any of: a,b,c" correctAnswer is NOT double-listed', () => {
+    startCustomTrivia('#reveal2', {
+      question: 'Name a monster on day 3',
+      answer: 'any of: spider, rat, bat',
+      accept: ['spider', 'rat', 'bat'],
+    })
+    const msg = skipTrivia('#reveal2')
+    expect(msg).not.toContain('e.g.')
+    expect(msg).toContain('any of: spider, rat, bat')
+  })
+
+  it('single-title answer is unchanged', () => {
+    startCustomTrivia('#reveal3', {
+      question: 'Which hero uses boomerang?',
+      answer: 'Pygmalien',
+      accept: ['pygmalien'],
+    })
+    const msg = skipTrivia('#reveal3')
+    expect(msg).toContain('Pygmalien')
+    expect(msg).not.toContain('e.g.')
   })
 })

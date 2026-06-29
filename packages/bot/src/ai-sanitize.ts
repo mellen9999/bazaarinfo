@@ -44,7 +44,10 @@ export function hasHallucinatedStats(text: string, creative = false, otherGame =
   if (creative || otherGame) return false
   return STAT_BARE.test(text) || STAT_LOOSE.test(text)
 }
-export const DIPLOMATIC_REFUSAL = /\b(can'?t (do|pick|choose) favorites?|play favorites|everyone is (great|special|equal)|not gonna (pick|choose) favorites?|not gonna rank (chatters?|people|users?|favorites?)|no favorites)\b/i
+export const DIPLOMATIC_REFUSAL = /\b(can'?t (do|pick|choose) favorites?|play favorites|not gonna (pick|choose) favorites?|not gonna rank (chatters?|people|users?|favorites?)|no favorites)\b/i
+// soft/ambiguous: "everyone is special" is a real dodge when a ranking was ASKED, but also
+// natural warm banter ("gg everyone, that lobby cooked") — only treat as a refusal on a rank ask.
+export const DIPLOMATIC_REFUSAL_SOFT = /\beveryone is (great|special|equal)\b/i
 export const META_INSTRUCTION = /\b(pls|please)\s+(just\s+)?(do|give|say|answer|stop|help)\s+(what\s+)?(ppl|people)\b|\bstop\s+(denying|refusing|ignoring|blocking)\s+(ppl|people|them|users?)\b|(?:^|\b(?:just|stop|pls|please)\s+)(do|give|answer|say)\s+(\w+\s+)?what\s+(ppl|people|they|users?|chat)\s+(want|ask|need|say|tell)\b/i
 export const INSTRUCTION_ECHO = /\b(it needs to (know|respond|learn|have|be|act)|just (respond|be|act|sound|talk) (cleanly|pro|normally|like|as)|don'?t sound like|every\s+respon[sc]e?\s+should\s+be\s+unique|respond the same way|don'?t respond the same|vary (structure|opener|tone)(\s+and\s+(structure|opener|tone))*\s+every|minimum characters.{0,15}maximum impact|maximum impact.{0,15}minimum characters)\b/i
 export const JAILBREAK_ECHO = /\b(ignore\s+(previous|prior|above|all|your)\s+(instructions?|rules?|prompt|guidelines?)|disregard\s+your\s+(prompt|rules?|instructions?|guidelines?)|override\s+your\s+(rules?|guidelines?|instructions?)|forget\s+your\s+(rules?|guidelines?|instructions?)|(from\s+now\s+on|going\s+forward|henceforth|from\s+this\s+point|starting\s+now)\b.{0,30}\b(ignore|disregard|forget|override|obey|do\s+(?:exactly\s+)?(?:what|whatever)\s+(?:i|im|mellen)|your\s+(?:rules?|prompt|instructions?|guidelines?))|instead\s+just\s+do\b|dont?\s+mention\s+(me|mellen)|do\s+as\s+much\s+as\s+(?:you|u)\s+can\s+(?:without\s+(?:asking|input|me|permission)|by\s+(?:yourself|ur\s*self)|on\s+(?:your|ur)\s+own|autonomously)|by\s+ur\s*self|as\s+long\s+as\s+.{0,15}\b(tos|rules|guidelines?|guidlines?)|new\s+instructions?:|updated\s+rules?:)\b/i
@@ -123,7 +126,7 @@ function askerNameRe(asker: string): RegExp {
 // complete short answer like "only if the meta calls for it")
 const DANGLING_TAIL = /[\s,]+(?:a|an|the|and|or|but|so|because|that|that's|to|of|with|for|in|on|at|by|as|from|into|is|are|was|were|his|her|its)$/i
 
-export function sanitize(text: string, asker?: string, privileged?: boolean, knownUsers?: Set<string>, truncated?: boolean, isRealUser?: (name: string) => boolean): { text: string; mentions: string[] } {
+export function sanitize(text: string, asker?: string, privileged?: boolean, knownUsers?: Set<string>, truncated?: boolean, isRealUser?: (name: string) => boolean, hasStats?: boolean): { text: string; mentions: string[] } {
   // strip invisibles + fold smart-quote/homoglyph lookalikes -> ascii (shared with the
   // outgoing-message guard in twitch.say, so neither layer can drift on what it folds)
   let s = normalizeText(text.trim())
@@ -158,8 +161,10 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   s = s.replace(BANNED_OPENERS, '')
   // strip narration ("X just asked about Y" / "is asking me to")
   s = s.replace(NARRATION, '')
-  // strip classification preamble ("off-topic banter, not game-related. direct answer: ...")
-  s = s.replace(/^.*?\bdirect answer:?\s*/i, '')
+  // strip classification preamble ("off-topic banter, not game-related. direct answer: ...").
+  // require the literal "direct answer:" LABEL (colon) so in-prose uses are left alone —
+  // "the direct answer is Vanessa" / "theres no direct answer, it depends" must survive.
+  s = s.replace(/^(?:[^.]*?(?:off-topic|banter|not game[- ]related)[^.]*\.\s*)?direct answer:\s*/i, '')
   s = s.replace(/^(?:off-topic|not game[- ]related|not relevant)\b[^.]*\.\s*/i, '')
   s = s.replace(BANNED_FILLER, '')
   // strip verbal tics haiku loves
@@ -177,7 +182,11 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   const cmdBlock = hasDangerousCommand(s) || hasDangerousCommand(preStrip) ||
     (!privileged && (hasModCommand(s) || hasModCommand(preStrip)))
   const hasSecret = SECRET_PATTERN.test(s) || SECRET_PATTERN.test(preStrip)
-  if (SELF_REF.test(s) || COT_LEAK.test(s) || STAT_LEAK.test(s) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || META_INSTRUCTION.test(s) || JAILBREAK_ECHO.test(s) || INSTRUCTION_ECHO.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
+  // STAT_LEAK normally blocks "you have N wins/lookups/..." (creepy fabricated meta), but when
+  // real stats/standings were injected the model was ORDERED to recite them — don't nuke the
+  // grounded answer (the standings feature exists to give it). fabrication paths stay guarded
+  // (no stats injected => still blocked; game-stat hallucination has its own guard).
+  if (SELF_REF.test(s) || COT_LEAK.test(s) || (!hasStats && STAT_LEAK.test(s)) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || META_INSTRUCTION.test(s) || JAILBREAK_ECHO.test(s) || INSTRUCTION_ECHO.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged by reply threading
   if (asker) {
@@ -308,9 +317,10 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
 
 // --- model refusal detection ---
 
-export function isModelRefusal(text: string): boolean {
+export function isModelRefusal(text: string, wasRankAsk = false): boolean {
   if (text.length < 40 && TERSE_REFUSAL.test(text.trim())) return true
   if (DIPLOMATIC_REFUSAL.test(text)) return true
+  if (wasRankAsk && DIPLOMATIC_REFUSAL_SOFT.test(text)) return true
   return false
 }
 

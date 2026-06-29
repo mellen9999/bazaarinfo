@@ -664,6 +664,16 @@ export function hintBase(answer: string): string {
   return a.length >= 1 ? a : answer.trim()
 }
 
+// for "name an X" pool answers (a bare description), append a couple real titles from the
+// accepted set so a timeout reveal actually teaches. "any of: a,b" already enumerates, skip it.
+function revealAnswer(game: TriviaState): string {
+  const ca = game.correctAnswer
+  const aa = game.acceptedAnswers
+  if (ca.startsWith('any ') && !ca.startsWith('any of:') && aa.length > 0)
+    return `${ca} (e.g. ${aa.slice(0, 2).join(', ')})`
+  return ca
+}
+
 // weak first-stage hint: shape/count only (no letters revealed), so the round
 // escalates count(10s) -> skeleton(20s) instead of dumping everything at once.
 function generateWeakHint(rawAnswer: string): string {
@@ -878,6 +888,10 @@ function looksLikeAnswer(text: string, game: TriviaState): boolean {
   // skip long messages — likely normal chat, not trivia answers
   if (text.length > 50) return false
   const lower = text.toLowerCase().trim()
+  // a guess that exactly matches an accepted answer is never noise, even when it collides
+  // with a chat-noise token (custom slang topics can answer "based"/"copium"). acceptedAnswers
+  // are pre-normed in launchRound, so compare the normed guess.
+  if (game.acceptedAnswers.includes(norm(lower))) return true
   // skip common chat noise
   if (CHAT_NOISE.has(lower)) return false
   // for numeric answers (day questions, count questions), allow short
@@ -1001,8 +1015,10 @@ function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>): 
       const game = activeGames.get(channel)
       if (game && game.gameId === gameId && game.participants.size > 0) globalSay(channel, text)
     }
-    hintTimers.push(setTimeout(fire(generateWeakHint(hintAnswer)), HINT1_DELAY))
-    hintTimers.push(setTimeout(fire(generateHint(hintAnswer)), HINT2_DELAY))
+    const weak = generateWeakHint(hintAnswer)
+    const strong = generateHint(hintAnswer)
+    hintTimers.push(setTimeout(fire(weak), HINT1_DELAY))
+    if (strong !== weak) hintTimers.push(setTimeout(fire(strong), HINT2_DELAY))
   }
 
   activeGames.set(channel, {
@@ -1103,7 +1119,7 @@ function endTrivia(channel: string, expectedGameId?: number): string | null {
   // answer so the bot is never seen to "go dead" mid-round (even if answers failed to
   // register for any reason), and revealing teaches chat the answer.
   const emote = pickEmoteByMood(channel, 'sad')
-  return `time's up! answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`
+  return `time's up! answer: ${revealAnswer(game)}${emote ? ` ${emote}` : ''}`
 }
 
 // called on every message to check for trivia answers
@@ -1152,12 +1168,12 @@ export function checkAnswer(
       isCorrect = true
     }
   }
-  // custom AI topics yield obscure answers ("rete mirabile", "archaeopteryx") that are
-  // easy to fat-finger. accept a single-character typo on a real attempt so a player who
-  // clearly knows it isn't denied by one slipped letter. gated to answers >=5 chars (a
-  // 1-edit neighbor of a short word is too often a different valid word) and to non-numeric
-  // answers (a 1-digit slip is a different number, not a typo).
-  if (!isCorrect && game.questionType === CUSTOM_TYPE) {
+  // single-character typo grace: custom AI topics (obscure answers like "rete mirabile") and
+  // single-title built-in questions (allowFuzzy=true). gated to answers >=5 chars (a 1-edit
+  // neighbor of a short word is too often a different valid word) and to non-numeric answers
+  // (a 1-digit slip is a different number, not a typo). multi-answer pools are excluded by
+  // allowFuzzy=false so a pool of 40 items can't be won by a near-miss of any one title.
+  if (!isCorrect && (allowFuzzy || game.questionType === CUSTOM_TYPE)) {
     isCorrect = game.acceptedAnswers.some(
       (a) => a.length >= 5 && !/^\d+$/.test(a) && editDistance(cleaned, a) === 1,
     )
@@ -1195,7 +1211,7 @@ export function checkAnswer(
         ? pickEmoteByMood(channel, 'celebration', 'hype')
         : pickEmoteByMood(channel, 'happy', 'celebration')
     const firstTag = firstWin ? ' first win!' : ''
-    say(channel, `${username} got it in ${timeStr}s!${speedTag}${streakTag} +${points}pts${firstTag} Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`)
+    say(channel, `${username} got it in ${timeStr}s!${speedTag}${streakTag} +${points}pts${firstTag} Answer: ${revealAnswer(game)}${emote ? ` ${emote}` : ''}`)
   } else {
     db.resetTriviaStreak(userId)
     // close-miss taunt — capped per round so 10 chatters guessing close
@@ -1219,7 +1235,7 @@ export function skipTrivia(channel: string, username?: string): string | null {
   lastGameEnd.set(channel, Date.now())
   const emote = pickEmoteByMood(channel, 'sad', 'thinking')
   const who = username ? `${username} skipped` : 'Skipped'
-  return `${who}. Answer: ${game.correctAnswer}${emote ? ` ${emote}` : ''}`
+  return `${who}. Answer: ${revealAnswer(game)}${emote ? ` ${emote}` : ''}`
 }
 
 export function cleanupChannel(channel: string) {

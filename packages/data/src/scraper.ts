@@ -218,11 +218,13 @@ async function fetchCooldowns(onProgress?: (msg: string) => void): Promise<Map<s
   return map
 }
 
-function applyCooldowns(cache: CardCache, cooldowns: Map<string, CooldownValue>) {
+function applyCooldowns(cache: CardCache, cooldowns: Map<string, CooldownValue>): number {
+  let matched = 0
   for (const item of cache.items) {
     const cd = cooldowns.get(item.Title)
-    if (cd != null) item.Cooldown = cd
+    if (cd != null) { item.Cooldown = cd; matched++ }
   }
+  return matched
 }
 
 // exported for testing
@@ -258,7 +260,13 @@ export async function scrapeDump(onProgress?: (msg: string) => void): Promise<Ca
         )
       }
       const cooldowns = await fetchCooldowns(onProgress)
-      applyCooldowns(cache, cooldowns)
+      // cooldown is the #1 stat for a weapon — refuse to ship a cache where enrichment
+      // silently matched almost nothing (source drift / fetch failure). ~100 floor avoids
+      // flapping on minor title drift; the per-item fail-soft in fetchCooldowns still applies.
+      const cooldownsMatched = applyCooldowns(cache, cooldowns)
+      if (cooldownsMatched < 100) {
+        throw new Error(`cooldown enrichment matched only ${cooldownsMatched} items — refusing to ship a cooldown-less cache`)
+      }
       if (cache.items.length < 50) {
         throw new Error(`suspiciously few items (${cache.items.length}), refusing to use`)
       }

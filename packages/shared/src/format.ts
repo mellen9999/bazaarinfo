@@ -8,6 +8,7 @@ const HERO_ABBREV: Record<string, string> = {
   Pygmalien: 'Pyg',
 }
 const MAX_LEN = 480
+const FAKE_HEROES = new Set(['Common', '???'])
 
 // hoisted: compiled once at module load, not per call
 const RE_PLACEHOLDER = /\{[^}]+\}/g
@@ -117,7 +118,7 @@ export function formatItem(card: BazaarCard, tier?: TierName): string {
   const prefix = tierPrefix(tier)
   const name = card.Title
   const size = SIZE_LABEL[card.Size] ? ` [${SIZE_LABEL[card.Size]}]` : ''
-  const heroes = card.Heroes.map((h) => HERO_ABBREV[h] ?? h).join(', ')
+  const heroes = card.Heroes.filter((h) => !FAKE_HEROES.has(h)).map((h) => HERO_ABBREV[h] ?? h).join(', ')
   const abilities = card.Tooltips.map((t) =>
     compressTooltip(resolveTooltip(t.text, card.TooltipReplacements, tier)),
   )
