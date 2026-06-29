@@ -152,7 +152,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // fire-and-forget voice refresh (background, non-blocking)
   refreshVoice(ctx.channel).catch(() => {})
 
-  const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq } = buildUserMessage(query, ctx)
+  const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq, hasStats } = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()
   const baseMaxTokens = isCreative ? MAX_TOKENS_PASTA : hasGameData ? MAX_TOKENS_GAME : MAX_TOKENS_CHAT
   // extended thinking + best-of-2 dropped — added ~2-3s of latency for marginal quality gain.
@@ -294,7 +294,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       for (const m of query.matchAll(/@(\w+)/g)) knownUsers.add(m[1].toLowerCase())
 
       // isRealUser falls back to the channel chat log for anyone outside the recent window
-      const result = sanitize(textBlock.text, ctx.user, ctx.isMod, knownUsers, data.stop_reason === 'max_tokens', (n) => db.userHasChatted(n, ctx.channel))
+      const result = sanitize(textBlock.text, ctx.user, ctx.isMod, knownUsers, data.stop_reason === 'max_tokens', (n) => db.userHasChatted(n, ctx.channel), hasStats)
       // strip injection echo (model parroting user's injected instructions)
       result.text = stripInputEcho(result.text, query)
       // strip per-user signature emote repetition — but NOT for creative writing, where an
@@ -374,8 +374,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         result.text = result.text.replace(/(?:\n|\s)+\d+[.):]?\s*$/, '').trim()
       }
       if (result.text) {
-        // terse refusal detection
-        if (isModelRefusal(result.text) && attempt < MAX_RETRIES - 1) {
+        // terse refusal detection. the soft "everyone is special" dodge only counts when the
+        // user actually asked to rank/pick — otherwise it's warm banter we must not discard.
+        const askedToRank = /\bwho'?s? (your|the) (favorite|favourite|best|top)\b|favorite (chatter|person|user|viewer)|\b(rank|pick|choose|name)\b.{0,20}\b(favorite|favourite|chatter|user|viewer|people|us)\b/i.test(query)
+        if (isModelRefusal(result.text, askedToRank) && attempt < MAX_RETRIES - 1) {
           log(`ai: terse refusal "${result.text}", retrying (attempt ${attempt + 1})`)
           messages.push({ role: 'assistant', content: textBlock.text })
           messages.push({ role: 'user', content: 'Don\'t dodge with diplomacy — pick actual names, give real opinions. Stay within your rules.' })

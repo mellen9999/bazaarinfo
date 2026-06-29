@@ -469,7 +469,7 @@ export function buildChattersContext(chatEntries: ChatEntry[], asker: string, ch
 
 // --- user message builder ---
 
-export interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean; isCreative: boolean; isContinuation: boolean; isRememberReq: boolean }
+export interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean; isCreative: boolean; isContinuation: boolean; isRememberReq: boolean; hasStats: boolean }
 
 // Hard cap so Recent chat always fits the section budget — trim oldest first.
 // Without this, a flood of long copypastas can blow past the section budget,
@@ -671,12 +671,14 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
 
   // skip reddit digest + emotes when we have specific game data or short queries
   const digest = getRedditDigest()
-  // exempt meta words so a bare "patch" / "event" / "what's new" keeps the community digest
-  const skipReddit = hasGameData || (query.length < 20 && !META_QUERY_RE.test(query))
+  // community buzz is high-value on meta/sentiment asks — keep it even when a game entity
+  // matched ("is dooley busted this patch", "whats the meta on vanessa"): those answers go
+  // stale without current sentiment. the redditRelevant boost below then protects it from
+  // the budget. hoist the intent regex once and reuse it for both un-suppress and boost.
+  const redditMetaIntent = /\b(meta|patch|nerf|buff|broken|busted|op|tier|balance|reddit|subreddit|community|drama|hype|controvers|complain|what'?s\s+(?:new|happening|going on)|everyone|people)\b/i.test(query)
+  const skipReddit = (hasGameData && !redditMetaIntent) || (query.length < 20 && !META_QUERY_RE.test(query))
   const redditLine = (!skipReddit && digest) ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
-  // when the query is about the community/meta/news, reddit buzz is high-value and
-  // must survive the budget — otherwise it stays last and gets evicted every time.
-  const redditRelevant = !!redditLine && /\b(meta|patch|nerf|buff|broken|busted|op|tier|balance|reddit|subreddit|community|drama|hype|controvers|complain|what'?s\s+(?:new|happening|going on)|everyone|people)\b/i.test(query)
+  const redditRelevant = !!redditLine && redditMetaIntent
   const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getRecentEmotes(ctx.channel))
 
   // hot exchange cache
@@ -709,10 +711,14 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const burnedQuotes = new Set<string>()
   for (const r of deduped) {
     for (const m of r.matchAll(/@(\w+)/g)) burnedNames.add(m[1].toLowerCase())
-    // extract names used as subjects (word at start or after period/comma)
-    for (const m of r.matchAll(/(?:^|[.,]\s+)(\w{3,20})\s+(?:wins?|said|just|is|was|has|had|does|did)\b/gi)) {
-      const name = m[1].toLowerCase()
-      if (!/^(the|this|that|what|who|how|but|and|not|its|you|dude|bro|man)$/.test(name)) burnedNames.add(name)
+    // extract names used as subjects (word at start or after period/comma) — but NOT on game
+    // queries: "burn is busted" / "vanessa is everywhere" would burn the mechanic/hero and
+    // steer the model AWAY from naming the correct answer on a follow-up game question.
+    if (!entities.isGame) {
+      for (const m of r.matchAll(/(?:^|[.,]\s+)(\w{3,20})\s+(?:wins?|said|just|is|was|has|had|does|did)\b/gi)) {
+        const name = m[1].toLowerCase()
+        if (!/^(the|this|that|what|who|how|but|and|not|its|you|dude|bro|man)$/.test(name)) burnedNames.add(name)
+      }
     }
     for (const m of r.matchAll(/"([^"]{8,60})"/g)) burnedQuotes.add(m[1])
   }
@@ -908,5 +914,5 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     }
   }
   const text = included.join('') + requiredTail
-  return { text, hasGameData, isPasta, isCreative, isContinuation: isContinuationLike, isRememberReq }
+  return { text, hasGameData, isPasta, isCreative, isContinuation: isContinuationLike, isRememberReq, hasStats: !!(statsLine || standingsLine) }
 }

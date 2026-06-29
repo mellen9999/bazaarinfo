@@ -38,6 +38,7 @@ mock.module('./store', () => ({
   findExactHero: mockFindExactHero,
   findTagName: mockFindTagName,
   suggest: mockSuggest,
+  monsterSuggest: mock(() => []),
   getHeroNames: mockGetHeroNames,
   getTagNames: mockGetTagNames,
 }))
@@ -2940,19 +2941,25 @@ describe('enchant path: validateTier parity (#23)', () => {
 // FIX 1 — identity gate end-anchored (trailing words fall through to AI)
 // ---------------------------------------------------------------------------
 describe('identity gate: end-anchored regex', () => {
-  it('pure "what are you" returns the identity blurb', async () => {
-    const r = await handleCommand('!b what are you')
-    expect(r).toContain('twitch chatbot')
+  it('pure "what are you" routes to AI in voice, not the banned usage blurb', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'im the bazaar gremlin, i look up cards and run trivia', mentions: [] }))
+    const r = await handleCommand('!b what are you', { user: 'u', channel: 'ig-id1' })
+    expect(mockAiRespond).toHaveBeenCalled()
+    expect(r).not.toContain('try: !b')
   })
 
-  it('pure "what is this" returns the identity blurb', async () => {
-    const r = await handleCommand('!b what is this')
-    expect(r).toContain('twitch chatbot')
+  it('pure "what is this" routes to AI, not the canned blurb', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'a bazaar bot, ask me anything', mentions: [] }))
+    const r = await handleCommand('!b what is this', { user: 'u', channel: 'ig-id2' })
+    expect(mockAiRespond).toHaveBeenCalled()
+    expect(r).not.toContain('try: !b')
   })
 
-  it('pure "what are you?" (with question mark) returns the blurb', async () => {
-    const r = await handleCommand('!b what are you?')
-    expect(r).toContain('twitch chatbot')
+  it('pure "what are you?" (with question mark) routes to AI', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'your friendly bazaar bot', mentions: [] }))
+    const r = await handleCommand('!b what are you?', { user: 'u', channel: 'ig-id3' })
+    expect(mockAiRespond).toHaveBeenCalled()
+    expect(r).not.toContain('try: !b')
   })
 
   it('"what are you doing rn" does NOT return blurb (falls through to AI)', async () => {

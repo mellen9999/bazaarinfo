@@ -138,6 +138,18 @@ describe('formatItem', () => {
     expect(result).toStartWith('Boomerang [M] |')
   })
 
+  it('omits hero segment when Heroes is [Common] (fake hero)', () => {
+    const result = formatItem(makeCard({ Heroes: ['Common'] }))
+    expect(result).not.toContain('Common')
+    expect(result).toStartWith('Boomerang [M] |')
+  })
+
+  it('omits hero segment when Heroes is [???] (fake hero)', () => {
+    const result = formatItem(makeCard({ Heroes: ['???'] }))
+    expect(result).not.toContain('???')
+    expect(result).toStartWith('Boomerang [M] |')
+  })
+
   it('handles card with no tooltips', () => {
     const result = formatItem(makeCard({ Tooltips: [] }))
     expect(result).toBeTruthy()

@@ -96,6 +96,7 @@ export const BARE_B_NUDGES = [
   'short hot take on the topic chat is on right now',
   'pick a real line from recent chat and riff on it — quote or paraphrase briefly',
   'two-word reaction to the vibe in chat',
+  'if you know the asker (their memory/facts/fav item), greet them with a warm callback to their vibe — one sentence; if you dont, just react to the room',
 ] as const
 
 const BARE_B_TAIL = '. dont react to "!b" itself.'
@@ -483,7 +484,7 @@ const subcommands: [RegExp, SubHandler][] = [
     const monster = store.findMonster(query)
     if (!monster) {
       logMiss(query, ctx)
-      const suggestions = store.suggest(query, 3)
+      const suggestions = store.monsterSuggest(query, 3)
       if (suggestions.length) return withSuffix(`no monster found for ${query} — did you mean: ${suggestions.join(', ')}?`, suffix)
       return aiOrQuip(`mob ${query}`, ctx, suffix)
     }
@@ -510,8 +511,10 @@ const subcommands: [RegExp, SubHandler][] = [
     const cards = store.byTag(query)
     if (cards.length === 0) {
       logMiss(query, ctx)
-      const suggestions = store.suggest(query, 3)
-      if (suggestions.length) return withSuffix(`no items found with tag ${query} — did you mean: ${suggestions.join(', ')}?`, suffix)
+      // suggest real TAG names (not item titles) — the user mistyped a tag, so item
+      // suggestions would be a category error that sends them down the wrong path.
+      const tagSuggest = suggestTags(query, 3)
+      if (tagSuggest.length) return withSuffix(`no tag ${query} — did you mean tag: ${tagSuggest.join(', ')}?`, suffix)
       return aiOrQuip(`tag ${query}`, ctx, suffix)
     }
     const displayTag = resolved ?? query
@@ -627,6 +630,18 @@ function levenshtein(a: string, b: string): number {
   return row[lb]
 }
 
+// did-you-mean for a missed `!b tag <x>` — suggests real tag names (prefix or small edit
+// distance), reusing the levenshtein above. falls through to AI when nothing's close.
+function suggestTags(query: string, limit = 3): string[] {
+  const q = query.toLowerCase()
+  return store.getTagNames()
+    .map((t) => ({ t, d: levenshtein(q, t.toLowerCase()) }))
+    .filter((x) => x.t.toLowerCase().startsWith(q) || x.d <= Math.min(2, Math.ceil(x.t.length / 3)))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, limit)
+    .map((x) => x.t)
+}
+
 const STANDINGS_WORDS = ['leaderboard', 'leaderboards', 'standings', 'scoreboard', 'rankings']
 // returns true if q is a single-token typo (edit dist <=1) of a standings keyword
 function isStandingsTypo(q: string): boolean {
@@ -648,7 +663,10 @@ function stripQuestionPrefix(s: string): string {
 // shared hero-pool reply ("[Vanessa] item, item, …") used by the `hero <name>` subcommand
 // and by itemLookup's bare-hero routing.
 function heroPoolReply(heroName: string, items: BazaarCard[], suffix: string): string {
-  return withSuffix(truncate(`[${heroName}] ${items.map((i) => i.Title).join(', ')}`), suffix)
+  // lead with the total count — the list truncates to ~40 of 130+ titles with a bare "...",
+  // which reads as a complete pool; the count supplies the missing scale.
+  const noun = items.length === 1 ? 'item' : 'items'
+  return withSuffix(truncate(`[${heroName}] ${items.length} ${noun}: ${items.map((i) => i.Title).join(', ')}`), suffix)
 }
 
 async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string | null> {
@@ -783,11 +801,13 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (!cleanArgs) return tryAiRespond(buildBareBQuery(ctx.channel), ctx, mentions)
   if (cleanArgs === 'help' || cleanArgs === 'info') return tryAiRespond('what does this bot do', ctx, mentions)
 
-  // end-anchored so only a pure identity ask fires — trailing words ("doing rn",
-  // "card do", "talking about") fall through to the isDeictic → tryAiRespond path.
-  if (/^(how (do you|does this( bot)?) work|what are you|what is this( bot)?)\??$/i.test(cleanArgs)) {
-    return 'twitch chatbot for The Bazaar by mellen. looks up items/heroes/monsters from bazaardb.gg, runs trivia, and answers questions. try: !b <item> | !b hero <name> | !b <question>'
-  }
+  // a pure identity ask gets the bot's VOICE, not a static brochure — the old hardcoded
+  // "try: !b <item>..." blurb was exactly the banned usage-string format. identity facts are
+  // grounded in the system prompt, so this is the same trusted path as help/info above.
+  // end-anchored so only a pure identity ask fires — trailing words ("doing rn", "card do",
+  // "talking about") fall through to the isDeictic → tryAiRespond path.
+  if (/^(how (do you|does this( bot)?) work|what are you|what is this( bot)?)\??$/i.test(cleanArgs))
+    return tryAiRespond('introduce yourself — who are you and what can you do', ctx, mentions)
 
   // trivia-result questions ("who won the trivia?", "trivia leaderboard") answered from
   // REAL data — never routed to the AI, which would invent a winner. tightly scoped to
