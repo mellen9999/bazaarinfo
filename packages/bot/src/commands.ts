@@ -16,6 +16,7 @@ import { getThread, getRecent } from './chatbuf'
 import { log } from './log'
 import * as raidCmds from './raid/commands'
 import * as dungeon from './dungeon'
+import { BLOCKED_BANG_CMDS, MOD_ALIAS_RE, ALLOWED_SLASH_CMDS } from './text-safety'
 
 const MAX_LEN = 480
 
@@ -218,71 +219,10 @@ const ALIAS_ADMINS = new Set(
   (process.env.ALIAS_ADMINS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
 )
 
-// ! commands blocked from proxy — scorched earth, block anything dangerous
-const BLOCKED_BANG_CMDS = new Set([
-  // stream settings
-  'settitle', 'setgame', 'setcategory', 'title', 'game',
-  // command management (streamelements/nightbot/streamlabs)
-  'addcom', 'addcommand', 'editcom', 'editcommand',
-  'delcom', 'deletecom', 'delcommand', 'deletecommand',
-  'removecom', 'removecommand', 'disablecom', 'enablecom',
-  'command', 'commands', 'cmd',
-  // moderation
-  'nuke', 'nukeusername', 'permit', 'vanish', 'votekick',
-  'ban', 'unban', 'timeout', 'untimeout', 'mute', 'unmute',
-  'purge', 'clear', 'warn', 'sacrifice',
-  // self-harm / auto-timeout commands (other bots timeout the sender)
-  'endme', 'kms', 'sudoku', 'seppuku', 'die', 'kill', 'killme', 'rip',
-  // DMs/blocking/connection
-  'whisper', 'w', 'block', 'unblock', 'disconnect',
-  // announcements (mod-only)
-  'announce',
-  // chat mode control
-  'caps', 'emoteonly', 'emoteonlyoff', 'slow', 'slowoff',
-  'followers', 'followersoff', 'subscribers', 'subscribersoff',
-  'uniquechat', 'r9kbeta', 'r9kbetaoff',
-  // bot control
-  'bot', 'module', 'disable', 'enable', 'emotes',
-  // stream control
-  'host', 'unhost', 'raid', 'marker', 'commercial',
-  // points/store abuse
-  'addpoints', 'setpoints', 'givepoints', 'removepoints',
-  'openstore', 'closestore',
-  // alerts/sfx
-  'alerts', 'enablesfx', 'disablesfx', 'filesay',
-  // song/media control
-  'skip', 'pause', 'volume', 'removesong', 'srclear', 'play',
-  // timers
-  'timer',
-  // counters
-  'editcounter', 'resetwins', 'resetcount', 'resetkills', 'resetgulag',
-  // giveaways/contests
-  'cancelraffle', 'sraffle', 'giveaway', 'bet',
-  // level/permissions
-  'level',
-  // code execution (custom bots)
-  'eval', 'script', 'bash', 'sh', 'exec',
-  // bot lifecycle
-  'exit', 'restart', 'reload', 'shutdown',
-  // info disclosure
-  'logs', 'bans',
-  // spam risk
-  'so', 'shoutout',
-  // message deletion
-  'delete',
-  // short aliases used by some bots for timeout/raid-on (to) and raid-off (ro)
-  'to', 'ro',
-])
-
-// morphological guard: block command-name variants that enumerate around the denylist
-// (e.g. !banuser, !timeoutuser, !purgeuser, !ban_victim, !kickme)
-// flags: ban/timeout/purge/kick/mute/nuke/warn/vanish in any position with common suffixes
-const MOD_ALIAS_RE = /(?:^|_)(ban|timeout|purge|kick|mute|nuke|warn|vanish)(?:$|user|chat|s|_|me)/i
-
-// / commands: allowlist only — everything else blocked
-const ALLOWED_SLASH_CMDS = new Set([
-  'me', 'announce', 'color',
-])
+// BLOCKED_BANG_CMDS / MOD_ALIAS_RE / ALLOWED_SLASH_CMDS now live in text-safety.ts — the
+// single source of truth shared with the outgoing funnel (twitch.say -> stripOutgoingCommands)
+// so the proxy-input check and the last-line outgoing guard can never drift. the bot's own
+// command names are added to the denylist at the bottom of this file.
 
 // --- proxy cooldown: per-channel per-command ---
 const PROXY_COOLDOWN = 30_000

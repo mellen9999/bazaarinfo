@@ -2,7 +2,7 @@ import { getEmotesForChannel, invalidateEmoteBlockCache } from './emotes'
 import { getRecent } from './chatbuf'
 import { getRecentEmotes, getHotExchanges } from './ai-cache'
 import { log } from './log'
-import { normalizeText, stripLeadingCommands } from './text-safety'
+import { normalizeText, peelLeadingTriggers } from './text-safety'
 
 // --- validation regex constants ---
 
@@ -282,18 +282,15 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
     }
   }
 
-  // reject degenerate command-echo fragments. sanitize deliberately leaves a leading
-  // ! or / for the outgoing guard (twitch.say -> stripLeadingCommands) to peel, as the
-  // single source of truth. but if peeling that trigger leaves nothing real — e.g. the
-  // model echoed its own invocation "!b" and nothing else — twitch.say would send a
-  // bare "b @user". treat it as a blocked response so the caller retries / falls back
-  // instead of emitting a fragment. (a real answer never starts with a command trigger.)
+  // reject degenerate command-echo fragments. the bot is now allowed to post real commands
+  // (so chat can play), but a reply that is ONLY a command trigger + a 1-2 char stub — e.g.
+  // the model echoing its own invocation "!b" and nothing else, which would post as a bare
+  // "b @user" — is not an answer. peel EVERY leading trigger (not just the dangerous ones the
+  // outgoing funnel neutralizes) to judge the real payload; if nothing meaningful remains,
+  // block it so the caller retries / falls back instead of emitting a fragment.
   s = s.trim()
   if (/^[!\\/.]/.test(s)) {
-    // judge the real payload: peel the leading trigger as twitch.say will, then drop
-    // @mentions (added by reply threading, not an answer). if nothing meaningful is
-    // left, it's a command echo like "!b" -> "b @user", not a reply.
-    const meat = stripLeadingCommands(s).replace(/@\w+/g, '').replace(/\s+/g, ' ').trim()
+    const meat = peelLeadingTriggers(s).replace(/@\w+/g, '').replace(/\s+/g, ' ').trim()
     if (!meat || /^\w{1,2}$/.test(meat)) return { text: '', mentions: [] }
   }
 
