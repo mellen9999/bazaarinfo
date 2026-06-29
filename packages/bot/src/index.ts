@@ -378,8 +378,10 @@ const client = new TwitchClient(
         // pacer (see twitch.ts say/kickPacer). no second throttle here — the first reply
         // goes out immediately and the rest are spaced ~400ms so chat never gets a burst.
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
-        // always reply-thread UNLESS the response is a !command (proxy for Streamlabs)
-        const responseIsCommand = /^!/.test(response)
+        // always reply-thread UNLESS the response is a command relay (proxy for Streamlabs /
+        // a native /me etc.) — a reply-threaded command won't fire, so send it bare with an
+        // @mention for context. covers every trigger prefix the bot may now post.
+        const responseIsCommand = /^[!\\/.]/.test(response)
         const replyId = responseIsCommand ? undefined : messageId
         // proxy !commands without thread need @mention for context
         const finalResponse = (responseIsCommand && messageId)

@@ -58,9 +58,33 @@ describe('stripOutgoingCommands', () => {
   })
 })
 
-describe('stripLeadingCommands (no normalization)', () => {
-  it('peels then strips', () => {
-    expect(stripLeadingCommands('  /me waves')).toBe('me waves')
+// the bot is now allowed to post harmless commands so chat can play — only dangerous
+// (self-timeout / native-moderation) commands are neutralized.
+describe('command policy: safe commands pass, dangerous neutralized', () => {
+  it('lets harmless third-party ! commands through', () => {
+    expect(stripOutgoingCommands('!uptime')).toBe('!uptime')
+    expect(stripOutgoingCommands('!love @viewer')).toBe('!love @viewer')
+    expect(stripOutgoingCommands('!hug')).toBe('!hug')
+  })
+  it('neutralizes self-timeout / self-harm customs', () => {
+    expect(stripOutgoingCommands('!vanish')).toBe('vanish')
+    expect(stripOutgoingCommands('!endme')).toBe('endme')
+    expect(stripOutgoingCommands('!sacrifice')).toBe('sacrifice')
+    expect(stripOutgoingCommands('!roulette')).toBe('roulette')
+    expect(stripOutgoingCommands('!unalive')).toBe('unalive')
+  })
+  it('neutralizes morphological mod-command variants', () => {
+    expect(stripOutgoingCommands('!banuser tidolar')).toBe('banuser tidolar')
+    expect(stripOutgoingCommands('!timeoutme')).toBe('timeoutme')
+  })
+  it('lets allowlisted native / commands through (me/announce/color/clip)', () => {
+    expect(stripOutgoingCommands('/me waves')).toBe('/me waves')
+    expect(stripOutgoingCommands('/announce big news')).toBe('/announce big news')
+  })
+  it('still neutralizes non-allowlisted native / and . commands', () => {
+    expect(stripOutgoingCommands('/ban tidolar')).toBe('ban tidolar')
+    expect(stripOutgoingCommands('/clear')).toBe('clear')
+    expect(stripOutgoingCommands('.timeout user')).toBe('timeout user')
   })
 })
 
