@@ -56,6 +56,13 @@ function aiBusyLine(): string {
 // all-tokens-are-emotes check so "the 67 spam" still fires but "stop the 67 spam" doesn't.
 const SPAM_FILLER = new Set(['this', 'it', 'the', 'a', 'some', 'pls', 'please', 'x', 'times'])
 
+// subcommands whose output is dynamic (changes between calls) or that are silent game actions —
+// exempt from the 30s duplicate-lookup suppressor (which is meant for static item/mob lookups).
+const DYNAMIC_SUBS = new Set([
+  'score', 'top', 'stats', 'skip', 'trivia', 'quiz', 'vote', 'pick',
+  'join', 'leave', 'party', 'shop', 'history', 'resolve', 'depths', 'game',
+])
+
 /** shared AI call + post-processing (dedup emotes/mentions, append missing @mentions) */
 async function tryAiRespond(query: string, ctx: CommandContext, mentions: string[] = []): Promise<string | null> {
   let result: Awaited<ReturnType<typeof aiRespond>> = null
@@ -301,16 +308,16 @@ const SELF_TIMEOUT_DODGES: Record<string, readonly string[]> = {
     'pick someone with more hp',
     'vip benefits do not include sacrificial duties',
     'nice try cultist',
-    '!sacarafice',
+    'you mean !sacarafice',
     'i\'m worth more alive, ask my agent',
   ],
-  kms: ['absolutely not', 'thriving actually', '!kmd'],
+  kms: ['absolutely not', 'thriving actually', 'you mean !kmd'],
   sudoku: ['the puzzle remains unsolved', 'i prefer wordle'],
   seppuku: ['honor intact, thanks', 'sword left at home'],
   die: ['hard pass', 'dye? the hair? sure'],
-  kill: ['unionized, can\'t legally accept', '!kil lol'],
+  kill: ['unionized, can\'t legally accept', 'you mean !kil lol'],
   killme: ['try kissing me instead', 'killmne? hardly etc'],
-  rip: ['still respawning, give it a sec', '!rop'],
+  rip: ['still respawning, give it a sec', 'you mean !rop'],
 }
 
 function selfTimeoutDodge(channel: string | undefined, cmd: string): string | null {
@@ -621,7 +628,9 @@ const subcommands: [RegExp, SubHandler][] = [
   [/^game\s+pace\s+(fast|normal|slow)$/i, (query, ctx) => raidCmds.handleGamePace(query, ctx)],
   [/^game\s+(on|off)$/i, (query, ctx) => raidCmds.handleGameToggle(query, ctx)],
   [/^stats(?:\s+@?(\S+))?$/i, (query, ctx, suffix) => {
-    const target = query || ctx.user
+    // bare `!b stats` has no capture group → the dispatcher passes the literal word "stats";
+    // treat that as "my own stats", not a lookup of a user named stats.
+    const target = (query && query.toLowerCase() !== 'stats') ? query : ctx.user
     if (!target) return null
     return withSuffix(formatStats(target, ctx.channel), suffix)
   }],
@@ -916,8 +925,13 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   // suppress duplicate lookups within 30s per channel (same user only).
   // continuations ("continue", "more"…) are exempt — each one extends an active bit.
+  // dynamic/silent subcommands are exempt too: their output changes between calls (score/top/
+  // stats/skip after a round) or they're silent-by-design game actions (vote/pick) where a
+  // spoken "posted that just now" note would be wrong. only static lookups get deduped.
   // on a dup, return a DISTINCT terse note (twitch silently drops exact re-sends anyway).
-  if (ctx.channel && ctx.user && !CONTINUE_RE.test(cleanArgs) && isDuplicate(ctx.channel, `${ctx.user}:${cleanArgs}`)) {
+  const firstTok = cleanArgs.split(/\s+/)[0]?.toLowerCase()
+  const isDynamicSub = firstTok != null && DYNAMIC_SUBS.has(firstTok)
+  if (ctx.channel && ctx.user && !isDynamicSub && !CONTINUE_RE.test(cleanArgs) && isDuplicate(ctx.channel, `${ctx.user}:${cleanArgs}`)) {
     const sfx = mentions.length ? ` ${mentions.join(' ')}` : ''
     return withSuffix(`↑ ${cleanArgs}, posted that just now`, sfx)
   }

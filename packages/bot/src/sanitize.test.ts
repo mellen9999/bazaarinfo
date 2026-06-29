@@ -917,6 +917,15 @@ describe('capRepeatedSpam', () => {
     expect(capRepeatedSpam('the the the the the the the')).toBe('the the the the the the the')
   })
 
+  it('caps lowercase-initial camelCase 7TV emotes (monkaS, widepeepoHappy)', () => {
+    expect(capRepeatedSpam('monkaS monkaS monkaS monkaS monkaS monkaS monkaS')).toBe('monkaS monkaS monkaS monkaS monkaS')
+    expect(capRepeatedSpam('widepeepoHappy widepeepoHappy widepeepoHappy widepeepoHappy widepeepoHappy widepeepoHappy')).toBe('widepeepoHappy widepeepoHappy widepeepoHappy widepeepoHappy widepeepoHappy')
+  })
+
+  it('still spares all-lowercase prose words that repeat', () => {
+    expect(capRepeatedSpam('pepega pepega pepega pepega pepega pepega')).toBe('pepega pepega pepega pepega pepega pepega')
+  })
+
   it('caps multiple spammed PascalCase tokens independently', () => {
     expect(capRepeatedSpam('LULW LULW LULW LULW LULW LULW Sadge Sadge Sadge Sadge Sadge Sadge')).toBe('LULW LULW LULW LULW LULW Sadge Sadge Sadge Sadge Sadge')
   })
