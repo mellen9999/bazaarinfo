@@ -12,7 +12,7 @@ import { MAX_INSTRUCTION } from './directives'
 // tracking) exactly like ai-trivia.
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
-const MODEL = 'claude-sonnet-4-6'
+const MODEL = 'claude-sonnet-5'
 const TIMEOUT = 9_000
 
 export interface ParsedDirective {
@@ -65,7 +65,7 @@ export async function parseDirective(text: string, channel: string): Promise<Par
       body: safeStringify({
         model: MODEL,
         max_tokens: 200,
-        temperature: 0.2,
+        thinking: { type: 'disabled' },
         system: SYSTEM,
         messages: [{ role: 'user', content: clean }],
       }),

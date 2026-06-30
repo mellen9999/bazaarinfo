@@ -42,7 +42,7 @@ export function safeStringify(body: unknown): string {
 export const CONTINUE_RE = /^(continue|keep going|go on|carry on|more\b|next\b|finish( it)?|expand|extend|again\b|and then|then what)/i
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
-const CHAT_MODEL = 'claude-sonnet-4-6'
+const CHAT_MODEL = 'claude-sonnet-5'
 
 // circuit-breaker-open lines — the breaker trips during the exact high-load window where
 // many users hit !b at once, and Twitch silently drops a bot's identical consecutive lines.
@@ -262,11 +262,13 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const remaining = REQUEST_DEADLINE - (Date.now() - start)
       if (remaining < MIN_ATTEMPT_BUDGET) { log('ai: request deadline exceeded'); cbRecordFailure(); break }
       const model = CHAT_MODEL
-      const baseTemp = isCreative ? 0.95 : hasGameData ? 0.5 : 0.75
+      // sonnet 5 rejects non-default temperature; thinking off keeps chat replies snappy
+      // (omitting it would run adaptive thinking by default). variety comes from the default
+      // temp (1.0) + per-attempt prompt, not a sampling knob.
       const body = {
         model,
         max_tokens: effectiveMaxTokens,
-        temperature: Math.min(1.0, baseTemp + attempt * 0.1),
+        thinking: { type: 'disabled' as const },
         system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
         messages,
       }

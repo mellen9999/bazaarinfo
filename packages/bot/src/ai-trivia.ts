@@ -20,7 +20,7 @@ function safeStringify(body: unknown): string {
 // caller always has a clean miss path.
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
-const MODEL = 'claude-sonnet-4-6'
+const MODEL = 'claude-sonnet-5'
 const TIMEOUT = 12_000 // headroom for the verify panel: ~12 calls fire at once per round
 const MAX_TOPIC_LEN = 80
 
@@ -199,7 +199,7 @@ async function pickSubjects(topic: string, channel: string, avoidAnswers: string
   const avoidLine = avoidAnswers.length
     ? `\n\nAvoid subjects that would lead back to these recently-used answers: ${avoidAnswers.slice(-12).join(', ')}.`
     : ''
-  const text = await callApi(SUBJECT_SYSTEM, `TOPIC: ${topic}${avoidLine}`, channel, 200, 0.9)
+  const text = await callApi(SUBJECT_SYSTEM, `TOPIC: ${topic}${avoidLine}`, channel, 200)
   if (!text) return fallback
   const json = extractFirstJson(text)
   if (!json) return fallback
@@ -394,7 +394,7 @@ async function runVerifier(system: string, q: CustomTrivia, channel: string, top
   // the user's TOPIC is fed only to the general lens, which owns the off-topic-drift check;
   // the solver/skeptic stay laser-focused on correctness. blank topic => the check is skipped.
   const topicLine = topic.trim() ? `TOPIC: ${topic.trim()}\n` : ''
-  const text = await callApi(system, `${topicLine}QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`, channel, 360, 0)
+  const text = await callApi(system, `${topicLine}QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`, channel, 360)
   if (!text) return { ok: false, quality: 0 }
   const json = extractFirstJson(text)
   if (!json) return { ok: false, quality: 0 }
@@ -545,14 +545,14 @@ export async function generatePersonTrivia(dossier: string, handle: string, chan
 // returns the model's text (or null on any error/timeout/empty). every stage of the
 // generator (subject pick, deep-cut write, verify) goes through here so the fetch, spend
 // tracking, and failure handling live in ONE place.
-async function callApi(system: string, content: string, channel: string, maxTokens: number, temperature: number): Promise<string | null> {
+async function callApi(system: string, content: string, channel: string, maxTokens: number): Promise<string | null> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT)
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY!, 'anthropic-version': '2023-06-01' },
-      body: safeStringify({ model: MODEL, max_tokens: maxTokens, temperature, system, messages: [{ role: 'user', content }] }),
+      body: safeStringify({ model: MODEL, max_tokens: maxTokens, thinking: { type: 'disabled' }, system, messages: [{ role: 'user', content }] }),
       signal: controller.signal,
     })
     if (!res.ok) { log(`ai-trivia: API ${res.status}`); return null }
@@ -574,7 +574,7 @@ async function callApi(system: string, content: string, channel: string, maxToke
 type GenResult = { ok: true; q: CustomTrivia } | { ok: false; retry: boolean }
 
 async function attemptGen(system: string, userContent: string, channel: string): Promise<GenResult> {
-  const text = await callApi(system, userContent, channel, 300, 0.85)
+  const text = await callApi(system, userContent, channel, 300)
   if (!text) return { ok: false, retry: false }
   const q = validate(text)
   return q ? { ok: true, q } : { ok: false, retry: true }
