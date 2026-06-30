@@ -13,7 +13,7 @@ function safeStringify(body: unknown): string {
 }
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
-const MODEL = 'claude-sonnet-4-6'
+const MODEL = 'claude-sonnet-5'
 const TIMEOUT = 12_000
 
 export type Build = 'tanky' | 'balanced' | 'aggressive'
@@ -144,7 +144,7 @@ async function attemptGen(input: string, channel: string): Promise<Archetype | n
       body: safeStringify({
         model: MODEL,
         max_tokens: 300,
-        temperature: 0.9,
+        thinking: { type: 'disabled' },
         system: SYSTEM,
         messages: [{ role: 'user', content: `SUGGESTIONS: ${input}` }],
       }),
