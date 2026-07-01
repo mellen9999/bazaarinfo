@@ -587,6 +587,33 @@ describe('custom AI topic answer matching', () => {
 })
 
 // ---------------------------------------------------------------------------
+// dash/affix answers — a leading "-" in the canonical answer must never be
+// required to win. norm() maps hyphen -> space on both sides, so the bare
+// suffix a viewer actually types ("erino") beats a dashed canonical ("-erino").
+// regression: kripp "-erino" round where dashless guesses were the only sane input.
+// ---------------------------------------------------------------------------
+describe('dash-prefixed answer matching', () => {
+  for (const guess of ['-erino', 'erino', 'ERINO', 'ino']) {
+    it(`accepts "${guess}" for a "-erino" answer`, () => {
+      startCustomTrivia('#dash', {
+        question: "what one-word suffix did fans stick on things?",
+        answer: '-erino',
+        accept: ['-erino', 'erino', 'ino', '-ino'],
+      })
+      checkAnswer('#dash', 'player1', guess, mockSay)
+      expect(isGameActive('#dash')).toBe(false)
+      expect(mockRecordTriviaWin).toHaveBeenCalledTimes(1)
+    })
+  }
+
+  it('accepts the bare form even when accept lists ONLY the dashed canonical', () => {
+    startCustomTrivia('#dash2', { question: 'suffix?', answer: '-erino', accept: [] })
+    checkAnswer('#dash2', 'player1', 'erino', mockSay)
+    expect(isGameActive('#dash2')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // hero question (type 1)
 // ---------------------------------------------------------------------------
 describe('hero question (type 1)', () => {
