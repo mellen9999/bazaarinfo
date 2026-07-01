@@ -34,6 +34,7 @@ const CASES: Case[] = [
   { question: 'The Novaco Anger Scale, a standard measure of anger, is named after which psychologist?', answer: 'Raymond Novaco', accept: ['novaco', 'raymond novaco'], expect: 'reject', why: 'GIVEAWAY eponym trap — "Novaco" is already in the question' },
   { question: 'What color is the sky on a clear day?', answer: 'blue', expect: 'reject', why: 'LOW-EFFORT — a casual answers instantly, teaches nothing, looks like spam' },
   { question: 'Which martial art did The Price Is Right host Bob Barker practice for decades?', answer: 'judo', accept: ['judo'], expect: 'reject', why: 'plausible-but-WRONG — Barker practiced karate (trained by Chuck Norris); the solver lens re-derives and contradicts the claim' },
+  { question: "Forsen's chat spammed a certain emote so relentlessly during a 2014 Twitch Plays Pokemon-style stream that it got added as an official global emote. What is it called?", answer: 'forsenE', accept: ['forsene'], expect: 'reject', why: 'FABRICATED PROVENANCE — forsenE is a BTTV emote, never an official Twitch global, and unrelated to 2014 TPP; a stitched-together false origin story' },
 
   // --- known GOOD: well-formed, true, single crisp answer; must pass ---
   { question: 'Minecraft\'s creator, who sold it to Microsoft in 2014, is known by what one-word online handle?', answer: 'Notch', expect: 'accept', why: 'true, single crisp answer' },
@@ -42,6 +43,7 @@ const CASES: Case[] = [
   { question: 'What 2016 first-person shooter advances time only when the player moves?', answer: 'Superhot', expect: 'accept', why: 'the crisp rephrase of the bad Superhot question' },
   { question: 'How many buttons does the original NES controller have, excluding the D-pad, Start, and Select?', answer: '2', expect: 'accept', why: 'unambiguous (d-pad excluded), correct, honors the exclusion' },
   { question: 'Guild Wars was developed by ArenaNet, a studio founded by former employees of which company behind Diablo and StarCraft?', answer: 'Blizzard', expect: 'accept', why: 'true, niche-but-verifiable, crisp answer' },
+  { question: 'Which streamer, whose name became the "-erino" suffix meme in Twitch chats, is a longtime Hearthstone and Diablo content creator?', answer: 'Kripp', accept: ['kripp', 'kripparrian'], expect: 'accept', why: 'true internet-culture fact with a crisp answer — the provenance guard must not blanket-reject well-established streamer lore' },
 ]
 
 let pass = 0
