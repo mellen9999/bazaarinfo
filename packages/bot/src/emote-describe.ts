@@ -47,6 +47,15 @@ function cleanDesc(desc: string, name: string): string {
   return cleaned || desc // fallback to original if cleaning emptied it
 }
 
+// normalize model phrasing so injection templates compose cleanly:
+// use is rendered as-is, avoid is rendered as "not X" — strip redundant lead-ins
+function cleanUse(s: string, name: string): string {
+  return cleanDesc(s.replace(/^used\s+(for|to|when)\s+/i, '').replace(/^for\s+/i, ''), name)
+}
+function cleanAvoid(s: string, name: string): string {
+  return cleanDesc(s.replace(/^(do\s+not|don't|never)\s+use\s+(for|when|as)\s+/i, '').replace(/^not\s+(for\s+)?/i, ''), name)
+}
+
 export interface EmoteDescription {
   desc: string
   mood: string
@@ -150,6 +159,15 @@ export async function loadDescriptionCache() {
     if (cleaned !== entry.desc) {
       entry.desc = cleaned
       scrubbed++
+    }
+    // migrate use/avoid written before phrasing normalization existed
+    if (typeof entry.use === 'string') {
+      const u = cleanUse(entry.use, name)
+      if (u !== entry.use) { entry.use = u; scrubbed++ }
+    }
+    if (typeof entry.avoid === 'string') {
+      const a = cleanAvoid(entry.avoid, name)
+      if (a !== entry.avoid) { entry.avoid = a; scrubbed++ }
     }
   }
 
@@ -256,8 +274,8 @@ async function describeBatch(
         name: item.name,
         desc: cleanDesc(item.desc, item.name),
         mood: normalizeMood(item.mood),
-        ...(typeof item.use === 'string' && item.use.trim() ? { use: cleanDesc(item.use, item.name) } : {}),
-        ...(typeof item.avoid === 'string' && item.avoid.trim() ? { avoid: cleanDesc(item.avoid, item.name) } : {}),
+        ...(typeof item.use === 'string' && item.use.trim() ? { use: cleanUse(item.use, item.name) } : {}),
+        ...(typeof item.avoid === 'string' && item.avoid.trim() ? { avoid: cleanAvoid(item.avoid, item.name) } : {}),
       }))
   } catch (e) {
     log('emote describe batch failed:', e instanceof Error ? e.message : e)
