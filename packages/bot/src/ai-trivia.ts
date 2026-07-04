@@ -582,7 +582,7 @@ Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 
 
 const MIN_CHAT_LINES = 5
 
-export async function generateChatTrivia(chatLines: string[], channel: string): Promise<CustomTrivia | null> {
+export async function generateChatTrivia(chatLines: string[], channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
   if (!API_KEY) return null
   if (!AI_CHANNELS.has(channel.toLowerCase())) return null
   if (isOverDailyCap(channel)) {
@@ -593,10 +593,11 @@ export async function generateChatTrivia(chatLines: string[], channel: string): 
   if (lines.length < MIN_CHAT_LINES) return null // not enough chat to be fair
   // cap context so a flood of long pastas can't blow the request body / budget
   const log_ = lines.slice(-40).join('\n').slice(-2400)
+  const content = `CHAT LOG (oldest first):\n${log_}${buildAvoidBlock(avoid, avoidAnswers)}`
 
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0 && isOverDailyCap(channel)) break
-    const r = await attemptGen(CHAT_SYSTEM, `CHAT LOG (oldest first):\n${log_}`, channel)
+    const r = await attemptGen(CHAT_SYSTEM, content, channel)
     if (r.ok) return r.q
     if (!r.retry) return null
   }
@@ -630,7 +631,7 @@ Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 
 
 const MIN_DOSSIER_LEN = 20
 
-export async function generatePersonTrivia(dossier: string, handle: string, channel: string): Promise<CustomTrivia | null> {
+export async function generatePersonTrivia(dossier: string, handle: string, channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
   if (!API_KEY) return null
   if (!AI_CHANNELS.has(channel.toLowerCase())) return null
   if (isOverDailyCap(channel)) {
@@ -639,7 +640,7 @@ export async function generatePersonTrivia(dossier: string, handle: string, chan
   }
   const d = stripUnpairedSurrogates(dossier.trim()).slice(0, 2400)
   if (d.length < MIN_DOSSIER_LEN) return null
-  const content = `HANDLE: ${handle}\nDOSSIER:\n${d}`
+  const content = `HANDLE: ${handle}\nDOSSIER:\n${d}${buildAvoidBlock(avoid, avoidAnswers)}`
 
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0 && isOverDailyCap(channel)) break

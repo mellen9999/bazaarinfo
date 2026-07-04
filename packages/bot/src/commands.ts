@@ -1261,14 +1261,31 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
     let q: CustomTrivia | null
     let missMsg: string
     if (isChatTrivia) {
-      q = await generateChatTrivia(recentChatLines(channel), channel)
-      missMsg = `not enough chat to make a trivia about yet — let it cook`
+      const avoid = recentQuestionList(channel)
+      const avoidAnswers = recentAnswerList(channel)
+      q = await generateChatTrivia(recentChatLines(channel), channel, avoid, avoidAnswers)
+      // reworded repeat (same answer) = free points for whoever just saw it — regenerate once
+      if (q && (isRecentQuestion(channel, q.question) || isRecentAnswer(channel, q.answer))) {
+        q = await generateChatTrivia(recentChatLines(channel), channel, avoid, avoidAnswers)
+        if (q && (isRecentQuestion(channel, q.question) || isRecentAnswer(channel, q.answer))) q = null
+      }
+      missMsg = `not enough fresh chat to make a trivia about yet — let it cook`
     } else if (person) {
       const dossier = buildPersonDossier(person, channel)
       if (!dossier) {
         return withSuffix(`don't know enough about @${person} yet to quiz on — they gotta chat more`, suffix)
       }
-      q = await generatePersonTrivia(dossier, `@${person}`, channel)
+      const avoid = recentQuestionList(channel)
+      const avoidAnswers = recentAnswerList(channel)
+      q = await generatePersonTrivia(dossier, `@${person}`, channel, avoid, avoidAnswers)
+      // same-answer repeat about the same person = point farming (ask, answer, re-ask) —
+      // retry once for a different fact, then refuse instead of serving the farm
+      if (q && (isRecentQuestion(channel, q.question) || isRecentAnswer(channel, q.answer))) {
+        q = await generatePersonTrivia(dossier, `@${person}`, channel, avoid, avoidAnswers)
+        if (q && (isRecentQuestion(channel, q.question) || isRecentAnswer(channel, q.answer))) {
+          return withSuffix(`just asked that one about @${person} — no reruns, they need new material first`, suffix)
+        }
+      }
       missMsg = `couldn't make a trivia about @${person} — try again`
     } else {
       // pass recent questions AND answers so the model avoids repeats up front; if it still
