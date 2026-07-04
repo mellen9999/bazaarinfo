@@ -759,7 +759,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
       // case-insensitive match against channel emotes
       const match = channelEmotes.find((e) => e.toLowerCase() === word.toLowerCase())
       if (match && descriptions[match]) {
-        found.push(`${match}: ${descriptions[match].desc} (${descriptions[match].mood})`)
+        const d = descriptions[match]
+        const extra = [d.use ? `used for ${d.use}` : '', d.avoid ? `not for ${d.avoid}` : ''].filter(Boolean).join(', ')
+        found.push(`${match}: ${d.desc}${extra ? ` — ${extra}` : ''} (${d.mood})`)
       }
     }
     if (found.length > 0) {

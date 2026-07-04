@@ -50,6 +50,10 @@ function cleanDesc(desc: string, name: string): string {
 export interface EmoteDescription {
   desc: string
   mood: string
+  /** what chat uses it for — short, cultural meaning over pixels */
+  use?: string
+  /** what it is NOT for — only set when misuse is a real risk (irony emotes etc) */
+  avoid?: string
   overlay?: boolean
 }
 
@@ -57,60 +61,60 @@ let cache: Record<string, EmoteDescription> = {}
 
 // pre-seed well-known twitch/bttv/ffz emotes (no 7TV image available)
 const KNOWN: Record<string, EmoteDescription> = {
-  'Kappa': { desc: 'smug sarcastic grey face', mood: 'sarcasm' },
-  'KappaPride': { desc: 'rainbow pride Kappa face', mood: 'happy' },
-  'Keepo': { desc: 'cat-eared Kappa face', mood: 'cute' },
-  'PogChamp': { desc: 'excited open mouth amazed face', mood: 'hype' },
-  'LUL': { desc: 'bald guy laughing hard', mood: 'funny' },
-  'OMEGALUL': { desc: 'distorted huge laughing face', mood: 'funny' },
-  'monkaS': { desc: 'sweating nervous pepe frog', mood: 'scared' },
-  'PepeHands': { desc: 'crying pepe frog, tears streaming', mood: 'sad' },
-  'FeelsBadMan': { desc: 'sad downcast pepe frog', mood: 'sad' },
-  'FeelsGoodMan': { desc: 'happy smiling pepe frog', mood: 'happy' },
-  'FeelsStrongMan': { desc: 'pepe crying but staying strong', mood: 'happy' },
-  'Sadge': { desc: 'small sad pepe, depressed', mood: 'sad' },
-  'widepeepoHappy': { desc: 'wide stretched happy pepe', mood: 'happy' },
-  'widepeepoSad': { desc: 'wide stretched sad pepe', mood: 'sad' },
-  'peepoClap': { desc: 'small pepe clapping hands', mood: 'celebration' },
-  'EZ': { desc: 'smug face, too easy', mood: 'sarcasm' },
-  'Clap': { desc: 'hands clapping', mood: 'celebration' },
-  'KEKW': { desc: 'spanish man laughing hysterically', mood: 'funny' },
-  'LULW': { desc: 'wide stretched laughing face', mood: 'funny' },
-  'catJAM': { desc: 'cat vibing nodding to music', mood: 'dance' },
-  'modCheck': { desc: 'pepe looking around suspiciously', mood: 'confused' },
-  'Copium': { desc: 'pepe inhaling copium gas mask', mood: 'sarcasm' },
-  'Copege': { desc: 'pepe wearing copium mask, coping', mood: 'sarcasm' },
-  'Clueless': { desc: 'pepe looking blissfully unaware', mood: 'sarcasm' },
-  'Aware': { desc: 'pepe with wide knowing eyes', mood: 'thinking' },
-  'Stare': { desc: 'pepe staring intensely forward', mood: 'thinking' },
-  'BASED': { desc: 'lit fuse, hot take', mood: 'chad' },
-  'Chatting': { desc: 'pepe typing at keyboard', mood: 'neutral' },
-  'ICANT': { desc: 'pepe dying of laughter', mood: 'funny' },
-  'Susge': { desc: 'suspicious skeptical pepe', mood: 'thinking' },
-  'NOTED': { desc: 'pepe writing in notebook', mood: 'thinking' },
-  'ppOverheat': { desc: 'pepe overheating, steam coming out', mood: 'shock' },
-  'monkaW': { desc: 'zoomed nervous sweating pepe', mood: 'scared' },
-  'monkaHmm': { desc: 'pepe thinking skeptically', mood: 'thinking' },
-  'PepeLaugh': { desc: 'pepe covering mouth laughing', mood: 'funny' },
-  'pepeMeltdown': { desc: 'pepe melting, losing composure', mood: 'sad' },
-  'peepoGiggle': { desc: 'pepe giggling mischievously', mood: 'funny' },
-  'GIGACHAD': { desc: 'ultra masculine chad jawline', mood: 'chad' },
-  'Chad': { desc: 'confident chad face', mood: 'chad' },
-  'BBoomer': { desc: 'old boomer with headphones', mood: 'cringe' },
-  'forsenCD': { desc: 'transparent cd face, cheating joke', mood: 'sarcasm' },
-  'xqcL': { desc: 'heart with happy tears, affection', mood: 'love' },
-  'POGGERS': { desc: 'pepe version of pogchamp, hyped', mood: 'hype' },
-  'PagMan': { desc: 'amazed excited man face', mood: 'hype' },
-  'PagChomp': { desc: 'excited fish mouth chomp', mood: 'hype' },
-  'D:': { desc: 'shocked horrified face', mood: 'shock' },
-  'NODDERS': { desc: 'pepe nodding yes, agreeing', mood: 'hype' },
-  'NOPERS': { desc: 'pepe shaking head no', mood: 'sarcasm' },
-  'pepega': { desc: 'derpy pepe with megaphone', mood: 'cringe' },
-  'WideHardo': { desc: 'wide face trying hard', mood: 'hype' },
-  '5Head': { desc: 'pepe with huge brain, genius', mood: 'thinking' },
-  '3Head': { desc: 'pepe with tiny brain, dumb', mood: 'cringe' },
-  'pepeDS': { desc: 'pepe dancing disco moves', mood: 'dance' },
-  'RainTime': { desc: 'pepe sitting in rain, peaceful', mood: 'sad' },
+  'Kappa': { desc: 'smug sarcastic grey face', mood: 'sarcasm', use: 'marks sarcasm or trolling', avoid: 'genuine statements' },
+  'KappaPride': { desc: 'rainbow pride Kappa face', mood: 'happy', use: 'pride, flamboyant moments', avoid: 'generic happiness' },
+  'Keepo': { desc: 'cat-eared Kappa face', mood: 'cute', use: 'playful sarcasm' },
+  'PogChamp': { desc: 'excited open mouth amazed face', mood: 'hype', use: 'big plays, hype moments' },
+  'LUL': { desc: 'bald guy laughing hard', mood: 'funny', use: 'something funny happened' },
+  'OMEGALUL': { desc: 'distorted huge laughing face', mood: 'funny', use: 'extreme laughter, mocking fails' },
+  'monkaS': { desc: 'sweating nervous pepe frog', mood: 'scared', use: 'tense scary moments' },
+  'PepeHands': { desc: 'crying pepe frog, tears streaming', mood: 'sad', use: 'genuine sadness, loss' },
+  'FeelsBadMan': { desc: 'sad downcast pepe frog', mood: 'sad', use: 'sympathy, disappointment' },
+  'FeelsGoodMan': { desc: 'happy smiling pepe frog', mood: 'happy', use: 'satisfaction, things going well' },
+  'FeelsStrongMan': { desc: 'pepe crying but staying strong', mood: 'happy', use: 'emotional triumph, bittersweet wins' },
+  'Sadge': { desc: 'small sad pepe, depressed', mood: 'sad', use: 'resigned disappointment' },
+  'widepeepoHappy': { desc: 'wide stretched happy pepe', mood: 'happy', use: 'wholesome joy' },
+  'widepeepoSad': { desc: 'wide stretched sad pepe', mood: 'sad', use: 'exaggerated sadness' },
+  'peepoClap': { desc: 'small pepe clapping hands', mood: 'celebration', use: 'applauding a play' },
+  'EZ': { desc: 'smug face, too easy', mood: 'sarcasm', use: 'mock ease after a win', avoid: 'genuine praise' },
+  'Clap': { desc: 'hands clapping', mood: 'celebration', use: 'applause, often ironic' },
+  'KEKW': { desc: 'spanish man laughing hysterically', mood: 'funny', use: 'hard laughter at fails' },
+  'LULW': { desc: 'wide stretched laughing face', mood: 'funny', use: 'amplified laughter' },
+  'catJAM': { desc: 'cat vibing nodding to music', mood: 'dance', use: 'vibing to music' },
+  'modCheck': { desc: 'pepe looking around suspiciously', mood: 'confused', use: 'where are the mods, looking for something' },
+  'Copium': { desc: 'pepe inhaling copium gas mask', mood: 'sarcasm', use: 'mocking denial after a loss', avoid: 'genuine hope' },
+  'Copege': { desc: 'pepe wearing copium mask, coping', mood: 'sarcasm', use: 'coping with a loss' },
+  'Clueless': { desc: 'pepe looking blissfully unaware', mood: 'sarcasm', use: 'ironic — he has no idea what is coming', avoid: 'literal confusion' },
+  'Aware': { desc: 'pepe with wide knowing eyes', mood: 'thinking', use: 'ironic — fully aware, pretending otherwise' },
+  'Stare': { desc: 'pepe staring intensely forward', mood: 'thinking', use: 'deadpan judgment, awkward silence' },
+  'BASED': { desc: 'lit fuse, hot take', mood: 'chad', use: 'endorsing a bold opinion' },
+  'Chatting': { desc: 'pepe typing at keyboard', mood: 'neutral', use: 'chat yapping, off-topic talk' },
+  'ICANT': { desc: 'pepe dying of laughter', mood: 'funny', use: 'cannot handle how funny' },
+  'Susge': { desc: 'suspicious skeptical pepe', mood: 'thinking', use: 'something feels off' },
+  'NOTED': { desc: 'pepe writing in notebook', mood: 'thinking', use: 'ironic note-taking of nonsense', avoid: 'genuine note-taking' },
+  'ppOverheat': { desc: 'pepe overheating, steam coming out', mood: 'shock', use: 'overstimulated, too much happening' },
+  'monkaW': { desc: 'zoomed nervous sweating pepe', mood: 'scared', use: 'extreme tension' },
+  'monkaHmm': { desc: 'pepe thinking skeptically', mood: 'thinking', use: 'doubtful pondering' },
+  'PepeLaugh': { desc: 'pepe covering mouth laughing', mood: 'funny', use: 'laughing at incoming disaster he knows about' },
+  'pepeMeltdown': { desc: 'pepe melting, losing composure', mood: 'sad', use: 'total breakdown, chaos' },
+  'peepoGiggle': { desc: 'pepe giggling mischievously', mood: 'funny', use: 'cheeky amusement' },
+  'GIGACHAD': { desc: 'ultra masculine chad jawline', mood: 'chad', use: 'peak confidence, respect' },
+  'Chad': { desc: 'confident chad face', mood: 'chad', use: 'confident move' },
+  'BBoomer': { desc: 'old boomer with headphones', mood: 'cringe', use: 'out-of-touch boomer moment' },
+  'forsenCD': { desc: 'transparent cd face, cheating joke', mood: 'sarcasm', use: 'accusing cheating, ironic', avoid: 'serious accusations' },
+  'xqcL': { desc: 'heart with happy tears, affection', mood: 'love', use: 'wholesome affection' },
+  'POGGERS': { desc: 'pepe version of pogchamp, hyped', mood: 'hype', use: 'hype, big moment' },
+  'PagMan': { desc: 'amazed excited man face', mood: 'hype', use: 'awe at greatness' },
+  'PagChomp': { desc: 'excited fish mouth chomp', mood: 'hype', use: 'hype chomp' },
+  'D:': { desc: 'shocked horrified face', mood: 'shock', use: 'mock horror, dramatic gasp' },
+  'NODDERS': { desc: 'pepe nodding yes, agreeing', mood: 'hype', use: 'emphatic agreement' },
+  'NOPERS': { desc: 'pepe shaking head no', mood: 'sarcasm', use: 'emphatic disagreement' },
+  'pepega': { desc: 'derpy pepe with megaphone', mood: 'cringe', use: 'calling something dumb', avoid: 'mocking real people harshly' },
+  'WideHardo': { desc: 'wide face trying hard', mood: 'hype', use: 'sweaty tryhard effort', avoid: 'genuine praise' },
+  '5Head': { desc: 'pepe with huge brain, genius', mood: 'thinking', use: 'galaxy-brain play, sometimes ironic' },
+  '3Head': { desc: 'pepe with tiny brain, dumb', mood: 'cringe', use: 'dumb take or play' },
+  'pepeDS': { desc: 'pepe dancing disco moves', mood: 'dance', use: 'party, celebration dance' },
+  'RainTime': { desc: 'pepe sitting in rain, peaceful', mood: 'sad', use: 'melancholy comfy vibes' },
 }
 
 export async function loadDescriptionCache() {
@@ -130,7 +134,8 @@ export async function loadDescriptionCache() {
   let updated = 0
   for (const [name, known] of Object.entries(KNOWN)) {
     const existing = cache[name]
-    if (!existing || existing.desc !== known.desc || existing.mood !== known.mood || existing.overlay !== known.overlay) {
+    if (!existing || existing.desc !== known.desc || existing.mood !== known.mood
+      || existing.use !== known.use || existing.avoid !== known.avoid || existing.overlay !== known.overlay) {
       cache[name] = known
       updated++
     }
@@ -177,7 +182,7 @@ async function fetchEmoteImage(emoteId: string): Promise<{ base64: string, type:
 
 async function describeBatch(
   emotes: { name: string, id: string }[],
-): Promise<{ name: string, desc: string, mood: string }[]> {
+): Promise<{ name: string, desc: string, mood: string, use?: string, avoid?: string }[]> {
   const images = await Promise.all(emotes.map(async (e) => ({
     ...e,
     image: await fetchEmoteImage(e.id),
@@ -202,13 +207,18 @@ async function describeBatch(
     text: [
       `These are ${valid.length} Twitch/7TV chat emotes in order: ${nameList.join(', ')}`,
       'Some may be animated — describe the action/motion if visible.',
-      'For each emote, give a short description (max 8 words) and one mood tag.',
+      'You know Twitch emote culture. Use each emote NAME to inform its meaning, not just the pixels — many emotes (peepo/pepe variants, -ge suffixes, Pag/monka families) have established usage that the image alone does not show.',
+      'For each emote give:',
+      '- "desc": what it looks like / the action, max 8 words',
+      '- "use": what chat actually uses it for, max 6 words',
+      '- "avoid": ONLY when the emote is commonly misused (ironic emotes, insults, hype-only emotes) — what it is NOT for, max 5 words. Omit this key otherwise.',
+      '- "mood": one tag',
       'NEVER use generic words like "emote", "meme", "icon", "image", or "picture" — describe what it LOOKS like.',
       'NEVER include the emote name in its description.',
       'Each description must be visually unique — avoid generic phrases like "green frog with expression".',
       `Valid moods: ${MOODS.join(', ')}`,
       'Respond with ONLY a JSON array, no markdown fences:',
-      '[{"name":"emoteName","desc":"short description","mood":"mood_tag"}]',
+      '[{"name":"emoteName","desc":"short description","use":"chat usage","mood":"mood_tag"}]',
     ].join('\n'),
   })
 
@@ -222,7 +232,7 @@ async function describeBatch(
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
+        max_tokens: 800,
         messages: [{ role: 'user', content }],
       }),
       signal: AbortSignal.timeout(30_000),
@@ -243,9 +253,11 @@ async function describeBatch(
     return parsed
       .filter((item: any) => item.name && item.desc && item.mood)
       .map((item: any) => ({
-        ...item,
+        name: item.name,
         desc: cleanDesc(item.desc, item.name),
         mood: normalizeMood(item.mood),
+        ...(typeof item.use === 'string' && item.use.trim() ? { use: cleanDesc(item.use, item.name) } : {}),
+        ...(typeof item.avoid === 'string' && item.avoid.trim() ? { avoid: cleanDesc(item.avoid, item.name) } : {}),
       }))
   } catch (e) {
     log('emote describe batch failed:', e instanceof Error ? e.message : e)
@@ -264,14 +276,17 @@ const DESCRIBE_TOKEN_CAP = Math.max(0, parseInt(process.env.AI_DAILY_TOKEN_CAP ?
  */
 export async function describeEmotes(
   emotes: { name: string, id: string, overlay?: boolean }[],
+  opts: { force?: boolean } = {},
 ): Promise<number> {
   if (!API_KEY) {
     console.error('ANTHROPIC_API_KEY not set — skipping describe')
     return 0
   }
 
-  // filter to emotes not yet described
+  // filter to emotes not yet described (force = re-describe everything except hand-curated KNOWN)
   const unknown = emotes.filter((e) => {
+    if (e.name in KNOWN) return false
+    if (opts.force) return true
     const existing = cache[e.name]
     return !existing || !existing.desc
   })
@@ -303,7 +318,12 @@ export async function describeEmotes(
 
     for (const r of results) {
       const overlay = emotes.find((e) => e.name === r.name)?.overlay
-      cache[r.name] = { desc: r.desc, mood: r.mood, ...(overlay ? { overlay: true } : {}) }
+      cache[r.name] = {
+        desc: r.desc, mood: r.mood,
+        ...(r.use ? { use: r.use } : {}),
+        ...(r.avoid ? { avoid: r.avoid } : {}),
+        ...(overlay ? { overlay: true } : {}),
+      }
       described++
     }
 

@@ -218,13 +218,17 @@ export function formatEmotesForAI(channel: string, recentlyUsed?: Set<string>): 
     if (usedSet.has(name)) continue
     const desc = descriptions[name]
     if (!desc) continue
+    // spotlight text: look + usage + anti-usage, e.g. "EZ(smug face; mock ease; not genuine praise)"
+    let full = desc.desc
+    if (desc.use) full += `; ${desc.use}`
+    if (desc.avoid) full += `; not ${desc.avoid}`
     if (desc.overlay) {
-      overlays.push(`${name}(${desc.desc})`)
+      overlays.push(`${name}(${full})`)
       continue
     }
     const mood = desc.mood
     if (!byMood.has(mood)) byMood.set(mood, [])
-    byMood.get(mood)!.push(`${name}(${desc.desc})`)
+    byMood.get(mood)!.push(`${name}(${full})`)
   }
 
   // shuffle ALL emotes within each mood bucket — no pinning favorites

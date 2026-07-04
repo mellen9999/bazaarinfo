@@ -1,5 +1,6 @@
 // one-shot script to fetch and describe all emotes for target channels
-// usage: ANTHROPIC_API_KEY=... bun scripts/describe-emotes.ts
+// usage: ANTHROPIC_API_KEY=... bun scripts/describe-emotes.ts [--rescan]
+// --rescan re-describes EVERY emote (except hand-curated KNOWN) with the current prompt
 
 import { loadDescriptionCache, describeEmotes, getDescriptions } from '../packages/bot/src/emote-describe'
 
@@ -52,7 +53,9 @@ async function main() {
   const emotes = [...all.values()]
   console.log(`${emotes.length} unique emotes total`)
 
-  const described = await describeEmotes(emotes)
+  const force = process.argv.includes('--rescan')
+  if (force) console.log('rescan mode — re-describing all emotes with current prompt')
+  const described = await describeEmotes(emotes, { force })
   const after = Object.keys(getDescriptions()).length
 
   console.log(`\ndone: ${described} new descriptions (${before} -> ${after} total)`)
