@@ -6,6 +6,7 @@ import { handleCommand, setRefreshHandler, setEmoteRefreshHandler, setJoinHandle
 import { getCacheInfo } from './store'
 import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily, schedulePatchRefresh } from './scheduler'
+import { fetchWorldCup } from './worldcup'
 import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
@@ -101,6 +102,9 @@ try {
   rebuildTriviaMaps()
   // fetch bazaardb patch/event info on startup + arm the daily refresh (fail-soft inside)
   schedulePatchRefresh()
+  // warm the world cup scoreboard so team-name detection works from the first query
+  // (fail-soft: null on any failure; the on-demand TTL refresh handles the rest)
+  fetchWorldCup().then((d) => { if (d) log(`worldcup: ${d.matches.length} matches in window`) })
 } catch (e) {
   log(`FATAL: no cache available — ${e}`)
   process.exit(1)

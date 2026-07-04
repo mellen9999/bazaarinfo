@@ -19,6 +19,7 @@ import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, GAME_
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
 import { detectFancyStyle, toFancy } from './fancy'
+import { isWorldCupQuery, refreshWorldCupIfNeeded } from './worldcup'
 
 // strip orphan UTF-16 surrogate halves — twitch chat / 7TV emote names occasionally
 // inject lone D800-DBFF or DC00-DFFF code units. anthropic's JSON parser rejects them
@@ -151,6 +152,10 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
   // fire-and-forget voice refresh (background, non-blocking)
   refreshVoice(ctx.channel).catch(() => {})
+
+  // world cup queries: refresh the scoreboard BEFORE building context so a live score
+  // answer reflects the pitch. TTL-gated no-op when fresh; fail-soft, never throws.
+  if (isWorldCupQuery(query)) await refreshWorldCupIfNeeded()
 
   const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq, hasStats } = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()

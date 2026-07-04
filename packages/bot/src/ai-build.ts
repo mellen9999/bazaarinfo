@@ -3,6 +3,7 @@ import * as db from './db'
 import { isGameActive } from './trivia'
 import { getRedditDigest } from './reddit'
 import { getPatchInfo } from './patch'
+import { getWorldCupLine } from './worldcup'
 import { META_QUERY_RE } from './intents'
 import { getTopicalDigest } from './topical'
 import { getActivityFor } from './activity'
@@ -669,6 +670,11 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     ? `\nCurrent game patch (authoritative, from bazaardb.gg — answer "what's new / is there an event" from THIS, don't deflect): ${patch.latestPatch} (${patch.patchDate}, size ${patch.sizeBadge}); active event: ${patch.activeEvent ?? 'none — no special limited-time event is running right now'}.`
     : ''
 
+  // live world cup scores — real ESPN data, injected only on world-cup-shaped queries
+  // (fail-soft: '' on missing/stale cache or off-topic query, so nothing to hallucinate
+  // from). the fetch itself is refreshed in doAiCall before this builder runs.
+  const worldCupLine = getWorldCupLine(query)
+
   // skip reddit digest + emotes when we have specific game data or short queries
   const digest = getRedditDigest()
   // community buzz is high-value on meta/sentiment asks — keep it even when a game entity
@@ -886,6 +892,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'triviaRef', text: triviaRefLine, base: -109 },
     // live patch/event line is the direct answer to "what's new" — keep it ahead of primaryPair
     { name: 'patch', text: patchLine, base: -108 },
+    // world cup scoreboard is the direct answer when it fires — same never-evict tier
+    { name: 'worldCup', text: worldCupLine, base: -107 },
   ]
     .filter((s) => s.text)
     .map((s) => ({ ...s, prio: s.base - (s.boost ?? 0) }))
