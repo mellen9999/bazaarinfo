@@ -146,6 +146,20 @@ function lensInstruction(lens: string): string {
   return `Favor THIS angle if you have a SOLID, verifiable fact for it; otherwise pick a better angle for this topic (never invent one to fit): ${lens}`
 }
 
+// tell the model what was just asked so it never repeats a recent question verbatim, AND
+// which answers were just used so it can't ship the same fact reworded (a repeat on the
+// same topic lands on the same answer even when the question text differs). shared by the
+// world-knowledge and game-data generators.
+function buildAvoidBlock(avoid: string[], avoidAnswers: string[]): string {
+  const avoidQ = avoid.length
+    ? `\n\nRecently asked here — do NOT repeat or closely paraphrase any of these; ask something different:\n${avoid.slice(-8).map((q) => `- ${q}`).join('\n')}`
+    : ''
+  const avoidA = avoidAnswers.length
+    ? `\n\nDo NOT reuse any of these recent ANSWERS — pick a genuinely different fact/subject, even on the same topic:\n${avoidAnswers.slice(-12).map((a) => `- ${a}`).join('\n')}`
+    : ''
+  return avoidQ + avoidA
+}
+
 export async function generateCustomTrivia(topic: string, channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
   if (!API_KEY) return null
   // governed exactly like the !b AI path: only spend in AI-enabled channels, and honor
@@ -157,16 +171,7 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
   }
   const clean = stripUnpairedSurrogates(topic.trim()).slice(0, MAX_TOPIC_LEN)
   if (clean.length < 2) return null
-  // tell the model what was just asked so it never repeats a recent question verbatim, AND
-  // which answers were just used so it can't ship the same fact reworded (a repeat on the
-  // same topic lands on the same answer even when the question text differs).
-  const avoidQ = avoid.length
-    ? `\n\nRecently asked here — do NOT repeat or closely paraphrase any of these; ask something different:\n${avoid.slice(-8).map((q) => `- ${q}`).join('\n')}`
-    : ''
-  const avoidA = avoidAnswers.length
-    ? `\n\nDo NOT reuse any of these recent ANSWERS — pick a genuinely different fact/subject, even on the same topic:\n${avoidAnswers.slice(-12).map((a) => `- ${a}`).join('\n')}`
-    : ''
-  const avoidBlock = avoidQ + avoidA
+  const avoidBlock = buildAvoidBlock(avoid, avoidAnswers)
 
   // STAGE 1: commit to a specific subject (or a few) before writing anything. This is what
   // forces depth — the writer is handed "Anger Management (2003 film)" and told to mine a
@@ -391,13 +396,13 @@ export interface Verdict {
 // run ONE verifier lens. fails closed (reject) on any error so a wrong question can't slip
 // through on an API hiccup. max_tokens 360 leaves room to reason in the "check" field before
 // the verdict — recomputing a count or independently solving catches errors a yes/no misses.
-async function runVerifier(system: string, q: CustomTrivia, channel: string, topic = ''): Promise<Verdict> {
+async function runVerifier(system: string, q: CustomTrivia, channel: string, topic = '', preamble = ''): Promise<Verdict> {
   // pass every accepted form so a lens can catch a giveaway/match hiding in an alternate.
   const answers = [q.answer, ...q.accept.filter((a) => a.toLowerCase() !== q.answer.toLowerCase())].join(' / ')
   // the user's TOPIC is fed only to the general lens, which owns the off-topic-drift check;
   // the solver/skeptic stay laser-focused on correctness. blank topic => the check is skipped.
   const topicLine = topic.trim() ? `TOPIC: ${topic.trim()}\n` : ''
-  const text = await callApi(system, `${topicLine}QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`, channel, 360)
+  const text = await callApi(system, `${preamble}${topicLine}QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`, channel, 360)
   if (!text) return { ok: false, quality: 0 }
   const json = extractFirstJson(text)
   if (!json) return { ok: false, quality: 0 }
@@ -451,6 +456,107 @@ export async function verifyPanel(q: CustomTrivia, channel: string, topic = ''):
   const quality = Math.max(...verdicts.map((v) => v.quality))
   if (quality < MIN_QUALITY) return { ok: false, quality: 0 } // consensus gimme — drop it
   return { ok: true, quality }
+}
+
+// GAME-DATA trivia: the topic names Bazaar content (a hero, item, monster, tag), so both
+// the writer and the checker are grounded in a DATA dossier built from the live card cache
+// — never world knowledge. The game postdates every model's cutoff and changes each patch,
+// which is exactly why the world-knowledge pipeline nulls out on these topics: its solver/
+// skeptic lenses can't confirm facts they've never seen. Here ONE data-grounded verifier
+// replaces the three-lens panel — the DATA is in the prompt, so "derive the answer from
+// the DATA and compare" is a stronger check than any amount of stale memory.
+const GAME_SYSTEM = `You write ONE trivia question for a live Twitch chat about the video game The Bazaar, using ONLY the GAME DATA block provided. The DATA is from the current patch and is the sole source of truth — your own memory of The Bazaar is stale; NEVER use it.
+
+Hard rules:
+- Every fact in the question AND the answer must be checkable against the DATA alone: an item/skill/monster/hero name, a tag, a size, a tier, a day, an HP value, a number in an effect, or a count of listed entries.
+- NEVER add lore, history, meta, strategy, or any detail not literally in the DATA.
+- Chat plays/watches The Bazaar: make it fair but not free — something a regular gets and a sharp casual can reason out. Prefer a fun angle (an odd name, a memorable effect, a big number) over a dry stat when the DATA offers one.
+- The answer — and every accepted form — must NOT appear in the question. If the question names a card, that card cannot be the answer.
+- ONE clear ask with ONE correct answer per the DATA. If several entries fit equally, sharpen the question until exactly one fits.
+- TYPEABLE answer: a name from the DATA, a tag, a tier, a hero, or a number. 1-4 words, never a phrase.
+- "answer" is the single canonical form ONLY; put 2-6 variants (lowercase, short forms, with/without "the") in "accept".
+- If the DATA is too thin for a fair question, return {"ok":false} — never pad with outside knowledge.
+
+Output ONLY a single minified JSON object, no markdown, no prose, no code fences:
+{"ok":true,"question":"...","answer":"...","accept":["...","..."]}
+or
+{"ok":false}
+
+Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 4 words.`
+
+const VERIFY_GAME_SYSTEM = `You fact-check ONE trivia question about the video game The Bazaar against a GAME DATA block. The DATA is current-patch truth and the ONLY admissible evidence — your own memory of the game is stale; ignore it completely.
+
+In the "check" field: find the DATA entries the question rests on and derive the answer YOURSELF from the DATA alone, step by step (recompute any count). Then compare to the claimed ANSWER.
+
+Reject (ok:false) if ANY of these hold:
+- The answer cannot be derived from the DATA, or the DATA contradicts it.
+- The question relies on any fact NOT present in the DATA.
+- AMBIGUITY: two or more DATA entries satisfy the question equally well.
+- GIVEAWAY: the answer or any accepted form appears in the question text.
+- Two-part or misdirecting ask, or the wording primes the wrong answer TYPE (opens like a count but the answer is a name, or vice versa).
+- Non-typeable answer — a descriptive phrase instead of a crisp name/number/tag/tier.
+
+Otherwise accept, rating quality 1-3 (3 = a fun "oh neat" question a Bazaar regular enjoys, 2 = solid, 1 = a free gimme). Output ONLY one minified JSON object:
+{"check":"<derivation from DATA + comparison>","ok":true,"quality":3}
+or
+{"check":"...","ok":false,"reason":"<brief>"}`
+
+// rotating angles so repeat asks on the same topic mine different fact types. mirrors
+// LENSES but for data-derivable facts only.
+const GAME_ANGLES = [
+  'a number in an effect: damage, heal, shield, burn, poison, or a cooldown',
+  'identify the card or monster from its effect/details, WITHOUT naming it in the question',
+  'which hero, tag, size, or tier a named card belongs to',
+  'a monster: what day it appears, its HP, or something on its board',
+  'a count of listed entries sharing a tag, size, or tier',
+  'an odd, funny, or memorable name in the data',
+]
+
+const GAME_CANDIDATES = 3
+const MAX_DOSSIER_LEN = 4000
+
+export async function generateGameTrivia(dossier: string, topic: string, channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
+  if (!API_KEY) return null
+  if (!AI_CHANNELS.has(channel.toLowerCase())) return null
+  if (isOverDailyCap(channel)) {
+    log(`ai-trivia: daily cap hit for ${channel}, skipping game trivia`)
+    return null
+  }
+  const data = stripUnpairedSurrogates(dossier.trim()).slice(0, MAX_DOSSIER_LEN)
+  if (data.length < 40) return null
+  const avoidBlock = buildAvoidBlock(avoid, avoidAnswers)
+
+  // best-of-N with distinct angles, all in parallel — same wall-clock as one attempt.
+  const angles = GAME_ANGLES.slice()
+  for (let i = angles.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[angles[i], angles[j]] = [angles[j], angles[i]]
+  }
+  const gens = await Promise.all(
+    angles.slice(0, GAME_CANDIDATES).map(async (angle) => {
+      const content = `TOPIC: ${topic}\nGAME DATA (numbers are base-tier values):\n${data}\n\nFavor THIS angle if the DATA supports it, else any solid one: ${angle}${avoidBlock}`
+      const g = await attemptGen(GAME_SYSTEM, content, channel)
+      if (!g.ok) return null
+      if (answerLeaks(g.q)) {
+        log(`ai-trivia: dropped game giveaway "${g.q.answer}" (answer appears in the question)`)
+        return null
+      }
+      return g.q
+    }),
+  )
+  const cands = dedupeCandidates(gens.filter((q): q is CustomTrivia => q !== null))
+  if (cands.length === 0) return null
+  if (isOverDailyCap(channel)) return null // generation may have tipped the daily cap
+
+  const preamble = `GAME DATA (sole source of truth):\n${data}\n\n`
+  const verdicts = await Promise.all(cands.map((q) => runVerifier(VERIFY_GAME_SYSTEM, q, channel, '', preamble)))
+  const passed: Scored[] = []
+  cands.forEach((q, i) => {
+    if (verdicts[i].ok && verdicts[i].quality >= MIN_QUALITY) passed.push({ q, quality: verdicts[i].quality })
+    else log(`ai-trivia: game verify rejected "${q.question.slice(0, 50)}" (ans: ${q.answer})`)
+  })
+  if (passed.length === 0) return null
+  return pickBestCandidate(passed)
 }
 
 // Trivia about what just happened in chat ("!b trivia about the last 5 min of

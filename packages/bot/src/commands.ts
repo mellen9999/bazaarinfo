@@ -4,7 +4,8 @@ import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
 import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, recentAnswerList, isRecentAnswer, startKrippTrivia, startFallbackTrivia } from './trivia'
-import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, type CustomTrivia } from './ai-trivia'
+import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, generateGameTrivia, type CustomTrivia } from './ai-trivia'
+import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam, CONTINUE_RE } from './ai'
@@ -1275,6 +1276,22 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
       // — up to 2 retries — before giving up on uniqueness.
       const avoid = recentQuestionList(channel)
       const avoidAnswers = recentAnswerList(channel)
+      // a topic naming GAME content (a hero, item, monster, tag, "the bazaar") never goes
+      // to the world-knowledge model — the game postdates its knowledge and changes every
+      // patch, so it can only fabricate or null out. generate from the live card cache
+      // instead; on a miss, serve a real bazaar round rather than an off-game substitute.
+      const gameTopic = detectGameTopic(t)
+      if (gameTopic) {
+        const dossier = buildGameDossier(gameTopic)
+        q = dossier ? await generateGameTrivia(dossier, t, channel, avoid, avoidAnswers) : null
+        if (q && dossier && (isRecentQuestion(channel, q.question) || isRecentAnswer(channel, q.answer))) {
+          q = await generateGameTrivia(dossier, t, channel, avoid, avoidAnswers)
+        }
+        if (!q) {
+          return withSuffix(`couldn't cook that exact one — bazaar question instead: ${startTrivia(channel)}`, suffix)
+        }
+        return withSuffix(startCustomTrivia(channel, q), suffix)
+      }
       q = await generateCustomTrivia(t, channel, avoid, avoidAnswers)
       for (let i = 0; q && i < 2 && (isRecentQuestion(channel, q.question) || isRecentAnswer(channel, q.answer)); i++) {
         q = await generateCustomTrivia(t, channel, avoid, avoidAnswers)

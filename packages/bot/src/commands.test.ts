@@ -153,10 +153,16 @@ const mockGeneratePersonTrivia = mock(async (_dossier: string, _handle: string) 
   answer: 'sword',
   accept: ['sword', 'the sword'],
 }))
+const mockGenerateGameTrivia = mock(async (_dossier: string, _topic: string) => ({
+  question: 'game q?',
+  answer: 'gans',
+  accept: ['gans'],
+}))
 mock.module('./ai-trivia', () => ({
   generateCustomTrivia: mockGenerateCustomTrivia,
   generateChatTrivia: mockGenerateChatTrivia,
   generatePersonTrivia: mockGeneratePersonTrivia,
+  generateGameTrivia: mockGenerateGameTrivia,
 }))
 
 // directive-plant AI gate — mocked so tests never hit the API. default returns a valid
@@ -2216,6 +2222,51 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     mockStartKrippTrivia.mockImplementation(() => null) // default: not a kripp channel / empty pack
     mockStartFallbackTrivia.mockClear()
     mockStartFallbackTrivia.mockImplementation(() => 'Trivia! fallback question (30s)') // default: pack loaded
+    mockGenerateGameTrivia.mockClear()
+    mockGenerateGameTrivia.mockImplementation(async () => ({ question: 'game q?', answer: 'gans', accept: ['gans'] }))
+    // game-dossier sources — not covered by the global reset; restore defaults so a
+    // fixture seeded in one test can't leak game-topic detection into the next.
+    mockGetItems.mockReset()
+    mockGetItems.mockImplementation(() => [])
+    mockGetMonsters.mockReset()
+    mockGetMonsters.mockImplementation(() => [])
+    mockGetHeroNames.mockReset()
+    mockGetHeroNames.mockImplementation(() => [])
+  })
+
+  it('a hero topic routes to the game-data generator, never the world-knowledge model', async () => {
+    mockFindExactHero.mockImplementation((w: string) => (w === 'jules' ? 'Jules' : undefined))
+    mockByHero.mockImplementation(() => [makeCard({ Title: 'Fiery Pan', Heroes: ['Jules'] }), makeCard({ Title: 'Spatula', Heroes: ['Jules'] })])
+    const res = await handleCommand('!b trivia jules items', { user: 'u', channel: 'ct-g1' })
+    expect(mockGenerateGameTrivia).toHaveBeenCalled()
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+    expect(res).toBe('Trivia! custom question (30s)')
+  })
+
+  it('a hero word next to an unknown word is NOT hijacked to game data (jules verne)', async () => {
+    mockFindExactHero.mockImplementation((w: string) => (w === 'jules' ? 'Jules' : undefined))
+    await handleCommand('!b trivia jules verne', { user: 'u', channel: 'ct-g2' })
+    expect(mockGenerateGameTrivia).not.toHaveBeenCalled()
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('jules verne', 'ct-g2', [], [])
+  })
+
+  it('a failed game-topic generation serves a real bazaar round, labeled — never a world substitute', async () => {
+    mockFindExactHero.mockImplementation((w: string) => (w === 'jules' ? 'Jules' : undefined))
+    mockByHero.mockImplementation(() => [makeCard({ Title: 'Fiery Pan', Heroes: ['Jules'] })])
+    mockGenerateGameTrivia.mockImplementation(async () => null)
+    const res = await handleCommand('!b trivia jules items', { user: 'u', channel: 'ct-g3' })
+    expect(res).toContain('bazaar question instead')
+    expect(res).toContain('Trivia! test question')
+    expect(mockStartFallbackTrivia).not.toHaveBeenCalled()
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+  })
+
+  it('"the bazaar" as a topic routes to game data, not the stale world model', async () => {
+    mockGetItems.mockImplementation(() => [makeCard({ Title: 'Fiery Pan' }), makeCard({ Title: 'Spatula' })])
+    const res = await handleCommand('!b trivia about the bazaar', { user: 'u', channel: 'ct-g4' })
+    expect(mockGenerateGameTrivia).toHaveBeenCalled()
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+    expect(res).toBe('Trivia! custom question (30s)')
   })
 
   it('routes a kripp-subject topic to the curated verified pack when available', async () => {
