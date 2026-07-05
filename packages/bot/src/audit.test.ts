@@ -116,10 +116,11 @@ describe('system prompt', () => {
   // server-side (cache_control ephemeral in ai.ts), so size is paid once per
   // cache window, not per call. raised 6700->8000 after personality tuning, then
   // ->8600 for the real-death/tragedy sensitivity rule (genie incident), ->8800
-  // for the no-latency-excuses brush-off rule.
-  it('is under 8800 chars (runaway-growth guard)', () => {
+  // for the no-latency-excuses brush-off rule, ->9800 for the deadpan voice
+  // retune (VOICE BANS: nicknames, forced puns, zinger scaffolds, exclamations).
+  it('is under 9800 chars (runaway-growth guard)', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt.length).toBeLessThan(8800)
+    expect(prompt.length).toBeLessThan(9800)
   })
 
   it('contains core identity', () => {
