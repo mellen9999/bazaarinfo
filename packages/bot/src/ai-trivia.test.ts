@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { splitAlternates, pickDistinctLenses, LENSES, answerLeaks } from './ai-trivia'
+import { splitAlternates, pickDistinctLenses, LENSES, answerLeaks, answerEchoesTopic } from './ai-trivia'
 
 describe('splitAlternates — fold answer alternates into accept', () => {
   it('splits a parenthetical alternate', () => {
@@ -44,6 +44,30 @@ describe('pickDistinctLenses — best-of-N varied angles per round', () => {
   it('keeps channels independent', () => {
     expect(pickDistinctLenses('#a', 2).every((l) => LENSES.includes(l))).toBe(true)
     expect(pickDistinctLenses('#b', 2).every((l) => LENSES.includes(l))).toBe(true)
+  })
+})
+
+describe('answerEchoesTopic — the asked topic can never be the answer', () => {
+  const mk = (question: string, answer: string, accept: string[] = []) => ({ question, answer, accept })
+
+  it('flags the literal digimon tautology (answer == topic)', () => {
+    expect(answerEchoesTopic(mk('What franchise began as a 1997 virtual pet toy?', 'Digimon', ['digimon']), 'digimon')).toBe(true)
+  })
+  it('flags a topic hiding only in an accept alias', () => {
+    expect(answerEchoesTopic(mk('What 1999 series introduced the DigiDestined?', 'Digimon Adventure', ['digimon']), 'digimon')).toBe(true)
+  })
+  it('flags a near-restatement ("the office" → "office")', () => {
+    expect(answerEchoesTopic(mk('...', 'Office', ['office']), 'the office')).toBe(true)
+  })
+  it('flags singular/plural restatement', () => {
+    expect(answerEchoesTopic(mk('...', 'digimon', ['digimon']), 'digimons')).toBe(true)
+  })
+  it('passes a real fact ABOUT the topic', () => {
+    expect(answerEchoesTopic(mk('Which company created Digimon?', 'Bandai', ['bandai']), 'digimon')).toBe(false)
+    expect(answerEchoesTopic(mk('What year did the virtual pet launch?', '1997', ['1997']), 'digimon')).toBe(false)
+  })
+  it('passes a subject answer under a BROAD topic (guess-the-subject stays legal)', () => {
+    expect(answerEchoesTopic(mk('What franchise began as a 1997 virtual pet toy?', 'Digimon', ['digimon']), 'anime')).toBe(false)
   })
 })
 

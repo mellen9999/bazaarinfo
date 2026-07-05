@@ -997,6 +997,27 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     if (match) return await handler(match[1]?.trim() ?? cleanArgs, ctx, suffix)
   }
 
+  // mod trivia-topic ban/unban — a mod's "no more digimon trivia" takes real effect.
+  // non-mods fall through to the AI (which knows [MOD] semantics and quips accordingly).
+  if (ctx.channel && ctx.isMod) {
+    const unban = cleanArgs.match(TRIVIA_UNBAN_RE)
+    if (unban) {
+      const topic = stripArticles(unban[1])
+      return unbanTriviaTopic(ctx.channel, topic)
+        ? withSuffix(`${normTopic(topic)} trivia unbanned`, suffix)
+        : withSuffix(`${normTopic(topic)} trivia wasnt banned`, suffix)
+    }
+    const ban = cleanArgs.match(TRIVIA_BAN_RE)
+    if (ban) {
+      const topic = stripArticles(ban[1])
+      // reject verb/filler captures ("stop making trivia about me" must not ban "making")
+      if (topic && !/^(?:making|doing|playing|running|giving|more|any|some|these|those)$/i.test(topic)) {
+        const key = banTriviaTopic(ctx.channel, topic)
+        return withSuffix(`${key} trivia banned for 2h — mod's orders`, suffix)
+      }
+    }
+  }
+
   // topic-first trivia: "bakugon trivia" / "digimon quiz" — chatters put the topic before
   // the game word. lives OUTSIDE the subcommand table because a bail here must fall
   // through to the normal pipeline (a table match always returns, even null → silence).
@@ -1335,6 +1356,12 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   if (isGameActive(channel)) {
     return withSuffix(`a trivia round is already running — wait for it`, suffix)
   }
+  // mod topic bans — enforced here so every entry path (about-form, topic-first,
+  // NL-verb form) hits the same wall.
+  const bannedKey = bannedTriviaTopic(channel, t)
+  if (bannedKey) {
+    return withSuffix(`${bannedKey} trivia is under mod embargo — pick another topic`, suffix)
+  }
   // kripp-subject topics -> the curated, web-verified kripp pack. the AI fact-checker
   // can't confirm niche streamer lore so the AI path would just NULL out; the pack is the
   // verified, always-lands source. null when not a kripp channel/empty pack -> AI fallback.
@@ -1443,6 +1470,53 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   }
 }
 
+// --- mod trivia-topic bans ---
+// "as a moderator I order no more Digimon trivia" → the ban actually takes effect
+// instead of a compliant-sounding quip that changes nothing. mods/broadcaster only,
+// per-channel, self-expiring. bazaar category rounds are never blocked — this gates
+// custom AI topics only.
+const TRIVIA_BAN_TTL = 2 * 60 * 60 * 1000
+const triviaTopicBans = new Map<string, Map<string, number>>()
+
+const normTopic = (s: string) =>
+  s.toLowerCase().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
+
+export function resetTriviaTopicBans() { triviaTopicBans.clear() }
+
+function banTriviaTopic(channel: string, topic: string): string {
+  const key = normTopic(topic)
+  const bans = triviaTopicBans.get(channel) ?? new Map<string, number>()
+  bans.set(key, Date.now() + TRIVIA_BAN_TTL)
+  if (bans.size > 50) {
+    const now = Date.now()
+    for (const [k, exp] of bans) if (exp < now) bans.delete(k)
+  }
+  triviaTopicBans.set(channel, bans)
+  return key
+}
+
+function unbanTriviaTopic(channel: string, topic: string): boolean {
+  return triviaTopicBans.get(channel)?.delete(normTopic(topic)) ?? false
+}
+
+function bannedTriviaTopic(channel: string, topic: string): string | null {
+  const bans = triviaTopicBans.get(channel)
+  if (!bans) return null
+  const t = ` ${normTopic(topic)} `
+  const now = Date.now()
+  for (const [key, exp] of bans) {
+    if (exp < now) { bans.delete(key); continue }
+    if (t.includes(` ${key} `)) return key
+  }
+  return null
+}
+
+// mod phrasing: "no more digimon trivia" / "ban digimon trivia" / "stop digimon quizzes";
+// un-ban: "allow/unban/bring back digimon trivia". topic must sit between verb and game word.
+const TRIVIA_BAN_RE = /\b(?:no more|ban|enough(?: of)?(?: the| this)?|stop(?: the| doing| making)?)\s+((?:[\w'-]+ ){0,4}?[\w'-]{2,})\s+(?:trivia|quiz(?:zes)?)\b/i
+const TRIVIA_UNBAN_RE = /\b(?:unban|allow|re-?enable|bring back)\s+((?:[\w'-]+ ){0,4}?[\w'-]{2,})\s+(?:trivia|quiz(?:zes)?)\b/i
+const stripArticles = (s: string) => s.replace(/^(?:the|a|an|any|all|this|that)\s+/i, '').trim()
+
 // single trivia router shared by `!trivia ...` and `!b trivia ...`. handles the
 // built-in subcommands (score/skip/stats/category), then treats anything else as a
 // custom AI topic.
@@ -1503,7 +1577,7 @@ async function handlePlantDirective(text: string, ctx: CommandContext, suffix: s
   const channel = ctx.channel
   if (!channel || !ctx.user) return null
   const last = directivePlantCooldown.get(ctx.user.toLowerCase()) ?? 0
-  if (Date.now() - last < DIRECTIVE_PLANT_CD) return null // anti-spam: 1 plant/user/60s
+  if (Date.now() - last < DIRECTIVE_PLANT_CD && !ctx.isMod) return null // anti-spam: 1 plant/user/60s; mods exempt
 
   // burn the window BEFORE the paid classify call — a rejected plant or a DIRECTIVE_INTENT
   // false-positive still costs a Sonnet call, so it must be throttled too, not just successes.

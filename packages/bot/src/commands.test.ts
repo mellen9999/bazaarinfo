@@ -195,7 +195,7 @@ mock.module('./emotes', () => ({
   removeChannelEmotes: mock(() => {}),
 }))
 
-const { handleCommand, parseArgs, salvageQuery, resetDedup, resetProxyCooldowns, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES, stripTopicConnector, DIRECTIVE_INTENT } = await import('./commands')
+const { handleCommand, parseArgs, salvageQuery, resetDedup, resetProxyCooldowns, resetTriviaTopicBans, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES, stripTopicConnector, DIRECTIVE_INTENT } = await import('./commands')
 const chatbuf = await import('./chatbuf')
 const directives = await import('./directives')
 
@@ -2404,6 +2404,34 @@ describe('custom-topic trivia: !trivia <topic>', () => {
   it('a title with a mid-phrase verb survives the topic-first guard ("life is strange trivia")', async () => {
     await handleCommand('!b life is strange trivia', { user: 'u', channel: 'ct-tf6' })
     expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('life is strange', 'ct-tf6', [], [])
+  })
+
+  it('mod "no more X trivia" bans the topic; requests then hit the embargo', async () => {
+    resetTriviaTopicBans()
+    const ban = await handleCommand('!b as a moderator I order no more digimon trivia', { user: 'modguy', channel: 'ct-ban1', isMod: true })
+    expect(ban).toContain('digimon trivia banned')
+    const res = await handleCommand('!b trivia about digimon', { user: 'u', channel: 'ct-ban1' })
+    expect(res).toContain('mod embargo')
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+    // topic-first form hits the same wall
+    const res2 = await handleCommand('!b digimon adventure trivia', { user: 'u2', channel: 'ct-ban1' })
+    expect(res2).toContain('mod embargo')
+  })
+
+  it('mod unban lifts the embargo', async () => {
+    resetTriviaTopicBans()
+    await handleCommand('!b ban digimon trivia', { user: 'modguy', channel: 'ct-ban2', isMod: true })
+    const un = await handleCommand('!b allow digimon trivia', { user: 'modguy', channel: 'ct-ban2', isMod: true })
+    expect(un).toContain('unbanned')
+    await handleCommand('!b trivia about digimon', { user: 'u', channel: 'ct-ban2' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalled()
+  })
+
+  it('non-mod ban attempts change nothing', async () => {
+    resetTriviaTopicBans()
+    await handleCommand('!b no more digimon trivia', { user: 'rando', channel: 'ct-ban3' })
+    await handleCommand('!b trivia about digimon', { user: 'u', channel: 'ct-ban3' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalled()
   })
 
   it('meta-topic "trivia about trivia" is rewritten to quiz-culture substance', async () => {

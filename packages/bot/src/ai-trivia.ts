@@ -87,7 +87,7 @@ Go DEEP, not surface. Skip the obvious headline everyone already knows; mine a d
 
 Do NOT just name the subject back:
 - GUESS_THE_SUBJECT=false: the asker already named this subject, so its own name/title is a FORBIDDEN answer. NAME the subject in the question and ask about a PROPERTY of it — a person, place, year, number, or other name connected to it. The answer must be a fact ABOUT the subject, never the subject itself.
-- GUESS_THE_SUBJECT=true: you MAY instead make the subject itself the answer, giving enough identifying clues to land it — but still pick a surprising angle, not a textbook description.
+- GUESS_THE_SUBJECT=true: you MAY instead make the subject itself the answer, giving enough identifying clues to land it — but still pick a surprising angle, not a textbook description. even then, the answer must NEVER be the asker's original topic word(s) — they typed it, so it can't win.
 
 If you do NOT have a solid, surprising, verifiable fact for this exact subject, zoom OUT to its creator, franchise, studio, genre, era, or country and ask a great true question there instead — never fabricate to fill the slot.
 
@@ -239,6 +239,16 @@ async function generateAndVerify(
       const content = `SUBJECT: ${it.subject}\nGUESS_THE_SUBJECT: ${guessTheSubject}\n\n${it.instruction}${avoidBlock}`
       const g = await attemptGen(DEEPCUT_SYSTEM, content, channel)
       if (!g.ok) return null
+      // the asker's own words can never be the winning answer — they typed them.
+      // applies in BOTH modes: guessTheSubject legitimizes naming a stage-1 SUBJECT
+      // beneath a broad topic, never parroting the asked topic back ("trivia about
+      // digimon" → answer "digimon"). covers accept aliases too — if typing the topic
+      // wins, it's the same tautology. also closes the stage-1 fail-soft + round-2
+      // broaden paths, which run with naming allowed and subject == raw topic.
+      if (answerEchoesTopic(g.q, topic)) {
+        log(`ai-trivia: dropped topic-echo "${g.q.answer}" (answer restates the asked topic: ${topic})`)
+        return null
+      }
       if (!guessTheSubject && echoesSubject(g.q.answer, it.subject, topic)) {
         log(`ai-trivia: dropped tautology "${g.q.answer}" (subject named in topic: ${it.subject})`)
         return null
@@ -275,6 +285,12 @@ export function answerLeaks(q: CustomTrivia): boolean {
     if (nq.includes(` ${na} `)) return true
   }
   return false
+}
+
+// true when the winning answer (or any accept alias) restates the asked topic itself —
+// the asker typed those words, so they can never be the answer. exported as the test seam.
+export function answerEchoesTopic(q: CustomTrivia, topic: string): boolean {
+  return [q.answer, ...q.accept].some((a) => echoesSubject(a, topic, topic))
 }
 
 // true when an answer merely restates the subject or the user's topic — e.g. topic "anger
