@@ -117,10 +117,11 @@ describe('system prompt', () => {
   // cache window, not per call. raised 6700->8000 after personality tuning, then
   // ->8600 for the real-death/tragedy sensitivity rule (genie incident), ->8800
   // for the no-latency-excuses brush-off rule, ->9800 for the deadpan voice
-  // retune (VOICE BANS: nicknames, forced puns, zinger scaffolds, exclamations).
-  it('is under 9800 chars (runaway-growth guard)', () => {
+  // retune (VOICE BANS), then TIGHTENED ->8000 after the dedupe/consolidation
+  // pass (never-deflect 4x->1, death 2x->1, mellen-mention 3x->1; ~7100 chars).
+  it('is under 8000 chars (runaway-growth guard)', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt.length).toBeLessThan(9800)
+    expect(prompt.length).toBeLessThan(8000)
   })
 
   it('contains core identity', () => {
