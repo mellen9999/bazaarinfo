@@ -60,6 +60,18 @@ describe('db', () => {
     expect(stats!.favorite_item).toBe('Boomerang')
   })
 
+  it("ai/miss markers never poison favorite_item or top items ('fallback' is not an item)", () => {
+    db.logCommand({ user: 'alice' }, 'ai', 'what is love', 'fallback')
+    db.logCommand({ user: 'alice' }, 'ai', 'who won', 'fallback')
+    db.logCommand({ user: 'alice' }, 'ai', 'hello', 'fallback')
+    db.logCommand({ user: 'alice' }, 'miss', 'xyzfake', 'xyzfake')
+    db.logCommand({ user: 'alice' }, 'item', 'boom', 'Boomerang')
+    db.flushWrites()
+
+    expect(db.getUserStats('alice')!.favorite_item).toBe('Boomerang')
+    expect(db.getUserTopItems('alice')).toEqual(['Boomerang'])
+  })
+
   it('channel leaderboard works', () => {
     db.logCommand({ user: 'alice', channel: 'test' }, 'item', 'a', 'A')
     db.logCommand({ user: 'alice', channel: 'test' }, 'item', 'b', 'B')

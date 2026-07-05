@@ -95,7 +95,7 @@ function prepareStatements() {
     selectUser: db.prepare('SELECT * FROM users WHERE username = ?'),
     selectUserFav: db.prepare(
       `SELECT match_name, COUNT(*) as cnt FROM commands
-       WHERE user_id = ? AND match_name IS NOT NULL
+       WHERE user_id = ? AND match_name IS NOT NULL AND cmd_type NOT IN ('miss', 'ai')
        GROUP BY match_name ORDER BY cnt DESC LIMIT 1`,
     ),
     channelLeaderboard: db.prepare(
@@ -144,7 +144,7 @@ function prepareStatements() {
     userTopItems: db.prepare(
       `SELECT match_name, COUNT(*) as cnt FROM commands c
        JOIN users u ON c.user_id = u.id
-       WHERE LOWER(u.username) = ? AND c.match_name IS NOT NULL AND c.cmd_type != 'miss'
+       WHERE LOWER(u.username) = ? AND c.match_name IS NOT NULL AND c.cmd_type NOT IN ('miss', 'ai')
        GROUP BY c.match_name ORDER BY cnt DESC LIMIT ?`,
     ),
     channelRegulars: db.prepare(

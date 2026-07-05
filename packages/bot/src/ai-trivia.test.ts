@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { splitAlternates, pickDistinctLenses, LENSES, answerLeaks, answerEchoesTopic } from './ai-trivia'
+import { splitAlternates, pickDistinctLenses, LENSES, answerLeaks, answerEchoesTopic, parseGen } from './ai-trivia'
 
 describe('splitAlternates — fold answer alternates into accept', () => {
   it('splits a parenthetical alternate', () => {
@@ -94,5 +94,25 @@ describe('answerLeaks — deterministic giveaway guard', () => {
   })
   it('does not false-positive on a shared word that is not the answer', () => {
     expect(answerLeaks(mk('What is the name of the innermost of the three walls?', 'Wall Sina', ['wall sina', 'sina']))).toBe(false)
+  })
+  it('flags the live person-trivia giveaway (answer named as a rhetorical option)', () => {
+    // shipped round: question offered the answer as one of its own options
+    expect(answerLeaks(mk('What item does @PengrinJrJr look up most in chat: is it their trusty fallback or something flashier?', 'fallback', ['fallback', 'the fallback']))).toBe(true)
+  })
+})
+
+describe('parseGen — person/chat trivia post-parse gate', () => {
+  it('rejects a giveaway question with retry so the round regenerates', () => {
+    const r = parseGen('{"ok":true,"question":"What item does @PengrinJrJr look up most: their trusty fallback or something flashier?","answer":"fallback","accept":["fallback"]}')
+    expect(r).toEqual({ ok: false, retry: true })
+  })
+  it('passes a clean generation through', () => {
+    const r = parseGen('{"ok":true,"question":"What emote does @PengrinJrJr spam after every win?","answer":"Clap","accept":["clap"]}')
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.q.answer).toBe('Clap')
+  })
+  it('rejects unparseable/refused output with retry', () => {
+    expect(parseGen('{"ok":false}')).toEqual({ ok: false, retry: true })
+    expect(parseGen('not json at all')).toEqual({ ok: false, retry: true })
   })
 })

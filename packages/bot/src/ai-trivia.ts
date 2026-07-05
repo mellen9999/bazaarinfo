@@ -702,8 +702,21 @@ type GenResult = { ok: true; q: CustomTrivia } | { ok: false; retry: boolean }
 async function attemptGen(system: string, userContent: string, channel: string): Promise<GenResult> {
   const text = await callApi(system, userContent, channel, 300)
   if (!text) return { ok: false, retry: false }
+  return parseGen(text)
+}
+
+// pure post-parse gate for the single-call generators (person + chat trivia): parse the
+// model's JSON, then apply the same giveaway backstop as the custom-topic/game paths — an
+// answer sitting verbatim in the question is copyable, so regen instead. exported as the
+// test seam.
+export function parseGen(text: string): GenResult {
   const q = validate(text)
-  return q ? { ok: true, q } : { ok: false, retry: true }
+  if (!q) return { ok: false, retry: true }
+  if (answerLeaks(q)) {
+    log(`ai-trivia: dropped giveaway "${q.answer}" (answer appears in the question)`)
+    return { ok: false, retry: true }
+  }
+  return { ok: true, q }
 }
 
 // parse the model's JSON and enforce every constraint ourselves — never trust the
