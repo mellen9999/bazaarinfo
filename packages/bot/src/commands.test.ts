@@ -195,7 +195,7 @@ mock.module('./emotes', () => ({
   removeChannelEmotes: mock(() => {}),
 }))
 
-const { handleCommand, parseArgs, resetDedup, resetProxyCooldowns, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES, stripTopicConnector, DIRECTIVE_INTENT } = await import('./commands')
+const { handleCommand, parseArgs, salvageQuery, resetDedup, resetProxyCooldowns, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES, stripTopicConnector, DIRECTIVE_INTENT } = await import('./commands')
 const chatbuf = await import('./chatbuf')
 const directives = await import('./directives')
 
@@ -507,6 +507,56 @@ describe('parseArgs', () => {
     const result = parseArgs(['diamond', 'subscraper'])
     expect(result.tier).toBe('Diamond')
     expect(result.item).toBe('subscraper')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// salvageQuery — noise-tolerant rescue for wrapped item names
+// ---------------------------------------------------------------------------
+describe('salvageQuery', () => {
+  beforeEach(() => {
+    mockExact.mockImplementation((n) =>
+      n.toLowerCase() === 'flying fish' ? ({ Title: 'Flying Fish' } as BazaarCard) : undefined)
+    mockFindExactHero.mockImplementation((q) =>
+      q.toLowerCase() === 'vanessa' ? 'Vanessa' : q.toLowerCase() === 'stelle' ? 'Stelle' : undefined)
+  })
+
+  it('extracts an exact-title subphrase from hero+size+filler wrapping', () => {
+    expect(salvageQuery('vanessa flying fish medium item')).toEqual({ query: 'flying fish' })
+  })
+
+  it('strips article/filler wrapping ("the flying fish card")', () => {
+    expect(salvageQuery('the flying fish card')).toEqual({ query: 'flying fish' })
+  })
+
+  it('strips hero + noise and scopes the fuzzy retry to that hero', () => {
+    expect(salvageQuery('stelle item beam')).toEqual({ query: 'beam', hero: 'Stelle' })
+  })
+
+  it('hero-possessive tokens resolve ("vanessa\'s fish thing")', () => {
+    expect(salvageQuery("vanessa's fish thing")).toEqual({ query: 'fish', hero: 'Vanessa' })
+  })
+
+  it('hero-only remainder returns empty query + hero (pool reply)', () => {
+    expect(salvageQuery('vanessa items')).toEqual({ query: '', hero: 'Vanessa' })
+  })
+
+  it('returns null when nothing strippable (no false rescue)', () => {
+    mockExact.mockImplementation(() => undefined)
+    expect(salvageQuery('obsidian dagger')).toBeNull()
+  })
+
+  it('returns null for single-word queries', () => {
+    expect(salvageQuery('boomerang')).toBeNull()
+  })
+
+  it('prefers the longest exact subphrase over stripping', () => {
+    mockExact.mockImplementation((n) => {
+      const l = n.toLowerCase()
+      if (l === 'the big one' || l === 'big one') return { Title: 'The Big One' } as BazaarCard
+      return undefined
+    })
+    expect(salvageQuery('the big one card')).toEqual({ query: 'the big one' })
   })
 })
 
@@ -2322,6 +2372,46 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     const res = await handleCommand('!b trivia roman history', { user: 'u', channel: 'ct-1' })
     expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('roman history', 'ct-1', [], [])
     expect(res).toBe('Trivia! custom question (30s)')
+  })
+
+  it('topic-first form starts a round ("bakugon trivia")', async () => {
+    const res = await handleCommand('!b bakugon trivia', { user: 'u', channel: 'ct-tf1' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('bakugon', 'ct-tf1', [], [])
+    expect(res).toBe('Trivia! custom question (30s)')
+  })
+
+  it('topic-first works with "quiz" and a trailing pleasantry', async () => {
+    await handleCommand('!b digimon quiz pls', { user: 'u', channel: 'ct-tf2' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('digimon', 'ct-tf2', [], [])
+  })
+
+  it('topic-first does NOT hijack control phrases ("stop the trivia")', async () => {
+    await handleCommand('!b stop the trivia', { user: 'u', channel: 'ct-tf3' })
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+  })
+
+  it('topic-first does NOT hijack result questions ("who won the trivia")', async () => {
+    await handleCommand('!b who won the trivia', { user: 'u', channel: 'ct-tf4' })
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+  })
+
+  it('"more trivia" / "another trivia" start a fresh random round, not a topic', async () => {
+    const res = await handleCommand('!b more trivia', { user: 'u', channel: 'ct-tf5' })
+    expect(res).toBe('Trivia! test question (30s to answer)')
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+  })
+
+  it('a title with a mid-phrase verb survives the topic-first guard ("life is strange trivia")', async () => {
+    await handleCommand('!b life is strange trivia', { user: 'u', channel: 'ct-tf6' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('life is strange', 'ct-tf6', [], [])
+  })
+
+  it('meta-topic "trivia about trivia" is rewritten to quiz-culture substance', async () => {
+    await handleCommand('!b trivia about trivia', { user: 'u', channel: 'ct-meta' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalled()
+    const topicArg = mockGenerateCustomTrivia.mock.calls[0][0] as string
+    expect(topicArg).toContain('quiz culture')
+    expect(topicArg).not.toBe('trivia')
   })
 
   it('works via the top-level !trivia command too', async () => {
