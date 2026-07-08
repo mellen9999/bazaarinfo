@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { truncate, formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults } from './format'
+import { truncate, formatItem, formatEnchantment, formatMonster, formatEvent, formatTagResults, formatDayResults } from './format'
 import type { BazaarCard, TierName, Monster } from './types'
 import type { SkillDetail } from './format'
 
@@ -40,6 +40,19 @@ function makeCard(overrides: Partial<BazaarCard> = {}): BazaarCard {
 // ---------------------------------------------------------------------------
 // formatItem
 // ---------------------------------------------------------------------------
+describe('formatEvent', () => {
+  it('identifies the encounter, tags hero, and links to bazaardb', () => {
+    const r = formatEvent(makeCard({ Title: 'Zosima', Heroes: ['Mak'], Shortlink: 'https://bzdb.to/zos' }))
+    expect(r).toContain('Zosima')
+    expect(r).toContain('event encounter')
+    expect(r).toContain('bzdb.to/zos')
+  })
+  it('omits hero when the event is neutral (Common only)', () => {
+    const r = formatEvent(makeCard({ Title: 'Mandala', Heroes: ['Common'] }))
+    expect(r).toContain('Mandala — event encounter')
+  })
+})
+
 describe('formatItem', () => {
   it('outputs name, size, and hero', () => {
     const result = formatItem(makeCard())

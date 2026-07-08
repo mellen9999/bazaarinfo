@@ -7,6 +7,7 @@ const mockSearch = mock<(query: string, limit: number) => BazaarCard[]>(() => []
 const mockGetEnchantments = mock<() => string[]>(() => [])
 const mockByHero = mock<(hero: string) => BazaarCard[]>(() => [])
 const mockFindMonster = mock<(query: string) => Monster | undefined>(() => undefined)
+const mockFindEventExact = mock<(name: string) => BazaarCard | undefined>(() => undefined)
 const mockFindCard = mock<(name: string) => BazaarCard | undefined>(() => undefined)
 const mockByTag = mock<(tag: string) => BazaarCard[]>(() => [])
 const mockMonstersByDay = mock<(day: number) => Monster[]>(() => [])
@@ -30,6 +31,7 @@ mock.module('./store', () => ({
   findCard: mockFindCard,
   byTag: mockByTag,
   monstersByDay: mockMonstersByDay,
+  findEventExact: mockFindEventExact,
   findSkill: mockFindSkill,
   getItems: mockGetItems,
   getMonsters: mockGetMonsters,
@@ -260,6 +262,8 @@ beforeEach(() => {
   ])
   mockByHero.mockImplementation(() => [])
   mockFindMonster.mockImplementation(() => undefined)
+  mockFindEventExact.mockReset()
+  mockFindEventExact.mockImplementation(() => undefined)
   mockFindCard.mockImplementation(() => undefined)
   mockByTag.mockReset()
   mockMonstersByDay.mockReset()
@@ -812,6 +816,28 @@ describe('!b enchantment (any order)', () => {
   it('single enchant word alone answers the enchant definition', async () => {
     expect(await handleCommand('!b fiery')).toContain('Fiery:')
     expect(await handleCommand('!b toxic')).toContain('Toxic:')
+  })
+
+  describe('event encounters', () => {
+    const bjorn = makeCard({ Title: 'Bjorn', Heroes: ['Vanessa'], Shortlink: 'https://bzdb.to/bjorn' })
+    it('recognizes a bare event name instead of an ungrounded miss', async () => {
+      mockFindEventExact.mockImplementation((n) => n.toLowerCase() === 'bjorn' ? bjorn : undefined)
+      const r = await handleCommand('!b bjorn')
+      expect(r).toContain('Bjorn')
+      expect(r).toContain('event encounter')
+    })
+    it('item of the same name still wins over the event', async () => {
+      // Apothecary is both an item and an event — the item must win the bare query
+      const apoItem = makeCard({ Title: 'Apothecary' })
+      mockExact.mockImplementation((n) => n.toLowerCase() === 'apothecary' ? apoItem : undefined)
+      mockFindEventExact.mockImplementation((n) => n.toLowerCase() === 'apothecary' ? makeCard({ Title: 'Apothecary', Tags: ['EventEncounter'] }) : undefined)
+      const r = await handleCommand('!b apothecary')
+      expect(r).not.toContain('event encounter')
+    })
+    it('!b event <name> forces the encounter', async () => {
+      mockFindEventExact.mockImplementation((n) => n.toLowerCase() === 'bjorn' ? bjorn : undefined)
+      expect(await handleCommand('!b event bjorn')).toContain('event encounter')
+    })
   })
 
   it('skill/item collision: prefers item with enchant over skill without', async () => {

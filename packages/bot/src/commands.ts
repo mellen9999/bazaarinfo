@@ -1,4 +1,4 @@
-import { formatItem, formatEnchantment, formatMonster, formatTagResults, formatDayResults, truncate, resolveTooltip, compressTooltip, TIER_ORDER } from '@bazaarinfo/shared'
+import { formatItem, formatEnchantment, formatMonster, formatEvent, formatTagResults, formatDayResults, truncate, resolveTooltip, compressTooltip, TIER_ORDER } from '@bazaarinfo/shared'
 import type { TierName, Monster, SkillDetail, BazaarCard } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
@@ -470,7 +470,7 @@ function resolveSkills(monster: Monster): Map<string, SkillDetail> {
 type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string | null | Promise<string | null>
 
 const RESERVED_SUBS = new Set([
-  'mob', 'monster', 'hero', 'tag', 'skill', 'day', 'enchants', 'enchantments',
+  'mob', 'monster', 'hero', 'tag', 'skill', 'day', 'enchants', 'enchantments', 'event', 'encounter',
   'trivia', 'skip', 'score', 'stats', 'top', 'alias', 'help', 'info',
   'refresh', 'update', 'emotes', 'status', 'join', 'part',
   'leave', 'pick', 'vote', 'party', 'shop', 'history', 'resolve', 'game',
@@ -533,6 +533,17 @@ const subcommands: [RegExp, SubHandler][] = [
     }
     logHit('mob', query, monster.Title, ctx)
     return withSuffix(formatMonster(monster, resolveSkills(monster)), suffix)
+  }],
+  [/^(?:event|encounter)\s+(.+)$/i, async (query, ctx, suffix) => {
+    // explicit event lookup — forces the encounter even when an item shares the name
+    // (e.g. "Apothecary" is both an item and an event).
+    const event = store.findEventExact(query)
+    if (!event) {
+      logMiss(query, ctx)
+      return aiOrQuip(`event ${query}`, ctx, suffix)
+    }
+    logHit('event', query, event.Title, ctx)
+    return withSuffix(formatEvent(event), suffix)
   }],
   [/^hero\s+(.+)$/i, async (query, ctx, suffix) => {
     const resolved = store.findHeroName(query)
@@ -791,6 +802,15 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   if (monster && isRelevantMatch(monster.Title, false)) {
     logHit('mob', query, monster.Title, ctx)
     return withSuffix(formatMonster(monster, resolveSkills(monster)), suffix)
+  }
+
+  // exact event-encounter name ("!b bjorn") — lowest priority, so an item or monster
+  // of the same name still wins. recognizes the encounter instead of falling to an
+  // ungrounded AI guess. effect text isn't in the dump, so formatEvent points to bazaardb.
+  const event = store.findEventExact(query)
+  if (event) {
+    logHit('event', query, event.Title, ctx)
+    return withSuffix(formatEvent(event), suffix)
   }
 
   // item + monster both missed — salvage the query: strip hero/size/filler wrapping

@@ -97,6 +97,8 @@ let heroCardMap: Map<string, BazaarCard[]> = new Map()
 let tagCardMap: Map<string, BazaarCard[]> = new Map()
 let effectWordMap: Map<string, Set<BazaarCard>> = new Map()
 let dayMap: Map<number, Monster[]> = new Map()
+let events: BazaarCard[] = []
+let eventMap: Map<string, BazaarCard> = new Map()
 
 function dedup<T extends { Title: string }>(cards: T[]): T[] {
   const seen = new Set<string>()
@@ -167,6 +169,13 @@ function loadCache(cache: CardCache) {
       list.push(card)
     }
   }
+
+  // event encounters (name-only in the dump — no effect tooltips). loaded for
+  // exact-name recognition so "!b bjorn" is identified as an encounter instead of
+  // dead-ending in an ungrounded AI guess. exact-match only, lowest lookup priority.
+  events = dedup(cache.events ?? [])
+  eventMap = new Map()
+  for (const e of events) eventMap.set(e.Title.toLowerCase(), e)
 
   // precompute day → monsters map
   dayMap = new Map()
@@ -356,6 +365,15 @@ export function byTag(tag: string): BazaarCard[] {
 
 export function monstersByDay(day: number): Monster[] {
   return dayMap.get(day) ?? []
+}
+
+// exact event-encounter lookup by title (case-insensitive). undefined on miss.
+export function findEventExact(name: string): BazaarCard | undefined {
+  return eventMap.get(name.trim().toLowerCase())
+}
+
+export function eventTitles(): string[] {
+  return events.map((e) => e.Title)
 }
 
 export function findSkill(query: string): BazaarCard | undefined {
