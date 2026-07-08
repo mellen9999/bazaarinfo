@@ -48,6 +48,7 @@ interface EventSubMessage {
   metadata: {
     message_type: string
     subscription_type?: string
+    message_timestamp?: string
   }
   payload: {
     session?: {
@@ -88,7 +89,7 @@ export interface TwitchConfig {
   channels: ChannelInfo[]
 }
 
-export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string) => void
+export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string, sentTs?: number) => void
 
 export type AuthRefreshFn = () => Promise<string>
 
@@ -104,6 +105,7 @@ interface IrcPrivmsg {
   userId: string
   messageId: string
   badges: string[]
+  sentTs: number
   replyParentUserLogin?: string
   threadId?: string
 }
@@ -166,6 +168,9 @@ export function parseIrcLine(line: string): IrcMessage {
       userId: tags['user-id'] || '',
       messageId: tags['id'] || '',
       badges,
+      // twitch's authoritative send time (epoch ms). used to drop replies that couldn't be
+      // produced/sent while fresh (network stall backlog) instead of bursting them out late.
+      sentTs: Number(tags['tmi-sent-ts']) || 0,
       replyParentUserLogin: tags['reply-parent-user-login'] || undefined,
       threadId: tags['reply-thread-parent-msg-id'] || tags['reply-parent-msg-id'] || undefined,
     }
@@ -387,7 +392,8 @@ export class TwitchClient {
           text = text.replace(new RegExp(`^@${e.reply.parent_user_login}\\s+`, 'i'), '')
         }
         const badges = (e.badges ?? []).map((b: { set_id: string }) => b.set_id)
-        this.dispatchMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, text, badges, e.message_id ?? '', e.reply?.thread_message_id)
+        const sentTs = Date.parse(msg.metadata.message_timestamp ?? '') || 0
+        this.dispatchMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, text, badges, e.message_id ?? '', e.reply?.thread_message_id, sentTs)
       }
     } else if (type === 'session_reconnect') {
       const newUrl = msg.payload.session?.reconnect_url
@@ -703,10 +709,10 @@ export class TwitchClient {
     if (m.replyParentUserLogin) {
       text = text.replace(new RegExp(`^@${m.replyParentUserLogin}\\s+`, 'i'), '')
     }
-    this.dispatchMessage(m.channel, m.userId, m.login, text, m.badges, m.messageId, m.threadId)
+    this.dispatchMessage(m.channel, m.userId, m.login, text, m.badges, m.messageId, m.threadId, m.sentTs)
   }
 
-  private dispatchMessage(channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string) {
+  private dispatchMessage(channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string, sentTs?: number) {
     if (messageId) {
       if (this.seenMessageIdSet.has(messageId)) return
       this.seenMessageIdSet.add(messageId)
@@ -716,7 +722,7 @@ export class TwitchClient {
         if (evicted) this.seenMessageIdSet.delete(evicted)
       }
     }
-    this.onMessage(channel, userId, username, text, badges, messageId, threadId)
+    this.onMessage(channel, userId, username, text, badges, messageId, threadId, sentTs)
   }
 
   // After welcome, JOIN ack should arrive within seconds. If a channel hasn't acked

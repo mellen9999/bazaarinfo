@@ -39,6 +39,17 @@ describe('parseIrcLine USERSTATE privilege detection', () => {
     const m = parseIrcLine('@badges=vip/1;id=abc;user-id=42 :viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #nl_kripp :hello world')
     expect(m).toMatchObject({ type: 'privmsg', channel: 'nl_kripp', login: 'viewer', text: 'hello world' })
   })
+
+  // sentTs powers the stale-reply drop (freshness gate) — must parse tmi-sent-ts, and fail
+  // open to 0 when absent so a missing tag can never make every reply look infinitely old.
+  test('extracts tmi-sent-ts as sentTs', () => {
+    const m = parseIrcLine('@id=abc;user-id=42;tmi-sent-ts=1700000000123 :v!v@v.tmi.twitch.tv PRIVMSG #chan :hi')
+    expect(m).toMatchObject({ type: 'privmsg', sentTs: 1700000000123 })
+  })
+  test('sentTs is 0 when tmi-sent-ts is absent', () => {
+    const m = parseIrcLine('@id=abc;user-id=42 :v!v@v.tmi.twitch.tv PRIVMSG #chan :hi')
+    expect(m).toMatchObject({ type: 'privmsg', sentTs: 0 })
+  })
 })
 
 // regression for the slow-then-spammy burst: several replies finishing at once must

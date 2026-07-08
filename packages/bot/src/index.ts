@@ -53,6 +53,9 @@ const token = await ensureValidToken(CLIENT_ID, CLIENT_SECRET)
 
 // check cache freshness, refresh if stale or missing
 const STALE_HOURS = 168 // 7 days — daily cron handles normal refresh, this is the offline fallback
+// max end-to-end age (twitch send → about to post) before a reply is dropped as stale. above the
+// 12s AI request deadline + normal queue slack, below the tens-of-seconds a host I/O stall adds.
+const REPLY_FRESHNESS_MS = 20_000
 
 const SCRAPE_TIMEOUT = 5 * 60_000 // 5min
 
@@ -295,7 +298,7 @@ for (const ch of channelNames) {
 
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
-  async (channel, userId, username, text, badges, messageId, threadId) => {
+  async (channel, userId, username, text, badges, messageId, threadId, sentTs) => {
     try {
       if (userId === botUserId) return
 
@@ -378,6 +381,17 @@ const client = new TwitchClient(
 
       const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId, threadId })
       if (response) {
+        // freshness gate — DROP a reply that couldn't be produced while still fresh instead of
+        // posting it late. an intermittent network stall on the host freezes all I/O for tens of
+        // seconds, then a backlog of replies completes at once; without this they'd burst into
+        // chat 30-100s after the question (spam, and answering people who moved on). the AI
+        // request deadline is 12s, so a >20s end-to-end age means a stall ate the time — suppress
+        // it. fail-open: no/zero sentTs (or host clock behind twitch) → never drop.
+        const age = sentTs ? Date.now() - sentTs : 0
+        if (age > REPLY_FRESHNESS_MS) {
+          log(`[#${channel}] [${username}] DROPPED stale reply (${Math.round(age / 1000)}s old): ${response.slice(0, 60)}`)
+          return
+        }
         // outbound pacing is handled solely by the twitch client's send buckets + FIFO
         // pacer (see twitch.ts say/kickPacer). no second throttle here — the first reply
         // goes out immediately and the rest are spaced ~400ms so chat never gets a burst.
