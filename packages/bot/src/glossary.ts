@@ -45,6 +45,14 @@ export const GLOSSARY: Record<string, string> = {
     'a temporary state an item enters (a Jules kitchen mechanic — the hot counterpart to Chilled). you apply it with Heat/Stove effects; while an item is Heated it switches on its bonus "Heated:" line (extra Crit, Multicast, Burn, or a shorter cooldown, etc.) and many Jules items reward you for having Heated items.',
   chilled:
     'a temporary state an item enters (a Jules kitchen mechanic — the cold counterpart to Heated). you apply it with Chill/Freeze-slot effects; while an item is Chilled it switches on its bonus "Chilled:" line (extra Multicast, Freeze, Regen, or a shorter cooldown, etc.) and many Jules items reward you for having Chilled items.',
+  destroy:
+    "removes an item from the board for the rest of the fight — it can't be used again. lots of items have a \"when destroyed\" effect that triggers as they go, so destroying isn't always pure downside.",
+  transform:
+    'replaces an item with a different one for the rest of the fight (e.g. into a Potion, Jerky, or Virus). the new item takes the slot but brings its own stats and text — the original is gone.',
+  cleanse:
+    'removes Burn and/or Poison you are currently suffering (e.g. "Cleanse half your Burn and Poison"). it clears the debuff ticking on you — it is not a heal and does not restore Health.',
+  enchant:
+    'an enchantment is a permanent upgrade on a single item (Golden, Fiery, Icy, Toxic, Deadly, Radiant, Heavy, Turbo, Shielded, Restorative, Shiny, Obsidian, Mossy). each adds a themed bonus — e.g. Fiery=Burn, Icy=Freeze, Toxic=Poison, Deadly=Crit, Golden=extra Value. an Enchanted item is one that has one; some items only reward using Enchanted items.',
 }
 
 // surface form (lowercase, word-boundary) -> canonical glossary key. base forms +
@@ -70,6 +78,10 @@ const ALIASES: Record<string, string> = {
   sandstorms: 'sandstorm',
   heat: 'heated', heats: 'heated', heating: 'heated',
   chill: 'chilled', chills: 'chilled', chilling: 'chilled',
+  destroys: 'destroy', destroyed: 'destroy', destroying: 'destroy',
+  transforms: 'transform', transformed: 'transform', transforming: 'transform',
+  cleanses: 'cleanse', cleansed: 'cleanse', cleansing: 'cleanse',
+  enchanted: 'enchant', enchantment: 'enchant', enchantments: 'enchant', enchants: 'enchant',
 }
 
 // canonical key -> label shown in output (the keyword, Title-cased)
@@ -78,7 +90,8 @@ const LABEL: Record<string, string> = {
   haste: 'Haste', shield: 'Shield', heal: 'Heal', regen: 'Regen', crit: 'Crit',
   lifesteal: 'Lifesteal', charge: 'Charge', cooldown: 'Cooldown', ammo: 'Ammo',
   reload: 'Reload', multicast: 'Multicast', damage: 'Damage', sandstorm: 'Sandstorm',
-  heated: 'Heated', chilled: 'Chilled',
+  heated: 'Heated', chilled: 'Chilled', destroy: 'Destroy', transform: 'Transform',
+  cleanse: 'Cleanse', enchant: 'Enchant',
 }
 
 // full surface->canonical index, built once: every base key maps to itself, plus aliases.

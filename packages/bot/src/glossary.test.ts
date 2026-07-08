@@ -103,4 +103,16 @@ describe('glossaryAnswer — deterministic structured-path answer', () => {
     // build asks still route to items, not the rule
     expect(glossaryAnswer('best heated item')).toBeNull()
   })
+  it('answers the Destroy/Transform/Cleanse/Enchant mechanics', () => {
+    expect(glossaryAnswer('what does destroy do')).toStartWith('Destroy:')
+    expect(glossaryAnswer('what does transform mean')).toStartWith('Transform:')
+    expect(glossaryAnswer('what is cleanse')).toStartWith('Cleanse:')
+    expect(glossaryAnswer('what is an enchantment')).toStartWith('Enchant:')
+    expect(glossaryAnswer('what does enchanted mean')).toStartWith('Enchant:')
+  })
+  it('does NOT hijack enchant-on-item lookups (Golden Dagger stays an item query)', () => {
+    // a specific enchant name + item must fall through to the item+enchant path
+    expect(glossaryAnswer('golden dagger')).toBeNull()
+    expect(glossaryAnswer('fiery boomerang')).toBeNull()
+  })
 })
