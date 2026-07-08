@@ -129,12 +129,21 @@ export const DEFINITIONAL_INTENT =
 
 // build/list/comparison words — a query with these wants items or strategy, not a
 // keyword definition ("what is the best flying item" -> list, not the Flying rule).
-const BUILD_INTENT =
+// exported: the enchant module shares this intent gate.
+export const BUILD_INTENT =
   /\b(best|worst|good|bad|meta|tier|build|recommend|synerg\w*|combo|counter|better|strongest|weakest|viable|worth|op|broken|items?|skills?)\b/i
 
 // comparison connectives: "poison vs burn", "compare freeze and slow", etc.
 // "or" is deliberately excluded — "poison or burn" is NOT a comparison.
-const COMPARISON_RE = /\b(vs|versus|compared? to|difference between|compare)\b/i
+// exported: the enchant module shares this connective set.
+export const COMPARISON_RE = /\b(vs|versus|compared? to|difference between|compare)\b/i
+
+// Is a single token a known glossary surface form (keyword or inflection)? Used by
+// the enchant module's overlap guard so a word that is both a mechanic keyword and
+// an enchant name ("shielded") stays with the glossary unless "enchant" is stated.
+export function isGlossaryTerm(token: string): boolean {
+  return !!SURFACE[token.trim().toLowerCase().replace(/[?!.]+$/, '')]
+}
 
 // True when the query is exactly one glossary keyword (no extra words). Used so
 // "!b flying" answers the mechanic, but "flying items" / "best flying" do not.

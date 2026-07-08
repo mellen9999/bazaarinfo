@@ -13,6 +13,7 @@ import { isLowValue } from './ai-query'
 import { META_QUERY_RE } from './intents'
 import { isEmote, findEmote } from './emotes'
 import { glossaryAnswer, isBareKeyword } from './glossary'
+import { enchantAnswer } from './enchants'
 import { getThread, getRecent } from './chatbuf'
 import { log } from './log'
 import * as raidCmds from './raid/commands'
@@ -1081,6 +1082,19 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (ctx.channel && DIRECTIVE_INTENT.test(cleanArgs)) {
     const planted = await handlePlantDirective(cleanArgs, ctx, suffix)
     if (planted) return planted
+  }
+
+  // generic enchant definition — deterministic, BEFORE item lookup + glossary so
+  // "what does fiery do" / "golden enchant" returns the enchant rule instead of a
+  // fuzzy item miss. gated to never steal an item+enchant lookup ("fiery boomerang")
+  // or a same-spelled mechanic ("shielded" -> Shield unless "enchant" is stated).
+  // an exact item named like an enchant still wins.
+  {
+    const ench = enchantAnswer(cleanArgs)
+    if (ench && !store.exact(cleanArgs.trim())) {
+      try { db.logCommand(ctx, 'enchant', cleanArgs, 'keyword') } catch {}
+      return withSuffix(ench, suffix)
+    }
   }
 
   // keyword/mechanic definition — deterministic, BEFORE item lookup + AI so

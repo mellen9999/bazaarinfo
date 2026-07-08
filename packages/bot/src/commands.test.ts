@@ -807,14 +807,11 @@ describe('!b enchantment (any order)', () => {
     expect(await handleCommand('!b tinfoil fiery hat')).toContain('[Tinfoil Hat - Fiery]')
   })
 
-  it('single word alone is item lookup not enchant', async () => {
-    const result = await handleCommand('!b fiery')
-    expect(result).toContain('fiery')
-  })
-
-  it('single word alone is item lookup not enchant (toxic)', async () => {
-    const result = await handleCommand('!b toxic')
-    expect(result).toContain('toxic')
+  // a lone enchant word (no item to attach it to) answers the enchant definition
+  // rather than fuzzy-guessing an item — see enchants.ts / enchantAnswer.
+  it('single enchant word alone answers the enchant definition', async () => {
+    expect(await handleCommand('!b fiery')).toContain('Fiery:')
+    expect(await handleCommand('!b toxic')).toContain('Toxic:')
   })
 
   it('skill/item collision: prefers item with enchant over skill without', async () => {
