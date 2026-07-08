@@ -5,6 +5,7 @@ import { tmpdir } from 'os'
 
 // dynamic import to avoid mock.module conflicts from other test files
 const db = await import('./db')
+const { buildChatRecall, isPastaRecall } = await import('./ai-build')
 
 let dbPath: string
 
@@ -228,6 +229,48 @@ describe('db', () => {
     const hits = db.searchChatFTS('chan1', 'boomerang')
     expect(hits.length).toBe(1)
     expect(hits[0].username).toBe('alice')
+  })
+
+  // --- pasta recall (recite existing chat pasta verbatim) ---
+
+  const PASTA = 'day 1,847 of watching kripp play the exact same pygmalien max hp build. globe. whammy. belt. lion cane. i have memorized the item pickups in my sleep. my therapist recognizes the icons now.'
+
+  it('classifies recall verbs as pasta recall, not creative generation', () => {
+    expect(isPastaRecall('can you remind me of the whammy cane copypasta')).toBe(true)
+    expect(isPastaRecall('wtf just give us the pasta')).toBe(true)
+    expect(isPastaRecall('recite the frog copypasta')).toBe(true)
+    expect(isPastaRecall('repost that rant again')).toBe(true)
+    // create verbs / indefinite article = fresh generation, not recall
+    expect(isPastaRecall('write a pasta about kripp')).toBe(false)
+    expect(isPastaRecall('make me a copypasta')).toBe(false)
+    expect(isPastaRecall('do a bit about the meta')).toBe(false)
+    // no pasta noun at all
+    expect(isPastaRecall('whats the meta right now')).toBe(false)
+  })
+
+  it('recites a logged pasta verbatim on recall', () => {
+    for (let i = 0; i < 4; i++) db.logChat('kripp', `chatter${i}`, PASTA)
+    db.flushWrites()
+
+    const out = buildChatRecall('remind me of the whammy cane copypasta', 'kripp', 'askuser')
+    expect(out).toContain('VERBATIM')
+    expect(out).toContain('day 1,847')
+    expect(out).toContain('lion cane')
+  })
+
+  it('finds the pasta by distinctive keyword, not most-recent noise', () => {
+    db.logChat('kripp', 'noise', 'lion cane is a diamond weapon that scales with max health nicely')
+    for (let i = 0; i < 3; i++) db.logChat('kripp', `c${i}`, PASTA)
+    db.flushWrites()
+
+    const out = buildChatRecall('recite the whammy copypasta', 'kripp')
+    expect(out).toContain('day 1,847') // full pasta wins on keyword coverage + length
+  })
+
+  it('admits when a requested pasta is not logged — no fabricated retirement', () => {
+    const out = buildChatRecall('remind me of the nonexistent zzzqqq copypasta', 'emptychan')
+    expect(out).toContain('NOT in chat logs')
+    expect(out).toContain('don\'t have that one logged')
   })
 
   // --- retention + FTS sync ---

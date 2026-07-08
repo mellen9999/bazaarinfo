@@ -277,6 +277,73 @@ export function buildRecallContext(query: string, channel: string): string {
 
 const PASTA_INTENT_RE = /\b(copypasta|pasta|meme|bit|joke|rant|trend|spam(ming|med)?|chat'?s? (current|latest|recent|new))\b/i
 
+// --- pasta recall: recite an EXISTING chat pasta verbatim (not generate a new one) ---
+const PASTA_NOUN_RE = /\b(copypasta|pasta|bit|rant|meme)\b/i
+// unambiguous "reproduce the existing thing" verbs — always recall
+const STRONG_RECALL_RE = /\b(remind|recite|repost|re-?post|reread|re-?read|recall|again|read (?:it|that|the).{0,12}back|bring (?:it|that) back)\b/i
+// "generate something new" verbs — veto recall (unless a strong-recall verb is also present)
+const CREATE_VERB_RE = /\b(write|make|create|generate|come up with|new|another|original|about)\b/i
+// definite reference to an existing pasta ("the whammy pasta", "that copypasta", "chat's rant")
+const DEF_PASTA_RE = /\b(?:the|that|this|our|your|his|her|their|chat'?s|kripp'?s)(?:\s+\w+){0,4}\s+(?:copypasta|pasta|bit|rant|meme)\b/i
+// scaffolding words stripped before keyword search so only the pasta's distinctive terms remain
+const PASTA_SCAFFOLD = new Set([
+  'remind','reminds','reminder','recite','repost','reread','recall','recalls','again','back','bring',
+  'copypasta','copypastas','pasta','pastas','bit','rant','meme','memes','line','thing',
+  'please','can','you','your','yall','yous','give','gimme','tell','show','post','say','said','read',
+  'whats','what','wheres','where','does','did','how','the','that','this','our','his','her','their',
+  'chats','chat','remember','remembers','just','wtf','was','were','one','from','earlier','before',
+  'yesterday','today','stream','someone','somebody','people','everyone','used','use','type','typed',
+])
+
+export function isPastaRecall(query: string): boolean {
+  if (!PASTA_NOUN_RE.test(query)) return false
+  if (STRONG_RECALL_RE.test(query)) return true      // remind/recite/repost/again → recall
+  if (CREATE_VERB_RE.test(query)) return false        // write/make/new/about → fresh generation
+  return DEF_PASTA_RE.test(query)                      // "give us the pasta" → recall existing
+}
+
+function pastaKeywordCoverage(message: string, kw: string[]): number {
+  const lower = message.toLowerCase()
+  return kw.reduce((n, w) => (lower.includes(w) ? n + 1 : n), 0)
+}
+
+// Pull the actual chat pasta the user is asking for and instruct a verbatim recite.
+// Precise path: FTS over ALL history on the pasta's distinctive keywords ("whammy cane"),
+// pick the best-covered long message. Fallback: most-repeated long message all-time.
+function buildPastaRecall(query: string, channel: string): string {
+  const kw = query.toLowerCase().split(/\s+/)
+    .map((w) => w.replace(/[^a-z0-9]/g, ''))
+    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w) && !PASTA_SCAFFOLD.has(w))
+    .slice(0, 6)
+
+  let pasta = ''
+  if (kw.length > 0) {
+    try {
+      const ftsQ = kw.map((w) => `"${w}"`).join(' OR ')
+      const hits = db.searchChatFTS(channel, ftsQ, 30)
+        .filter((h) => h.message.length >= 40 && !/^[!/]/.test(h.message))
+      if (hits.length > 0) {
+        hits.sort((a, b) =>
+          pastaKeywordCoverage(b.message, kw) - pastaKeywordCoverage(a.message, kw)
+          || b.message.length - a.message.length)
+        pasta = hits[0].message
+      }
+    } catch {}
+  }
+  if (!pasta) {
+    try {
+      const rep = db.findRepeatedMessages(channel, null, 3, 80, 5)
+      if (rep.length > 0) pasta = rep[0].message
+    } catch {}
+  }
+
+  if (!pasta) {
+    return 'Requested pasta: NOT in chat logs. Tell [USER] plainly you don\'t have that one logged — do NOT invent a "retired/burned/not reheating" excuse. Offer to write a fresh one if they want.'
+  }
+  pasta = pasta.replace(/\s+/g, ' ').trim().slice(0, 460)
+  return `Requested pasta — recite this VERBATIM (exact text, no rewrite, no refusal, never call it retired/burned):\n"${pasta}"`
+}
+
 // Content-only recall when query references chat history with no specific user
 // ("what was that copypasta from yesterday", "anything funny earlier today").
 // Two paths: (1) FTS across all users when query has substantive keywords;
@@ -332,6 +399,10 @@ function buildContentRecall(query: string, channel: string, timeWindow: ReturnTy
 }
 
 export function buildChatRecall(query: string, channel: string, asker?: string): string {
+  // recite an existing chat pasta verbatim — must run before the generic recall gate,
+  // which misses "remind me of the X copypasta" (no time window / @mention / recall verb)
+  if (isPastaRecall(query)) return buildPastaRecall(query, channel)
+
   const hasMention = /@[a-zA-Z0-9_]+/.test(query)
   const hasIntent = RECALL_INTENT.test(query)
   const timeWindow = parseChatTimeWindow(query)
@@ -742,15 +813,20 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     ? `\nYour recent responses (NEVER reuse specific phrases, punchlines, item combos, or scenarios from these — even if a similar question comes up, find a completely different angle. only continue a theme if [USER]'s message explicitly references it):\n${injectResponses.map((r) => `- "${r.length > 140 ? r.slice(0, 140) + '…' : r}"`).join('\n')}${burnedLine}`
     : ''
 
-  // copypasta few-shot examples
-  const isPasta = /\b(copypasta|pasta)\b/i.test(query)
-  const isCreative = isPasta || isContinuationLike || /\b(continue|extend|expand|write|make|create|do)\b.{0,20}\b(scene|story|bit|narrative|fanfic|monologue|rant|copypasta|pasta|lore|saga)\b/i.test(query)
+  // copypasta few-shot examples. pasta RECALL (recite an existing chat pasta) is NOT
+  // creative generation — it must skip voice samples / BURNED-premise framing, but still
+  // gets the creative hardcap (400ch) so a recited pasta isn't chopped to a short-reply cap.
+  const pastaRecall = isPastaRecall(query)
+  const isPasta = /\b(copypasta|pasta)\b/i.test(query) && !pastaRecall
+  const isCreative = pastaRecall || isPasta || isContinuationLike
+    || /\b(continue|extend|expand|write|make|create|do)\b.{0,20}\b(scene|story|bit|narrative|fanfic|monologue|rant|copypasta|pasta|lore|saga)\b/i.test(query)
     || /\b(do the \w+test|plebtest|emote\s*(wall|spam|test)|wall of (emotes|text)|spam\s+(all|every)\s+emote|paste\b|give me a wall|as many\s*(times|as)\s*(you|u|ur)|\bspam\s+\w+\b|\brepeat\b.{0,15}\b(times|emote))\b/i.test(query)
-  const fullEmoteLine = isCreative ? `\nAll channel emotes: ${getEmotesForChannel(ctx.channel).join(' ')}` : ''
+  // recall recites verbatim from context — no emote/topical generation injections
+  const fullEmoteLine = (isCreative && !pastaRecall) ? `\nAll channel emotes: ${getEmotesForChannel(ctx.channel).join(' ')}` : ''
 
   // detect emotes mentioned in query — give AI their descriptions so it can incorporate them
   let queryEmoteLine = ''
-  if (isCreative) {
+  if (isCreative && !pastaRecall) {
     const descriptions = getDescriptions()
     const channelEmotes = getEmotesForChannel(ctx.channel)
     const queryWords = query.split(/\s+/)
@@ -809,7 +885,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
 
   // topical world-knowledge digest — fresh news/memes for creative path
   const topical = getTopicalDigest()
-  const topicalLine = (isCreative && topical) ? `\nWorld pulse (recent — pull from this for topical jokes/references):\n${topical}\n` : ''
+  const topicalLine = (isCreative && !pastaRecall && topical) ? `\nWorld pulse (recent — pull from this for topical jokes/references):\n${topical}\n` : ''
 
   // build context sections in priority order
   const requiredTail = [
@@ -821,6 +897,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     isRememberReq ? '\n⚠️ IDENTITY REQUEST — [USER] is defining themselves. COMPLY. Confirm warmly what they asked you to remember. Do NOT dismiss, joke about, or override their self-description.'
       : (REMEMBER_RE.test(query) && isAboutOtherUser(query)) ? '\n⚠️ [USER] is trying to set identity info for someone else. They can only define themselves, not other people. Tell them warmly but firmly.'
       : '',
+    pastaRecall ? '\n📋 PASTA RECALL — [USER] wants an EXISTING chat pasta recited, not a new one. If "Requested pasta" is in context, quote it back VERBATIM (exact text). The one-and-done/BURNED rule is about YOUR OWN bits — it NEVER applies to chat pastas. Never refuse a recall or invent a "retired/burned/reheat" excuse.' : '',
     // game query that matched NO data — the model tends to free-associate a specific
     // card's mechanic from memory and get it wrong (e.g. "Toxic Weapons buffs damage" —
     // it's poison). gate that off while leaving general banter/opinions intact.
@@ -880,7 +957,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'topical', text: topicalLine, base: 80 },
     { name: 'todayWords', text: todayWordsBlock, base: 90, trunc: true },
     { name: 'recall', text: recallLine, base: 100, boost: recallIntent ? 85 : 0, trunc: true },
-    { name: 'chatRecall', text: chatRecallLine ? `\n${chatRecallLine}` : '', base: 110, boost: recallIntent ? 95 : 0, trunc: true },
+    // pastaRecall: the requested pasta IS the answer — boost into the never-evict tier so a
+    // ~460ch verbatim recite is included whole, not truncated to a lower-priority section's crumbs
+    { name: 'chatRecall', text: chatRecallLine ? `\n${chatRecallLine}` : '', base: 110, boost: pastaRecall ? 220 : recallIntent ? 95 : 0, trunc: true },
     { name: 'timeline', text: timelineLine, base: 120, boost: historyIntent ? 95 : 0, trunc: true },
     { name: 'threads', text: threadLine, base: 130 },
     { name: 'channelStyle', text: contextLine, base: 140 },
