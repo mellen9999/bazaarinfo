@@ -94,4 +94,13 @@ describe('glossaryAnswer — deterministic structured-path answer', () => {
     expect(isBareKeyword('flying items')).toBe(false)
     expect(isBareKeyword('vanessa')).toBe(false)
   })
+  it('answers the Heated/Chilled Jules mechanic (was a live deflect)', () => {
+    // "what does the heat thing do?" deflected because Heat/Heated had no entry.
+    expect(glossaryAnswer('what does the heat thing do?')).toStartWith('Heated:')
+    expect(glossaryAnswer('what does heated do')).toStartWith('Heated:')
+    expect(glossaryAnswer('heat')).toStartWith('Heated:')
+    expect(glossaryAnswer('what is chilled')).toStartWith('Chilled:')
+    // build asks still route to items, not the rule
+    expect(glossaryAnswer('best heated item')).toBeNull()
+  })
 })

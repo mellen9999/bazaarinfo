@@ -11,6 +11,7 @@
 // answer by glossaryAnswer() (no API call). So they're written clean + user-facing.
 //
 // SOURCE: official wiki thebazaar.wiki.gg (Flying also confirmed in-game + gamerblurb).
+// Heated/Chilled are grounded directly in the dump's item tooltips (Jules kitchen kit).
 // Only verified mechanics live here. Non-keywords (Lethal, Value) are deliberately
 // ABSENT so the guard refuses them instead of guessing. On a balance patch, fix the
 // line here. Game-term capitalization (Freeze, Shield, Poison…) is intentional.
@@ -40,6 +41,10 @@ export const GLOSSARY: Record<string, string> = {
   damage: 'hits the opponent for the amount, removing Shield first then Health; only items with Damage can gain Lifesteal.',
   sandstorm:
     "sudden-death: when a fight's timer runs out a Sandstorm starts dealing escalating damage to both players to force the fight to end.",
+  heated:
+    'a temporary state an item enters (a Jules kitchen mechanic — the hot counterpart to Chilled). you apply it with Heat/Stove effects; while an item is Heated it switches on its bonus "Heated:" line (extra Crit, Multicast, Burn, or a shorter cooldown, etc.) and many Jules items reward you for having Heated items.',
+  chilled:
+    'a temporary state an item enters (a Jules kitchen mechanic — the cold counterpart to Heated). you apply it with Chill/Freeze-slot effects; while an item is Chilled it switches on its bonus "Chilled:" line (extra Multicast, Freeze, Regen, or a shorter cooldown, etc.) and many Jules items reward you for having Chilled items.',
 }
 
 // surface form (lowercase, word-boundary) -> canonical glossary key. base forms +
@@ -63,6 +68,8 @@ const ALIASES: Record<string, string> = {
   multicasts: 'multicast',
   damages: 'damage',
   sandstorms: 'sandstorm',
+  heat: 'heated', heats: 'heated', heating: 'heated',
+  chill: 'chilled', chills: 'chilled', chilling: 'chilled',
 }
 
 // canonical key -> label shown in output (the keyword, Title-cased)
@@ -71,6 +78,7 @@ const LABEL: Record<string, string> = {
   haste: 'Haste', shield: 'Shield', heal: 'Heal', regen: 'Regen', crit: 'Crit',
   lifesteal: 'Lifesteal', charge: 'Charge', cooldown: 'Cooldown', ammo: 'Ammo',
   reload: 'Reload', multicast: 'Multicast', damage: 'Damage', sandstorm: 'Sandstorm',
+  heated: 'Heated', chilled: 'Chilled',
 }
 
 // full surface->canonical index, built once: every base key maps to itself, plus aliases.
