@@ -16,6 +16,15 @@ export const KNOWLEDGE: [RegExp, string][] = [
   [/reynad.*(drama|beef|amaz|magic.?amy|ban|cheat|salt|forsen)/i, "Reynad drama: MTG ban for extra cards. Amaz/Archon rivalry — refused handshake. Defended MagicAmy 2015 (investigated 36 people, found nothing). TTS donation incident. Forsen Boys raids. The salt was the content."],
   [/the bazaar|this game/i, "The Bazaar: PvP auto-battler roguelike by Reynad. 7 heroes. Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments, monsters on numbered days."],
   [/karnok|rage|enrage/i, "Karnok: DLC hero. Rage mechanic — reach 100 Rage to become Enraged: removes Slow and Freeze from your items, and reduces your item cooldowns by 10%. Archetypes: Rage stacking, Friends, Weapons, Properties."],
+  // Base + DLC hero identities. Grounded in the dump's per-hero item pools (their
+  // dominant Tags) plus the wiki. Jules/Stelle are dump-only — the wiki is stale on
+  // them (calls them 'upcoming'), the live dump shows their real kits.
+  [/vanessa/i, "Vanessa: base hero, aggression + raw damage. Core plan = stack Weapons and out-damage the enemy (Crit, Haste, Ammo); alt Aquatic control build leans Slow/Freeze/Poison. Fast, ranged, high-tempo."],
+  [/\bdooley\b|\bdooly\b/i, "Dooley: base hero, a robot. Signature = Cores — special items that buff the items to their right and charge from items to their left, chaining reactions. Leans Tech, Shield, Haste, Friends. An engine/combo hero."],
+  [/pygmali|pygmy|\bpyg\b/i, "Pygmalien (Pyg): base hero, a durable Jaballian merchant. 'Immovable object' — stacks Health, Shield and Heal to outlast, plus the game's best economy (Value/income, big Properties). Defensive scaling."],
+  [/\bmak\b/i, "Mak: DLC hero, a potion-crafting alchemist. Signature = Potions + Reagents/Catalyst (transform reagents to trigger them). Playstyle stacks Burn, Poison and Regen, with Relics and Crit."],
+  [/\bjules\b/i, "Jules: DLC hero, a chef. Signature 'kitchen' mechanic — items become Heated (hot: Burn/Haste-flavored) or Chilled (cold: Freeze/Regen-flavored), each switching on a bonus line; builds reward stacking Heated or Chilled Food and Tools."],
+  [/\bstelle\b/i, "Stelle: DLC hero built around Flying items and Vehicles/Tools — Flying-synergy engines with Shield and Haste and big Vehicle payoffs."],
   [/lethalfrag/i, "Lethalfrag (Matt McKnight): ex-chef, single father, WA. Streamed 731 consecutive nights (2012-2014). First Twitch Hall of Fame inductee. Top English Bazaar streamer. Goal: be gaming's Batman."],
   [/patopapao|pato/i, "PatoPapao: Brazilian, #1 most-watched Bazaar channel globally. Partner since 2012, ~600 avg viewers. Consistent grinder, 100+ hrs/week during Bazaar peaks."],
   [/dog\b.*\b(?:hs|hearthstone|bazaar)|dogdog/i, "Dog: high-legend HS, off-meta decks, now plays Bazaar. Married Hafu (2021)."],
