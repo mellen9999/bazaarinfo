@@ -2,7 +2,7 @@
   "name": "BazaarInfo Overlay",
   "summary": "Real-time card tooltips for The Bazaar.",
   "description": "Hover any card on stream to see tier, stats, and tooltip. Powered by an opt-in companion app the broadcaster runs locally — no game data leaves the broadcaster machine besides card name + on-screen position.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "mellen",
   "support_email": "mellen@heatsync.org",
   "category": "overlay",

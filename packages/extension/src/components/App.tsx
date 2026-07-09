@@ -8,6 +8,12 @@ import { deriveValidTiers, isPlausibleTierString } from '../tiers'
 
 const VIEWPORT_MARGIN = 4
 const MAX_SLOTS = 50
+// Clear the overlay if no frame arrives for this long. The companion heartbeats
+// every 30s while a board is shown, so a live stream refreshes well within this
+// window; only a dead companion (crash, closed app, network drop) goes silent
+// longer — without this its last frame would haunt the overlay forever, leaving
+// viewers hovering phantom cards over a board that has since changed.
+const STALE_TTL_MS = 75_000
 
 function makeSlotValidator(validTiers: Set<string>) {
   return function isValidSlot(s: unknown): s is DetectedSlot {
@@ -44,6 +50,7 @@ export function App() {
   const tooltipRef = useRef<HTMLDivElement | null>(null)
   const lastSlotRef = useRef<DetectedSlot | null>(null)
   const validatorRef = useRef<(s: unknown) => s is DetectedSlot>(makeSlotValidator(new Set<string>()))
+  const staleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -68,6 +75,18 @@ export function App() {
       }
     })
 
+    // Every valid frame (including the companion's heartbeat and empty clear
+    // frames) proves the sender is alive, so arm a fresh expiry each time. If
+    // the timer ever fires, the companion has gone silent past the heartbeat —
+    // wipe the board so viewers never hover a stale detection.
+    const armStaleTimer = () => {
+      if (staleTimerRef.current) clearTimeout(staleTimerRef.current)
+      staleTimerRef.current = setTimeout(() => {
+        setDetected([])
+        setHovered(null)
+      }, STALE_TTL_MS)
+    }
+
     const onBroadcast = (_target: string, _contentType: string, message: string) => {
       if (!message.includes('"cards"')) return
       try {
@@ -78,6 +97,7 @@ export function App() {
         if (Array.isArray(raw)) {
           const next = raw.slice(0, MAX_SLOTS).filter(validatorRef.current)
           setDetected(prev => slotsEqual(prev, next) ? prev : next)
+          armStaleTimer()
         }
       } catch {}
     }
@@ -85,12 +105,17 @@ export function App() {
 
     twitch.onVisibilityChanged?.((isVisible) => {
       if (!isVisible) {
+        if (staleTimerRef.current) clearTimeout(staleTimerRef.current)
         setDetected([])
         setHovered(null)
       }
     })
 
-    return () => { mounted = false; twitch.unlisten('broadcast', onBroadcast) }
+    return () => {
+      mounted = false
+      twitch.unlisten('broadcast', onBroadcast)
+      if (staleTimerRef.current) clearTimeout(staleTimerRef.current)
+    }
   }, [])
 
   const positionTooltip = useCallback((slot: DetectedSlot) => {
