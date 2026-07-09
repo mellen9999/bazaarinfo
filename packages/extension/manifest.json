@@ -24,8 +24,8 @@
   "whitelisted_config_urls": [],
   "whitelisted_panel_urls": [],
   "ebs_url": "https://ebs.bazaarinfo.com",
-  "privacy_policy_url": "https://github.com/mellen9999/bazaarinfo/blob/master/PRIVACY.md",
-  "terms_url": "https://github.com/mellen9999/bazaarinfo/blob/master/TERMS.md",
+  "privacy_policy_url": "https://ebs.bazaarinfo.com/privacy",
+  "terms_url": "https://ebs.bazaarinfo.com/terms",
   "csp": {
     "default_src": "'none'",
     "script_src": "'self'",

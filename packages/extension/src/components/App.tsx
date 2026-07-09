@@ -91,8 +91,13 @@ export function App() {
       if (!message.includes('"cards"')) return
       try {
         const data = JSON.parse(message)
-        // ignore future protocol versions to fail-soft on schema changes
-        if (typeof data?.v === 'number' && data.v > 1) return
+        // Forward-compatible on purpose: render whatever `cards` we can validate,
+        // regardless of the protocol version field. The per-slot validator below IS
+        // the compatibility contract — a future additive field is ignored, and an
+        // incompatible one (e.g. out-of-range coords) is filtered out, failing safe
+        // to an empty overlay rather than a wrong one. This is what lets the backend
+        // evolve the protocol forever without ever forcing an extension re-review;
+        // never reintroduce a version gate that hard-drops whole messages.
         const raw = data?.cards
         if (Array.isArray(raw)) {
           const next = raw.slice(0, MAX_SLOTS).filter(validatorRef.current)

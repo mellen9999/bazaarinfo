@@ -8,6 +8,7 @@ import { verifyTwitchJwt, deriveChannelSecret } from './auth'
 import { handleCards, setCardCache, getCardCache } from './routes/cards'
 import { handleImage } from './routes/images'
 import { handleDetect } from './routes/detect'
+import { redirectTarget } from './routes/redirects'
 import { pubsubStats } from './pubsub'
 import { rateOk } from './ratelimit'
 
@@ -62,6 +63,13 @@ async function handleRequest(req: Request): Promise<Response> {
   // Rate limit
   if (!rateOk(getIp(req))) {
     return cors(new Response('rate limited', { status: 429 }), origin)
+  }
+
+  // Public redirects for the stable URLs baked into the extension (privacy/terms/
+  // download). Kept server-side so their destinations can change without a review.
+  if (req.method === 'GET') {
+    const to = redirectTarget(path)
+    if (to) return cors(new Response(null, { status: 302, headers: { Location: to } }), origin)
   }
 
   // POST /detect — companion → PubSub (uses companion secret, not JWT)

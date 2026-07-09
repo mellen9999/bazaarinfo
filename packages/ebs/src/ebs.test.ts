@@ -165,6 +165,31 @@ describe('verifyCompanionSecret (per-channel only)', () => {
   })
 })
 
+// ── public redirects (stable artifact URLs → server-controlled destinations) ──
+
+import { redirectTarget, REDIRECTS } from './routes/redirects'
+
+describe('redirectTarget', () => {
+  it('maps every baked extension URL to an absolute https destination', () => {
+    for (const path of ['/privacy', '/terms', '/download']) {
+      const to = redirectTarget(path)
+      expect(to).toBeTruthy()
+      expect(to!.startsWith('https://')).toBe(true)
+    }
+  })
+
+  it('returns null for anything not an explicit redirect (no open redirect)', () => {
+    expect(redirectTarget('/')).toBeNull()
+    expect(redirectTarget('/api/cards')).toBeNull()
+    expect(redirectTarget('/privacy/../etc')).toBeNull()
+    expect(redirectTarget('/downloadX')).toBeNull()
+  })
+
+  it('the redirect set is exactly the three baked URLs', () => {
+    expect(Object.keys(REDIRECTS).sort()).toEqual(['/download', '/privacy', '/terms'])
+  })
+})
+
 // ── #3 drop-bad-keep-good card filtering ─────────────────────────────────────
 
 const GOOD_CARD = { title: 'Sword', tier: 'Bronze', x: 0.1, y: 0.1, w: 0.1, h: 0.1 }
