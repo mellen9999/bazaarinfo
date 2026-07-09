@@ -113,6 +113,7 @@ To remove it later, type `!part` back in the bazaarinfo channel.
 !b stats [@user]             player trivia stats
 !b top                       channel trivia leaders
 !b <question>                ask anything (AI)
+!b overlay                   this setup guide (share it with other streamers)
 !b help                      show usage
 ```
 

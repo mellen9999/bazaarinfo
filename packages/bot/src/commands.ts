@@ -474,6 +474,7 @@ const RESERVED_SUBS = new Set([
   'trivia', 'skip', 'score', 'stats', 'top', 'alias', 'help', 'info',
   'refresh', 'update', 'emotes', 'status', 'join', 'part',
   'leave', 'pick', 'vote', 'party', 'shop', 'history', 'resolve', 'game',
+  'overlay',
 ])
 
 const subcommands: [RegExp, SubHandler][] = [
@@ -560,6 +561,8 @@ const subcommands: [RegExp, SubHandler][] = [
     logHit('enchants', _query, `${names.length} enchants`, ctx)
     return withSuffix(truncate(`Enchantments: ${names.join(', ')}`), suffix)
   }],
+  // let streamers self-serve the overlay/bot setup without the broadcaster pasting the link
+  [/^overlay$/i, (_query, _ctx, suffix) => withSuffix('stream card tooltips for your viewers + this bot in chat — setup guide (tos-safe, ~2 min): https://github.com/mellen9999/bazaarinfo/blob/master/docs/streamers.md', suffix)],
   [/^tag\s+(.+)$/i, async (query, ctx, suffix) => {
     const resolved = store.findTagName(query)
     const cards = store.byTag(query)

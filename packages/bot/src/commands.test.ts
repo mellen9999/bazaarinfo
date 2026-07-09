@@ -611,6 +611,12 @@ describe('handleCommand routing', () => {
     mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
     expect(await handleCommand('!b boomerang')).toBeTruthy()
   })
+
+  it('!b overlay returns the streamer setup guide link', async () => {
+    const result = await handleCommand('!b overlay')
+    expect(result).toContain('docs/streamers.md')
+    expect(result).toContain('setup guide')
+  })
 })
 
 // ---------------------------------------------------------------------------
