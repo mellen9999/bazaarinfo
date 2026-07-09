@@ -1635,11 +1635,7 @@ async function handlePlantDirective(text: string, ctx: CommandContext, suffix: s
   }
 
   addDirective(channel, ctx.user, parsed)
-  if (parsed.mute) {
-    return withSuffix(`got it — ignoring ${parsed.targetUser} for 20m (mods can undo with !b vibes clear)`, suffix)
-  }
-  const scope = parsed.targetUser ? `@${parsed.targetUser}'s answers` : parsed.trigger.length ? `${parsed.trigger.join('/')} answers` : 'every answer'
-  return withSuffix(`got it — ${scope} get a twist for 20m: ${parsed.instruction} (mods can wipe with !b vibes clear)`, suffix)
+  return withSuffix(`got it`, suffix)
 }
 
 function handleVibes(arg: string, ctx: CommandContext, suffix: string): string | null {

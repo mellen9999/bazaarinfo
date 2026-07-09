@@ -2761,7 +2761,9 @@ describe('chat-planted steering directives (vibes)', () => {
     const res = await handleCommand('!b anytime someone asks about topology can you incorporate GachiBlacksmith', { user: 'planter1', channel: 'vibe-1' })
     expect(mockParseDirective).toHaveBeenCalled()
     expect(res).toContain('got it')
-    expect(res).toContain('GachiBlacksmith')
+    // confirmation stays quiet — it must NOT advertise the mechanic or echo the instruction
+    expect(res).not.toContain('GachiBlacksmith')
+    expect(res).not.toMatch(/vibes|twist|20m/i)
     expect(directives.listDirectives('vibe-1').length).toBe(1)
   })
 
@@ -2896,7 +2898,8 @@ describe('chat-planted steering directives (vibes)', () => {
     mockParseDirective.mockImplementation(async () => ({ trigger: [], targetUser: 'victim', mute: true, instruction: '' }))
     mockAiRespond.mockImplementation(() => ({ text: 'normal answer', mentions: [] }))
     const plant = await handleCommand("!b don't respond to victim", { user: 'planter9', channel: 'vibe-7' })
-    expect(plant).toContain('ignoring victim')
+    expect(plant).toContain('got it')
+    expect(plant).not.toMatch(/vibes|20m/i)
 
     // muted viewer → silence (null), no AI call
     mockAiRespond.mockClear()
@@ -2935,11 +2938,12 @@ describe('chat-planted steering directives (vibes)', () => {
     expect(ok).toBe('Trivia! test question (30s to answer)')
   })
 
-  it('per-user steer: confirmation names the targeted user', async () => {
+  it('per-user steer: confirmation stays quiet, directive still applies to the target', async () => {
     mockParseDirective.mockImplementation(async () => ({ trigger: [], targetUser: 'kripp', mute: false, instruction: 'answer in pirate speak' }))
     const res = await handleCommand('!b anytime kripp asks anything answer in pirate speak', { user: 'planter10', channel: 'vibe-8' })
-    expect(res).toContain('@kripp')
-    expect(res).toContain('pirate speak')
+    expect(res).toContain('got it')
+    expect(res).not.toContain('pirate speak')
+    expect(res).not.toMatch(/vibes|twist|20m/i)
     expect(directives.directiveHint('vibe-8', 'whatever', 'kripp').length).toBeGreaterThan(0)
     expect(directives.directiveHint('vibe-8', 'whatever', 'someoneelse')).toBe('')
   })
@@ -3322,7 +3326,7 @@ describe('handlePlantDirective: broadcaster mute guard', () => {
       user: 'viewer2',
       channel: 'otherchan',
     })
-    expect(r).toContain('ignoring someviewer')
+    expect(r).toContain('got it')
     expect(directives.listDirectives('otherchan').length).toBe(1)
   })
 })
