@@ -71,26 +71,19 @@ export async function verifyTwitchJwt(authHeader: string | null): Promise<Twitch
   return hmacVerify(authHeader.slice(7), EXTENSION_SECRET)
 }
 
-export function verifyCompanionSecret(secret: string, channelId?: string): boolean {
-  if (!COMPANION_SECRET) return false
-  // Per-channel HMAC: secret = HMAC-SHA256(COMPANION_SECRET, channelId), hex-encoded
-  // Also accept the raw master secret for backwards compat during migration
-  const expected = channelId ? deriveChannelSecret(channelId) : COMPANION_SECRET
+export function verifyCompanionSecret(secret: string, channelId: string): boolean {
+  if (!COMPANION_SECRET || !channelId) return false
+  // Per-channel secret only: HMAC-SHA256(master COMPANION_SECRET, channelId), hex.
+  // The raw master is NEVER a valid companion secret — that containment is the whole
+  // point of per-channel derivation: if the master ever leaked, an attacker still
+  // can't spoof a channel without also deriving its secret. (The legacy master
+  // fallback that defeated this is gone; every live companion uses a derived secret.)
   const a = enc.encode(secret)
-  const b = enc.encode(expected)
+  const b = enc.encode(deriveChannelSecret(channelId))
   const len = Math.max(a.length, b.length)
   let diff = a.length ^ b.length
   for (let i = 0; i < len; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0)
-  if (diff === 0) return true
-  // Fallback: check master secret directly (backwards compat)
-  if (channelId) {
-    const c = enc.encode(COMPANION_SECRET)
-    const flen = Math.max(a.length, c.length)
-    let fdiff = a.length ^ c.length
-    for (let i = 0; i < flen; i++) fdiff |= (a[i] ?? 0) ^ (c[i] ?? 0)
-    return fdiff === 0
-  }
-  return false
+  return diff === 0
 }
 
 export function deriveChannelSecret(channelId: string): string {

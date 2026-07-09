@@ -139,6 +139,32 @@ describe('JWT exp guard (#27 fail-closed on missing/zero/non-numeric exp)', () =
   })
 })
 
+// ── companion secret: per-channel only, raw master rejected ──────────────────
+// Removing the legacy master-secret fallback: a leaked master must NOT let an
+// attacker authenticate any channel — per-channel derivation is the containment.
+
+describe('verifyCompanionSecret (per-channel only)', () => {
+  it('accepts the derived per-channel secret, rejects the master and mismatches', async () => {
+    process.env.TWITCH_EXTENSION_SECRET ||= 'dGVzdA=='
+    process.env.COMPANION_SECRET = 'test-master-secret-value-do-not-ship'
+    // first load of auth in this process — env must be set before import
+    const { verifyCompanionSecret, deriveChannelSecret, getCompanionSecret } = await import('./auth')
+
+    const ch = '73266147'
+    expect(verifyCompanionSecret(deriveChannelSecret(ch), ch)).toBe(true)
+
+    // the raw master must never authenticate a channel (containment invariant)
+    expect(verifyCompanionSecret(getCompanionSecret(), ch)).toBe(false)
+
+    // another channel's valid secret must not work here
+    expect(verifyCompanionSecret(deriveChannelSecret('999'), ch)).toBe(false)
+
+    // garbage and empty inputs fail closed
+    expect(verifyCompanionSecret('deadbeef', ch)).toBe(false)
+    expect(verifyCompanionSecret(deriveChannelSecret(ch), '')).toBe(false)
+  })
+})
+
 // ── #3 drop-bad-keep-good card filtering ─────────────────────────────────────
 
 const GOOD_CARD = { title: 'Sword', tier: 'Bronze', x: 0.1, y: 0.1, w: 0.1, h: 0.1 }
