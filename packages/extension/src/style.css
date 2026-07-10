@@ -216,6 +216,40 @@ body[data-twitch-mode="panel"] { background: #111; }
   text-transform: uppercase;
   box-shadow: 0 0 8px rgba(147, 51, 234, 0.25);
 }
+.tooltip-tier {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid currentColor;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+.tooltip-cd {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.14);
+  border: 1px solid rgba(56, 189, 248, 0.32);
+  color: #7dd3fc;
+  letter-spacing: 0.04em;
+}
+.tooltip-cd::before {
+  content: "↻ ";
+}
+.tooltip-enchant-effect {
+  margin-top: 6px;
+  border-left: 2px solid rgba(176, 96, 255, 0.5);
+  padding-left: 7px;
+}
+.tooltip-enchant-effect .tooltip-tip-type {
+  color: #c084fc;
+}
 
 .tooltip-tooltips {
   margin-bottom: 10px;

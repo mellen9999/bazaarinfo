@@ -53,6 +53,25 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
     [card.Tooltips, card.TooltipReplacements, tier],
   )
 
+  // Cooldown — the single most important stat on a Bazaar weapon. Flat number or
+  // per-tier; fall back to any defined value if this exact tier isn't listed.
+  const cooldown = useMemo(() => {
+    const cd = card.Cooldown
+    if (cd == null) return null
+    if (typeof cd === 'number') return cd
+    return cd[tier] ?? Object.values(cd).find((v) => v != null) ?? null
+  }, [card.Cooldown, tier])
+
+  // What the applied enchantment actually does on this card (not just its name).
+  const enchantEffect = useMemo(() => {
+    if (!enchantment) return null
+    const e = card.Enchantments?.[enchantment]
+    if (!e?.tooltips?.length) return null
+    return e.tooltips
+      .map((t) => resolveTooltip(t.text, e.tooltipReplacements ?? {}, tier))
+      .join(' ')
+  }, [enchantment, card.Enchantments, tier])
+
   return (
     <div
       ref={ref}
@@ -83,6 +102,8 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
             <div class="tooltip-name" style={{ color: styles.color }}>{card.Title}</div>
             <div class="tooltip-badges">
               <span class="tooltip-size">{SIZE_LABEL[card.Size] ?? card.Size}</span>
+              <span class="tooltip-tier" style={{ color: styles.color }}>{tier}</span>
+              {cooldown != null && <span class="tooltip-cd">{cooldown}s</span>}
               {enchantment && <span class="tooltip-enchantment">{enchantment}</span>}
             </div>
           </div>
@@ -95,6 +116,12 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
                 {tip.text}
               </div>
             ))}
+          </div>
+        )}
+        {enchantEffect && (
+          <div class="tooltip-tip tooltip-enchant-effect">
+            <div class="tooltip-tip-type">{enchantment}</div>
+            {enchantEffect}
           </div>
         )}
         {tags.length > 0 && (
