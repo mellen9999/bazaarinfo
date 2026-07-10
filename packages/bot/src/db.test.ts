@@ -154,11 +154,32 @@ describe('db', () => {
   })
 
   it('migrations are idempotent — re-running initDb is a no-op', () => {
-    // schema already at v19; running again must not throw or duplicate columns
+    // schema already at latest; running again must not throw or duplicate columns
     expect(() => db.initDb(dbPath)).not.toThrow()
     const u = db.getOrCreateUser('migsafe')
     db.recordTriviaWin(db.createTriviaGame('mc', 1, 'q', 'a'), u, 1000, 1, 5)
     expect(db.getUserStats('migsafe')!.trivia_points).toBe(5)
+  })
+
+  // --- stream sessions (next-stream predictor) ---
+
+  it('records and retrieves stream sessions, idempotent per (channel, started_at)', () => {
+    db.recordStreamSession('nl_kripp', 1_000_000, 1_000_000)
+    db.recordStreamSession('nl_kripp', 1_000_000, 2_000_000) // same start → bumps last_seen only
+    db.recordStreamSession('nl_kripp', 5_000_000, 5_000_000)
+    db.recordStreamSession('other', 3_000_000, 3_000_000) // different channel, isolated
+
+    const rows = db.getStreamSessions('nl_kripp')
+    expect(rows.length).toBe(2)
+    expect(rows[0]).toEqual({ startedAt: 1_000_000, lastSeenAt: 2_000_000 })
+    expect(rows[1].startedAt).toBe(5_000_000)
+  })
+
+  it('getStreamSessions honors the since cutoff and lowercases channel', () => {
+    db.recordStreamSession('NL_Kripp', 1_000, 1_000)
+    db.recordStreamSession('nl_kripp', 9_000, 9_000)
+    const recent = db.getStreamSessions('nl_kripp', 5_000)
+    expect(recent.map((r) => r.startedAt)).toEqual([9_000])
   })
 
   // --- chat summaries ---

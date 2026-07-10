@@ -684,6 +684,18 @@ const migrations: (() => void)[] = [
     db.run(`ALTER TABLE users ADD COLUMN trivia_points INTEGER NOT NULL DEFAULT 0`)
     db.run(`ALTER TABLE trivia_games ADD COLUMN points INTEGER NOT NULL DEFAULT 0`)
   },
+  // migration 20: logged stream sessions — one row per (channel, started_at) from Helix.
+  // feeds the deterministic next-stream predictor (schedule.ts). started_at is the
+  // authoritative Helix timestamp so re-polls of the same live session are idempotent.
+  () => {
+    db.run(`CREATE TABLE stream_sessions (
+      channel TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      last_seen INTEGER NOT NULL,
+      PRIMARY KEY (channel, started_at)
+    )`)
+    db.run(`CREATE INDEX idx_stream_sessions_channel ON stream_sessions(channel, started_at)`)
+  },
 ]
 
 function runMigrations() {
@@ -716,6 +728,23 @@ export function initDb(path?: string) {
   runMigrations()
   prepareStatements()
   userIdCache.clear()
+}
+
+// stream sessions — feeds the deterministic next-stream predictor (schedule.ts).
+// idempotent per (channel, started_at): re-polling the same live session just bumps last_seen.
+export function recordStreamSession(channel: string, startedAt: number, lastSeen: number) {
+  db.query(
+    `INSERT INTO stream_sessions (channel, started_at, last_seen) VALUES (?, ?, ?)
+     ON CONFLICT(channel, started_at) DO UPDATE SET last_seen = excluded.last_seen`,
+  ).run(channel.toLowerCase(), startedAt, lastSeen)
+}
+
+export function getStreamSessions(channel: string, sinceMs = 0): { startedAt: number; lastSeenAt: number }[] {
+  return db
+    .query(
+      'SELECT started_at AS startedAt, last_seen AS lastSeenAt FROM stream_sessions WHERE channel = ? AND started_at >= ? ORDER BY started_at',
+    )
+    .all(channel.toLowerCase(), sinceMs) as { startedAt: number; lastSeenAt: number }[]
 }
 
 export function pruneOldChats(days = 30) {

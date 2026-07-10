@@ -442,13 +442,18 @@ async function pollStreams(initial = false) {
       headers: { Authorization: `Bearer ${getAccessToken()}`, 'Client-Id': CLIENT_ID! },
       signal: AbortSignal.timeout(10_000),
     })
-    const parsed = await readJson<{ data: { user_login: string; game_name: string }[] }>(res)
+    const parsed = await readJson<{ data: { user_login: string; game_name: string; started_at: string }[] }>(res)
     if (!parsed.ok || !parsed.data) return
     const data = parsed.data
+    const now = Date.now()
     const seen = new Set<string>()
     for (const s of data.data) {
       const ch = s.user_login.toLowerCase()
       seen.add(ch)
+      // log this session's authoritative Helix start for the next-stream predictor.
+      // idempotent per (channel, started_at) — a whole live session collapses to one row.
+      const startedMs = Date.parse(s.started_at)
+      if (Number.isFinite(startedMs)) db.recordStreamSession(ch, startedMs, now)
       offlineMisses.delete(ch) // present again -> reset any pending offline countdown
       const prev = liveState.get(ch)
       if (prev === undefined) {

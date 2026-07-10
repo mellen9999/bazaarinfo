@@ -13,6 +13,8 @@ import { formatEmotesForAI, getEmotesForChannel } from './emotes'
 import { getDescriptions } from './emote-describe'
 import { getChannelStyle, getUserProfile, getChannelVoiceContext } from './style'
 import { formatAge, getHotExchanges, getChannelRecentResponses, getRecentEmotes } from './ai-cache'
+import { snapshotSchedule } from './schedule-query'
+import { isScheduleQuery, scheduleContext } from './schedule'
 import { maybeFetchTwitchInfo } from './ai-background'
 import type { AiContext } from './ai'
 import {
@@ -741,6 +743,13 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     ? `\nCurrent game patch (authoritative, from bazaardb.gg — answer "what's new / is there an event" from THIS, don't deflect): ${patch.latestPatch} (${patch.patchDate}, size ${patch.sizeBadge}); active event: ${patch.activeEvent ?? 'none — no special limited-time event is running right now'}.`
     : ''
 
+  // next-stream schedule — the command layer answers most "when's the stream?" asks
+  // deterministically, but a conversationally-phrased one can slip through to AI. inject the
+  // real prediction so the model relays actual numbers (or "not enough data"), never invents a
+  // time. scheduleContext itself carries the "do not guess" instruction. fail-soft: '' otherwise.
+  const sched = isScheduleQuery(query) ? snapshotSchedule(ctx.channel, Date.now()) : null
+  const scheduleLine = sched ? `\n${scheduleContext(ctx.channel, sched.pred, Date.now(), sched.live)}` : ''
+
   // live world cup scores — real ESPN data, injected only on world-cup-shaped queries
   // (fail-soft: '' on missing/stale cache or off-topic query, so nothing to hallucinate
   // from). the fetch itself is refreshed in doAiCall before this builder runs.
@@ -975,6 +984,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'patch', text: patchLine, base: -108 },
     // world cup scoreboard is the direct answer when it fires — same never-evict tier
     { name: 'worldCup', text: worldCupLine, base: -107 },
+    // next-stream prediction — direct answer to "when's the stream", never-evict tier
+    { name: 'schedule', text: scheduleLine, base: -106 },
   ]
     .filter((s) => s.text)
     .map((s) => ({ ...s, prio: s.base - (s.boost ?? 0) }))
