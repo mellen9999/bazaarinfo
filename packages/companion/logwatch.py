@@ -40,7 +40,11 @@ logger = logging.getLogger(__name__)
 STEAM_APPID = "1617400"
 GAME_DIR_NAME = "The Bazaar"
 LOG_SUBPATH = Path("Tempo Storm/The Bazaar/Player.log")
-CARDS_SUBPATH = Path("TheBazaar_Data/StreamingAssets/cards.json")
+# Current builds write cards.json to the runtime data dir (LocalLow, same tree as
+# Player.log — inside the Proton prefix on Linux). Older builds shipped it in the
+# install dir under StreamingAssets; kept as a fallback.
+CARDS_LOCALLOW_SUBPATH = Path("Tempo Storm/The Bazaar/prod/cache/cards.json")
+CARDS_LEGACY_SUBPATH = Path("TheBazaar_Data/StreamingAssets/cards.json")
 
 # How often to re-send current state (handles EBS recovery)
 HEARTBEAT_INTERVAL = 30
@@ -119,10 +123,35 @@ def find_player_log() -> Path:
 
 
 def find_cards_json() -> Path | None:
-    """Find cards.json in the game directory."""
+    """Find the game's cards.json.
+
+    Primary location mirrors find_player_log() — the LocalLow runtime tree (inside
+    the Proton prefix on Linux) at prod/cache. Falls back to the legacy install-dir
+    StreamingAssets path for older game builds.
+    """
+    candidates: list[Path] = []
+    if os.name == "nt":
+        candidates.append(
+            Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming")).parent
+            / "LocalLow" / CARDS_LOCALLOW_SUBPATH
+        )
+    else:
+        for lib in _find_steam_library_dirs():
+            candidates.append(
+                lib / "compatdata" / STEAM_APPID / "pfx/drive_c"
+                / "users/steamuser/AppData/LocalLow" / CARDS_LOCALLOW_SUBPATH
+            )
+        candidates.append(
+            Path.home()
+            / ".local/share/Steam/steamapps/compatdata" / STEAM_APPID / "pfx/drive_c"
+            / "users/steamuser/AppData/LocalLow" / CARDS_LOCALLOW_SUBPATH
+        )
+    # Legacy fallback: install-dir StreamingAssets
     game = find_game_dir()
     if game:
-        cards = game / CARDS_SUBPATH
+        candidates.append(game / CARDS_LEGACY_SUBPATH)
+
+    for cards in candidates:
         if cards.exists():
             return cards
     return None
