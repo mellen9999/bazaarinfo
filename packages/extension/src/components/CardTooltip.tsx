@@ -2,11 +2,12 @@ import { memo } from 'preact/compat'
 import { forwardRef } from 'preact/compat'
 import { useMemo, useState, useCallback } from 'preact/hooks'
 import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
-import { resolveTooltip } from '@bazaarinfo/shared/src/format'
+import { resolveTooltip, isDisplayTooltip } from '@bazaarinfo/shared/src/format'
 import { EBS_BASE } from '../twitch'
 import { tierStyle } from '../tiers'
 
 const SIZE_LABEL: Record<string, string> = { Small: 'S', Medium: 'M', Large: 'L' }
+const TIER_SEQ: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
 
 interface Props {
   card: BazaarCard
@@ -46,7 +47,7 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
   )
 
   const resolvedTooltips = useMemo(
-    () => (card.Tooltips ?? []).map((tip) => ({
+    () => (card.Tooltips ?? []).filter(isDisplayTooltip).map((tip) => ({
       type: tip.type,
       text: resolveTooltip(tip.text, card.TooltipReplacements ?? {}, tier),
     })),
@@ -54,12 +55,17 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
   )
 
   // Cooldown — the single most important stat on a Bazaar weapon. Flat number or
-  // per-tier; fall back to any defined value if this exact tier isn't listed.
+  // per-tier; if this exact tier isn't listed, use the nearest defined tier (down
+  // first, since cooldowns are defined from the item's base tier up, then up).
   const cooldown = useMemo(() => {
     const cd = card.Cooldown
     if (cd == null) return null
     if (typeof cd === 'number') return cd
-    return cd[tier] ?? Object.values(cd).find((v) => v != null) ?? null
+    if (cd[tier] != null) return cd[tier]
+    const idx = TIER_SEQ.indexOf(tier)
+    for (let i = idx - 1; i >= 0; i--) if (cd[TIER_SEQ[i]] != null) return cd[TIER_SEQ[i]]
+    for (let i = idx + 1; i < TIER_SEQ.length; i++) if (cd[TIER_SEQ[i]] != null) return cd[TIER_SEQ[i]]
+    return null
   }, [card.Cooldown, tier])
 
   // What the applied enchantment actually does on this card (not just its name).

@@ -85,6 +85,13 @@ export function resolveTooltip(text: string, replacements: Record<string, Replac
   })
 }
 
+// A card's Tooltips can include bazaardb-internal entries (type "bzdbgg.*", e.g.
+// HiddenSearchable) that are search metadata, not player-facing abilities. Never
+// show them — they'd render with an ugly internal type label + off-model text.
+export function isDisplayTooltip(t: { type?: string }): boolean {
+  return !t.type?.startsWith('bzdbgg')
+}
+
 // compress resolved tooltip text for tighter chat output
 export function compressTooltip(text: string): string {
   return text
@@ -119,7 +126,7 @@ export function formatItem(card: BazaarCard, tier?: TierName): string {
   const name = card.Title
   const size = SIZE_LABEL[card.Size] ? ` [${SIZE_LABEL[card.Size]}]` : ''
   const heroes = card.Heroes.filter((h) => !FAKE_HEROES.has(h)).map((h) => HERO_ABBREV[h] ?? h).join(', ')
-  const abilities = card.Tooltips.map((t) =>
+  const abilities = card.Tooltips.filter(isDisplayTooltip).map((t) =>
     compressTooltip(resolveTooltip(t.text, card.TooltipReplacements, tier)),
   )
 
