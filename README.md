@@ -100,6 +100,14 @@ packages/
 bun test
 ```
 
+### preview the overlay
+
+```sh
+cd packages/extension && bun run harness   # → http://127.0.0.1:8899
+```
+
+renders the real overlay bundle with a sample board — no Twitch, companion, or game needed.
+
 ---
 
 data from [bazaardb.gg](https://bazaardb.gg)

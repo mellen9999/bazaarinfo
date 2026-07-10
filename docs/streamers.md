@@ -75,6 +75,8 @@ python logwatch.py          # first run prompts for Channel ID + Secret
 
 Leave the companion open — it waits patiently if the game isn't running yet.
 
+> **capture the game 16:9, filling the frame.** Card positions are mapped to a standard 16:9 layout, so the overlay lines up perfectly when the game fills your whole stream. If you play ultrawide/4:3, or box the game inside borders or a webcam-heavy scene, the hover-zones will drift out of alignment. This scales to any viewer resolution (720p → 4K, desktop or mobile) — the only requirement is on your capture.
+
 ### companion flags
 
 ```
@@ -126,8 +128,10 @@ Only the `!b` prefix — nothing else is hijacked from your chat.
 | problem | fix |
 |---------|-----|
 | companion says "waiting for Player.log" | launch The Bazaar once — the log is created on first game start |
-| companion says "cards.json not found" | The Bazaar isn't installed via Steam, or hasn't been run yet |
+| companion says "cards.json not found" | launch The Bazaar into a run once — cards.json is written on first play |
 | overlay not visible | confirm the extension is **activated**, not just installed. viewers must click the overlay icon on the video player, in fullscreen |
+| hover-zones don't line up with the cards | capture the game **16:9, filling the frame** — no ultrawide/4:3, no borders or webcam boxing the board |
+| opponent cards or skills have no tooltip | expected — the game doesn't expose opponent/skill names to your client, so those aren't shown (only your named items are) |
 | cards linger after they leave your board | the overlay self-clears if the companion goes quiet; if it persists, the companion likely crashed — restart it |
 | "unauthorized" from the server | re-run the companion with `--setup` and re-paste your secret from the config page |
 | SmartScreen blocks the exe | **More info → Run anyway** |
