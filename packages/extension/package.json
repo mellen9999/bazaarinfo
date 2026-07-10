@@ -9,6 +9,7 @@
     "build:config": "esbuild src/config.ts --bundle --outfile=dist/config.js --format=iife --platform=browser --minify --drop:console --drop:debugger && cp src/config.css dist/config.css",
     "copy:html": "cp src/config.html src/panel.html src/video_overlay.html dist/",
     "clean": "rm -rf dist/*.js dist/*.css dist/config.html",
+    "harness": "bun run build && bun run harness/serve.ts",
     "zip": "bun run build && cd dist && zip -r ../bazaarinfo-extension.zip ."
   },
   "dependencies": {
