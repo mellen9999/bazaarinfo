@@ -347,6 +347,14 @@ def make_item_payload(info: dict, owner: str) -> dict:
 
 def make_skill_payload(info: dict, owner: str, total_skills: int) -> dict | None:
     """Build a card payload dict for a skill."""
+    # The game only exposes a skill's instance id (skl_...) in the local log — its
+    # template/name never appears — so an unresolved skill can't be named and would
+    # render a dead, tooltip-less zone. Skip it (same limitation as opponent cards;
+    # a future game build that logs the skill template will resolve automatically).
+    title = info.get("title", "")
+    if not title or title.startswith("skl_") or info.get("tier") == "Unknown":
+        return None
+
     socket = info.get("socket", 0)
 
     if total_skills >= 6:
