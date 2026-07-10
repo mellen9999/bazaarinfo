@@ -77,6 +77,16 @@ async function handleRequest(req: Request): Promise<Response> {
     return cors(await handleDetect(req), origin)
   }
 
+  // GET /api/images/:hash — public. Card art is loaded by <img src> in the overlay,
+  // which cannot send the Authorization header, so this MUST sit ahead of the JWT
+  // gate below or every tooltip falls back to a glyph. The art is public game data
+  // (hashes come straight from the public card list) and is rate-limited, so there's
+  // nothing to protect by gating it.
+  const imageMatch = path.match(IMAGE_PATH_RE)
+  if (req.method === 'GET' && imageMatch) {
+    return cors(await handleImage(imageMatch[1]), origin)
+  }
+
   // All other routes require valid Twitch JWT
   let twitchAuth: Awaited<ReturnType<typeof verifyTwitchJwt>> = null
   if (path.startsWith('/api/')) {
@@ -100,12 +110,6 @@ async function handleRequest(req: Request): Promise<Response> {
   // GET /api/cards
   if (req.method === 'GET' && path === '/api/cards') {
     return cors(handleCards(), origin)
-  }
-
-  // GET /api/images/:hash
-  const imageMatch = path.match(IMAGE_PATH_RE)
-  if (req.method === 'GET' && imageMatch) {
-    return cors(await handleImage(imageMatch[1]), origin)
   }
 
   // GET /health/live — process is up
