@@ -255,10 +255,15 @@ SKILL_W = 0.057
 SKILL_H = 0.057
 SKILL_GRID_SCALE = 0.7  # grid skills are smaller
 
-# States where overlay should be hidden
-HIDDEN_STATES = {"StartRunAppState", "EndRunDefeatAppState", "EndRunVictoryAppState"}
-# States where overlay should be shown
-GAME_STATES = {"ChoiceState", "EncounterState", "CombatState", "ReplayState", "LevelUpState"}
+# States where the overlay should be shown (a board is present behind the screen).
+# PVPCombatState: the game splits combat into CombatState (vs monster) and
+# PVPCombatState (vs player/ghost) — without the latter the overlay went dark for
+# every PvP fight. LootState/PedestalState are post-combat pick screens with the
+# board still up. Keep this in sync with the game's AppState names.
+GAME_STATES = {
+    "ChoiceState", "EncounterState", "CombatState", "PVPCombatState",
+    "ReplayState", "LevelUpState", "LootState", "PedestalState",
+}
 
 # Maximum title length: well above any real card name, safely under PubSub 5000-byte limit
 _TITLE_MAX = 128

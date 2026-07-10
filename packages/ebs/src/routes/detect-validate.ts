@@ -19,6 +19,7 @@ export interface DetectPayload {
 
 export const MAX_CARDS = 50
 const MAX_TITLE_LEN = 80
+const MAX_TIER_LEN = 32
 const MAX_OWNER_LEN = 64
 const MAX_TYPE_LEN = 64
 const MAX_ENCHANTMENT_LEN = 64
@@ -28,7 +29,7 @@ const MAX_ATTRS_KEYS = 100
 
 export function isValidCard(c: Record<string, unknown>): boolean {
   if (typeof c.title !== 'string' || c.title.length === 0 || c.title.length > MAX_TITLE_LEN) return false
-  if (typeof c.tier !== 'string') return false
+  if (typeof c.tier !== 'string' || c.tier.length > MAX_TIER_LEN) return false
   if (typeof c.x !== 'number' || typeof c.y !== 'number' || !isFinite(c.x) || !isFinite(c.y)) return false
   if (typeof c.w !== 'number' || typeof c.h !== 'number' || !isFinite(c.w) || !isFinite(c.h)) return false
   if (c.x < 0 || c.x > 1 || c.y < 0 || c.y > 1 || c.w <= 0 || c.w > 1 || c.h <= 0 || c.h > 1) return false

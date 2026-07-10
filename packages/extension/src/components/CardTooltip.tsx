@@ -99,8 +99,8 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
         )}
         {tags.length > 0 && (
           <div class="tooltip-tags">
-            {tags.map((tag) => (
-              <span class="tooltip-tag" key={tag}>{tag}</span>
+            {tags.map((tag, i) => (
+              <span class="tooltip-tag" key={`${tag}-${i}`}>{tag}</span>
             ))}
           </div>
         )}

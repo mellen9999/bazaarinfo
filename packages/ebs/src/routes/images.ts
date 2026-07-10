@@ -31,15 +31,11 @@ export async function handleImage(hash: string): Promise<Response> {
     'X-Content-Type-Options': 'nosniff',
   }
 
-  // Fast path: Content-Length present and within bounds — buffer in one shot
-  if (contentLength > 0) {
-    const buf = await upstream.arrayBuffer()
-    if (buf.byteLength > MAX_IMAGE_SIZE) return new Response('too large', { status: 413 })
-    return new Response(buf, { headers: responseHeaders })
-  }
-
-  // Slow path: no Content-Length — stream with running size check to avoid
-  // allocating the full body before knowing its size
+  // Always stream with a running size check. The declared Content-Length is only a
+  // hint — a compromised/misbehaving upstream can send a small Content-Length with a
+  // huge body, and arrayBuffer() would allocate all of it before any check fires. On a
+  // low-RAM box that's the one real memory-exhaustion path, so never trust the header
+  // to bound the allocation; cap as we read.
   const chunks: Uint8Array[] = []
   let totalBytes = 0
   const reader = upstream.body!.getReader()

@@ -273,4 +273,9 @@ describe('isValidCard (#4/#13 title length cap)', () => {
   it('rejects oversized enchantment (>64)', () => {
     expect(isValidCard({ ...base, title: 'Sword', enchantment: 'e'.repeat(65) })).toBe(false)
   })
+
+  it('rejects oversized tier (>32) but accepts a normal tier', () => {
+    expect(isValidCard({ ...base, title: 'Sword', tier: 'Diamond' })).toBe(true)
+    expect(isValidCard({ ...base, title: 'Sword', tier: 'T'.repeat(33) })).toBe(false)
+  })
 })

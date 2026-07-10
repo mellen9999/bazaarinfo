@@ -60,8 +60,12 @@ async function handleRequest(req: Request): Promise<Response> {
     return cors(new Response(null, { status: 204 }), origin)
   }
 
-  // Rate limit
-  if (!rateOk(getIp(req))) {
+  // Rate limit. The companion's /detect path gets a much higher per-IP budget than
+  // the viewer default: it posts a frame on every board change (a busy shop can burst
+  // well past 1/s) and is secret-authenticated, so the tight viewer cap would silently
+  // drop live detections. 600/min still bounds a runaway/compromised companion.
+  const rateMax = path === '/detect' ? 600 : 60
+  if (!rateOk(getIp(req), rateMax)) {
     return cors(new Response('rate limited', { status: 429 }), origin)
   }
 
