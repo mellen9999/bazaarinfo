@@ -387,8 +387,14 @@ def build_payload(state: dict) -> dict:
     for info in state["player_board"].values():
         cards.append(make_item_payload(info, "player"))
 
-    # Opponent items
-    for info in state["opponent_board"].values():
+    # Opponent items — skip any we couldn't name. The game only gives the local
+    # client the opponent's *instance* ids (no template id anywhere in the log), so
+    # their cards are usually unresolvable; a fallback title is just the raw id, which
+    # would render a dead, tooltip-less hover zone over the opponent board. Only show
+    # opponent cards we can actually identify (future game builds may expose them).
+    for inst_id, info in state["opponent_board"].items():
+        if info.get("tier") == "Unknown" or info.get("title") == _cap(inst_id):
+            continue
         cards.append(make_item_payload(info, "opponent"))
 
     # Player skills
