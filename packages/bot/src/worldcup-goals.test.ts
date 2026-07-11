@@ -101,13 +101,13 @@ describe('diffAnnouncements', () => {
 })
 
 describe('nextDelay', () => {
-  test('live match → 60s', () => {
-    expect(nextDelay(data(match(team('A', 0), team('B', 0), 'in', "10'")), NOW)).toBe(60_000)
+  test('live match → 15s', () => {
+    expect(nextDelay(data(match(team('A', 0), team('B', 0), 'in', "10'")), NOW)).toBe(15_000)
   })
 
   test('pre match whose kickoff has passed counts as live', () => {
     const d = data(match(team('A', 0), team('B', 0), 'pre', 'Scheduled', new Date(NOW - 60_000).toISOString()))
-    expect(nextDelay(d, NOW)).toBe(60_000)
+    expect(nextDelay(d, NOW)).toBe(15_000)
   })
 
   test('kickoff 5min out → wait exactly until kickoff', () => {

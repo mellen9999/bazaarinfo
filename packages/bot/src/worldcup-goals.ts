@@ -3,11 +3,11 @@ import { log } from './log'
 
 // posts a concise announcement in OFFLINE chats when a world cup goal goes in.
 // piggybacks on worldcup.ts's fetcher (which also refreshes the shared query cache),
-// so a live match costs one ESPN request per minute total. dormant off-tournament:
+// so a live match costs 4 tiny ESPN requests per minute total. dormant off-tournament:
 // empty slate → next check hours away, zero requests wasted, zero chat noise.
 // live channels never get a line — soccer spam over a stream is worse than silence.
 
-const LIVE_POLL_MS = 60_000
+const LIVE_POLL_MS = 15_000
 const IDLE_POLL_MS = 10 * 60_000
 const DORMANT_POLL_MS = 6 * 60 * 60_000
 const PRUNE_MS = 48 * 60 * 60 * 1000
@@ -74,7 +74,7 @@ export function diffAnnouncements(data: WcData, state: GoalState, now = Date.now
   return out
 }
 
-// poll cadence from the slate: 60s while anything is (or should be) in play,
+// poll cadence from the slate: 15s while anything is (or should be) in play,
 // clamp to the next kickoff when one is coming, hours when the window is quiet.
 export function nextDelay(data: WcData, now = Date.now()): number {
   const liveish = data.matches.some(
