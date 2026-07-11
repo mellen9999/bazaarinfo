@@ -115,6 +115,7 @@ mock.module('./ai', () => ({
 const mockIsGameActive = mock<(ch: string) => boolean>(() => false)
 const mockStartKrippTrivia = mock<(ch: string) => string | null>(() => null)
 const mockStartFallbackTrivia = mock<(ch: string) => string | null>(() => 'Trivia! fallback question (30s)')
+const mockStartQuizCultureTrivia = mock<(ch: string) => string | null>(() => 'Trivia! quiz culture question (30s)')
 mock.module('./trivia', () => ({
   startTrivia: mock(() => 'Trivia! test question (30s to answer)'),
   getTriviaScore: mock(() => 'no trivia scores yet'),
@@ -136,6 +137,7 @@ mock.module('./trivia', () => ({
   isRecentAnswer: mock(() => false),
   startKrippTrivia: mockStartKrippTrivia,
   startFallbackTrivia: mockStartFallbackTrivia,
+  startQuizCultureTrivia: mockStartQuizCultureTrivia,
 }))
 
 // custom-topic trivia generator — mocked so tests never hit the API. default returns
@@ -2463,8 +2465,16 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     expect(mockGenerateCustomTrivia).toHaveBeenCalled()
   })
 
-  it('meta-topic "trivia about trivia" is rewritten to quiz-culture substance', async () => {
-    await handleCommand('!b trivia about trivia', { user: 'u', channel: 'ct-meta' })
+  it('meta-topic "trivia about trivia" serves from the curated quiz-culture pack, no AI call', async () => {
+    const res = await handleCommand('!b trivia about trivia', { user: 'u', channel: 'ct-meta' })
+    expect(mockStartQuizCultureTrivia).toHaveBeenCalled()
+    expect(res).toBe('Trivia! quiz culture question (30s)')
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+  })
+
+  it('meta-topic falls through to the AI path with the quiz-culture rewrite when the pack is exhausted', async () => {
+    mockStartQuizCultureTrivia.mockImplementation(() => null)
+    await handleCommand('!b trivia about trivia', { user: 'u', channel: 'ct-meta2' })
     expect(mockGenerateCustomTrivia).toHaveBeenCalled()
     const topicArg = mockGenerateCustomTrivia.mock.calls[0][0] as string
     expect(topicArg).toContain('quiz culture')

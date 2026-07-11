@@ -36,6 +36,16 @@ try {
   fallbackPack = (parsed.questions ?? []).filter((q) => q.question && q.answer)
 } catch (e) { log(`trivia: general pack parse failed: ${e}`); fallbackPack = [] }
 
+// curated quiz-culture / trivia-history pool — the grounded source for the very common
+// meta-topic ("!b trivia about trivia"). human-vetted + adversarially web fact-checked;
+// these launch with NO verify pass, so the file's accuracy is non-negotiable.
+let quizCulturePack: PackQ[] = []
+try {
+  const raw = readFileSync(join(import.meta.dir, '../data/quiz-culture-trivia.json'), 'utf-8')
+  const parsed = JSON.parse(raw) as { questions?: PackQ[] }
+  quizCulturePack = (parsed.questions ?? []).filter((q) => q.question && q.answer)
+} catch (e) { log(`trivia: quiz-culture pack parse failed: ${e}`); quizCulturePack = [] }
+
 // test seam
 export function setKrippPackForTest(pack: PackQ[]) { krippPack = pack }
 function isKrippChannel(channel: string): boolean {
@@ -966,6 +976,25 @@ export function startFallbackTrivia(channel: string): string | null {
 
 // test seam
 export function setFallbackPackForTest(pack: PackQ[]) { fallbackPack = pack }
+
+// meta-topic server ("!b trivia about trivia") — picks a quiz-culture question the
+// channel hasn't seen recently (question OR answer, so the same fact can't rerun as
+// a rewording), zero AI calls. returns null when the pack is empty or every question
+// is recent → the caller falls through to the AI path, which never dead-ends.
+export function startQuizCultureTrivia(channel: string): string | null {
+  if (quizCulturePack.length === 0) return null
+  const recentQ = recentQuestions.get(channel) ?? []
+  const recentA = recentAnswers.get(channel) ?? []
+  const fresh = quizCulturePack.filter((q) =>
+    !recentQ.some((r) => norm(r) === norm(q.question)) &&
+    !recentA.some((r) => norm(r) === norm(q.answer)))
+  if (fresh.length === 0) return null
+  const q = pickRandom(fresh)
+  return startCustomTrivia(channel, { question: q.question, answer: q.answer, accept: q.accept })
+}
+
+// test seam
+export function setQuizCulturePackForTest(pack: PackQ[]) { quizCulturePack = pack }
 
 // 1-indexed type id for AI-generated custom-topic rounds. never produced by a
 // generator, so it never enters the adaptive type picker / recent-type buffer.

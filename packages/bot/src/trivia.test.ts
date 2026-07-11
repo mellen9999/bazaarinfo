@@ -195,6 +195,8 @@ const {
   setKrippPackForTest,
   startFallbackTrivia,
   setFallbackPackForTest,
+  setQuizCulturePackForTest,
+  startQuizCultureTrivia,
   carriesLiveQuestion,
 } = await import('./trivia')
 
@@ -1496,5 +1498,81 @@ describe('carriesLiveQuestion', () => {
 
   it('does not exempt anything when no round is live', () => {
     expect(carriesLiveQuestion('#gate4', `Trivia! ${Q.question} (30s)`)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// quiz-culture pack ("!b trivia about trivia") — the meta-topic serves grounded,
+// verified questions from a curated pack instead of the world-knowledge AI path.
+// ---------------------------------------------------------------------------
+describe('startQuizCultureTrivia', () => {
+  const PACK = [
+    { question: 'Who created Jeopardy!?', answer: 'Merv Griffin', accept: ['griffin'] },
+    { question: 'Trivial Pursuit country?', answer: 'Canada', accept: [] },
+  ]
+
+  it('launches a round from the pack', () => {
+    setQuizCulturePackForTest(PACK)
+    const res = startQuizCultureTrivia('#qc1')
+    expect(res).toContain('Trivia!')
+    expect(isGameActive('#qc1')).toBe(true)
+  })
+
+  it('skips questions AND answers the channel saw recently', () => {
+    setQuizCulturePackForTest(PACK)
+    startQuizCultureTrivia('#qc2')
+    const first = getActiveGameForTest('#qc2')!.question
+    skipTrivia('#qc2')
+    const res = startQuizCultureTrivia('#qc2')
+    expect(res).toContain('Trivia!')
+    expect(getActiveGameForTest('#qc2')!.question).not.toBe(first)
+  })
+
+  it('returns null when every pack question is recent (caller falls to AI path)', () => {
+    setQuizCulturePackForTest([PACK[0]])
+    startQuizCultureTrivia('#qc3')
+    skipTrivia('#qc3')
+    expect(startQuizCultureTrivia('#qc3')).toBeNull()
+  })
+
+  it('returns null on an empty pack', () => {
+    setQuizCulturePackForTest([])
+    expect(startQuizCultureTrivia('#qc4')).toBeNull()
+  })
+})
+
+// the shipped pack file itself — launches with NO verify pass, so structural sanity is
+// enforced here: parseable, substantial, Twitch-formattable, no duplicate questions.
+describe('quiz-culture pack integrity', () => {
+  const { readFileSync } = require('fs')
+  const { join } = require('path')
+  const raw = readFileSync(join(import.meta.dir, '../data/quiz-culture-trivia.json'), 'utf-8')
+  const pack = (JSON.parse(raw) as { questions: { question: string; answer: string; accept: string[] }[] }).questions
+
+  it('has a substantial question pool', () => {
+    expect(pack.length).toBeGreaterThanOrEqual(50)
+  })
+
+  it('every entry has a question, a crisp answer, and an accept array', () => {
+    for (const q of pack) {
+      expect(q.question.length).toBeGreaterThan(10)
+      expect(q.question.length).toBeLessThanOrEqual(200)
+      expect(q.answer.length).toBeGreaterThan(0)
+      expect(q.answer.length).toBeLessThanOrEqual(60)
+      expect(Array.isArray(q.accept)).toBe(true)
+    }
+  })
+
+  it('no duplicate questions (normed)', () => {
+    const seen = new Set(pack.map((q) => norm(q.question)))
+    expect(seen.size).toBe(pack.length)
+  })
+
+  it('no accept variant echoes the full question text (free-point guard)', () => {
+    for (const q of pack) {
+      for (const a of [q.answer, ...q.accept]) {
+        expect(norm(q.question)).not.toBe(norm(a))
+      }
+    }
   })
 })

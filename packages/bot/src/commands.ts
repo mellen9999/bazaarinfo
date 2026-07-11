@@ -5,7 +5,7 @@ import * as db from './db'
 import type { CmdType } from './db'
 import { snapshotSchedule } from './schedule-query'
 import { formatSchedule, isScheduleQuery } from './schedule'
-import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, recentAnswerList, isRecentAnswer, startKrippTrivia, startFallbackTrivia } from './trivia'
+import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, recentAnswerList, isRecentAnswer, startKrippTrivia, startFallbackTrivia, startQuizCultureTrivia } from './trivia'
 import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, generateGameTrivia, type CustomTrivia } from './ai-trivia'
 import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
 import { parseDirective } from './ai-directive'
@@ -1399,8 +1399,11 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   // need a real topic with at least one alphanumeric char; cap length before the API call.
   if (t.length < 2 || !/[a-z0-9]/i.test(t)) return null
   // "trivia about trivia" — a bare meta-topic gives the generator nothing to ground on
-  // and it spirals. rewrite to the actual subject: quiz/game-show culture.
-  if (/^(?:a |the |this |some |more )?(?:trivia|quiz|quizz?es|trivias)(?:\s+(?:game|round|question|q))?$/i.test(t)) {
+  // and it spirals. it's also common enough to earn a grounded source: serve from the
+  // curated quiz-culture pack below (zero AI calls, verified facts); the rewrite here
+  // is only the AI fallback subject once the channel has seen the fresh pack questions.
+  const isMetaTopic = /^(?:a |the |this |some |more )?(?:trivia|quiz|quizz?es|trivias)(?:\s+(?:game|round|question|q))?$/i.test(t)
+  if (isMetaTopic) {
     t = 'trivia and quiz culture — game shows, jeopardy, quiz history, famous trivia facts'
   }
   if (isGameActive(channel)) {
@@ -1411,6 +1414,12 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   const bannedKey = bannedTriviaTopic(channel, t)
   if (bannedKey) {
     return withSuffix(`${bannedKey} trivia is under mod embargo — pick another topic`, suffix)
+  }
+  // meta-topic -> curated quiz-culture pack first (grounded, instant, no API). placed
+  // after the mod-ban wall, before the pending/cooldown gates (no AI call to guard).
+  if (isMetaTopic) {
+    const qc = startQuizCultureTrivia(channel)
+    if (qc) return withSuffix(qc, suffix)
   }
   // kripp-subject topics -> the curated, web-verified kripp pack. the AI fact-checker
   // can't confirm niche streamer lore so the AI path would just NULL out; the pack is the
