@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { diffAnnouncements, nextDelay, type GoalState } from './worldcup-goals'
-import type { WcData, WcMatch, WcTeam } from './worldcup'
+import type { WcData, WcGoal, WcMatch, WcTeam } from './worldcup'
 
 const NOW = Date.parse('2026-07-11T18:00:00Z')
 
@@ -89,6 +89,43 @@ describe('diffAnnouncements', () => {
     diffAnnouncements(data(match(team('France', 1), team('Brazil', 1), 'in', "90'+3'")), state, NOW)
     const out = diffAnnouncements(data(match(team('France', 2, { winner: true }), team('Brazil', 1), 'post', 'FT')), state, NOW)
     expect(out).toEqual(['⚽ full time — France 2-1 Brazil'])
+  })
+
+  test('scorer is named when scoring plays line up with the score', () => {
+    const state: GoalState = new Map()
+    const goal = (scorer: string, minute: string, extra: Partial<WcGoal> = {}): WcGoal =>
+      ({ scorer, minute, team: 'Norway', ownGoal: false, penalty: false, ...extra })
+    const m0 = match(team('Norway', 1), team('England', 0), 'in', "40'")
+    m0.goals = [goal('Andreas Schjelderup', "36'")]
+    diffAnnouncements(data(m0), state, NOW)
+    const m1 = match(team('Norway', 1), team('England', 1), 'in', "46'")
+    m1.goals = [goal('Andreas Schjelderup', "36'"), goal('Jude Bellingham', "45'+2'", { team: 'England' })]
+    expect(diffAnnouncements(data(m1), state, NOW)).toEqual(["⚽ Jude Bellingham 45'+2' — Norway 1-1 England"])
+  })
+
+  test('pen and own-goal get tagged; two goals in one poll name both scorers', () => {
+    const state: GoalState = new Map()
+    const m0 = match(team('Norway', 0), team('England', 0), 'in', "10'")
+    m0.goals = []
+    diffAnnouncements(data(m0), state, NOW)
+    const m1 = match(team('Norway', 2), team('England', 0), 'in', "30'")
+    m1.goals = [
+      { scorer: 'Erling Haaland', minute: "22'", team: 'Norway', ownGoal: false, penalty: true },
+      { scorer: 'John Stones', minute: "29'", team: 'Norway', ownGoal: true, penalty: false },
+    ]
+    expect(diffAnnouncements(data(m1), state, NOW)).toEqual([
+      "⚽ Erling Haaland (pen) 22', John Stones (og) 29' — Norway 2-0 England",
+    ])
+  })
+
+  test('scoring plays that disagree with the score fall back to the plain line', () => {
+    const state: GoalState = new Map()
+    const m0 = match(team('Norway', 1), team('England', 1), 'in', 'ET')
+    m0.goals = [] // shootout pollution / missing details — never trust misaligned order
+    diffAnnouncements(data(m0), state, NOW)
+    const m1 = match(team('Norway', 2), team('England', 1), 'in', "100'")
+    m1.goals = [{ scorer: 'X', minute: "5'", team: 'Norway', ownGoal: false, penalty: false }]
+    expect(diffAnnouncements(data(m1), state, NOW)).toEqual(["⚽ goal — Norway 2-1 England (100')"])
   })
 
   test('tracked entries older than 48h are pruned', () => {

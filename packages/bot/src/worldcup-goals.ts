@@ -27,6 +27,26 @@ const keyOf = (m: WcMatch) => `${m.date}|${m.teams[0].name}|${m.teams[1].name}`
 // bare empty detail gets no parens
 const minuteTag = (detail: string) => (detail ? ` (${detail})` : '')
 
+// name the scorer(s) when ESPN's scoring plays line up with the score. the list
+// also carries shootout pens, so trust the order only when its length equals the
+// score sum — anything off falls back to the plain score line, never a wrong name.
+function goalLine(m: WcMatch, prevTotal: number): string {
+  const [a, b] = m.teams
+  const score = `${a.name} ${a.score}-${b.score} ${b.name}`
+  const goals = m.goals ?? []
+  const total = a.score + b.score
+  if (goals.length === total && total > prevTotal) {
+    const fresh = goals.slice(prevTotal)
+    if (fresh.every((g) => g.scorer && g.minute)) {
+      const who = fresh
+        .map((g) => `${g.scorer}${g.penalty ? ' (pen)' : g.ownGoal ? ' (og)' : ''} ${g.minute}`)
+        .join(', ')
+      return `⚽ ${who} — ${score}`
+    }
+  }
+  return `⚽ goal — ${score}${minuteTag(m.detail)}`
+}
+
 function ftLine(m: WcMatch): string {
   const [a, b] = m.teams
   const score = `${a.name} ${a.score}-${b.score} ${b.name}`
@@ -60,7 +80,7 @@ export function diffAnnouncements(data: WcData, state: GoalState, now = Date.now
       const [pa, pb] = t.announced
       if (a.score !== pa || b.score !== pb) {
         const line = a.score > pa || b.score > pb
-          ? `⚽ goal — ${a.name} ${a.score}-${b.score} ${b.name}${minuteTag(m.detail)}`
+          ? goalLine(m, pa + pb)
           : `⚽ goal disallowed — ${a.name} ${a.score}-${b.score} ${b.name}${minuteTag(m.detail)}`
         out.push(line)
         t.announced = [a.score, b.score]

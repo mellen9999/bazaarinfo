@@ -24,11 +24,20 @@ export interface WcTeam {
   winner: boolean
 }
 
+export interface WcGoal {
+  scorer: string
+  minute: string // ESPN clock displayValue: "36'", "45'+2'"
+  team: string // short name of the credited team
+  ownGoal: boolean
+  penalty: boolean
+}
+
 export interface WcMatch {
   date: string // kickoff, ISO UTC
   state: 'pre' | 'in' | 'post'
   detail: string // ESPN shortDetail: "FT", "FT-Pens", "AET", "HT", "90'+7'", "Scheduled"
   teams: [WcTeam, WcTeam] // home first when ESPN marks homeAway
+  goals?: WcGoal[] // scoring plays in order; optional — old disk caches predate it
 }
 
 export interface WcData {
@@ -94,7 +103,27 @@ export function parseScoreboard(raw: unknown): WcData | null {
       }))
       if (teams.some((t) => !t.name || !Number.isFinite(t.score))) continue
       const state = st.state === 'pre' || st.state === 'post' ? st.state : 'in'
-      matches.push({ date: e.date, state, detail: String(st.shortDetail ?? '').trim(), teams: [teams[0], teams[1]] })
+      // scoring plays (goal + scorer + minute) — includes shootout pens, which is why
+      // consumers must length-check goals against the score sum before trusting order
+      const idToShort: Record<string, string> = {}
+      ordered.forEach((t: any, i) => {
+        const id = String(t?.team?.id ?? '')
+        if (id) idToShort[id] = teams[i].short
+      })
+      const goals: WcGoal[] = []
+      if (Array.isArray(c?.details)) {
+        for (const d of c.details) {
+          if (d?.scoringPlay !== true) continue
+          goals.push({
+            scorer: String(d?.athletesInvolved?.[0]?.displayName ?? '').trim(),
+            minute: String(d?.clock?.displayValue ?? '').trim(),
+            team: idToShort[String(d?.team?.id ?? '')] ?? '',
+            ownGoal: d?.ownGoal === true,
+            penalty: d?.penaltyKick === true,
+          })
+        }
+      }
+      matches.push({ date: e.date, state, detail: String(st.shortDetail ?? '').trim(), teams: [teams[0], teams[1]], goals })
       if (matches.length >= MAX_MATCHES) break
     }
     return { fetchedAt: new Date().toISOString(), matches }
