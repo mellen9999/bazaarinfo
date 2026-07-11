@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { normalizeText, stripLeadingCommands, stripOutgoingCommands } from './text-safety'
+import { normalizeText, stripLeadingCommands, stripOutgoingCommands, isModAliasCommand } from './text-safety'
 import { sanitize } from './ai'
 
 describe('normalizeText', () => {
@@ -100,4 +100,36 @@ describe('ai-sanitize parity after refactor', () => {
   it('still folds smart quotes for pattern matching', () => {
     expect(sanitize("i don’t log anything").text).toBe('')
   })
+})
+
+// IRC line-smuggling: an embedded \r\n in outbound text would be framed by the gateway
+// as a second raw IRC line (PRIVMSG/command injection). the outgoing funnel must fold
+// every line/control separator to a space — while normalizeText (detection-side) must
+// NOT, so ai-sanitize's cutoff trimming keeps the model's line structure.
+describe('outbound line-smuggle fold', () => {
+  it('folds CRLF so no second IRC line can be smuggled', () => {
+    const out = stripOutgoingCommands('nice try\r\nPRIVMSG #chan :hi mom')
+    expect(out).not.toContain('\r')
+    expect(out).not.toContain('\n')
+    expect(out).toBe('nice try PRIVMSG #chan :hi mom')
+  })
+
+  it('folds unicode line separators and tabs too', () => {
+    expect(stripOutgoingCommands('a b c d\te')).toBe('a b c d e')
+  })
+
+  it('normalizeText preserves newlines (detection-side line structure)', () => {
+    expect(normalizeText('1. one\n2. two')).toBe('1. one\n2. two')
+  })
+})
+
+// morphological denylist: prefixed/suffixed mod-command variants must be caught,
+// common benign lookalikes must not.
+describe('isModAliasCommand suffix/embedded variants', () => {
+  for (const w of ['permban', 'ipban', 'hardban', 'instakick', 'unwarn', 'megatimeout', 'banuser', 'kickme']) {
+    it(`blocks ${w}`, () => expect(isModAliasCommand(w)).toBe(true))
+  }
+  for (const w of ['urban', 'banana', 'husband', 'band', 'bandit', 'warning']) {
+    it(`allows ${w}`, () => expect(isModAliasCommand(w)).toBe(false))
+  }
 })

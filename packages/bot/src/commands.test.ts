@@ -197,6 +197,8 @@ mock.module('./emotes', () => ({
   removeChannelEmote: mock(() => {}),
   renameChannelEmote: mock(() => {}),
   removeChannelEmotes: mock(() => {}),
+  invalidateEmoteBlockCache: mock(() => {}),
+  pickEmoteByMood: mock(() => undefined),
 }))
 
 const { handleCommand, parseArgs, salvageQuery, resetDedup, resetProxyCooldowns, resetTriviaTopicBans, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES, stripTopicConnector, DIRECTIVE_INTENT } = await import('./commands')

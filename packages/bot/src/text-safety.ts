@@ -31,6 +31,13 @@ const HOMO_BANG = new RegExp(set(0xff01, 0x01c3, 0x2757), 'g')  // !
 const HOMO_SLASH = new RegExp(set(0xff0f, 0x2044, 0x2215), 'g') // /
 const HOMO_BACK = new RegExp(set(0xff3c), 'g')                  // \
 
+// line/control separators — an embedded \r\n in outbound text would be framed by the
+// IRC gateway as a SECOND raw line (command smuggling on the irc-send path). folded to
+// a plain space, never deleted: deletion could fuse fragments into a command word.
+// applied in stripOutgoingCommands (the send funnel), NOT normalizeText — detection-side
+// callers (ai-sanitize's cutoff trimming) need the model's line structure intact.
+const LINE_CTRL = /[\r\n\t\v\f\u0085\u2028\u2029]+/g
+
 // strip invisibles and fold lookalike punctuation to ascii. run before any
 // command-prefix check so homoglyph/zero-width injection can't slip through.
 export function normalizeText(text: string): string {
@@ -107,9 +114,16 @@ export const BLOCKED_BANG_CMDS = new Set([
 ])
 
 // morphological guard: block command-name variants that enumerate around the denylist
-// (e.g. !banuser, !timeoutuser, !purgeuser, !ban_victim, !kickme)
-// flags: ban/timeout/purge/kick/mute/nuke/warn/vanish in any position with common suffixes
-export const MOD_ALIAS_RE = /(?:^|_)(ban|timeout|purge|kick|mute|nuke|warn|vanish)(?:$|user|chat|s|_|me)/i
+// (e.g. !banuser, !timeoutuser, !ban_victim, !kickme, AND prefixed forms: !permban,
+// !ipban, !instakick, !unwarn). the root may sit anywhere in the word as long as a
+// danger suffix (or word end) follows — safe-direction: a rare benign word ending in a
+// mod root is merely refused relay; known-common benign lookalikes are excepted below.
+export const MOD_ALIAS_RE = /(ban|timeout|purge|kick|mute|nuke|warn|vanish)(?:$|user|chat|s|_|me)/i
+const BENIGN_MOD_LOOKALIKES = new Set(['urban', 'urbans'])
+export function isModAliasCommand(word: string): boolean {
+  const w = word.toLowerCase()
+  return MOD_ALIAS_RE.test(w) && !BENIGN_MOD_LOOKALIKES.has(w)
+}
 
 // native twitch / (and legacy .) commands are moderation by default → ALLOWLIST only the
 // harmless ones. everything else with a / or . prefix is neutralized.
@@ -120,7 +134,7 @@ export const ALLOWED_SLASH_CMDS = new Set(['me', 'announce', 'color', 'clip'])
 function isDangerousCommand(prefix: string, word: string): boolean {
   const w = word.toLowerCase()
   if (prefix === '/' || prefix === '.') return !ALLOWED_SLASH_CMDS.has(w)
-  return BLOCKED_BANG_CMDS.has(w) || MOD_ALIAS_RE.test(w)
+  return BLOCKED_BANG_CMDS.has(w) || isModAliasCommand(w)
 }
 
 // leading command = optional quote/space wrap, a single trigger char, optional space, the word.
@@ -148,7 +162,9 @@ export function stripLeadingCommands(text: string): string {
   return text
 }
 
-// full outgoing-message guard: normalize, then neutralize a dangerous leading command.
+// full outgoing-message guard: fold line/control separators (IRC line-smuggling), then
+// normalize, then neutralize a dangerous leading command. every outbound message funnels
+// through here (twitch.say), so nothing with an embedded \r\n can reach a raw PRIVMSG.
 export function stripOutgoingCommands(text: string): string {
-  return stripLeadingCommands(normalizeText(text))
+  return stripLeadingCommands(normalizeText(text.replace(LINE_CTRL, ' ')))
 }

@@ -20,7 +20,7 @@ import { getThread, getRecent } from './chatbuf'
 import { log } from './log'
 import * as raidCmds from './raid/commands'
 import * as dungeon from './dungeon'
-import { BLOCKED_BANG_CMDS, MOD_ALIAS_RE, ALLOWED_SLASH_CMDS } from './text-safety'
+import { BLOCKED_BANG_CMDS, isModAliasCommand, ALLOWED_SLASH_CMDS } from './text-safety'
 
 const MAX_LEN = 480
 
@@ -75,7 +75,9 @@ async function tryAiRespond(query: string, ctx: CommandContext, mentions: string
   if (!result?.text) return null
   // creative writing may use an emote as a recurring character/noun — skip channel-recent
   // emote dedup there so we don't gut the prose ("Crowge watched" → "the watched"). the
-  // 5-emote total cap (capEmoteTotal) still applies.
+  // 5-emote total cap (capEmoteTotal) still applies to CACHED channel emotes; uncached
+  // emote-shaped tokens are separately clipped to 5 copies by capRepeatedSpam — the two
+  // budgets are independent by design (an uncached token isn't provably an emote).
   const isCreativeQ = /\b(continue|extend|expand|write|make|create|story|pasta|copypasta|poem|rant|monologue|lore|saga|fanfic|narrative|haiku|sonnet|ballad|rap|song|roast|joke|bit|scene)\b/i.test(query)
   const deduped = isCreativeQ ? result.text : dedupeEmote(result.text, ctx.channel)
   let response = dedupeMention(capRepeatedSpam(capEmoteTotal(fixEmotePunctuation(fixEmoteCase(deduped, ctx.channel), ctx.channel), ctx.channel)), ctx.channel, ctx.user)
@@ -958,7 +960,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   const bangMatch = cleanArgs.match(/^!(\w+)(.*)$/)
   if (bangMatch) {
     const cmd = bangMatch[1].toLowerCase()
-    if (BLOCKED_BANG_CMDS.has(cmd) || MOD_ALIAS_RE.test(cmd)) {
+    if (BLOCKED_BANG_CMDS.has(cmd) || isModAliasCommand(cmd)) {
       return selfTimeoutDodge(ctx.channel, cmd)
     }
     return proxyWithCooldown(ctx.channel, cleanArgs, cmd)
@@ -989,7 +991,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
         .replace(/\s+/g, ' ').trim()
       const hasSubjectBefore = beforeCmd.length >= 4
       if (!hasSubjectBefore) {
-        if (!BLOCKED_BANG_CMDS.has(cmd) && !MOD_ALIAS_RE.test(cmd)) {
+        if (!BLOCKED_BANG_CMDS.has(cmd) && !isModAliasCommand(cmd)) {
           const cmdStr = embeddedMatch[2] ? `!${embeddedMatch[1]} ${embeddedMatch[2]}` : `!${embeddedMatch[1]}`
           return proxyWithCooldown(ctx.channel, cmdStr, cmd)
         }
