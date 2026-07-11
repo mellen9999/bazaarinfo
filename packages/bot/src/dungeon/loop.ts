@@ -244,6 +244,7 @@ export function cleanup(channel: string): void {
   const ch = channel.toLowerCase()
   clearTimer(ch)
   runs.delete(ch)
+  votes.clearVotes(ch)
 }
 
 export function restoreFromDb(): void {

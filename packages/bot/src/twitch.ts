@@ -115,7 +115,7 @@ type IrcMessage =
   | { type: 'welcome' }
   | { type: 'join'; channel: string }
   | { type: 'auth_failure' }
-  | { type: 'notice' }
+  | { type: 'notice'; raw?: string }
   | { type: 'userstate'; channel: string; privileged: boolean }
   | IrcPrivmsg
   | { type: 'other' }
@@ -138,7 +138,7 @@ export function parseIrcLine(line: string): IrcMessage {
   const joinMatch = line.match(/ JOIN #(\S+)/)
   if (joinMatch) return { type: 'join', channel: joinMatch[1] }
   if (/NOTICE.*(?:Login authentication failed|Login unsuccessful)/.test(line)) return { type: 'auth_failure' }
-  if (line.startsWith(':tmi.twitch.tv NOTICE')) return { type: 'notice' }
+  if (line.startsWith(':tmi.twitch.tv NOTICE')) return { type: 'notice', raw: line }
 
   // PRIVMSG with tags: @key=val;... :nick!user@host PRIVMSG #channel :text
   if (line.startsWith('@')) {
@@ -146,6 +146,12 @@ export function parseIrcLine(line: string): IrcMessage {
     if (space < 0) return { type: 'other' }
     const tags = parseIrcTags(line.slice(1, space))
     const rest = line.slice(space + 1)
+    // tagged NOTICE (@msg-id=msg_duplicate/msg_ratelimit/automod… :tmi.twitch.tv NOTICE
+    // #ch :reason) — this is Twitch EXPLAINING a server-side message drop. it used to fall
+    // through to 'other' and vanish (the game-603 headless round: the question's rejection
+    // reason was delivered here and discarded). surface it so drops are diagnosable.
+    const ntMatch = rest.match(/^:tmi\.twitch\.tv NOTICE #?(\S+) :(.*)$/)
+    if (ntMatch) return { type: 'notice', raw: `[${tags['msg-id'] ?? '?'}] #${ntMatch[1]}: ${ntMatch[2]}` }
     // USERSTATE: twitch's per-channel statement of OUR badges in that channel.
     // sent on join + after each privmsg we send. tells us if we're vip/mod/broadcaster
     // there, which decides whether sends draw from the 100/30s mod bucket or are also
@@ -670,7 +676,7 @@ export class TwitchClient {
             this.handleIrcAuthFailure()
             break
           case 'notice':
-            log('irc notice:', line)
+            log('irc notice:', msg.raw ?? line)
             break
           case 'userstate': {
             const was = this.privilegedChannels.has(msg.channel)

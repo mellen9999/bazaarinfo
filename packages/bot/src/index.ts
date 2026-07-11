@@ -402,8 +402,11 @@ const client = new TwitchClient(
         // always reply-thread UNLESS the response is a command relay (proxy for Streamlabs /
         // a native /me etc.) — a reply-threaded command won't fire, so send it bare with an
         // @mention for context. covers every trigger prefix the bot may now post.
+        // a live-round announce also goes bare: it's a broadcast (its hints/answer are bare
+        // too), and threading adds a parent-tied server-side rejection surface — game 603's
+        // question was the round's only threaded send and the only one Twitch ate.
         const responseIsCommand = /^[!\\/.]/.test(response)
-        const replyId = responseIsCommand ? undefined : messageId
+        const replyId = (responseIsCommand || carriesLiveQuestion(channel, response)) ? undefined : messageId
         // proxy !commands without thread need @mention for context
         const finalResponse = (responseIsCommand && messageId)
           ? `${response} @${username}`
