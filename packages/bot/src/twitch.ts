@@ -9,6 +9,12 @@ const HELIX_URL = 'https://api.twitch.tv/helix'
 const FETCH_TIMEOUT = 10_000
 const MAX_QUEUE = 50
 const BACKOFF_BASE = 3_000
+// IRC (the working primary transport) reconnects fast — a routine Twitch-side connection
+// cycle (~5/day, close code 1000) shouldn't cost 3s of deafness where inbound messages
+// arrive late and their replies get dropped. still doubles on repeated failure, so a genuine
+// outage ratchets up to BACKOFF_MAX just as fast; only the transient-blip case gets quicker.
+// EventSub keeps BACKOFF_BASE — it's WAF-blocked and must not hammer.
+const IRC_BACKOFF_BASE = 750
 const BACKOFF_MAX = 60_000 // 1min cap
 const BACKOFF_WAF_BLOCKED = 30 * 60_000 // 30min when CloudFront WAF blocks us
 // after this many consecutive WAF blocks the edge is clearly rejecting our egress IP
@@ -232,7 +238,7 @@ export class TwitchClient {
   private eventsubLastWafBlockReason = ''
   // one-shot guard so the persistent-WAF state logs once on entry, not every 6h retry
   private eventsubWafPersistentLogged = false
-  private ircBackoff = BACKOFF_BASE
+  private ircBackoff = IRC_BACKOFF_BASE
   private _channelIdMap: Record<string, string> = {}
   private ircOnlyChannels = new Set<string>()
   private eventsubPingInterval: Timer | null = null
@@ -661,7 +667,7 @@ export class TwitchClient {
             }
             break
           case 'welcome':
-            this.ircBackoff = BACKOFF_BASE
+            this.ircBackoff = IRC_BACKOFF_BASE
             for (const ch of this.config.channels) this.ircSend(`JOIN #${ch.name}`)
             this.startIrcWatchdog()
             this.scheduleJoinAckCheck()
