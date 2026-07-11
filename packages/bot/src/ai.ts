@@ -176,10 +176,13 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     : userMessage
   const messages: unknown[] = [{ role: 'user', content: fancyDirective }]
   const start = Date.now()
-  // in a busy chat a reply older than this has scrolled off-screen and is just
-  // holding a concurrency slot hostage (esp. during 429 backoff sleeps), starving
-  // everyone else's request. fail fast so the queue drains instead of clogging.
-  const REQUEST_DEADLINE = 12_000
+  // hard cap on one request's total time. this is THE latency lever: when Anthropic is slow,
+  // all AI_MAX_CONCURRENT slots sit at this deadline and a queue builds — every queued request
+  // then waits (deadline × queue_pos / concurrency) for a slot, which is what inflates a reply's
+  // age to 40-140s and used to get it dropped. cutting 12s → 9s frees a stuck slot 25% sooner so
+  // the queue drains faster and downstream waits shrink. safe: successful replies are ~p90 3.6s,
+  // so 9s still lets a legit slow-but-real generation finish while shedding stalls faster.
+  const REQUEST_DEADLINE = 9_000
 
   type ApiData = {
     content: { type: string; text?: string }[]

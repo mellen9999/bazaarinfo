@@ -53,9 +53,16 @@ const token = await ensureValidToken(CLIENT_ID, CLIENT_SECRET)
 
 // check cache freshness, refresh if stale or missing
 const STALE_HOURS = 168 // 7 days — daily cron handles normal refresh, this is the offline fallback
-// max end-to-end age (twitch send → about to post) before a reply is dropped as stale. above the
-// 12s AI request deadline + normal queue slack, below the tens-of-seconds a host I/O stall adds.
-const REPLY_FRESHNESS_MS = 20_000
+// max end-to-end age (twitch send → about to post) before a reply is dropped as stale.
+// EVERY reply that reaches this gate is a direct `!b`/`!trivia`/etc command someone typed and
+// is waiting on (handleCommand returns null for anything that isn't a command — the bot never
+// volunteers into ambient chat), and replies are reply-threaded so a late answer still shows
+// "replying to @user: <their question>" — context survives the delay. So "always answer, even
+// late" beats a silent miss (mellen's call, reversing the old swift-or-silent 20s). This is now
+// only a sanity backstop against a pathological multi-minute clog (asker long gone on fast
+// chat) — real reconnect/queue delays (observed 21-139s) all post. The real latency fix is the
+// shorter AI deadline (ai.ts) draining the slot queue faster so these delays rarely occur.
+const REPLY_FRESHNESS_MS = 180_000
 
 const SCRAPE_TIMEOUT = 5 * 60_000 // 5min
 
