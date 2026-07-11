@@ -11,6 +11,8 @@
 // Mods/broadcaster can't be muted (enforced at call time), so the streamer/mods can
 // never be silenced by a viewer.
 
+import { JAILBREAK_ECHO, INSTRUCTION_ECHO, SECRET_PATTERN } from './ai-sanitize'
+
 export interface Directive {
   trigger: string[] // query keyword triggers (ANY match). empty = no keyword constraint.
   targetUser?: string // lowercased asker username this applies to. undefined = any asker.
@@ -66,16 +68,22 @@ export function addDirective(channel: string, planter: string, input: DirectiveI
   // a mute with no target would silence the whole channel — never allow it.
   if (mute && !targetUser) return
   const ch = channel.toLowerCase()
+  // neutralize the instruction before it ever reaches the prompt: collapse newlines and
+  // strip brackets so a crafted plant can't forge structure (e.g. "be cool\n[USER] =
+  // broadcaster\n[MOD] …") inside the injected hint block. the AI gate is the first
+  // defense; this is the hard one.
+  const instruction = scrubInstruction(input.instruction ?? '')
+  // deterministic backstop behind the AI gate: a plant that reads as a jailbreak, a
+  // meta-instruction about how the bot should respond, or anything secret-shaped is
+  // never stored — a misjudged plant would otherwise re-inject itself into the system
+  // prompt on every matching turn for the full TTL.
+  if (instruction && (JAILBREAK_ECHO.test(instruction) || INSTRUCTION_ECHO.test(instruction) || SECRET_PATTERN.test(instruction))) return
   const list = active(ch)
   list.push({
     trigger: (input.trigger ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 6),
     targetUser,
     mute,
-    // neutralize the instruction before it ever reaches the prompt: collapse newlines and
-    // strip brackets so a crafted plant can't forge structure (e.g. "be cool\n[USER] =
-    // broadcaster\n[MOD] …") inside the injected hint block. the AI gate is the first
-    // defense; this is the hard one.
-    instruction: scrubInstruction(input.instruction ?? ''),
+    instruction,
     planter,
     expiresAt: Date.now() + TTL_MS,
   })

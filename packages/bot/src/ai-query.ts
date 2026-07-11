@@ -43,6 +43,13 @@ export const KNOWLEDGE: [RegExp, string][] = [
 
 export const GAME_TERMS = /\b(items?|heroes?|monsters?|mobs?|builds?|tiers?|enchant(ment)?s?|skills?|tags?|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|rage|weapons?|relics?|aqua(tic)?|friend|ammo|charge|board|dps|beat|fight|counter|synergy|scaling|combo|lethal|survive|bronze|silver|gold|diamond|legendary|lifesteal|multicast|luck|cooldown|pygmy|pygmalien|vanessa|dooley|stelle|jules|mak|karnok|common|run|pick|draft|comp|strat(egy)?|nerf|buff|patch|meta|broken|heated|chilled|drones?|reagents?|rays?|absorbs?|absorbed|enrage[ds]?|loot|traps?|quests?|propert(y|ies)|vehicles?|reloads?|hasted|frozen|chained|sealed)\b/i
 
+// positive other-game signal — an actual non-Bazaar title named in the query. this (not
+// mere Bazaar-entity-resolution failure) is what licenses real numbers with no Game data
+// section: GAME_TERMS matches plenty of pure-Bazaar words that resolve to no entity
+// ("do relics trigger on drones"), and treating those as "other game" disabled the
+// hallucinated-stat guards for exactly the questions that need them most.
+export const OTHER_GAME_RE = /\b(poe|path of exile|diablo|d[234]|wow|world of warcraft|warcraft|hearthstone|lol|league(?: of legends)?|dota ?2?|dark souls|elden ring|souls(?:like|borne)?|sekiro|bloodborne|runescape|osrs|minecraft|terraria|hades|slay the spire|balatro|tft|teamfight tactics|valorant|cs2|csgo|counter.?strike|overwatch|fortnite|apex|starcraft|sc2|factorio|stardew|zelda|pokemon|mario|skyrim|elder scrolls|fallout|witcher|cyberpunk|gta|baldur'?s gate|bg3|final fantasy|ff ?(?:xiv|14|7)|monster hunter|last epoch|grim dawn|vampire survivors|mtg|magic the gathering|yugioh|chess)\b/i
+
 export const ENTITY_SKIP = new Set([
   'skill', 'from', 'fight', 'monster', 'dead', 'good', 'best', 'worst',
   'build', 'suggest', 'show', 'list', 'pick', 'rate', 'rank',

@@ -15,7 +15,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 
 import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats } from './ai-sanitize'
 import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse } from './ai-cache'
-import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, GAME_TERMS } from './ai-context'
+import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, GAME_TERMS, OTHER_GAME_RE } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
 import { detectFancyStyle, toFancy } from './fancy'
@@ -311,10 +311,12 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // reject hallucinated game stats when no game data was provided. unambiguous
       // Bazaar stat claims (keyword/tier/+X/+Y) are rejected even in creative/banter —
       // a roleplay reply that invents "+60 haste at gold tier" is still misinformation.
-      // an other-game query (a game term matched but no Bazaar entity resolved) is allowed
-      // real numbers — the prompt promises "full nerd mode" for other games; only Bazaar
-      // tooltip notation stays blocked. without this the bot silently refused PoE/D2/WoW Qs.
-      const isOtherGame = !hasGameData && GAME_TERMS.test(query)
+      // an other-game query is allowed real numbers — the prompt promises "full nerd mode"
+      // for other games; only Bazaar tooltip notation stays blocked. requires the query to
+      // NAME another title (OTHER_GAME_RE): inferring other-game from entity-resolution
+      // failure waived the stat guards for pure-Bazaar questions whose terms just are not
+      // entities ("do relics trigger on drones").
+      const isOtherGame = !hasGameData && OTHER_GAME_RE.test(query)
       if (!hasGameData && hasHallucinatedStats(result.text, isCreative, isOtherGame)) {
         log(`ai: hallucinated stats without game data, retrying (attempt ${attempt + 1})`)
         if (attempt < MAX_RETRIES - 1) {

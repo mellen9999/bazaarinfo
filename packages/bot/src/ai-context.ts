@@ -1,5 +1,5 @@
 export {
-  KNOWLEDGE, GAME_TERMS, ENTITY_SKIP, STOP_WORDS,
+  KNOWLEDGE, GAME_TERMS, OTHER_GAME_RE, ENTITY_SKIP, STOP_WORDS,
   extractEntities,
   TIER_SHORT, serializeCard, serializeMonster,
   buildFTSQuery, buildFTSQueryLoose,

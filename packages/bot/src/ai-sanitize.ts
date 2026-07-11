@@ -19,7 +19,22 @@ export const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is a
 export const COT_TAIL = /[,.]?\s*(?:also\s+)?(?:(?:make sure|note to self|reminder to self|i need to (?:remember|make sure|check|verify|update))\s+(?:ur|your|my|the|i)\s+.*?(?:list|data|context|prompt|emote|response|output|format|style|knowledge|memory))\b.*$/i
 export const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you have \d+ (lookups?|commands?|wins?|attempts?|asks?)|you('ve|'re| have| are) (a )?(power user|casual user|trivia regular)|according to (my|your|the) (data|stats|profile|records?)|i (can see|see|know) (from )?(your|the) (data|stats|profile)|based on your (history|stats|data|profile))\b/i
 export const GARBLED = /\b(?:i|you|we|they|he|she)\s+to\s+(?!(?:some|any|every|no)(?:thing|one|where|body)\b)(?!(?:be|get|keep|start|stop|go|come|try)\s)\w+ing\b/i
-export const CONTEXT_ECHO = /^(Game data:|Recent chat:|Stream timeline:|Who's chatting:|Channel:|Your prior exchanges)/i
+// prompt section headers — single source of truth, used in BOTH directions: ai-build strips
+// them from injected chat text (a planted "Game data:" can't spoof a context row) and
+// CONTEXT_ECHO below rejects model output that regurgitates any section verbatim. keep the
+// two in lockstep by construction — a hand-maintained subset here previously let
+// "Facts:"/"Chatters:" echoes (per-user memo data) sail through.
+export const SECTION_HEADERS = [
+  'Game data', 'Recent chat', 'Stream timeline', "Who's chatting", 'Channel',
+  'Your prior exchanges', 'Chat culture', 'Bot stats', 'Chatters', 'Context', 'Activity',
+  'Community buzz', 'Prior exchanges', 'Chat history', 'BURNED references',
+  'Your recent convo with', 'Your recent responses', 'Active convos', 'Memory', 'Facts',
+  'All channel emotes', 'Chat voice', 'Voice', 'Pasta examples',
+] as const
+// a reply BEGINNING with a section header followed by ':' or an annotation '(' is an
+// echo. the ':'/'(' requirement keeps single-word headers from false-positiving on
+// legitimate replies that merely start with the same word ("Facts are facts, bud").
+export const CONTEXT_ECHO = new RegExp(`^(?:${SECTION_HEADERS.join('|')})\\s*[:(]`, 'i')
 export const FABRICATION = /\b(it was a dream|someone had a dream|someone dreamed|there was this time when|legend has it that (you|i|the bot|bazaarinfo)|the story goes|one time you|back when you|remember when we|remember that time you)\b/i
 // invented game stats — the bot must only cite numbers from an injected "Game data:"
 // section. three tiers, gated by context:
