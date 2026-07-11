@@ -10,7 +10,7 @@ import { fetchWorldCup } from './worldcup'
 import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
-import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel } from './trivia'
+import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, carriesLiveQuestion } from './trivia'
 import { isMuted } from './directives'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
 import { refreshRedditDigest } from './reddit'
@@ -388,7 +388,10 @@ const client = new TwitchClient(
         // request deadline is 12s, so a >20s end-to-end age means a stall ate the time — suppress
         // it. fail-open: no/zero sentTs (or host clock behind twitch) → never drop.
         const age = sentTs ? Date.now() - sentTs : 0
-        if (age > REPLY_FRESHNESS_MS) {
+        // exception: a reply announcing the live trivia round is never dropped — the
+        // round's hint/answer timers are already armed on the ungated globalSay path,
+        // so dropping the question would strand a headless game in chat.
+        if (age > REPLY_FRESHNESS_MS && !carriesLiveQuestion(channel, response)) {
           log(`[#${channel}] [${username}] DROPPED stale reply (${Math.round(age / 1000)}s old): ${response.slice(0, 60)}`)
           return
         }

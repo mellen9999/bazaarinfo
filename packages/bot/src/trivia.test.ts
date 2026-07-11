@@ -195,6 +195,7 @@ const {
   setKrippPackForTest,
   startFallbackTrivia,
   setFallbackPackForTest,
+  carriesLiveQuestion,
 } = await import('./trivia')
 
 rebuildTriviaMaps()
@@ -1465,5 +1466,35 @@ describe('revealAnswer — pool descriptions include e.g. items', () => {
     const msg = skipTrivia('#reveal3')
     expect(msg).toContain('Pygmalien')
     expect(msg).not.toContain('e.g.')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// freshness-gate exemption — regression for game 564: a 21s-late AI generation
+// launched a fallback round, index.ts's gate then dropped the composed announce,
+// and chat got hint + answer reveal with no question ever posted.
+// ---------------------------------------------------------------------------
+describe('carriesLiveQuestion', () => {
+  const Q = { question: 'What is the only continent with no native snakes?', answer: 'Antarctica', accept: [] }
+
+  it('matches the bare launch announce', () => {
+    const announce = startCustomTrivia('#gate1', Q)
+    expect(isGameActive('#gate1')).toBe(true)
+    expect(carriesLiveQuestion('#gate1', announce)).toBe(true)
+  })
+
+  it('matches the composed fallback announce (the game-564 shape)', () => {
+    const announce = startCustomTrivia('#gate2', Q)
+    const composed = `couldn't cook one about "Question where the only correct ans" — random one instead: ${announce}`
+    expect(carriesLiveQuestion('#gate2', composed)).toBe(true)
+  })
+
+  it('does not exempt unrelated replies while a round is live', () => {
+    startCustomTrivia('#gate3', Q)
+    expect(carriesLiveQuestion('#gate3', 'some ordinary stale AI reply')).toBe(false)
+  })
+
+  it('does not exempt anything when no round is live', () => {
+    expect(carriesLiveQuestion('#gate4', `Trivia! ${Q.question} (30s)`)).toBe(false)
   })
 })

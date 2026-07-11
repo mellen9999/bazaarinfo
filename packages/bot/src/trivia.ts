@@ -1251,6 +1251,15 @@ export function cleanupChannel(channel: string) {
   recentAnswers.delete(channel)
 }
 
+// true when a reply carries the LIVE round's question text. the freshness gate must
+// never drop such a reply: by the time it exists, launchRound has already armed the
+// hint/answer timers (which post via globalSay, ungated), so dropping the announce
+// strands a headless round — hint + reveal in chat with no question ever posted.
+export function carriesLiveQuestion(channel: string, text: string): boolean {
+  const game = activeGames.get(channel)
+  return game !== undefined && text.includes(game.question)
+}
+
 export function isGameActive(channel: string): boolean {
   return activeGames.has(channel)
 }
