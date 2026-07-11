@@ -11,7 +11,7 @@ Usage:
     python logwatch.py [--config config.ini] [--debug] [--setup]
 """
 
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 
 import argparse
 import configparser
@@ -520,7 +520,30 @@ def _remove_skill(state: dict, inst_id: str) -> bool:
     return False
 
 
+# parse-health telemetry: if a game patch changes the log format, every regex goes quiet
+# at once and the overlay silently stays blank. Warn once (loud, actionable) after enough
+# known-source lines have parsed to nothing — near-zero false-positive risk, since any
+# healthy session produces a state change within a handful of lines.
+_parse_stats = {"prefix": 0, "matched": 0, "warned": False}
+
+
 def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
+    """Parse-health wrapper around _process_line — warns once if the log format broke."""
+    if not any(p in line for p in _LINE_PREFIXES):
+        return False
+    _parse_stats["prefix"] += 1
+    changed = _process_line(line, state, card_db, debug)
+    if changed:
+        _parse_stats["matched"] += 1
+    elif not _parse_stats["warned"] and _parse_stats["matched"] == 0 and _parse_stats["prefix"] >= 300:
+        _parse_stats["warned"] = True
+        logger.warning(
+            "%d game log lines seen but none parsed — The Bazaar's log format may have "
+            "changed; check for a companion update", _parse_stats["prefix"])
+    return changed
+
+
+def _process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
     """Process a single log line, updating state. Returns True if state changed."""
 
     # Fast bail-out: skip lines that can't match any pattern
@@ -845,6 +868,10 @@ def validate_config(config: configparser.ConfigParser) -> bool:
             ok = False
             continue
         for key in keys:
+            # EBS_SECRET env var substitutes for the config-file secret (tail_log honors
+            # it) — don't reject a security-conscious setup that keeps it off disk.
+            if key == "secret" and os.environ.get("EBS_SECRET"):
+                continue
             if not config.has_option(section, key) or not config.get(section, key).strip():
                 logger.error("Config missing %s.%s", section, key)
                 ok = False
@@ -897,6 +924,29 @@ def setup_config(config_path: Path):
     print("Starting companion...\n")
 
 
+def check_for_update():
+    """Best-effort update notice — GitHub releases API, 3s cap, fail-silent, no tracking."""
+    try:
+        from urllib.request import Request, urlopen
+        req = Request(
+            "https://api.github.com/repos/mellen9999/bazaarinfo/releases?per_page=15",
+            headers={"User-Agent": f"bazaarinfo-companion/{VERSION}"},
+        )
+        with urlopen(req, timeout=3) as r:
+            releases = json.load(r)
+        for rel in releases:
+            tag = rel.get("tag_name", "")
+            if tag.startswith("companion-v"):
+                latest = tag[len("companion-v"):]
+                if tuple(int(p) for p in latest.split(".")) > tuple(int(p) for p in VERSION.split(".")):
+                    print(f"  update available: v{latest} (you have v{VERSION})")
+                    print("  https://github.com/mellen9999/bazaarinfo/releases")
+                    print()
+                break
+    except Exception:
+        pass  # never block startup on a version check
+
+
 def print_banner():
     """Print startup banner."""
     print()
@@ -923,6 +973,7 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
 
     print_banner()
+    check_for_update()
 
     # Setup
     if args.setup or not args.config.exists():
@@ -944,7 +995,19 @@ def main():
         logger.info("Install The Bazaar and run it once, then restart the companion")
         raise SystemExit(1)
 
-    card_db = load_card_db(game_cards)
+    # cards.json can be caught mid-write during a Steam update — retry instead of
+    # dying with a raw traceback on a streamer's machine.
+    card_db = None
+    for _attempt in range(3):
+        try:
+            card_db = load_card_db(game_cards)
+            break
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("cards.json unreadable (%s) — retrying in 2s (game may be updating)", e)
+            time.sleep(2)
+    if card_db is None:
+        logger.error("cards.json is corrupt or locked — verify game files in Steam, then restart the companion")
+        raise SystemExit(1)
 
     # Wait for Player.log (created on first game launch)
     log_path = args.log
