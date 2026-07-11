@@ -7,6 +7,7 @@ import { getCacheInfo } from './store'
 import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily, schedulePatchRefresh } from './scheduler'
 import { fetchWorldCup } from './worldcup'
+import { startGoalWatch } from './worldcup-goals'
 import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
@@ -507,6 +508,12 @@ async function pollStreams(initial = false) {
 }
 await pollStreams(true)
 setInterval(() => pollStreams(), 60_000)
+
+// world cup goal announcements — offline chats only; a live stream never gets soccer spam
+startGoalWatch(
+  (ch, msg) => client.say(ch, msg),
+  () => client.getChannels().map((c) => c.name.toLowerCase()).filter((ch) => !liveState.has(ch)),
+)
 
 // proactive token refresh every 30min
 setInterval(async () => {
