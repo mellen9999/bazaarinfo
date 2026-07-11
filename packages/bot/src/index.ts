@@ -309,6 +309,13 @@ const client = new TwitchClient(
     try {
       if (userId === botUserId) return
 
+      // rxTs = when the bot first touches this message; inboundAge = how stale it already was on
+      // arrival (Twitch network + any IRC-reconnect stall + event-loop pickup) — the latency term
+      // no timer downstream can see. carried to the reply log so a late answer's delay can be
+      // split into inbound vs slot-wait (ai.ts) vs call (ask_queries) precisely.
+      const rxTs = Date.now()
+      const inboundAgeMs = sentTs ? rxTs - sentTs : 0
+
       try { db.logChat(channel, username, text) } catch {}
       chatbuf.record(channel, username, text, messageId, threadId)
 
@@ -388,23 +395,24 @@ const client = new TwitchClient(
 
       const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId, threadId })
       if (response) {
-        // freshness gate — DROP a reply that couldn't be produced while still fresh instead of
-        // posting it late. an intermittent network stall on the host freezes all I/O for tens of
-        // seconds, then a backlog of replies completes at once; without this they'd burst into
-        // chat 30-100s after the question (spam, and answering people who moved on). the AI
-        // request deadline is 12s, so a >20s end-to-end age means a stall ate the time — suppress
-        // it. fail-open: no/zero sentTs (or host clock behind twitch) → never drop.
+        // freshness gate — now a generous 180s backstop (see REPLY_FRESHNESS_MS): every reply
+        // here is a direct command someone's waiting on and replies are reply-threaded, so we
+        // answer even when late. only a pathological multi-minute clog drops. fail-open on
+        // no/zero sentTs or host-clock-behind-twitch (negative age never drops).
         const age = sentTs ? Date.now() - sentTs : 0
         // exception: a reply announcing the live trivia round is never dropped — the
         // round's hint/answer timers are already armed on the ungated globalSay path,
         // so dropping the question would strand a headless game in chat.
         if (age > REPLY_FRESHNESS_MS && !carriesLiveQuestion(channel, response)) {
-          log(`[#${channel}] [${username}] DROPPED stale reply (${Math.round(age / 1000)}s old): ${response.slice(0, 60)}`)
+          log(`[#${channel}] [${username}] DROPPED stale reply (${Math.round(age / 1000)}s old, inbound=${Math.round(inboundAgeMs / 1000)}s): ${response.slice(0, 60)}`)
           return
         }
         // outbound pacing is handled solely by the twitch client's send buckets + FIFO
         // pacer (see twitch.ts say/kickPacer). no second throttle here — the first reply
         // goes out immediately and the rest are spaced ~400ms so chat never gets a burst.
+        // "lat:" breakdown on any slow reply so the delay is attributable: inbound (network/
+        // reconnect/pickup) vs the rest (slot-wait + call, split further by ai.ts's lat line).
+        if (age > 6000) log(`lat: reply #${channel} totalAge=${age}ms inbound=${inboundAgeMs}ms rest=${age - inboundAgeMs}ms`)
         log(`[#${channel}] [${username}] ${text} -> ${response.slice(0, 80)}...`)
         // always reply-thread UNLESS the response is a command relay (proxy for Streamlabs /
         // a native /me etc.) — a reply-threaded command won't fire, so send it bare with an

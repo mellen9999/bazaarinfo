@@ -135,10 +135,21 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
     return null
   }
   incrementQueue()
+  // measure the slot-wait — the ONE latency term nothing else records. the AI call time lands
+  // in ask_queries; inbound delay is logged at the handler; this closes the gap so a slow reply
+  // can be attributed precisely (queue backpressure vs slow upstream vs late inbound) instead of
+  // inferred. threshold-gated + "lat:" tagged so it's a cheap grep, no per-reply spam.
+  const slotStart = Date.now()
   const release = await acquireAiSlot()
+  const slotWaitMs = Date.now() - slotStart
 
   try {
+    const callStart = Date.now()
     const result = await doAiCall(query, ctx as AiContext & { user: string; channel: string })
+    const callMs = Date.now() - callStart
+    if (slotWaitMs > 1000 || callMs > 6000) {
+      log(`lat: ai #${ctx.channel} slotWait=${slotWaitMs}ms call=${callMs}ms qDepth=${aiQueueDepth}`)
+    }
     if (result?.text) recordUsage(ctx.user, isGame, ctx.channel)
     return result
   } finally {
