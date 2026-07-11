@@ -227,20 +227,36 @@ export function cbIsOpen(): boolean {
 export const AI_MAX_CONCURRENT = 10
 export const AI_MAX_QUEUE = 30
 
-let inFlight: Promise<void>[] = []
+// FIFO slot semaphore. the old impl raced every waiter on Promise.race(inFlight) each time a
+// slot freed — a thundering herd where the winner was whoever the event loop happened to
+// schedule first, NOT the longest waiter. under sustained contention (an upstream stall filling
+// the queue) that gave unbounded tail-latency variance and could starve an unlucky request.
+// this hands a freed slot to the HEAD of the wait queue, so wait time is bounded by queue
+// position. concurrency ceiling unchanged (AI_MAX_CONCURRENT). the slot count is only ever
+// decremented when there is no waiter to inherit it, so a barger can never push active past the
+// ceiling in the async handoff gap.
+let activeSlots = 0
+const slotWaiters: Array<() => void> = []
 export let aiQueueDepth = 0
 
+// exposed for tests — the live count of occupied slots.
+export function activeSlotCount(): number { return activeSlots }
+
 export async function acquireAiSlot(): Promise<() => void> {
-  while (inFlight.length >= AI_MAX_CONCURRENT) {
-    await Promise.race(inFlight).catch(() => {})
+  if (activeSlots >= AI_MAX_CONCURRENT) {
+    // park in FIFO order; a releaser wakes exactly the head waiter, handing over its slot
+    // (activeSlots is NOT decremented on handoff), so we inherit an already-counted slot.
+    await new Promise<void>((resolve) => slotWaiters.push(resolve))
+  } else {
+    activeSlots++
   }
-  let release!: () => void
-  const p = new Promise<void>((r) => release = r)
-  inFlight.push(p)
+  let released = false
   return () => {
-    const i = inFlight.indexOf(p)
-    if (i >= 0) inFlight.splice(i, 1)
-    release()
+    if (released) return // idempotent — a double release can't over-free the pool
+    released = true
+    const next = slotWaiters.shift()
+    if (next) next() // hand our slot to the head waiter — count stays constant
+    else activeSlots-- // no waiter — the slot is genuinely freed
   }
 }
 
