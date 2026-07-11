@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { log } from './log'
+import { writeAtomic } from './fs-util'
 
 const CACHE_PATH = resolve(import.meta.dir, '../../../cache/patch.json')
 const UA = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
@@ -66,7 +67,9 @@ export async function fetchPatchInfo(): Promise<PatchInfo | null> {
       return null
     }
     try {
-      writeFileSync(CACHE_PATH, JSON.stringify(info, null, 2))
+      // atomic (tmp+rename) like every other cache write — a crash mid-write must not
+      // leave a truncated patch.json
+      await writeAtomic(CACHE_PATH, JSON.stringify(info, null, 2))
     } catch (e) {
       log(`patch: cache write failed: ${e}`)
     }

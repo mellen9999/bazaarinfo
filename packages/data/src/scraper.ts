@@ -196,6 +196,29 @@ function extractCooldown(it: HowbazaarItem): CooldownValue | null {
   return vals.every((v) => v === first) ? first : perTier
 }
 
+// read a response body with a hard byte ceiling, aborting past it — the only size
+// guard that holds against chunked transfer-encoding / a missing or lying content-length.
+async function readTextCapped(res: Response, maxBytes: number): Promise<string> {
+  if (!res.body) return ''
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      reader.cancel().catch(() => {})
+      throw new Error(`response exceeded ${maxBytes} bytes mid-stream`)
+    }
+    chunks.push(value)
+  }
+  const buf = new Uint8Array(total)
+  let off = 0
+  for (const c of chunks) { buf.set(c, off); off += c.byteLength }
+  return new TextDecoder().decode(buf)
+}
+
 async function fetchCooldowns(onProgress?: (msg: string) => void): Promise<Map<string, CooldownValue>> {
   const map = new Map<string, CooldownValue>()
   try {
@@ -204,7 +227,7 @@ async function fetchCooldowns(onProgress?: (msg: string) => void): Promise<Map<s
       signal: AbortSignal.timeout(15_000),
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const body = await res.json() as { data?: HowbazaarItem[] }
+    const body = JSON.parse(await readTextCapped(res, 50_000_000)) as { data?: HowbazaarItem[] }
     const list = body.data ?? []
     for (const it of list) {
       if (!it.name) continue
@@ -243,10 +266,11 @@ export async function scrapeDump(onProgress?: (msg: string) => void): Promise<Ca
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
+      // size cap enforced while STREAMING — content-length alone is bypassable (chunked
+      // transfer or a lying header would let res.text() buffer unbounded).
       const contentLen = parseInt(res.headers.get('content-length') ?? '0')
       if (contentLen > 50_000_000) throw new Error(`response too large: ${contentLen} bytes`)
-
-      const text = await res.text()
+      const text = await readTextCapped(res, 50_000_000)
       let raw: unknown
       try { raw = JSON.parse(text) } catch { throw new Error('response body was not valid JSON') }
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {

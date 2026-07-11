@@ -666,7 +666,7 @@ const DISABLED_GENERATORS = new Set([11, 14])
 // "3 words, 8 letters" / "T_________ (10 letters)" for a 2-letter answer). Drops a
 // trailing parenthetical, and a "/alt" or " or alt" tail. Falls back to the input
 // if cleaning leaves nothing.
-export function hintBase(answer: string): string {
+function hintBase(answer: string): string {
   const a = answer
     .replace(/\s*[([][^)\]]*[)\]]\s*/g, ' ') // (…) / […]
     .replace(/\s*(?:\/|\sor\s).+$/i, '')      // "/ si", " or si"

@@ -18,10 +18,6 @@ const SESSION_GAP = 30 * 60_000 // 30min gap = new session
 const lastMessageTime = new Map<string, number>()
 const sessionIds = new Map<string, number>()
 
-export function getSessionId(channel: string): number {
-  return sessionIds.get(channel) ?? 0
-}
-
 export function restoreSessionId(channel: string, id: number) {
   sessionIds.set(channel, id)
 }

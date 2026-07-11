@@ -219,5 +219,7 @@ export function formatMonster(monster: Monster, skillDetails?: Map<string, Skill
 export function formatEvent(event: BazaarCard): string {
   const heroes = event.Heroes.filter((h) => !FAKE_HEROES.has(h)).map((h) => HERO_ABBREV[h] ?? h).join(', ')
   const who = heroes ? ` · ${heroes}` : ''
-  return appendShortlink(`${event.Title}${who} — event encounter (details on bazaardb)`, event.Shortlink)
+  // truncate like every other formatter — with an empty Shortlink, appendShortlink
+  // returns the text as-is and this was the one path with no length cap at all.
+  return appendShortlink(truncate(`${event.Title}${who} — event encounter (details on bazaardb)`), event.Shortlink)
 }

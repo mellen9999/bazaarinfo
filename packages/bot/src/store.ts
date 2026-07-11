@@ -372,10 +372,6 @@ export function findEventExact(name: string): BazaarCard | undefined {
   return eventMap.get(name.trim().toLowerCase())
 }
 
-export function eventTitles(): string[] {
-  return events.map((e) => e.Title)
-}
-
 export function findSkill(query: string): BazaarCard | undefined {
   return findByTitle(skills, query)
 }

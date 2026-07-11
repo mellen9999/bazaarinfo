@@ -696,6 +696,14 @@ const migrations: (() => void)[] = [
     )`)
     db.run(`CREATE INDEX idx_stream_sessions_channel ON stream_sessions(channel, started_at)`)
   },
+  // migration 21: idx_commands_hits was created WHERE cmd_type != 'miss', but the queries
+  // it exists for (selectUserFav / userTopItems) filter cmd_type NOT IN ('miss','ai') —
+  // SQLite's partial-index implication check can't prove NOT IN from !=, so the index was
+  // pure write amplification with zero read benefit. recreate with the real predicate.
+  () => {
+    db.run(`DROP INDEX IF EXISTS idx_commands_hits`)
+    db.run(`CREATE INDEX idx_commands_hits ON commands(match_name) WHERE cmd_type NOT IN ('miss', 'ai')`)
+  },
 ]
 
 function runMigrations() {
@@ -780,6 +788,11 @@ export function getOrCreateUser(username: string): number {
   const cached = userIdCache.get(lower)
   const now = Date.now()
   if (cached !== undefined) {
+    // LRU refresh: re-insert so Map iteration order reflects recency — eviction below
+    // drops the first key, which without this was insertion order (a day-1 hot chatter
+    // could be evicted while a 5-minute-old lurker survived).
+    userIdCache.delete(lower)
+    userIdCache.set(lower, cached)
     // throttle last_seen upsert — skip if recently updated
     if (now - cached.lastUpsert < UPSERT_THROTTLE) return cached.id
     stmts.upsertUser.run(lower)
@@ -927,8 +940,12 @@ export function recordTriviaAnswer(
 }
 
 export function recordTriviaWin(gameId: number, userId: number, answerTimeMs: number, participantCount: number, points = 0) {
-  stmts.updateTriviaWin.run(userId, answerTimeMs, participantCount, points, gameId)
-  stmts.updateTriviaUserWin.run(points, answerTimeMs, answerTimeMs, answerTimeMs, userId)
+  // one transaction: a failure between the two writes would otherwise leave the game row
+  // showing a winner while the user's aggregate wins/points/streak silently never update.
+  db.transaction(() => {
+    stmts.updateTriviaWin.run(userId, answerTimeMs, participantCount, points, gameId)
+    stmts.updateTriviaUserWin.run(points, answerTimeMs, answerTimeMs, answerTimeMs, userId)
+  })()
 }
 
 export function recordTriviaAttempt(userId: number) {
