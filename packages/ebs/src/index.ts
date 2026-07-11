@@ -192,6 +192,9 @@ function init() {
     // buffer up to its 128MB default — memory-pressure DoS on a low-RAM host. 200k covers the
     // 100k payload cap + headers; Bun rejects oversize bodies during read, before req.json().
     maxRequestBodySize: 200_000,
+    // slowloris bound — pin Bun's implicit 10s default so a runtime upgrade can't
+    // silently change the public route's idle-connection exposure
+    idleTimeout: 10,
     fetch: handleRequest,
     // last-resort guard: any uncaught throw in a route (malformed input, a bug) returns a
     // clean 500 instead of leaking Bun's default error page (with a stack) on a public route.

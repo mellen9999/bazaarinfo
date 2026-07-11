@@ -158,6 +158,9 @@ async function sendOnce(channelId: string, message: string): Promise<boolean> {
         message,
         target: ['broadcast'],
       }),
+      // a TCP-level stall here would otherwise hold state.pumping forever and
+      // silently freeze this channel's broadcasts until an EBS restart
+      signal: AbortSignal.timeout(10_000),
     })
     if (!res.ok) {
       console.error(`[pubsub] broadcast failed: ${res.status}`)
