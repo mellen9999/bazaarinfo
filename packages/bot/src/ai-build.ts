@@ -4,6 +4,7 @@ import { isGameActive } from './trivia'
 import { getRedditDigest } from './reddit'
 import { getPatchInfo } from './patch'
 import { getWorldCupLine } from './worldcup'
+import { getWeatherLine } from './weather'
 import { META_QUERY_RE } from './intents'
 import { SECTION_HEADERS } from './ai-sanitize'
 import { getTopicalDigest } from './topical'
@@ -761,6 +762,11 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // from). the fetch itself is refreshed in doAiCall before this builder runs.
   const worldCupLine = getWorldCupLine(query)
 
+  // live local weather — real Open-Meteo data, injected only on weather-shaped queries
+  // (fail-soft: honest "lookup down / place not found / which city?" lines on partial
+  // failure, '' otherwise — nothing to hallucinate from). refreshed in doAiCall.
+  const weatherLine = getWeatherLine(query)
+
   // skip reddit digest + emotes when we have specific game data or short queries
   const digest = getRedditDigest()
   // community buzz is high-value on meta/sentiment asks — keep it even when a game entity
@@ -992,6 +998,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'worldCup', text: worldCupLine, base: -107 },
     // next-stream prediction — direct answer to "when's the stream", never-evict tier
     { name: 'schedule', text: scheduleLine, base: -106 },
+    // live weather is the direct answer when it fires — same never-evict tier
+    { name: 'weather', text: weatherLine, base: -105 },
   ]
     .filter((s) => s.text)
     .map((s) => ({ ...s, prio: s.base - (s.boost ?? 0) }))

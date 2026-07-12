@@ -20,6 +20,7 @@ import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
 import { detectFancyStyle, toFancy } from './fancy'
 import { isWorldCupQuery, refreshWorldCupIfNeeded } from './worldcup'
+import { isWeatherQuery, refreshWeatherIfNeeded } from './weather'
 
 // strip orphan UTF-16 surrogate halves — twitch chat / 7TV emote names occasionally
 // inject lone D800-DBFF or DC00-DFFF code units. anthropic's JSON parser rejects them
@@ -167,6 +168,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // world cup queries: refresh the scoreboard BEFORE building context so a live score
   // answer reflects the pitch. TTL-gated no-op when fresh; fail-soft, never throws.
   if (isWorldCupQuery(query)) await refreshWorldCupIfNeeded()
+
+  // weather queries: geocode + fetch live conditions BEFORE building context, same
+  // contract as world cup — TTL-gated no-op when fresh; fail-soft, never throws.
+  if (isWeatherQuery(query)) await refreshWeatherIfNeeded(query)
 
   const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq, hasStats } = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()
