@@ -38,24 +38,38 @@ const PREP_RE = /^(?:in|for|near|at|around)\s+/i
 // places that aren't places — plus unit/aside noise the "in both C and F" pattern produces
 const BLOCK_RE = /^(?:both|and|or|the)?\s*(?:°?\s*[cf]|celsius|fahrenheit|degrees|metric|imperial|chat|here|there|game|(?:the\s+)?bazaar|town|city|the\s+(?:chat|game|world|us))?$/i
 
+// bare command form — "!b weather winnipeg", "forecast paris" — city right after the
+// keyword with no preposition. only unambiguous keywords: "temp"/"temperature" stay out
+// since they collide with non-weather talk ("temp ban") and need a place to disambiguate.
+const BARE_RE = /\b(?:weather|forecast|humidex|humidity|wind\s*-?chill|dew\s*-?point)\b\s+([^,?.!;\n]+)/gi
+
+function clean(raw: string): string | null {
+  const cleaned = raw
+    .replace(/\s+at\s+\d.*$/i, '') // "london at 5pm" → "london"
+    .replace(FILLER_RE, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(PREP_RE, '')
+    .replace(/^[\s'"-]+|[\s'"-]+$/g, '')
+    .trim()
+  if (!cleaned || cleaned.length > 40) return null
+  if (BLOCK_RE.test(cleaned)) return null
+  if (STRONG_RE.test(cleaned) || WEAK_RE.test(cleaned)) return null
+  if (cleaned.split(/\s+/).length > 4) return null
+  return cleaned
+}
+
 // pull a place name out of a natural-language weather ask. returns null when nothing
 // place-shaped survives cleanup — callers treat that as "no city given".
 export function extractLocation(query: string): string | null {
   const re = /(?:^|[\s,])(?:in|for|near|at|around)\s+([^,?.!;\n]+)/gi
   for (const m of query.matchAll(re)) {
-    const cleaned = m[1]
-      .replace(/\s+at\s+\d.*$/i, '') // "london at 5pm" → "london"
-      .replace(FILLER_RE, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .replace(PREP_RE, '')
-      .replace(/^[\s'"-]+|[\s'"-]+$/g, '')
-      .trim()
-    if (!cleaned || cleaned.length > 40) continue
-    if (BLOCK_RE.test(cleaned)) continue
-    if (STRONG_RE.test(cleaned) || WEAK_RE.test(cleaned)) continue
-    if (cleaned.split(/\s+/).length > 4) continue
-    return cleaned
+    const cleaned = clean(m[1])
+    if (cleaned) return cleaned
+  }
+  for (const m of query.matchAll(BARE_RE)) {
+    const cleaned = clean(m[1])
+    if (cleaned) return cleaned
   }
   return null
 }
