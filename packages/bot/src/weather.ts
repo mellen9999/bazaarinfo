@@ -17,8 +17,10 @@ const MAX_CACHE = 64
 
 // --- query classification ---
 
-// strong: unambiguous weather nouns — fire even without a place (we ask for one).
-const STRONG_RE = /\b(weather|temperature|forecast|humidex|humidity|wind\s*-?chill|dew\s*-?point)\b/i
+// strong: unambiguous weather asks — fire even without a place (we ask for one).
+// bare "temp" stays weak ("temp ban"), but temp-as-a-reading phrasings ("what temp is
+// it", "temp outside") and "how hot/cold is it" can't mean anything but weather.
+const STRONG_RE = /\b(weather|temperature|forecast|humidex|humidity|wind\s*-?chill|dew\s*-?point|what(?:'?s| is|s)?\s+(?:the\s+)?temps?\b|temps?\s+(?:is\s+it|out(?:side)?|rn|right\s+now|today|tonight)|how\s+(?:hot|cold|warm|chilly)\s+is\s+it\b|is\s+it\s+(?:hot|cold|warm|chilly|freezing|humid)\s+out(?:side)?\b)/i
 // weak: weather-ish words that collide with game/chat talk (Heated/Chilled builds, temp bans,
 // "hot take") — only count when a place was extracted, so bazaar queries never trigger.
 const WEAK_RE = /\b(temps?|rain(?:ing|y)?|snow(?:ing)?|sunny|cloudy|overcast|celsius|fahrenheit|degrees|(?:hot|cold|warm|chilly|freezing|humid)\s+(?:out(?:side)?|in)\b|is\s+it\s+(?:hot|cold|warm|chilly|freezing|humid))\b/i
