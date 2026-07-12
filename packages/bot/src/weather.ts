@@ -274,10 +274,6 @@ function dayStr(label: string, d: WxDay): string {
   return `${label}: high ${t(d.highC)}, low ${t(d.lowC)}${p}`
 }
 
-function ageStr(ms: number): string {
-  return ms < 90_000 ? `${Math.max(1, Math.round(ms / 1000))}s ago` : `${Math.round(ms / 60_000)}m ago`
-}
-
 // the injected context section — '' unless the query is weather-shaped. instructive
 // fallback lines (no city / unknown place / fetch down) keep the bot honest and engaged
 // instead of deflecting or inventing a forecast.
@@ -304,17 +300,17 @@ export function getWeatherLine(query: string, now = Date.now()): string {
   const wc = windChillC(wx.tempC, wx.windKmh)
   let localTime = ''
   try {
-    localTime = new Intl.DateTimeFormat('en-US', { timeZone: loc.timezone, hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(now))
+    // weekday + time in the place's own timezone — "Fri 10:18 PM local"
+    localTime = new Intl.DateTimeFormat('en-US', { timeZone: loc.timezone, weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(now)).replace(',', '')
   } catch {}
   const parts = [
-    `${t(wx.tempC)}, ${describeWmo(wx.code)}`,
+    `${t(wx.tempC)} ${describeWmo(wx.code)}`,
     `feels like ${t(wx.feelsC)}`,
     hx !== null ? `humidex ${hx}°C/${cToF(hx)}°F` : '',
     wc !== null ? `wind chill ${wc}°C/${cToF(wc)}°F` : '',
     `humidity ${Math.round(wx.humidity)}%`,
     `wind ${Math.round(wx.windKmh)} km/h (${Math.round(wx.windKmh * 0.621371)} mph)`,
-    localTime ? `local time ${localTime}` : '',
   ].filter(Boolean).join(', ')
   const days = [wx.today ? dayStr('today', wx.today) : '', wx.tomorrow ? dayStr('tomorrow', wx.tomorrow) : ''].filter(Boolean).join('; ')
-  return `\nCurrent weather in ${where} (REAL, from open-meteo.com as of ${ageStr(age)} — answer weather questions from THIS ONLY; all conversions and indices are precomputed, relay them, never do unit math yourself): ${parts}.${days ? ` ${days}.` : ''}`
+  return `\nLive weather — ${where}${localTime ? `, ${localTime} local` : ''} (REAL, open-meteo.com — answer from THIS only; units precomputed, never convert or invent): ${parts}.${days ? ` ${days}.` : ''}`
 }

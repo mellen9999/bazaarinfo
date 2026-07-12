@@ -130,6 +130,7 @@ describe('getWeatherLine', () => {
     __setWeatherCacheForTest('winnipeg', { ts: now, loc, wx })
     const line = getWeatherLine(q, now)
     expect(line).toContain('Winnipeg, Manitoba, CA')
+    expect(line).toMatch(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2}:\d{2} (AM|PM) local/)
     expect(line).toContain('31°C/88°F')
     expect(line).toContain('partly cloudy')
     expect(line).toMatch(/humidex 4[3-6]°C/)
