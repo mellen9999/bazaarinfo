@@ -509,10 +509,14 @@ async function pollStreams(initial = false) {
 await pollStreams(true)
 setInterval(() => pollStreams(), 60_000)
 
-// world cup goal announcements — offline chats only; a live stream never gets soccer spam
+// world cup announcements — kripp's chat only, and only while he's offline. a live
+// stream never gets soccer spam; other channels never get it at all.
+const WORLDCUP_CHANNEL = 'nl_kripp'
 startGoalWatch(
   (ch, msg) => client.say(ch, msg),
-  () => client.getChannels().map((c) => c.name.toLowerCase()).filter((ch) => !liveState.has(ch)),
+  () => client.getChannels()
+    .map((c) => c.name.toLowerCase())
+    .filter((ch) => ch === WORLDCUP_CHANNEL && !liveState.has(ch)),
 )
 
 // proactive token refresh every 30min

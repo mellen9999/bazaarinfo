@@ -78,10 +78,34 @@ describe('diffAnnouncements', () => {
     expect(diffAnnouncements(post, state, NOW)).toEqual([])
   })
 
-  test('pre matches are ignored entirely', () => {
+  test('pre matches are tracked silently — seeded for a future kickoff, announce nothing', () => {
     const state: GoalState = new Map()
     expect(diffAnnouncements(data(match(team('France', 0), team('Brazil', 0), 'pre', 'Scheduled')), state, NOW)).toEqual([])
-    expect(state.size).toBe(0)
+    expect(state.size).toBe(1)
+  })
+
+  test('kickoff fires on a witnessed pre→in transition, offline chats only', () => {
+    const state: GoalState = new Map()
+    diffAnnouncements(data(match(team('France', 0), team('Brazil', 0), 'pre', 'Scheduled')), state, NOW)
+    const out = diffAnnouncements(data(match(team('France', 0), team('Brazil', 0), 'in', "1'")), state, NOW)
+    expect(out).toEqual(['⚽ kickoff — France vs Brazil'])
+  })
+
+  test('kickoff then an early goal both fire, kickoff first', () => {
+    const state: GoalState = new Map()
+    diffAnnouncements(data(match(team('France', 0), team('Brazil', 0), 'pre', 'Scheduled')), state, NOW)
+    const out = diffAnnouncements(data(match(team('France', 1), team('Brazil', 0), 'in', "3'")), state, NOW)
+    expect(out).toEqual([
+      '⚽ kickoff — France vs Brazil',
+      "⚽ goal — France 1-0 Brazil (3')",
+    ])
+  })
+
+  test('a match joined mid-play never replays a kickoff', () => {
+    const state: GoalState = new Map()
+    diffAnnouncements(data(match(team('France', 0), team('Brazil', 0), 'in', "5'")), state, NOW)
+    const out = diffAnnouncements(data(match(team('France', 0), team('Brazil', 0), 'in', "10'")), state, NOW)
+    expect(out).toEqual([])
   })
 
   test('goal in stoppage that lands as post still surfaces via the FT line', () => {

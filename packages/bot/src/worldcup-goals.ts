@@ -1,11 +1,13 @@
 import { fetchWorldCup, type WcData, type WcMatch } from './worldcup'
 import { log } from './log'
 
-// posts a concise announcement in OFFLINE chats when a world cup goal goes in.
-// piggybacks on worldcup.ts's fetcher (which also refreshes the shared query cache),
-// so a live match costs 4 tiny ESPN requests per minute total. dormant off-tournament:
-// empty slate → next check hours away, zero requests wasted, zero chat noise.
-// live channels never get a line — soccer spam over a stream is worse than silence.
+// posts concise world cup announcements — kickoff, goals, and full time. piggybacks on
+// worldcup.ts's fetcher (which also refreshes the shared query cache), so a live match
+// costs 4 tiny ESPN requests per minute total. dormant off-tournament: empty slate →
+// next check hours away, zero requests wasted, zero chat noise.
+//
+// audience is gated by the caller (index.ts): offline chats only, never over a live
+// stream — soccer spam mid-broadcast is worse than silence.
 
 const LIVE_POLL_MS = 15_000
 const IDLE_POLL_MS = 10 * 60_000
@@ -16,6 +18,7 @@ interface Tracked {
   announced: [number, number] // last score chat was told (or silently seeded)
   live: boolean // seen in-play at least once — gates the FT line
   final: boolean // FT already announced
+  kicked: boolean // kickoff announced, or seeded past it (first seen already in/post)
   date: string
 }
 
@@ -47,6 +50,11 @@ function goalLine(m: WcMatch, prevTotal: number): string {
   return `⚽ goal — ${score}${minuteTag(m.detail)}`
 }
 
+function kickoffLine(m: WcMatch): string {
+  const [a, b] = m.teams
+  return `⚽ kickoff — ${a.name} vs ${b.name}`
+}
+
 function ftLine(m: WcMatch): string {
   const [a, b] = m.teams
   const score = `${a.name} ${a.score}-${b.score} ${b.name}`
@@ -67,22 +75,33 @@ export function diffAnnouncements(data: WcData, state: GoalState, now = Date.now
     if (now - new Date(t.date).getTime() > PRUNE_MS) state.delete(k)
   }
   for (const m of data.matches) {
-    if (m.state === 'pre') continue
     const k = keyOf(m)
     const [a, b] = m.teams
     const t = state.get(k)
     if (!t) {
-      state.set(k, { announced: [a.score, b.score], live: m.state === 'in', final: m.state === 'post', date: m.date })
+      // first sighting seeds silently — a restart mid-tournament must never replay
+      // history. kicked seeds true unless we caught the match while still pre, so only
+      // a genuine pre→in transition we witnessed can fire a kickoff line.
+      state.set(k, {
+        announced: [a.score, b.score],
+        live: m.state === 'in',
+        final: m.state === 'post',
+        kicked: m.state !== 'pre',
+        date: m.date,
+      })
       continue
     }
     if (m.state === 'in') {
+      if (!t.kicked) {
+        out.push(kickoffLine(m))
+        t.kicked = true
+      }
       t.live = true
       const [pa, pb] = t.announced
       if (a.score !== pa || b.score !== pb) {
-        const line = a.score > pa || b.score > pb
+        out.push(a.score > pa || b.score > pb
           ? goalLine(m, pa + pb)
-          : `⚽ goal disallowed — ${a.name} ${a.score}-${b.score} ${b.name}${minuteTag(m.detail)}`
-        out.push(line)
+          : `⚽ goal disallowed — ${a.name} ${a.score}-${b.score} ${b.name}${minuteTag(m.detail)}`)
         t.announced = [a.score, b.score]
       }
     } else if (m.state === 'post' && t.live && !t.final) {
@@ -124,7 +143,7 @@ export function startGoalWatch(say: Say, offlineChannels: () => string[]) {
         if (msgs.length > 0) {
           const chs = offlineChannels()
           for (const msg of msgs) {
-            log(`worldcup goal: ${msg} → ${chs.length} offline channel(s)`)
+            log(`worldcup: ${msg} → ${chs.length} channel(s)`)
             for (const ch of chs) say(ch, msg)
           }
         }
