@@ -653,6 +653,22 @@ describe('!b item lookup', () => {
     expect(result).toContain('Tinfoil Hat [M]')
   })
 
+  it('does not keyword-dump an item when its name is incidental in a sentence', async () => {
+    // "toaster" is a real card, but this is a joke question, not a lookup — the item name is
+    // one of seven words. must NOT return the Toaster card; falls through to AI (unavailable).
+    const toaster = makeCard({ Title: 'Toaster' })
+    mockSearch.mockImplementation(() => [toaster])
+    const result = await handleCommand('!b tips for sterilising fingers using a toaster')
+    expect(result ?? '').not.toContain('Toaster [')
+  })
+
+  it('still resolves a real lookup wrapped in one descriptor', async () => {
+    const keg = makeCard({ Title: 'Powder Keg' })
+    mockSearch.mockImplementation(() => [keg])
+    const result = await handleCommand('!b the big powder keg')
+    expect(result).toContain('Powder Keg')
+  })
+
   it('falls back to monster if no item found', async () => {
     const lich: Monster = {
       Type: 'CombatEncounter', Title: 'Lich',

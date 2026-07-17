@@ -794,8 +794,19 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
       if (q.length <= 4) return titleWords.some((tw) => tw.startsWith(q) || q.startsWith(tw))
       return titleWords.some((tw) => tw.includes(q) || q.includes(tw))
     }
-    // multi-word: exact word overlap OR substring containment (pinkbirdge contains birdge)
-    return titleWords.some((tw) => tw.length >= 3 && (qw.includes(tw) || qw.some((w) => w.length >= 3 && (w.includes(tw) || tw.includes(w)))))
+    // multi-word: a title word must overlap a query word (exact or substring, "pinkbirdge"
+    // contains "birdge"). BUT bazaar item names are common english words (toaster, bridge,
+    // friend, well…), so a sentence that merely MENTIONS one isn't a lookup. if 2+ substantive,
+    // non-filler words are left over once the matched title words, hero names, and known
+    // wrapping (size/"item"/articles) are removed, the item is incidental — "tips for
+    // sterilising fingers using a toaster" → Toaster — so fall through and let the AI answer
+    // what was actually asked. known-filler-wrapped lookups ("vanessa flying fish medium item")
+    // leave nothing over and still resolve.
+    const overlaps = (w: string) =>
+      titleWords.some((tw) => tw.length >= 3 && (w === tw || (w.length >= 3 && (w.includes(tw) || tw.includes(w)))))
+    if (!qw.some(overlaps)) return false
+    const leftover = qw.filter((w) => w.length >= 3 && !NOISE_WORDS.has(w) && !overlaps(w) && !store.findExactHero(w))
+    return leftover.length < 2
   }
 
   if (card && isRelevantMatch(card.Title, !!exactCard)) {
