@@ -657,6 +657,9 @@ describe('!b item lookup', () => {
     // "toaster" is a real card, but this is a joke question, not a lookup — the item name is
     // one of seven words. must NOT return the Toaster card; falls through to AI (unavailable).
     const toaster = makeCard({ Title: 'Toaster' })
+    // "toaster" is a real EXACT title — exercises both the fuzzy path and salvageQuery's
+    // exact-subphrase extraction, the two ways an incidental word became a card dump.
+    mockExact.mockImplementation((n) => n.toLowerCase() === 'toaster' ? toaster : undefined)
     mockSearch.mockImplementation(() => [toaster])
     const result = await handleCommand('!b tips for sterilising fingers using a toaster')
     expect(result ?? '').not.toContain('Toaster [')

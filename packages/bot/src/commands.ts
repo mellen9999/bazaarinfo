@@ -736,6 +736,22 @@ function heroPoolReply(heroName: string, items: BazaarCard[], suffix: string): s
   return withSuffix(truncate(`[${heroName}] ${items.length} ${noun}: ${items.map((i) => i.Title).join(', ')}`), suffix)
 }
 
+// a bazaar item name is often a plain english word (toaster, cannon, anchor, crane, lighter).
+// titleOverlaps: does query-word `w` correspond to any word of `title` (exact or substring,
+// so "pinkbirdge" matches "birdge")?
+function titleOverlaps(title: string, w: string): boolean {
+  const tws = title.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s\-]+/)
+  return tws.some((tw) => tw.length >= 3 && (w === tw || (w.length >= 3 && (w.includes(tw) || tw.includes(w)))))
+}
+// true when `title` is merely MENTIONED in `qw`, not the subject of the query: 2+ substantive
+// words remain once the title's own words, hero names, and known filler (sizes/"item"/articles)
+// are removed. keeps sentences that happen to contain an item name ("tips for sterilising
+// fingers using a toaster") out of the deterministic lookup so the AI answers what was asked.
+// filler-wrapped lookups ("vanessa flying fish medium item") leave nothing over and still resolve.
+function isIncidentalMention(title: string, qw: string[]): boolean {
+  return qw.filter((w) => w.length >= 3 && !NOISE_WORDS.has(w) && !store.findExactHero(w) && !titleOverlaps(title, w)).length >= 2
+}
+
 async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string | null> {
   const stripped = stripQuestionPrefix(cleanArgs)
   const words = stripped.split(/\s+/)
@@ -794,19 +810,10 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
       if (q.length <= 4) return titleWords.some((tw) => tw.startsWith(q) || q.startsWith(tw))
       return titleWords.some((tw) => tw.includes(q) || q.includes(tw))
     }
-    // multi-word: a title word must overlap a query word (exact or substring, "pinkbirdge"
-    // contains "birdge"). BUT bazaar item names are common english words (toaster, bridge,
-    // friend, well…), so a sentence that merely MENTIONS one isn't a lookup. if 2+ substantive,
-    // non-filler words are left over once the matched title words, hero names, and known
-    // wrapping (size/"item"/articles) are removed, the item is incidental — "tips for
-    // sterilising fingers using a toaster" → Toaster — so fall through and let the AI answer
-    // what was actually asked. known-filler-wrapped lookups ("vanessa flying fish medium item")
-    // leave nothing over and still resolve.
-    const overlaps = (w: string) =>
-      titleWords.some((tw) => tw.length >= 3 && (w === tw || (w.length >= 3 && (w.includes(tw) || tw.includes(w)))))
-    if (!qw.some(overlaps)) return false
-    const leftover = qw.filter((w) => w.length >= 3 && !NOISE_WORDS.has(w) && !overlaps(w) && !store.findExactHero(w))
-    return leftover.length < 2
+    // multi-word: a title word must overlap a query word, AND the item must not be a mere
+    // incidental mention in a sentence (see isIncidentalMention).
+    if (!qw.some((w) => titleOverlaps(title, w))) return false
+    return !isIncidentalMention(title, qw)
   }
 
   if (card && isRelevantMatch(card.Title, !!exactCard)) {
@@ -848,14 +855,16 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
       const heroCard = salvaged.hero ? candidates.find((c) => c.Heroes.includes(salvaged.hero!)) : undefined
       const sCard = heroCard ?? candidates[0]
       const sWords = salvaged.query.toLowerCase().split(/\s+/)
-      if (sCard && isRelevantMatch(sCard.Title, !!sExact, sWords)) {
+      // guard against salvage pulling a lone common-word item out of a real sentence: check
+      // the incidental test against the ORIGINAL query, not the stripped-down salvaged form.
+      if (sCard && isRelevantMatch(sCard.Title, !!sExact, sWords) && !isIncidentalMention(sCard.Title, queryWords)) {
         const v = validateTier(sCard, tier)
         logHit('item', query, sCard.Title, ctx, v.tier)
         const result = formatItem(sCard, v.tier)
         return withSuffix(v.note ? `${result} (${v.note})` : result, suffix)
       }
       const sMonster = store.findMonster(salvaged.query)
-      if (sMonster && isRelevantMatch(sMonster.Title, false, sWords)) {
+      if (sMonster && isRelevantMatch(sMonster.Title, false, sWords) && !isIncidentalMention(sMonster.Title, queryWords)) {
         logHit('mob', query, sMonster.Title, ctx)
         return withSuffix(formatMonster(sMonster, resolveSkills(sMonster)), suffix)
       }
