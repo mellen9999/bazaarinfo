@@ -665,6 +665,14 @@ describe('!b item lookup', () => {
     expect(result ?? '').not.toContain('Toaster [')
   })
 
+  it('does not dump a multi-word item mentioned incidentally in a sentence', async () => {
+    const keg = makeCard({ Title: 'Powder Keg' })
+    mockExact.mockImplementation((n) => n.toLowerCase() === 'powder keg' ? keg : undefined)
+    mockSearch.mockImplementation(() => [keg])
+    const result = await handleCommand('!b i watched a powder keg explode in the movie last night')
+    expect(result ?? '').not.toContain('Powder Keg [')
+  })
+
   it('still resolves a real lookup wrapped in one descriptor', async () => {
     const keg = makeCard({ Title: 'Powder Keg' })
     mockSearch.mockImplementation(() => [keg])

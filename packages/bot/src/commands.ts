@@ -759,12 +759,17 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 
   if (!query) return null
 
+  const queryWords = query.toLowerCase().split(/\s+/)
+
   if (enchant) {
     // prefer cards that actually have the requested enchant — disambiguates
     // skill/item collisions like "depth charge" (skill) vs "Elemental Depth Charge" (item)
     const exact = store.exact(query)
     const candidates = exact ? [exact, ...store.search(query, 5)] : store.search(query, 5)
     const card = candidates.find((c) => c.Enchantments[enchant]) ?? candidates[0]
+    // a fuzzy match whose item name is just mentioned in a sentence ("a golden toaster would
+    // be nice") isn't an enchant lookup — let the AI answer. an exact item name still wins.
+    if (card && !exact && isIncidentalMention(card.Title, queryWords)) return null
     if (!card) {
       logMiss(query, ctx)
       const s = store.suggest(query, 3)
@@ -797,7 +802,6 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   }
 
   // reject fuzzy matches where the query doesn't meaningfully overlap with the title
-  const queryWords = query.toLowerCase().split(/\s+/)
   const isRelevantMatch = (title: string, isExact: boolean, qw: string[] = queryWords) => {
     if (isExact) return true
     // split CamelCase/PascalCase into words (LavaRoller → lava, roller)
