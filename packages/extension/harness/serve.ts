@@ -49,7 +49,8 @@ function loadBoard(): { items: Card[]; skills: Card[] } {
 const BOARD = loadBoard()
 
 // ── the harness page: mock Twitch + stub fetch + broadcast a board on a heartbeat ──
-function page(): string {
+// Pass ?crop=x,y,scale to preload a game-area crop and eyeball the aligned board.
+function page(crop: string | null): string {
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>overlay harness</title>
@@ -58,15 +59,25 @@ function page(): string {
   html,body{margin:0;height:100%;width:100%;overflow:hidden;
     background:radial-gradient(120% 90% at 50% 40%, #1c2733 0%, #0d1014 70%);font-family:system-ui}
   .hint{position:fixed;top:6px;left:8px;color:#3a4654;font:11px monospace;z-index:0}
+  .crop-frame{position:fixed;border:1px dashed #3a5a7a;pointer-events:none;z-index:0}
 </style></head><body>
-<div class="hint">overlay harness — hover a slot</div>
+<div class="hint">overlay harness — hover a slot${crop ? ` · crop=${crop}` : ''}</div>
 <div id="root"></div>
 <script>
   const CARDS = ${JSON.stringify(BOARD)};
+  const CROP = ${JSON.stringify(crop)};
+  // draw the crop rectangle so we can see the board land inside it
+  if (CROP) { const [x,y,s]=CROP.split(',').map(Number);
+    const f=document.createElement('div'); f.className='crop-frame';
+    f.style.left=(x*100)+'%'; f.style.top=(y*100)+'%'; f.style.width=(s*100)+'%'; f.style.height=(s*100)+'%';
+    document.body.appendChild(f); }
+  const cropContent = CROP ? JSON.stringify({v:1,x:+CROP.split(',')[0],y:+CROP.split(',')[1],scale:+CROP.split(',')[2]}) : undefined;
   window.Twitch = { ext: {
     onAuthorized(cb){ setTimeout(()=>cb({token:'harness',channelId:'0',userId:'0',clientId:'0'}),0); },
     listen(t,cb){ if(t==='broadcast') window.__bcast=cb; }, unlisten(){},
     onVisibilityChanged(cb){ window.__vis=cb; }, onContext(){},
+    configuration: { broadcaster: cropContent ? {segment:'broadcaster',version:'1',content:cropContent} : undefined,
+      onChanged(cb){ window.__cfg=cb; }, set(){} },
   }};
   const _f = window.fetch.bind(window);
   window.fetch = (u,o) => String(u).includes('/api/cards')
@@ -91,13 +102,38 @@ function page(): string {
 </body></html>`
 }
 
+// Config view with a working in-memory config service so the calibrator can be
+// driven end to end (drag/keys → save → serialized crop appears in the log line).
+async function configPage(): Promise<string> {
+  let html = await Bun.file(join(DIST, 'config.html')).text()
+  const mock = `<script>
+  window.Twitch = { ext: {
+    onAuthorized(cb){ setTimeout(()=>cb({token:'harness',channelId:'0',clientId:'0'}),0); },
+    onContext(){},
+    configuration: { broadcaster: undefined,
+      onChanged(cb){ this._cb=cb; }, set(seg,ver,content){ this.broadcaster={segment:seg,version:ver,content}; document.title='SAVED '+content; this._cb&&this._cb(); } },
+  }};
+  const _f=window.fetch.bind(window);
+  window.fetch=(u,o)=>String(u).includes('companion-setup')
+    ? Promise.resolve(new Response(JSON.stringify({channelId:'harness',secret:'harness-secret'}),{headers:{'content-type':'application/json'}}))
+    : _f(u,o);
+  </script>`
+  // swap the real Twitch helper for the mock so set()/onChanged work offline
+  html = html.replace(/<script src="https:\/\/extension-files[^"]*"><\/script>/, mock)
+  return html
+}
+
 Bun.serve({
   port: PORT,
   hostname: '127.0.0.1',
   async fetch(req) {
-    const path = new URL(req.url).pathname
+    const url = new URL(req.url)
+    const path = url.pathname
     if (path === '/' || path === '/index.html') {
-      return new Response(page(), { headers: { 'content-type': 'text/html' } })
+      return new Response(page(url.searchParams.get('crop')), { headers: { 'content-type': 'text/html' } })
+    }
+    if (path === '/config' || path === '/config.html') {
+      return new Response(await configPage(), { headers: { 'content-type': 'text/html' } })
     }
     const file = Bun.file(join(DIST, path))
     if (await file.exists()) return new Response(file)
@@ -106,4 +142,6 @@ Bun.serve({
 })
 
 console.log(`[harness] overlay running → http://127.0.0.1:${PORT}`)
+console.log(`[harness]   overlay (cropped): http://127.0.0.1:${PORT}/?crop=0.15,0.1,0.7`)
+console.log(`[harness]   calibrator:        http://127.0.0.1:${PORT}/config`)
 console.log('[harness] hover any slot to see the tooltip. ctrl-c to stop.')

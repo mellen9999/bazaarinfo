@@ -1,5 +1,8 @@
-// Twitch extension config view — broadcaster fetches their companion secret.
+// Twitch extension config view — broadcaster fetches their companion secret
+// and calibrates the game-area crop for windowed / cropped captures.
 // Loaded as a static script via <script src>. CSP-clean: no inline handlers.
+
+import { initCalibrator } from './calibrate'
 
 const EBS_URL = 'https://ebs.bazaarinfo.com'
 
@@ -50,6 +53,7 @@ function applyTheme(theme: string | undefined) {
 
 function init() {
   setupCopyHandlers()
+  initCalibrator()
   const twitch = window.Twitch?.ext
   if (!twitch) {
     setStatus('Twitch extension helper unavailable', 'error')

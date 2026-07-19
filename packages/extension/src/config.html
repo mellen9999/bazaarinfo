@@ -25,6 +25,26 @@
   </div>
 </div>
 
+<h2>Overlay Alignment</h2>
+<p>Only needed if you play <strong>windowed</strong> or crop the game in OBS. Drag the box so it frames exactly where your game video sits on stream, then save. Fullscreen 16:9? Leave it — the default already fits.</p>
+
+<div class="cal">
+  <div id="cal-stage" class="cal-stage" aria-label="stream frame">
+    <div id="cal-box" class="cal-box" tabindex="0" role="application" aria-label="game area — drag to move, arrow keys to nudge, +/- to resize">
+      <div id="cal-handle" class="cal-handle" aria-hidden="true"></div>
+    </div>
+  </div>
+  <div class="cal-bar">
+    <code id="cal-readout" class="cal-readout"></code>
+    <div class="cal-btns">
+      <button id="cal-reset" type="button" class="cal-btn">reset</button>
+      <button id="cal-save" type="button" class="cal-btn cal-btn--primary" disabled>save</button>
+    </div>
+  </div>
+  <div id="cal-status" class="muted"></div>
+  <p class="cal-tip">drag to move · corner to resize · arrow keys nudge (shift = coarse) · <kbd>+</kbd>/<kbd>-</kbd> resize · after saving, watch your own overlay and nudge until the highlights sit on your cards</p>
+</div>
+
 <h2>Quick Start</h2>
 <ol>
   <li>Download the companion from <a href="https://ebs.bazaarinfo.com/download" target="_blank" rel="noopener">the latest release</a></li>
