@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { tessellate } from './tessellate'
+import { tessellate, padVertical } from './tessellate'
 
 const row = (xs: [number, number][], extra: Record<string, unknown> = {}) =>
   xs.map(([x, w]) => ({ x, y: 0.6, w, h: 0.2, owner: 'player', type: 'Item', ...extra }))
@@ -66,6 +66,25 @@ describe('tessellate', () => {
     // the two player items tessellated together
     const players = t.filter(z => z.owner === 'player').sort((a, b) => a.x - b.x)
     expect(players[0].x + players[0].w).toBeCloseTo(players[1].x, 5)
+  })
+
+  it('padVertical grows y/h by the capped margin, clamped to [0,1]', () => {
+    const [z] = padVertical([{ x: 0.1, y: 0.60, w: 0.05, h: 0.20 }], 0.12, 0.03)
+    const grow = Math.min(0.20 * 0.12, 0.03) // 0.024
+    expect(z.y).toBeCloseTo(0.60 - grow)
+    expect(z.h).toBeCloseTo(0.20 + 2 * grow)
+  })
+  it('padVertical caps growth and never leaves [0,1]', () => {
+    const [top] = padVertical([{ x: 0, y: 0.01, w: 0.05, h: 0.5 }], 0.5, 0.05)
+    expect(top.y).toBe(0) // clamped, not negative
+    const [bot] = padVertical([{ x: 0, y: 0.6, w: 0.05, h: 0.45 }], 0.5, 1)
+    expect(bot.y + bot.h).toBeLessThanOrEqual(1 + 1e-9)
+  })
+  it('padVertical leaves x/w untouched and handles empty', () => {
+    const [z] = padVertical([{ x: 0.3, y: 0.5, w: 0.07, h: 0.1 }], 0.12, 0.03)
+    expect(z.x).toBe(0.3)
+    expect(z.w).toBe(0.07)
+    expect(padVertical([], 0.12, 0.03)).toEqual([])
   })
 
   it('preserves non-positional fields and order', () => {

@@ -72,3 +72,20 @@ export function tessellate<T extends Zone>(zones: T[]): T[] {
   }
   return out
 }
+
+// Grow each zone vertically by a capped margin so a hover a few percent above or
+// below a card still lands. Complements tessellate (which forgives horizontal
+// misses): together they absorb the small residual drift left after calibration
+// and any per-card error in the companion's constants. Board rows sit far apart
+// vertically (player ~0.60, opponent ~0.13, skills ~0.86), so a small cap never
+// bridges two rows — no cross-row false hits. Only y/h change; never overlaps a
+// same-row neighbour (rows are a single horizontal line, no vertical stacking).
+export function padVertical<T extends { y: number; h: number }>(zones: T[], frac: number, cap: number): T[] {
+  if (!zones.length) return zones
+  return zones.map(z => {
+    const grow = Math.min(z.h * frac, cap)
+    const y = Math.max(0, z.y - grow)
+    const bottom = Math.min(1, z.y + z.h + grow)
+    return { ...z, y, h: bottom - y }
+  })
+}
