@@ -24,6 +24,9 @@ interface Els {
   save: HTMLButtonElement
   reset: HTMLButtonElement
   status: HTMLElement
+  shot: HTMLButtonElement
+  file: HTMLInputElement
+  drophint: HTMLElement
 }
 
 function getEls(): Els | null {
@@ -34,8 +37,11 @@ function getEls(): Els | null {
   const save = document.getElementById('cal-save') as HTMLButtonElement | null
   const reset = document.getElementById('cal-reset') as HTMLButtonElement | null
   const status = document.getElementById('cal-status')
-  if (!stage || !box || !handle || !readout || !save || !reset || !status) return null
-  return { stage, box, handle, readout, save, reset, status }
+  const shot = document.getElementById('cal-shot') as HTMLButtonElement | null
+  const file = document.getElementById('cal-file') as HTMLInputElement | null
+  const drophint = document.getElementById('cal-drophint')
+  if (!stage || !box || !handle || !readout || !save || !reset || !status || !shot || !file || !drophint) return null
+  return { stage, box, handle, readout, save, reset, status, shot, file, drophint }
 }
 
 export function initCalibrator() {
@@ -173,6 +179,39 @@ export function initCalibrator() {
     set(IDENTITY_CROP)
     els.box.focus()
     setStatus('reset to fullscreen — save to apply', 'muted')
+  })
+
+  // ── screenshot backdrop ──
+  // The broadcaster drops a frame of their own stream so they align the box to
+  // the real game, not a guess. The image is read locally into a data: URL and
+  // painted as the stage background — never uploaded, never leaves the browser.
+  const loadImage = (file: File | undefined | null) => {
+    if (!file || !file.type.startsWith('image/')) { setStatus('not an image file', ''); return }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const url = typeof reader.result === 'string' ? reader.result : ''
+      if (!url) return
+      // 100% 100% because a stream screenshot IS the full 16:9 frame the stage
+      // represents; stretch-fit maps it 1:1 so the box lines up with the video.
+      els.stage.style.backgroundImage = `url("${url.replace(/"/g, '%22')}")`
+      els.stage.classList.add('cal-stage--shot')
+      setStatus('aligned to your screenshot — box the game, then save', 'muted')
+    }
+    reader.onerror = () => setStatus('could not read that image', '')
+    reader.readAsDataURL(file)
+  }
+
+  els.shot.addEventListener('click', () => els.file.click())
+  els.file.addEventListener('change', () => loadImage(els.file.files?.[0]))
+
+  const stopDrag = (e: DragEvent) => { e.preventDefault(); e.stopPropagation() }
+  els.stage.addEventListener('dragenter', (e) => { stopDrag(e); els.stage.classList.add('cal-stage--drop') })
+  els.stage.addEventListener('dragover', stopDrag)
+  els.stage.addEventListener('dragleave', (e) => { stopDrag(e); els.stage.classList.remove('cal-stage--drop') })
+  els.stage.addEventListener('drop', (e) => {
+    stopDrag(e)
+    els.stage.classList.remove('cal-stage--drop')
+    loadImage(e.dataTransfer?.files?.[0])
   })
 
   // faint item-row hint so the broadcaster can orient the box to their board
