@@ -43,6 +43,19 @@ interface ChannelState {
 
 const channels = new Map<string, ChannelState>()
 
+// Evict channel state idle past this — entries are only created after companion-secret
+// auth, so growth is bounded by real adoption, but a streamer who uninstalls would
+// otherwise pin their entry for the process lifetime.
+const CHANNEL_IDLE_EVICT_MS = 6 * 60 * 60 * 1000
+setInterval(() => {
+  const now = Date.now()
+  for (const [id, s] of channels) {
+    if (!s.pumping && s.queue.length === 0 && now - s.lastSendAt > CHANNEL_IDLE_EVICT_MS) {
+      channels.delete(id)
+    }
+  }
+}, 60 * 60 * 1000)
+
 function djb2(s: string): string {
   let h = 5381
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
