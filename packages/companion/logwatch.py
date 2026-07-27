@@ -11,7 +11,7 @@ Usage:
     python logwatch.py [--config config.ini] [--debug] [--setup]
 """
 
-VERSION = "1.0.4"
+VERSION = "1.0.5"
 
 import argparse
 import configparser
@@ -265,8 +265,10 @@ GAME_STATES = {
     "ReplayState", "LevelUpState", "LootState", "PedestalState",
 }
 
-# Maximum title length: well above any real card name, safely under PubSub 5000-byte limit
-_TITLE_MAX = 128
+# Maximum title length: well above any real card name (longest live title is 28
+# chars) and exactly the EBS validator's cap — a longer title would pass here but
+# be silently dropped server-side, so the two limits must stay in lockstep.
+_TITLE_MAX = 80
 
 
 def _cap(t: str) -> str:
@@ -837,11 +839,20 @@ def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, d
                         f.close()
                         # Wait a moment for the new log to be written
                         time.sleep(0.5)
-                        # Rebuild state from the new log
-                        state = build_initial_state(log_path, card_db)
-                        f = open(log_path, encoding="utf-8", errors="replace")
+                        # The handle is closed here — if the rebuild or reopen fails
+                        # (log replaced again mid-rebuild, game restarting), retry until
+                        # it succeeds. Bailing to the outer loop instead would readline()
+                        # a closed file forever and the companion would never recover.
+                        while True:
+                            try:
+                                state = build_initial_state(log_path, card_db)
+                                f = open(log_path, encoding="utf-8", errors="replace")
+                                break
+                            except OSError as e:
+                                logger.warning("Log unreadable after rotation (%s) — retrying in 2s", e)
+                                time.sleep(2)
                         f.seek(0, 2)
-                        last_inode = log_path.stat().st_ino
+                        last_inode = os.fstat(f.fileno()).st_ino
                         if state["show_overlay"]:
                             send_state(ebs_url, channel_id, secret, state)
                             last_send = time.monotonic()
@@ -987,6 +998,15 @@ def main():
     if not validate_config(config):
         logger.error("Fix config.ini or run with --setup to reconfigure")
         raise SystemExit(1)
+
+    # The config holds the plaintext companion secret. --setup chmods it 0600, but a
+    # hand-copied config keeps default (often world-readable) perms — re-tighten on
+    # every start so the secret is never readable by other local users.
+    if args.config.exists():
+        try:
+            os.chmod(args.config, 0o600)
+        except OSError:
+            pass  # no-op on Windows; best-effort on POSIX
 
     # Find cards.json (wait if game not installed yet)
     game_cards = find_cards_json()
