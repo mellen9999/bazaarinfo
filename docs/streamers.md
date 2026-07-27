@@ -17,6 +17,16 @@ Yes — and here's exactly why, because you should never trust a stream tool tha
 
 The full source is public — read it, build it yourself if you want.
 
+### verify your download
+
+Every release ships checksums and GitHub build provenance, so you never have to take the binary on faith:
+
+- **checksum** — the release includes a `SHA256SUMS` file. Hash your download (`certutil -hashfile bazaarinfo-companion-windows.exe SHA256` on Windows, `sha256sum` on Linux) and compare.
+- **provenance** — `gh attestation verify bazaarinfo-companion-windows.exe --repo mellen9999/bazaarinfo` cryptographically proves the exe was built by this repo's public CI from the tagged source — not built on someone's laptop, not swapped after the fact. The build logs themselves are public.
+- **run from source** — the companion is a single readable Python file. If you'd rather not run any binary: `python packages/companion/logwatch.py`.
+
+Windows SmartScreen may warn on first run — the exe is unsigned (signing certs are a paid identity service). The provenance check above is the stronger, free equivalent.
+
 ---
 
 ## the overlay

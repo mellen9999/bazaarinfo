@@ -4,12 +4,11 @@ on:
   push:
     tags: ['companion-v*']
 
-permissions:
-  contents: write
-
 jobs:
   build-windows:
     runs-on: windows-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -20,7 +19,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r packages/companion/requirements.txt
-          pip install pyinstaller
+          pip install "pyinstaller>=6,<7"
 
       - name: Build exe
         run: |
@@ -35,6 +34,8 @@ jobs:
 
   build-linux:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +46,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r packages/companion/requirements.txt
-          pip install pyinstaller
+          pip install "pyinstaller>=6,<7"
 
       - name: Build binary
         run: |
@@ -61,6 +62,12 @@ jobs:
   release:
     needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # provenance attestation: cryptographic proof each binary was built by this
+      # public workflow from the tagged source — the trust anchor for unsigned exes
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
 
@@ -80,6 +87,18 @@ jobs:
           mv artifacts/linux/bazaarinfo-companion artifacts/bazaarinfo-companion-linux
           chmod +x artifacts/bazaarinfo-companion-linux
 
+      - name: Checksums
+        run: |
+          cd artifacts
+          sha256sum bazaarinfo-companion-windows.exe bazaarinfo-companion-linux > SHA256SUMS
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            artifacts/bazaarinfo-companion-windows.exe
+            artifacts/bazaarinfo-companion-linux
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         env:
@@ -91,20 +110,32 @@ jobs:
 
             Streams your card data to the BazaarInfo Twitch overlay so viewers can see card tooltips.
 
-            ### Setup
+            ### setup
             1. Install the [BazaarInfo extension](https://dashboard.twitch.tv/extensions/nlhnk69thm8drl49k4h7v18u3365fu) on your Twitch channel
             2. Go to Extensions > BazaarInfo > Configure to get your Channel ID and Secret
             3. Download the companion for your platform below
             4. Run it and enter your Channel ID and Secret when prompted
             5. Launch The Bazaar and start a game — the overlay will show card tooltips automatically
 
-            ### Downloads
+            ### downloads
             - **Windows**: `bazaarinfo-companion-windows.exe` — double-click to run
             - **Linux**: `bazaarinfo-companion-linux` — `chmod +x` and run
 
             Settings are saved to `config.ini` next to the executable. Run with `--setup` to reconfigure.
+
+            ### verify your download (optional, recommended)
+            Every binary here is built by this repo's public CI and ships with cryptographic proof:
+            - **integrity** — compare against `SHA256SUMS`:
+              - Windows: `certutil -hashfile bazaarinfo-companion-windows.exe SHA256`
+              - Linux: `sha256sum -c SHA256SUMS --ignore-missing`
+            - **provenance** — prove it was built from this exact tagged source by GitHub's CI, not tampered with or swapped ([GitHub CLI](https://cli.github.com)):
+              - `gh attestation verify bazaarinfo-companion-windows.exe --repo mellen9999/bazaarinfo`
+            - **or skip binaries entirely** — the companion is one readable Python file; run it from source: `python packages/companion/logwatch.py`
+
+            Windows SmartScreen may warn on first run because the exe is unsigned (code-signing certs are a paid identity service, not a security measure) — the attestation above is the stronger, free proof of where this binary came from.
           files: |
             artifacts/bazaarinfo-companion-windows.exe
             artifacts/bazaarinfo-companion-linux
+            artifacts/SHA256SUMS
           draft: false
           prerelease: false
