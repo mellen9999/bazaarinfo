@@ -6,12 +6,12 @@ Twitch bot + overlay for [The Bazaar](https://www.playthebazaar.com/). Card look
 
 ## for streamers
 
-Add the overlay + bot to your channel in a few minutes — full walkthrough in **[docs/streamers.md](docs/streamers.md)**.
+Add the overlay + bot to your channel in a few minutes — full walkthrough in **[docs/streamer-setup.md](docs/streamer-setup.md)**.
 
 - **overlay** — install the *BazaarInfo* extension from your [Twitch Extensions dashboard](https://dashboard.twitch.tv/extensions), grab your Channel ID + Secret from its config page, then run the companion ([latest release](https://github.com/mellen9999/bazaarinfo/releases/latest)) to stream card tooltips to your viewers.
 - **chat bot** — type `!join` in [twitch.tv/bazaarinfo](https://twitch.tv/bazaarinfo) and it joins your channel instantly. `!b help` for commands.
 
-TOS-safe (reads the game log, no memory hooks), and only card name, tier, and on-screen position ever leaves your machine. Full steps, command list, and troubleshooting live in the [streamer guide](docs/streamers.md).
+TOS-safe (reads the game log, no memory hooks), and only card name, tier, and on-screen position ever leaves your machine. Full steps, command list, and troubleshooting live in the [streamer guide](docs/streamer-setup.md).
 
 ---
 

@@ -618,7 +618,7 @@ describe('handleCommand routing', () => {
 
   it('!b overlay returns the streamer setup guide link', async () => {
     const result = await handleCommand('!b overlay')
-    expect(result).toContain('docs/streamers.md')
+    expect(result).toContain('docs/streamer-setup.md')
     expect(result).toContain('setup guide')
   })
 })

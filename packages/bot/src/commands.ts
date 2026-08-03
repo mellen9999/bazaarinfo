@@ -566,7 +566,7 @@ const subcommands: [RegExp, SubHandler][] = [
     return withSuffix(truncate(`Enchantments: ${names.join(', ')}`), suffix)
   }],
   // let streamers self-serve the overlay/bot setup without the broadcaster pasting the link
-  [/^overlay$/i, (_query, _ctx, suffix) => withSuffix('stream card tooltips for your viewers + this bot in chat — setup guide (tos-safe, ~2 min): https://github.com/mellen9999/bazaarinfo/blob/master/docs/streamers.md', suffix)],
+  [/^overlay$/i, (_query, _ctx, suffix) => withSuffix('stream card tooltips for your viewers + this bot in chat — setup guide (tos-safe, ~2 min): https://github.com/mellen9999/bazaarinfo/blob/master/docs/streamer-setup.md', suffix)],
   [/^tag\s+(.+)$/i, async (query, ctx, suffix) => {
     const resolved = store.findTagName(query)
     const cards = store.byTag(query)
