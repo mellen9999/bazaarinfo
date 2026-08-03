@@ -2,27 +2,23 @@
 
 A Twitch overlay + chat bot for [The Bazaar](https://www.playthebazaar.com/). Your viewers hover any card on your board to see its stats, tier, and abilities — and your chat gets instant card lookups, trivia, and AI answers.
 
-Free, open source, and self-hostable. Works for any Bazaar streamer, not just the big ones.
+Free, open source, and self-hostable.
 
 ---
 
 ## is this safe?
-
-Yes — and here's exactly why, because you should never trust a stream tool that hand-waves this.
 
 - **TOS-safe.** The overlay reads your game's log file (`Player.log`) that The Bazaar writes on its own. No memory reading, no code injection, no game modification. Nothing touches the game process.
 - **You run the reader locally.** A small companion app on your machine watches the log and sends only what's needed.
 - **Minimal data leaves your machine.** Only the card's name, tier, and on-screen position — never account info, never your inputs, never anything else. It goes to the overlay backend and straight to your viewers.
 - **Opt-in and reversible.** You install it, you configure it, you can remove it any time. Nothing runs unless you start it.
 
-The full source is public — read it, build it yourself if you want.
-
 ### verify your download
 
-Every release ships checksums and GitHub build provenance, so you never have to take the binary on faith:
+Every release ships checksums and GitHub build provenance:
 
 - **checksum** — the release includes a `SHA256SUMS` file. Hash your download (`certutil -hashfile bazaarinfo-companion-windows.exe SHA256` on Windows, `sha256sum` on Linux) and compare.
-- **provenance** — `gh attestation verify bazaarinfo-companion-windows.exe --repo mellen9999/bazaarinfo` cryptographically proves the exe was built by this repo's public CI from the tagged source — not built on someone's laptop, not swapped after the fact. The build logs themselves are public.
+- **provenance** — `gh attestation verify bazaarinfo-companion-windows.exe --repo mellen9999/bazaarinfo` cryptographically proves the exe was built by this repo's public CI from the tagged source. The build logs themselves are public.
 - **run from source** — the companion is a single readable Python file. If you'd rather not run any binary: `python packages/companion/logwatch.py`.
 
 Windows SmartScreen may warn on first run — the exe is unsigned (signing certs are a paid identity service). The provenance check above is the stronger, free equivalent.
@@ -57,7 +53,7 @@ Your secret is unique to your channel. Don't share it; it's the only thing that 
 3. paste in your **Channel ID** and **Companion Secret** when asked
 4. settings save to `config.ini` next to the exe — you only do this once
 
-> **SmartScreen warning?** The exe isn't code-signed, so Windows may warn. Click **More info → Run anyway**. The source is fully open if you'd rather build it yourself.
+> **SmartScreen warning?** The exe isn't code-signed, so Windows may warn. Click **More info → Run anyway** — or run from source instead (below).
 
 **Linux**
 
