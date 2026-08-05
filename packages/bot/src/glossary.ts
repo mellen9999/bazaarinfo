@@ -16,6 +16,21 @@
 // ABSENT so the guard refuses them instead of guessing. On a balance patch, fix the
 // line here. Game-term capitalization (Freeze, Shield, Poison…) is intentional.
 
+import * as store from './store'
+
+// placeholder spliced with the live dump-derived enchant roster at answer time (see
+// lookupKeywords) — keeps the enchant entry's name list from going stale when a
+// balance patch adds one, without hardcoding a second roster here (enchants.ts owns
+// the curated 13; glossary.ts pulls names straight from store to avoid a cycle).
+const ENCHANT_NAMES_TOKEN = '{{enchant_names}}'
+
+function enchantRoster(): string {
+  const names = store.getEnchantments()
+  return names.length
+    ? names.map((n) => n[0].toUpperCase() + n.slice(1)).join(', ')
+    : 'Golden, Fiery, Icy, Toxic, Deadly, Radiant, Heavy, Turbo, Shielded, Restorative, Shiny, Obsidian, Mossy'
+}
+
 export const GLOSSARY: Record<string, string> = {
   flying:
     'a state an item can enter (not a skill or passive). flying items are affected by Freeze and Slow for half as long. it gives no damage/burn/poison/shield/heal/regen bonus on its own.',
@@ -52,7 +67,7 @@ export const GLOSSARY: Record<string, string> = {
   cleanse:
     'removes Burn and/or Poison you are currently suffering (e.g. "Cleanse half your Burn and Poison"). it clears the debuff ticking on you — it is not a heal and does not restore Health.',
   enchant:
-    'an enchantment is a permanent upgrade on a single item (Golden, Fiery, Icy, Toxic, Deadly, Radiant, Heavy, Turbo, Shielded, Restorative, Shiny, Obsidian, Mossy). each adds a themed bonus — e.g. Fiery=Burn, Icy=Freeze, Toxic=Poison, Deadly=Crit, Golden=extra Value. an Enchanted item is one that has one; some items only reward using Enchanted items.',
+    `an enchantment is a permanent upgrade on a single item (${ENCHANT_NAMES_TOKEN}). each adds a themed bonus — e.g. Fiery=Burn, Icy=Freeze, Toxic=Poison, Deadly=Crit, Golden=extra Value. an Enchanted item is one that has one; some items only reward using Enchanted items.`,
 }
 
 // surface form (lowercase, word-boundary) -> canonical glossary key. base forms +
@@ -85,7 +100,7 @@ const ALIASES: Record<string, string> = {
 }
 
 // canonical key -> label shown in output (the keyword, Title-cased)
-const LABEL: Record<string, string> = {
+export const LABEL: Record<string, string> = {
   flying: 'Flying', poison: 'Poison', burn: 'Burn', freeze: 'Freeze', slow: 'Slow',
   haste: 'Haste', shield: 'Shield', heal: 'Heal', regen: 'Regen', crit: 'Crit',
   lifesteal: 'Lifesteal', charge: 'Charge', cooldown: 'Cooldown', ammo: 'Ammo',
@@ -114,7 +129,8 @@ export function lookupKeywords(query: string, max = 4): string[] {
     if (seen.has(canon)) continue
     if (new RegExp(`\\b${surface}\\b`).test(q)) {
       seen.add(canon)
-      hits.push(`${LABEL[canon]}: ${GLOSSARY[canon]}`)
+      const def = canon === 'enchant' ? GLOSSARY[canon].replace(ENCHANT_NAMES_TOKEN, enchantRoster()) : GLOSSARY[canon]
+      hits.push(`${LABEL[canon]}: ${def}`)
       if (hits.length >= max) break
     }
   }

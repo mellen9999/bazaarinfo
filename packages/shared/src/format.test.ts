@@ -110,6 +110,12 @@ describe('formatItem', () => {
     expect(formatItem(makeCard(), 'Legendary')).toStartWith('🟣 Boomerang')
   })
 
+  it('formats an unknown tier without the literal string "undefined"', () => {
+    const result = formatItem(makeCard(), 'Mythic' as TierName)
+    expect(result).not.toContain('undefined')
+    expect(result).toStartWith('Boomerang')
+  })
+
   it('no tier prefix when no tier specified', () => {
     const result = formatItem(makeCard())
     expect(result).toStartWith('Boomerang')

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { lookupKeywords, DEFINITIONAL_INTENT, GLOSSARY, glossaryAnswer, isBareKeyword } from './glossary'
+import { lookupKeywords, DEFINITIONAL_INTENT, GLOSSARY, LABEL, glossaryAnswer, isBareKeyword } from './glossary'
 
 describe('glossary — authoritative keyword definitions', () => {
   it('returns the Flying rule for a flying query (the bug that got the bot called out)', () => {
@@ -114,5 +114,16 @@ describe('glossaryAnswer — deterministic structured-path answer', () => {
     // a specific enchant name + item must fall through to the item+enchant path
     expect(glossaryAnswer('golden dagger')).toBeNull()
     expect(glossaryAnswer('fiery boomerang')).toBeNull()
+  })
+  it('has a LABEL for every GLOSSARY key (kills the "undefined:" render hazard)', () => {
+    for (const key of Object.keys(GLOSSARY)) {
+      expect(LABEL[key], `no LABEL for glossary key "${key}"`).toBeDefined()
+    }
+  })
+  it('renders the live enchant roster, not a stale hardcoded list', () => {
+    const answer = glossaryAnswer('what is an enchantment')!
+    expect(answer).not.toContain('{{enchant_names}}')
+    expect(answer).toContain('Golden')
+    expect(answer).toContain('Radiant')
   })
 })

@@ -21,11 +21,15 @@ const mockFindTagName = mock<(query: string) => string | undefined>(() => undefi
 const mockSuggest = mock<(query: string, limit?: number) => string[]>(() => [])
 const mockGetHeroNames = mock<() => string[]>(() => [])
 const mockGetTagNames = mock<() => string[]>(() => [])
+const mockGetDerivedEnchantDef = mock<(name: string) => string | null>(() => null)
+const mockIsDynamicGameTerm = mock<(query: string) => boolean>(() => false)
 
 mock.module('./store', () => ({
   exact: mockExact,
   search: mockSearch,
   getEnchantments: mockGetEnchantments,
+  getDerivedEnchantDef: mockGetDerivedEnchantDef,
+  isDynamicGameTerm: mockIsDynamicGameTerm,
   byHero: mockByHero,
   findMonster: mockFindMonster,
   findCard: mockFindCard,

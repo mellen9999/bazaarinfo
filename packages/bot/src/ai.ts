@@ -15,7 +15,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 
 import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats } from './ai-sanitize'
 import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse } from './ai-cache'
-import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, GAME_TERMS, OTHER_GAME_RE } from './ai-context'
+import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
 import { detectFancyStyle, toFancy } from './fancy'
@@ -107,7 +107,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (cbIsOpen()) return { text: CB_OPEN_LINES[cbOpenIdx++ % CB_OPEN_LINES.length], mentions: [] }
 
   const isVip = AI_VIP.has(ctx.user.toLowerCase())
-  const isGame = GAME_TERMS.test(query)
+  const isGame = isGameTerm(query)
 
   // per-channel daily token cap (disabled by default; the Anthropic console $/mo wall is
   // the real ceiling). if ever re-enabled, a DIRECT ask gets an honest tapped-out line —

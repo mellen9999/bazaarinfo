@@ -412,8 +412,8 @@ function isAdmin(user?: string): boolean {
   return !!user && BOT_ADMINS.has(user.toLowerCase())
 }
 
-let onRefresh: (() => Promise<string>) | null = null
-export function setRefreshHandler(handler: () => Promise<string>) { onRefresh = handler }
+let onRefresh: ((force?: boolean) => Promise<string>) | null = null
+export function setRefreshHandler(handler: (force?: boolean) => Promise<string>) { onRefresh = handler }
 
 let onEmoteRefresh: (() => Promise<string>) | null = null
 export function setEmoteRefreshHandler(handler: () => Promise<string>) { onEmoteRefresh = handler }
@@ -499,10 +499,11 @@ const subcommands: [RegExp, SubHandler][] = [
     if (removed) invalidateAliasCache()
     return removed ? `removed alias "${query}"` : `no alias found for "${query}"`
   }],
-  [/^(?:refresh|update)$/i, async (_q, ctx) => {
+  [/^(?:refresh|update)(?:\s+force)?$/i, async (q, ctx) => {
     if (!isAdmin(ctx.user)) return null
     if (!onRefresh) return 'refresh not available'
-    return onRefresh()
+    // force bypasses the >30% delta guard for a genuinely massive content cull
+    return onRefresh(/\bforce\b/i.test(q))
   }],
   [/^emotes?\s+refresh$/i, async (_q, ctx) => {
     if (!isAdmin(ctx.user)) return null

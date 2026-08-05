@@ -26,7 +26,8 @@ const RE_RANDOM_ENEMY = /\ba random enemy\b/g
 const RE_HTTPS = /https:\/\//
 
 function tierPrefix(tier?: TierName): string {
-  return tier ? `${TIER_EMOJI[tier]} ` : ''
+  const emoji = tier ? TIER_EMOJI[tier] : undefined
+  return emoji ? `${emoji} ` : ''
 }
 
 function formatCooldown(cd: BazaarCard['Cooldown'], tier?: TierName): string {
@@ -74,7 +75,7 @@ function resolveReplacement(val: ReplacementValue, tier?: TierName): string {
       return v != null ? String(v) : '?'
     }
   }
-  const parts = available.map((t) => `${TIER_EMOJI[t]}${(val as Record<string, number>)[t]}`)
+  const parts = available.map((t) => `${TIER_EMOJI[t] ?? ''}${(val as Record<string, number>)[t]}`)
   return parts.join('/') || '?'
 }
 

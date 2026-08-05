@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
-import { computeDisplayTags, toCard, toMonster, parseDump, applyCooldowns, extractCooldown } from './scraper'
+import { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, applyCooldowns, extractCooldown, checkDeltaGuard } from './scraper'
 import type { DumpEntry } from './scraper'
+import type { CardCache } from '@bazaarinfo/shared'
 
 function makeDumpEntry(overrides: Partial<DumpEntry> = {}): DumpEntry {
   return {
@@ -68,19 +69,19 @@ describe('toCard', () => {
     expect(card.Enchantments).toEqual({})
   })
 
-  it('throws on invalid tier', () => {
+  it('passes through an unknown tier instead of throwing', () => {
     const entry = makeDumpEntry({ BaseTier: 'Mythical' })
-    expect(() => toCard(entry)).toThrow('unknown tier: Mythical')
+    expect(toCard(entry).BaseTier).toBe('Mythical' as any)
   })
 
-  it('throws on invalid size', () => {
+  it('passes through an unknown size instead of throwing', () => {
     const entry = makeDumpEntry({ Size: 'Huge' })
-    expect(() => toCard(entry)).toThrow('unknown size: Huge')
+    expect(toCard(entry).Size).toBe('Huge' as any)
   })
 
-  it('throws on invalid tier in Tiers array', () => {
+  it('passes through an unknown tier in the Tiers array', () => {
     const entry = makeDumpEntry({ Tiers: ['Bronze', 'Unobtanium'] })
-    expect(() => toCard(entry)).toThrow('unknown tier: Unobtanium')
+    expect(toCard(entry).Tiers).toEqual(['Bronze', 'Unobtanium'] as any)
   })
 })
 
@@ -234,5 +235,64 @@ describe('extractCooldown', () => {
       Bronze: { tooltips: ['Cooldown 2.5 seconds'] },
     }})
     expect(cd).toBe(2.5)
+  })
+})
+
+describe('parseDumpWithStats — unknown tier/size tolerance', () => {
+  it('keeps an item with an unknown tier and size, reporting them as unknown rather than skipped', () => {
+    const dump: Record<string, any> = {
+      a: makeDumpEntry({ Title: 'Prototype Sword', BaseTier: 'Mythic', Size: 'Huge', Tiers: ['Mythic'] }),
+    }
+    const { cache, stats } = parseDumpWithStats(dump)
+    expect(cache.items).toHaveLength(1)
+    expect(cache.items[0].BaseTier).toBe('Mythic' as any)
+    expect(cache.items[0].Size).toBe('Huge' as any)
+    expect(stats.unknownTiers).toEqual(['Mythic'])
+    expect(stats.unknownSizes).toEqual(['Huge'])
+    expect(stats.skipped).toBe(0)
+    expect(stats.total).toBe(1)
+  })
+
+  it('reports no unknowns when all tiers/sizes are valid', () => {
+    const dump: Record<string, any> = { a: makeDumpEntry() }
+    const { stats } = parseDumpWithStats(dump)
+    expect(stats.unknownTiers).toEqual([])
+    expect(stats.unknownSizes).toEqual([])
+  })
+})
+
+function makeEmptyCache(overrides: Partial<CardCache> = {}): CardCache {
+  return { items: [], skills: [], monsters: [], fetchedAt: new Date(0).toISOString(), ...overrides }
+}
+
+function fillArray<T>(n: number, val: T): T[] {
+  return Array.from({ length: n }, () => val)
+}
+
+describe('checkDeltaGuard', () => {
+  it('throws when items drop more than 30% vs the previous cache', () => {
+    const cache = makeEmptyCache({ items: fillArray(60, {} as any) })
+    expect(() => checkDeltaGuard(cache, { items: 812, skills: 100, monsters: 20 }, undefined))
+      .toThrow('bad dump: items 812→60 (>30% drop vs previous cache)')
+  })
+
+  it('passes when the drop is under 30%', () => {
+    const cache = makeEmptyCache({ items: fillArray(700, {} as any), skills: fillArray(100, {} as any), monsters: fillArray(20, {} as any) })
+    expect(() => checkDeltaGuard(cache, { items: 800, skills: 100, monsters: 20 }, undefined)).not.toThrow()
+  })
+
+  it('force bypasses the delta guard', () => {
+    const cache = makeEmptyCache({ items: fillArray(60, {} as any) })
+    expect(() => checkDeltaGuard(cache, { items: 812, skills: 100, monsters: 20 }, true)).not.toThrow()
+  })
+
+  it('is inactive when prev.items is at or below the 200 floor', () => {
+    const cache = makeEmptyCache({ items: fillArray(1, {} as any) })
+    expect(() => checkDeltaGuard(cache, { items: 200, skills: 10, monsters: 5 }, undefined)).not.toThrow()
+  })
+
+  it('is a no-op when prev is not provided', () => {
+    const cache = makeEmptyCache({ items: fillArray(1, {} as any) })
+    expect(() => checkDeltaGuard(cache, undefined, undefined)).not.toThrow()
   })
 })

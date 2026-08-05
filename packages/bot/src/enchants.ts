@@ -12,10 +12,13 @@
 // miss. enchantAnswer() is the deterministic, no-API fix — gated so it NEVER steals
 // an item+enchant lookup ("fiery boomerang" stays the item path).
 //
-// SOURCE: cache/items.json Enchantments tooltips (the game's own text). On a balance
-// patch, re-derive from the dump. Only the 13 real enchants live here.
+// SOURCE: cache/items.json Enchantments tooltips (the game's own text). These 13 are
+// curated by hand and always win. A brand-new enchant (added in a balance patch, before
+// anyone's hand-curated it) falls back to store's derived definition — the modal tooltip
+// text across every item carrying it — so it still answers correctly on day one.
 
 import { DEFINITIONAL_INTENT, BUILD_INTENT, COMPARISON_RE, isGlossaryTerm } from './glossary'
+import * as store from './store'
 
 export const ENCHANTS: Record<string, string> = {
   golden:
@@ -34,10 +37,24 @@ export const ENCHANTS: Record<string, string> = {
   mossy: 'the item also grants Regen when used. it adds Regen.',
 }
 
-// canonical name -> Title-cased label shown in output
-const LABEL: Record<string, string> = Object.fromEntries(
-  Object.keys(ENCHANTS).map((k) => [k, k[0].toUpperCase() + k.slice(1)]),
-)
+// canonical name -> Title-cased label shown in output. built lazily (not just from the
+// curated 13) so a derived-only enchant still gets a proper label.
+function label(name: string): string {
+  return name[0].toUpperCase() + name.slice(1)
+}
+
+// curated ∪ derived enchant names (lowercase) — every enchant the dump knows about that
+// has SOME definition, hand-written or derived. store owns the derived name/def map;
+// this stays a one-way pull (enchants.ts -> store.ts) so store never has to import back.
+export function getKnownEnchantNames(): string[] {
+  const derived = store.getEnchantments().filter((n) => store.getDerivedEnchantDef(n) != null)
+  return [...new Set([...Object.keys(ENCHANTS), ...derived])].sort()
+}
+
+// curated definition, falling back to store's dump-derived one.
+function defFor(name: string): string | null {
+  return ENCHANTS[name] ?? store.getDerivedEnchantDef(name)
+}
 
 // the query explicitly names the enchantment system — lets an enchant win over a
 // same-spelled mechanic keyword ("shielded enchant" -> the enchant, not Shield).
@@ -50,7 +67,7 @@ const FILLER_RE =
   /\b(what'?s?|how|why|does|do|did|is|are|the|a|an|of|it|this|that|mean|means|meaning|work|works|explain|define|definition|tell|me|about|wtf|wdym|by|enchant|enchanted|enchantment|enchantments)\b/gi
 
 function render(names: string[]): string {
-  let out = names.map((n) => `${LABEL[n]}: ${ENCHANTS[n]}`).join(' | ')
+  let out = names.map((n) => `${label(n)}: ${defFor(n)}`).join(' | ')
   if (out.length > 460) out = out.slice(0, 457).replace(/\s+\S*$/, '') + '…'
   return out
 }
@@ -58,7 +75,7 @@ function render(names: string[]): string {
 // enchant names present as whole words, in canonical order, deduped
 function matchedEnchants(lower: string): string[] {
   const out: string[] = []
-  for (const n of Object.keys(ENCHANTS)) {
+  for (const n of getKnownEnchantNames()) {
     if (new RegExp(`\\b${n}\\b`).test(lower)) out.push(n)
   }
   return out
@@ -86,9 +103,10 @@ export function enchantAnswer(query: string): string | null {
   // residual after stripping framing + filler must be ONLY enchant names (1-2)
   const residual = lower.replace(FILLER_RE, ' ').replace(/[?!.,]/g, ' ').trim().split(/\s+/).filter(Boolean)
   if (residual.length === 0 || residual.length > 2) return null
+  const known = new Set(getKnownEnchantNames())
   const names: string[] = []
   for (const tok of residual) {
-    if (!ENCHANTS[tok]) return null // a non-enchant token survived — not a pure enchant query
+    if (!known.has(tok)) return null // a non-enchant token survived — not a pure enchant query
     if (!names.includes(tok)) names.push(tok)
   }
   if (names.length === 0) return null

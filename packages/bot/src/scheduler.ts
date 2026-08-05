@@ -1,5 +1,5 @@
 import { log } from './log'
-import { fetchPatchInfo } from './patch'
+import { checkPatchStaleness, fetchPatchInfo, getPatchInfo } from './patch'
 
 const TZ = 'America/Los_Angeles'
 const fmt = new Intl.DateTimeFormat('en-US', {
@@ -25,7 +25,10 @@ function msUntil(targetHour: number): number {
   return diff * 60_000
 }
 
-// call once from index.ts startup: runs an immediate fetch then arms the daily 4am slot
+let patchRetryTimer: ReturnType<typeof setInterval> | null = null
+
+// call once from index.ts startup: runs an immediate fetch, arms the daily 4am slot,
+// and starts an hourly retry that only fires while the cache has no valid fresh patch info
 export async function schedulePatchRefresh() {
   try {
     const info = await fetchPatchInfo()
@@ -46,7 +49,31 @@ export async function schedulePatchRefresh() {
     } catch (e) {
       log(`patch schedule error: ${e}`)
     }
+    checkPatchStaleness()
   })
+  schedulePatchRetry()
+}
+
+// hourly safety net: while getPatchInfo() has no valid fresh cache (startup and/or 4am
+// fetch failed), keep retrying every hour until one succeeds. single timer — re-arming
+// (e.g. a second schedulePatchRefresh call) clears the prior interval instead of stacking.
+function schedulePatchRetry() {
+  if (patchRetryTimer) clearInterval(patchRetryTimer)
+  patchRetryTimer = setInterval(async () => {
+    if (getPatchInfo()) return // cache already fresh — nothing to do
+    try {
+      const info = await fetchPatchInfo()
+      if (info) {
+        log(`patch retry: ${info.latestPatch} (${info.patchDate})`)
+      } else {
+        log('patch retry: fetch failed')
+        checkPatchStaleness()
+      }
+    } catch (e) {
+      log(`patch retry error: ${e}`)
+      checkPatchStaleness()
+    }
+  }, 3600_000)
 }
 
 export function scheduleDaily(hour: number, fn: () => Promise<void>) {

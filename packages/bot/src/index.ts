@@ -24,6 +24,9 @@ import { loadDescriptionCache } from './emote-describe'
 import { preloadStyles } from './style'
 import { writeAtomic } from './fs-util'
 import { log } from './log'
+import { notify } from './notify'
+import { fetchPatchInfo } from './patch'
+import { diffContent, renderDiffChat, renderDiffAlert } from './content-diff'
 import { readJson } from './http'
 import * as raid from './raid'
 import * as dungeon from './dungeon'
@@ -69,36 +72,81 @@ const SCRAPE_TIMEOUT = 5 * 60_000 // 5min
 
 let refreshPromise: Promise<void> | null = null
 
-async function refreshData() {
+interface RefreshOpts { prev?: CardCache | null, force?: boolean }
+
+async function refreshData(opts: RefreshOpts = {}) {
   if (refreshPromise) { log('refresh already in progress, skipping'); return refreshPromise }
-  refreshPromise = doRefreshData().finally(() => { refreshPromise = null })
+  refreshPromise = doRefreshData(opts).finally(() => { refreshPromise = null })
   return refreshPromise
 }
 
-async function doRefreshData() {
+async function doRefreshData(opts: RefreshOpts) {
   log('starting data refresh...')
   let timer: Timer
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error('scrape timed out after 5min')), SCRAPE_TIMEOUT)
   })
 
-  const cache = await Promise.race([
-    scrapeDump((msg) => log(`dump: ${msg}`)),
+  const prev = opts.prev
+  const { cache, stats } = await Promise.race([
+    scrapeDump((msg) => log(`dump: ${msg}`), {
+      prev: prev ? { items: prev.items?.length ?? 0, skills: prev.skills?.length ?? 0, monsters: prev.monsters?.length ?? 0 } : undefined,
+      force: opts.force,
+    }),
     timeout,
   ]).finally(() => clearTimeout(timer))
 
   log(`scraped ${cache.items.length} items, ${cache.skills.length} skills, ${cache.monsters.length} monsters`)
+  if (stats.unknownTiers.length || stats.unknownSizes.length) {
+    const parts = [
+      stats.unknownTiers.length ? `tiers: ${stats.unknownTiers.join(', ')}` : null,
+      stats.unknownSizes.length ? `sizes: ${stats.unknownSizes.join(', ')}` : null,
+    ].filter(Boolean).join('; ')
+    notify('unknown-enums', 'bazaarinfo: new tier/size values in dump', `${parts} — items kept, display degrades. add to scraper VALID sets + TIER_EMOJI.`, 'high')
+  }
   await writeAtomic(CACHE_PATH, JSON.stringify(cache, null, 2), 0o644)
+}
+
+// wired to the lobby channel once the twitch client exists — content-news only, never failures
+let announceToLobby: (msg: string) => void = () => {}
+
+// full refresh pipeline: scrape → reload → rebuild → patch info → content diff.
+// every refresh trigger goes through here. returns the chat-ready diff line, null if no change.
+async function refreshAll(opts: { force?: boolean } = {}): Promise<string | null> {
+  let prev: CardCache | null = null
+  try { prev = await Bun.file(CACHE_PATH).json() as CardCache } catch {}
+
+  await refreshData({ prev, force: opts.force })
+  await reloadStore()
+  rebuildTriviaMaps()
+  invalidatePromptCache()
+  // patch pages ship alongside dump changes — refetch now, not just at 4am (fail-soft inside)
+  fetchPatchInfo()
+
+  if (!prev) return null
+  try {
+    const next = await Bun.file(CACHE_PATH).json() as CardCache
+    const diff = diffContent(prev, next)
+    if (!diff) return null
+    const alert = renderDiffAlert(diff)
+    if (alert) notify('content-residue', alert.title, alert.body, 'high')
+    const line = renderDiffChat(diff)
+    announceToLobby(line)
+    return line
+  } catch (e) {
+    log(`content diff failed: ${e}`)
+    return null
+  }
 }
 
 try {
   const cacheFile = Bun.file(CACHE_PATH)
   if (await cacheFile.exists()) {
-    const cache = (await cacheFile.json()) as { fetchedAt: string }
+    const cache = (await cacheFile.json()) as CardCache
     const age = Date.now() - new Date(cache.fetchedAt).getTime()
     if (age > STALE_HOURS * 3600_000) {
       log(`cache is ${Math.round(age / 3600_000)}h old, refreshing...`)
-      await refreshData()
+      await refreshData({ prev: cache })
     }
   } else {
     log('no cache file, scraping...')
@@ -106,6 +154,7 @@ try {
   }
 } catch (e) {
   log(`startup cache check failed: ${e}`)
+  notify('startup-refresh', 'bazaarinfo: startup data refresh failed', `${e} — continuing on existing cache`, 'high')
 }
 
 try {
@@ -140,35 +189,12 @@ log(`bot: ${BOT_USERNAME} (${botUserId}), channels: ${channels.map((c) => `${c.n
 
 setChannelInfos(channels)
 
-// owner-only !b refresh — re-scrapes data + reddit digest
-setRefreshHandler(async () => {
+// owner-only !b refresh [force] — full pipeline + reddit digest; force bypasses the delta guard
+setRefreshHandler(async (force?: boolean) => {
   try {
-    const before = { items: 0, skills: 0, monsters: 0 }
-    try {
-      const old = await Bun.file(CACHE_PATH).json() as CardCache
-      before.items = old.items?.length ?? 0
-      before.skills = old.skills?.length ?? 0
-      before.monsters = old.monsters?.length ?? 0
-    } catch {}
-
-    await refreshData()
-    await reloadStore()
-    rebuildTriviaMaps()
-    invalidatePromptCache()
+    const line = await refreshAll({ force })
     await refreshRedditDigest()
-
-    const fresh = await Bun.file(CACHE_PATH).json() as CardCache
-    const di = (fresh.items?.length ?? 0) - before.items
-    const ds = (fresh.skills?.length ?? 0) - before.skills
-    const dm = (fresh.monsters?.length ?? 0) - before.monsters
-    const changes = [
-      di ? `${di > 0 ? '+' : ''}${di} items` : null,
-      ds ? `${ds > 0 ? '+' : ''}${ds} skills` : null,
-      dm ? `${dm > 0 ? '+' : ''}${dm} monsters` : null,
-    ].filter(Boolean)
-    return changes.length > 0
-      ? `refreshed! ${changes.join(', ')}`
-      : `refreshed, no new data (${fresh.items.length} items)`
+    return line ?? `refreshed, no new content (${getCacheInfo().items} items)`
   } catch (e) {
     log(`manual refresh failed: ${e}`)
     return `refresh failed: ${e instanceof Error ? e.message : e}`
@@ -439,6 +465,9 @@ const client = new TwitchClient(
 client.setAuthRefresh(doRefresh)
 client.setIrcOnly(['nl_kripp'])
 setSay((ch, msg) => client.say(ch, msg))
+announceToLobby = (msg) => {
+  try { client.say(BOT_USERNAME.toLowerCase(), msg) } catch (e) { log(`lobby announce failed: ${e}`) }
+}
 raid.initEngine((ch, msg) => client.say(ch, msg))
 raid.setIsLive((ch) => getLiveChannels().includes(ch.toLowerCase()))
 raid.restoreFromDb()
@@ -547,7 +576,9 @@ try {
   log(`dump poll: failed to seed etag: ${e}`)
 }
 
+let dumpPollFailures = 0
 setInterval(async () => {
+  let changed = false
   try {
     const headers: Record<string, string> = { 'User-Agent': 'BazaarInfo/1.0' }
     if (lastDumpEtag) headers['If-None-Match'] = lastDumpEtag
@@ -556,19 +587,27 @@ setInterval(async () => {
       headers,
       signal: AbortSignal.timeout(10_000),
     })
-    if (res.status === 304) return // not modified
+    if (res.status === 304) { dumpPollFailures = 0; return } // not modified
     const newEtag = res.headers.get('etag') ?? ''
-    if (newEtag && newEtag === lastDumpEtag) return // same etag
-    if (!newEtag && !lastDumpEtag) return // no etag support, skip
+    if (newEtag && newEtag === lastDumpEtag) { dumpPollFailures = 0; return } // same etag
+    if (!newEtag && !lastDumpEtag) { dumpPollFailures = 0; return } // no etag support, skip
     lastDumpEtag = newEtag
+    changed = true
     log(`dump poll: data changed (etag ${newEtag}), refreshing...`)
-    await refreshData()
-    await reloadStore()
-    rebuildTriviaMaps()
-    invalidatePromptCache()
-    log('dump poll: refresh complete')
+    const line = await refreshAll()
+    log(`dump poll: refresh complete${line ? ` — ${line}` : ''}`)
+    dumpPollFailures = 0
   } catch (e) {
-    log(`dump poll: check failed: ${e}`)
+    if (changed) {
+      // a detected change we failed to absorb — page immediately, this is the patch-day path
+      log(`dump poll: refresh failed: ${e}`)
+      notify('dump-refresh', 'bazaarinfo: data refresh failed', `dump changed but refresh failed: ${e} — serving old data`, 'high')
+    } else {
+      // transient HEAD failures are normal; page only when they persist ~1h
+      dumpPollFailures++
+      log(`dump poll: check failed (${dumpPollFailures} consecutive): ${e}`)
+      if (dumpPollFailures >= 4) notify('dump-poll', 'bazaarinfo: dump poll failing', `etag checks failing for ${dumpPollFailures * 15}min: ${e}`, 'high')
+    }
   }
 }, DUMP_POLL_INTERVAL)
 
@@ -582,12 +621,10 @@ scheduleDaily(17, async () => {
 // daily data refresh at 4am PT
 scheduleDaily(4, async () => {
   try {
-    await refreshData()
-    await reloadStore()
-    rebuildTriviaMaps()
-    invalidatePromptCache()
+    await refreshAll()
   } catch (e) {
     log(`daily data refresh failed, keeping stale data: ${e}`)
+    notify('daily-refresh', 'bazaarinfo: daily data refresh failed', `${e} — serving yesterday's data`, 'high')
   }
   try {
     await refreshActivity()

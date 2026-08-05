@@ -9,6 +9,7 @@ import { handleCards, setCardCache, getCardCache } from './routes/cards'
 import { handleImage } from './routes/images'
 import { handleDetect } from './routes/detect'
 import { redirectTarget } from './routes/redirects'
+import { readyStatus } from './routes/health'
 import { pubsubStats } from './pubsub'
 import { rateOk } from './ratelimit'
 
@@ -125,15 +126,18 @@ async function handleRequest(req: Request): Promise<Response> {
   if (req.method === 'GET' && path === '/health/ready') {
     const cache = getCardCache()
     if (!cache) return cors(new Response('not ready', { status: 503 }), origin)
+    const { cacheAgeHours, stale } = readyStatus(cache)
     const stats = pubsubStats()
     return cors(Response.json({
-      status: 'ready',
+      status: stale ? 'stale' : 'ready',
       uptime: Math.floor((Date.now() - STARTED_AT) / 1000),
       cards: cache.items.length,
       skills: cache.skills.length,
       monsters: cache.monsters.length,
       pubsub: stats,
-    }), origin)
+      cacheAgeHours,
+      ...(stale ? { stale: true } : {}),
+    }, { status: stale ? 503 : 200 }), origin)
   }
 
   // GET /health (back-compat alias of /health/live)

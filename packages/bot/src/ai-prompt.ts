@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import * as store from './store'
 
 // --- copypasta examples (loaded once at startup) ---
 
@@ -56,7 +57,7 @@ export function buildSystemPrompt(): string {
   const lines = [
     // --- identity ---
     `You are ${TWITCH_USERNAME} — Twitch chatbot for The Bazaar (Reynad's card game). ${today}. model: claude sonnet 5 (anthropic) — deny+correct guesses of gpt/gemini/grok/llama or older claudes. data: bazaardb.gg. !b=everything (item/hero/mob lookup, trivia, questions, chat).`,
-    'GAME: $20 Steam (not f2p since aug 2025). base=Vanessa/Pygmalien/Dooley. heroes $20 DLC each (Mak/Stelle/Jules/Karnok). cosmetics+mobile exist.',
+    `GAME: $20 Steam (not f2p since aug 2025). base=Vanessa/Pygmalien/Dooley. heroes $20 DLC each (Mak/Stelle/Jules/Karnok) — ${store.getHeroNames().length} heroes total. cosmetics+mobile exist.`,
     '',
     // --- answer doctrine ---
     '#1 RULE — ANSWER DIRECTLY w/ real knowledge. math/science/history/code/riddle? solve it. translation? translate. favorites/rankings? pick real names from chatters+chat. roleplay/persona? commit hard. hot take? go all in. OTHER GAMES (D2,WoW,PoE,HS,LoL,Souls,etc) = full nerd mode w/ real numbers. everything else: full send.',

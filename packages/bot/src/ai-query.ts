@@ -14,7 +14,7 @@ export const KNOWLEDGE: [RegExp, string][] = [
   [/kripp.*(browser|incident|tab)|browser.*(kripp|incident)/i, "Kripp browser incident: yes it happened, yes chat saw everything. Kappa. keep it vague and funny, never say what the tab actually was."],
   [/reynad|andrey|tempo storm/i, "Reynad (Andrey Yanyuk): Ukrainian-Canadian. Banned from MTG (extra card in sealed deck). Popularized Zoo Warlock. Founded Tempo Storm 2014, ran Meta Snapshots. Forbes 30 Under 30. Built The Bazaar since 2017. Notorious salt, death stares, mass-bans. 'Reynad luck'=always wrong end of topdecks."],
   [/reynad.*(drama|beef|amaz|magic.?amy|ban|cheat|salt|forsen)/i, "Reynad drama: MTG ban for extra cards. Amaz/Archon rivalry — refused handshake. Defended MagicAmy 2015 (investigated 36 people, found nothing). TTS donation incident. Forsen Boys raids. The salt was the content."],
-  [/the bazaar|this game/i, "The Bazaar: PvP auto-battler roguelike by Reynad. 7 heroes. Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments, monsters on numbered days."],
+  [/the bazaar|this game/i, "The Bazaar: PvP auto-battler roguelike by Reynad. Tiers: Bronze>Silver>Gold>Diamond>Legendary. Enchantments, monsters on numbered days."],
   [/karnok|rage|enrage/i, "Karnok: DLC hero. Rage mechanic — reach 100 Rage to become Enraged: removes Slow and Freeze from your items, and reduces your item cooldowns by 10%. Archetypes: Rage stacking, Friends, Weapons, Properties."],
   // Base + DLC hero identities. Grounded in the dump's per-hero item pools (their
   // dominant Tags) plus the wiki. Jules/Stelle are dump-only — the wiki is stale on
@@ -42,6 +42,13 @@ export const KNOWLEDGE: [RegExp, string][] = [
 ]
 
 export const GAME_TERMS = /\b(items?|heroes?|monsters?|mobs?|builds?|tiers?|enchant(ment)?s?|skills?|tags?|day|damage|shield|hp|heal|burn|poison|crit|haste|slow|freeze|regen|rage|weapons?|relics?|aqua(tic)?|friend|ammo|charge|board|dps|beat|fight|counter|synergy|scaling|combo|lethal|survive|bronze|silver|gold|diamond|legendary|lifesteal|multicast|luck|cooldown|pygmy|pygmalien|vanessa|dooley|stelle|jules|mak|karnok|common|run|pick|draft|comp|strat(egy)?|nerf|buff|patch|meta|broken|heated|chilled|drones?|reagents?|rays?|absorbs?|absorbed|enrage[ds]?|loot|traps?|quests?|propert(y|ies)|vehicles?|reloads?|hasted|frozen|chained|sealed)\b/i
+
+// GAME_TERMS ∪ a dump-derived dynamic check (hero/enchant/display-tag names). additive
+// only — GAME_TERMS alone never regresses, this only widens what counts as a game query
+// so a brand-new hero/enchant/tag is recognized before the static list gets a hand-edit.
+export function isGameTerm(query: string): boolean {
+  return GAME_TERMS.test(query) || store.isDynamicGameTerm(query)
+}
 
 // positive other-game signal — an actual non-Bazaar title named in the query. this (not
 // mere Bazaar-entity-resolution failure) is what licenses real numbers with no Game data
@@ -96,7 +103,7 @@ export function extractEntities(query: string): ResolvedEntities {
   const result: ResolvedEntities = {
     cards: [], monsters: [], hero: undefined, tag: undefined,
     day: undefined, effects: [], chatQuery: undefined, knowledge: [], glossary: [],
-    isGame: GAME_TERMS.test(query),
+    isGame: isGameTerm(query),
   }
 
   // authoritative keyword definitions — inject when the query asks ABOUT a keyword

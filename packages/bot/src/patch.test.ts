@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'bun:test'
-import { parsePatchHtml } from './patch'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { checkPatchStaleness, fetchPatchInfo, parsePatchHtml } from './patch'
+import { resetNotifyForTests } from './notify'
 
 // representative fixture trimmed from actual bazaardb.gg/patchnotes HTML
 // (fetched with BazaarInfo/1.0 UA — Cloudflare only challenges browser path)
@@ -84,5 +88,112 @@ describe('parsePatchHtml', () => {
   it('latestPatch always passes /^\\d+(\\.\\d+)+$/ validation', () => {
     const info = parsePatchHtml(FIXTURE_NORMAL)
     expect(/^\d+(\.\d+)+$/.test(info!.latestPatch)).toBe(true)
+  })
+})
+
+// fetchPatchInfo / checkPatchStaleness — network + notify escalation.
+// cache path and alert config are redirected to a scratch dir via env seams (mirrors
+// notify.test.ts's BAZAARINFO_ALERT_ENV pattern) so nothing touches the real cache/patch.json.
+describe('fetchPatchInfo + checkPatchStaleness (notify escalation)', () => {
+  let dir: string
+  let cachePath: string
+  let envPath: string
+  const origFetch = globalThis.fetch
+  const origCachePath = process.env.BAZAARINFO_PATCH_CACHE
+  const origAlertEnv = process.env.BAZAARINFO_ALERT_ENV
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'bazaarinfo-patch-'))
+    cachePath = join(dir, 'patch.json')
+    envPath = join(dir, 'alert.env')
+    process.env.BAZAARINFO_PATCH_CACHE = cachePath
+    process.env.BAZAARINFO_ALERT_ENV = envPath
+    writeFileSync(envPath, 'NTFY_TOPIC=test-topic\n')
+    resetNotifyForTests()
+  })
+
+  afterEach(() => {
+    globalThis.fetch = origFetch
+    if (origCachePath === undefined) delete process.env.BAZAARINFO_PATCH_CACHE
+    else process.env.BAZAARINFO_PATCH_CACHE = origCachePath
+    if (origAlertEnv === undefined) delete process.env.BAZAARINFO_ALERT_ENV
+    else process.env.BAZAARINFO_ALERT_ENV = origAlertEnv
+    resetNotifyForTests()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  // routes bazaardb.gg calls through patchnotesImpl, everything else (ntfy) is recorded
+  function stubFetch(patchnotesImpl: () => Promise<Response> | Response) {
+    const ntfyCalls: { url: string; init: RequestInit }[] = []
+    globalThis.fetch = ((url: string, init: RequestInit) => {
+      if (String(url).includes('bazaardb.gg')) return Promise.resolve(patchnotesImpl())
+      ntfyCalls.push({ url: String(url), init })
+      return Promise.resolve(new Response('ok', { status: 200 }))
+    }) as typeof fetch
+    return ntfyCalls
+  }
+
+  it('200-but-unparseable response escalates via notify(patch-parse)', async () => {
+    const ntfyCalls = stubFetch(() => new Response('<html>no patch links</html>', { status: 200 }))
+    const info = await fetchPatchInfo()
+    expect(info).toBeNull()
+    expect(ntfyCalls.length).toBe(1)
+    expect(ntfyCalls[0].url).toBe('https://ntfy.sh/test-topic')
+    const headers = ntfyCalls[0].init.headers as Record<string, string>
+    expect(headers.Title).toBe('bazaarinfo: patchnotes parser broken')
+  })
+
+  it('non-ok status logs and returns null, no notify', async () => {
+    const ntfyCalls = stubFetch(() => new Response('nope', { status: 500 }))
+    const info = await fetchPatchInfo()
+    expect(info).toBeNull()
+    expect(ntfyCalls.length).toBe(0)
+  })
+
+  it('network error logs and returns null, no notify (watchdog handles escalation instead)', async () => {
+    const ntfyCalls = stubFetch(() => Promise.reject(new Error('network down')))
+    const info = await fetchPatchInfo()
+    expect(info).toBeNull()
+    expect(ntfyCalls.length).toBe(0)
+  })
+
+  it('successful fetch writes cache and returns info, no notify', async () => {
+    const ntfyCalls = stubFetch(() => new Response(FIXTURE_NORMAL, { status: 200 }))
+    const info = await fetchPatchInfo()
+    expect(info).not.toBeNull()
+    expect(info!.latestPatch).toBe('15.2')
+    expect(ntfyCalls.length).toBe(0)
+  })
+
+  it('checkPatchStaleness: fresh cache → no notify', async () => {
+    const ntfyCalls = stubFetch(() => new Response(FIXTURE_NORMAL, { status: 200 }))
+    await fetchPatchInfo() // populates the scratch cache with a just-fetched (fresh) entry
+    checkPatchStaleness()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(ntfyCalls.length).toBe(0)
+  })
+
+  it('checkPatchStaleness: missing cache → notify', async () => {
+    const ntfyCalls = stubFetch(() => new Response('unused', { status: 200 }))
+    checkPatchStaleness() // no fetch happened — cachePath() has no file
+    await new Promise((r) => setTimeout(r, 0))
+    expect(ntfyCalls.length).toBe(1)
+    const headers = ntfyCalls[0].init.headers as Record<string, string>
+    expect(headers.Title).toBe('bazaarinfo: patch info stale')
+  })
+
+  it('checkPatchStaleness: cache older than 24h → notify', async () => {
+    const stale = {
+      latestPatch: '15.2',
+      patchDate: 'Jun 17',
+      sizeBadge: 'L',
+      activeEvent: null,
+      fetchedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+    }
+    writeFileSync(cachePath, JSON.stringify(stale))
+    const ntfyCalls = stubFetch(() => new Response('unused', { status: 200 }))
+    checkPatchStaleness()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(ntfyCalls.length).toBe(1)
   })
 })

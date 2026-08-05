@@ -279,3 +279,40 @@ describe('isValidCard (#4/#13 title length cap)', () => {
     expect(isValidCard({ ...base, title: 'Sword', tier: 'T'.repeat(33) })).toBe(false)
   })
 })
+
+// ── /health/ready staleness (missed-refresh detection) ──────────────────────
+
+import { readyStatus, STALE_READY_HOURS } from './routes/health'
+
+describe('readyStatus (/health/ready staleness)', () => {
+  const now = 1_700_000_000_000
+  const emptyCache = { items: [], skills: [], monsters: [], fetchedAt: '' }
+
+  it('reports fresh cache as not stale, with cacheAgeHours', () => {
+    const fetchedAt = new Date(now - 2 * 3_600_000).toISOString()
+    const status = readyStatus({ ...emptyCache, fetchedAt }, now)
+    expect(status.stale).toBe(false)
+    expect(status.cacheAgeHours).toBe(2)
+  })
+
+  it('flags a 40h-old cache as stale', () => {
+    const fetchedAt = new Date(now - 40 * 3_600_000).toISOString()
+    const status = readyStatus({ ...emptyCache, fetchedAt }, now)
+    expect(status.stale).toBe(true)
+    expect(status.cacheAgeHours).toBe(40)
+  })
+
+  it('does not flag right at the boundary, but does just past it', () => {
+    const atBoundary = new Date(now - STALE_READY_HOURS * 3_600_000).toISOString()
+    expect(readyStatus({ ...emptyCache, fetchedAt: atBoundary }, now).stale).toBe(false)
+
+    const pastBoundary = new Date(now - (STALE_READY_HOURS * 3_600_000 + 6 * 60_000)).toISOString()
+    expect(readyStatus({ ...emptyCache, fetchedAt: pastBoundary }, now).stale).toBe(true)
+  })
+
+  it('treats a missing/invalid fetchedAt as stale (fail loud)', () => {
+    expect(readyStatus({ ...emptyCache, fetchedAt: '' }, now)).toEqual({ cacheAgeHours: null, stale: true })
+    expect(readyStatus({ ...emptyCache, fetchedAt: 'not-a-date' }, now)).toEqual({ cacheAgeHours: null, stale: true })
+    expect(readyStatus({ ...emptyCache, fetchedAt: undefined as unknown as string }, now)).toEqual({ cacheAgeHours: null, stale: true })
+  })
+})

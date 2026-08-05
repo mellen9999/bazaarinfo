@@ -1,8 +1,9 @@
 import type { BazaarCard, CardCache, Monster } from '@bazaarinfo/shared'
-import { buildIndex, buildTitleMap, searchCards, findExact, searchPrefix, searchAllWords } from '@bazaarinfo/shared'
+import { buildIndex, buildTitleMap, searchCards, findExact, searchPrefix, searchAllWords, resolveTooltip } from '@bazaarinfo/shared'
 import Fuse from 'fuse.js'
 import { resolve } from 'path'
 import { log } from './log'
+import { notify } from './notify'
 import * as db from './db'
 
 export const CACHE_PATH = resolve(import.meta.dir, '../../../cache/items.json')
@@ -99,6 +100,14 @@ let effectWordMap: Map<string, Set<BazaarCard>> = new Map()
 let dayMap: Map<number, Monster[]> = new Map()
 let events: BazaarCard[] = []
 let eventMap: Map<string, BazaarCard> = new Map()
+let derivedEnchantDefs: Record<string, string> = {}
+let dynamicGameTermsRe: RegExp | null = null
+
+// house style for a derived def: lowercase leading letter, no trailing period.
+function normalizeDef(text: string): string {
+  const t = text.trim().replace(/\.$/, '')
+  return t.length ? t[0].toLowerCase() + t.slice(1) : t
+}
 
 function dedup<T extends { Title: string }>(cards: T[]): T[] {
   const seen = new Set<string>()
@@ -131,6 +140,32 @@ function loadCache(cache: CardCache) {
   }
   enchantmentNames = [...enchSet].sort()
 
+  // derive a generic definition for every enchant from the dump's own tooltip text: the
+  // modal (most frequent) resolved tooltip across all items carrying that enchant IS the
+  // enchant's generic effect (e.g. Radiant -> "This is immune to Freeze, Slow and Destroy"
+  // on 804/1021 items). curated hand-written defs in enchants.ts always win over this —
+  // it's the fallback so a brand-new enchant (day one of a balance patch) still resolves
+  // before someone curates it by hand.
+  const enchDefCounts = new Map<string, Map<string, number>>()
+  for (const item of items) {
+    for (const [rawName, ench] of Object.entries(item.Enchantments)) {
+      const text = ench.tooltips.map((t) => t.text).join(' ').trim()
+      if (!text) continue
+      const resolved = resolveTooltip(text, ench.tooltipReplacements ?? {}, item.Tiers[0])
+      const key = rawName.toLowerCase()
+      let counts = enchDefCounts.get(key)
+      if (!counts) { counts = new Map(); enchDefCounts.set(key, counts) }
+      counts.set(resolved, (counts.get(resolved) ?? 0) + 1)
+    }
+  }
+  derivedEnchantDefs = {}
+  for (const [name, counts] of enchDefCounts) {
+    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1])
+    // prefer a fully-resolved (no leftover placeholder) text; fall back to the raw mode
+    const [text] = sorted.find(([t]) => !t.includes('{')) ?? sorted[0]
+    derivedEnchantDefs[name] = normalizeDef(text)
+  }
+
   // extract distinct hero names (filter data labels that aren't real heroes)
   const FAKE_HEROES = new Set(['???', 'Common'])
   const heroSet = new Set<string>()
@@ -141,11 +176,20 @@ function loadCache(cache: CardCache) {
 
   // extract distinct tag names (both hidden + display)
   const tagSet = new Set<string>()
+  const displayTagSet = new Set<string>()
   for (const card of items) {
     for (const t of card.HiddenTags) tagSet.add(t)
-    for (const t of card.DisplayTags) tagSet.add(t)
+    for (const t of card.DisplayTags) { tagSet.add(t); displayTagSet.add(t) }
   }
   tagNames = [...tagSet].sort()
+
+  // dynamic game-term matcher — additive to the static GAME_TERMS regex in ai-query.ts.
+  // covers hero/enchant/display-tag names so a brand-new one (new hero, enchant, or tag
+  // from a balance patch) is recognized as a game query day one, before a hand-edit to
+  // the static list. word-boundary + case-insensitive, same escaping as wordBoundaryRe.
+  const gameTermNames = new Set<string>([...heroSet, ...enchSet, ...displayTagSet])
+  const escapedTerms = [...gameTermNames].filter(Boolean).map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  dynamicGameTermsRe = escapedTerms.length ? new RegExp(`\\b(?:${escapedTerms.join('|')})\\b`, 'i') : null
 
   // precompute hero → cards map
   heroCardMap = new Map()
@@ -223,6 +267,9 @@ export async function reloadStore() {
     log(`reloaded ${items.length} items + ${skills.length} skills + ${monsters.length} monsters (cached ${cache.fetchedAt})`)
   } catch (e) {
     log(`reload failed, keeping existing data: ${e}`)
+    // disk cache refreshed but in-memory swap failed — the one frozen-data mode the
+    // ebs health probe can't see (it watches the file, not this process's memory)
+    notify('store-reload', 'bazaarinfo: store reload failed', `${e} — bot serving stale in-memory data`, 'high')
   }
 }
 
@@ -329,6 +376,20 @@ export function byHero(hero: string) {
 
 export function getEnchantments(): string[] {
   return enchantmentNames
+}
+
+// derived generic definition for an enchant name (dump-derived, lowercase key). null
+// when the name never appeared in the dump's item Enchantments. curated defs in
+// enchants.ts always take priority over this — it's the day-one fallback.
+export function getDerivedEnchantDef(name: string): string | null {
+  return derivedEnchantDefs[name.toLowerCase()] ?? null
+}
+
+// does the query mention a hero/enchant/display-tag name? additive to the static
+// GAME_TERMS regex in ai-query.ts — covers names GAME_TERMS's hand-written list hasn't
+// caught up to yet (a new hero/enchant/tag from a balance patch).
+export function isDynamicGameTerm(query: string): boolean {
+  return dynamicGameTermsRe ? dynamicGameTermsRe.test(query) : false
 }
 
 function findByTitle<T extends { Title: string }>(list: T[], query: string): T | undefined {

@@ -46,13 +46,14 @@ function computeDisplayTags(entry: DumpEntry): string[] {
   )
 }
 
+// unknown values PASS THROUGH (cast to the existing type at this boundary) rather than
+// throwing — a new game tier/size must not drop items. Callers collect unknowns via
+// collectUnknowns() below and surface them so a human notices without data loss.
 function validTier(t: string): TierName {
-  if (!VALID_TIERS.has(t)) throw new Error(`unknown tier: ${t}`)
   return t as TierName
 }
 
 function validSize(s: string): ItemSize {
-  if (!VALID_SIZES.has(s)) throw new Error(`unknown size: ${s}`)
   return s as ItemSize
 }
 
@@ -100,10 +101,24 @@ const RETRY_DELAYS = [1000, 2000, 4000]
 // structurally broken (e.g. schema change) and we refuse to swap in the new cache
 const SKIP_RATIO_THRESHOLD = 0.15
 
-interface ParseResult {
-  cache: CardCache
+interface ScrapeStats {
+  unknownTiers: string[]
+  unknownSizes: string[]
   skipped: number  // hard failures (throw or unknown Type)
   total: number    // all entries seen (excludes CombatEncounters without MonsterMetadata — those are expected)
+}
+
+interface ParseResult {
+  cache: CardCache
+  stats: ScrapeStats
+}
+
+// scan a parsed card/monster for tier/size values outside the known set (they were
+// passed through by validTier/validSize rather than dropped) and record them
+function collectUnknowns(unknownTiers: Set<string>, unknownSizes: Set<string>, card: { BaseTier?: string; Tiers?: string[]; Size: string }) {
+  if (card.BaseTier && !VALID_TIERS.has(card.BaseTier)) unknownTiers.add(card.BaseTier)
+  for (const t of card.Tiers ?? []) if (!VALID_TIERS.has(t)) unknownTiers.add(t)
+  if (!VALID_SIZES.has(card.Size)) unknownSizes.add(card.Size)
 }
 
 function parseDumpWithStats(dump: Record<string, DumpEntry>, onProgress?: (msg: string) => void): ParseResult {
@@ -114,6 +129,8 @@ function parseDumpWithStats(dump: Record<string, DumpEntry>, onProgress?: (msg: 
   let skipped = 0
   let total = 0
   const skippedNames: string[] = []
+  const unknownTiers = new Set<string>()
+  const unknownSizes = new Set<string>()
 
   for (const entry of Object.values(dump)) {
     try {
@@ -155,18 +172,22 @@ function parseDumpWithStats(dump: Record<string, DumpEntry>, onProgress?: (msg: 
     }
   }
 
+  for (const c of [...items, ...skills, ...events]) collectUnknowns(unknownTiers, unknownSizes, c)
+  for (const m of monsters) collectUnknowns(unknownTiers, unknownSizes, m)
+
   if (skipped > 0) {
     const names = skippedNames.join(', ') + (skipped > 5 ? ` (+${skipped - 5} more)` : '')
     onProgress?.(`skipped ${skipped} bad entries: ${names}`)
   }
+  if (unknownTiers.size > 0) onProgress?.(`unknown tiers seen (kept): ${[...unknownTiers].join(', ')}`)
+  if (unknownSizes.size > 0) onProgress?.(`unknown sizes seen (kept): ${[...unknownSizes].join(', ')}`)
   if (events.length > 0) onProgress?.(`parsed ${events.length} event encounters`)
 
   // events is carried as a bonus field on the cache object; integrator must add
   // events?: BazaarCard[] to CardCache in packages/shared/src/types.ts to access it typed
   return {
     cache: { items, skills, monsters, events, fetchedAt: new Date().toISOString() } as CardCache,
-    skipped,
-    total,
+    stats: { unknownTiers: [...unknownTiers], unknownSizes: [...unknownSizes], skipped, total },
   }
 }
 
@@ -251,10 +272,41 @@ function applyCooldowns(cache: CardCache, cooldowns: Map<string, CooldownValue>)
 }
 
 // exported for testing
-export { computeDisplayTags, toCard, toMonster, parseDump, fetchCooldowns, applyCooldowns, extractCooldown }
-export type { DumpEntry }
+export { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, fetchCooldowns, applyCooldowns, extractCooldown }
+export type { DumpEntry, ScrapeStats, ParseResult as ScrapeResult }
 
-export async function scrapeDump(onProgress?: (msg: string) => void): Promise<CardCache> {
+interface PrevCounts { items: number; skills: number; monsters: number }
+
+interface ScrapeOptions {
+  prev?: PrevCounts
+  force?: boolean  // bypass ONLY the delta guard, not the floors/skip-ratio guards
+}
+
+// prev.items > 200 gates this off for a cold start / near-empty prior cache — a >30%
+// swing on a small base is expected noise, not a bad dump
+const DELTA_DROP_THRESHOLD = 0.3
+const DELTA_MIN_PREV_ITEMS = 200
+
+function checkDeltaGuard(cache: CardCache, prev: PrevCounts | undefined, force: boolean | undefined) {
+  if (!prev || force || prev.items <= DELTA_MIN_PREV_ITEMS) return
+  const categories: [string, number, number][] = [
+    ['items', prev.items, cache.items.length],
+    ['skills', prev.skills, cache.skills.length],
+    ['monsters', prev.monsters, cache.monsters.length],
+  ]
+  for (const [name, prevCount, curCount] of categories) {
+    if (prevCount <= 0) continue
+    const drop = (prevCount - curCount) / prevCount
+    if (drop > DELTA_DROP_THRESHOLD) {
+      throw new Error(`bad dump: ${name} ${prevCount}→${curCount} (>30% drop vs previous cache)`)
+    }
+  }
+}
+
+// exported for testing
+export { checkDeltaGuard }
+
+export async function scrapeDump(onProgress?: (msg: string) => void, opts?: ScrapeOptions): Promise<ParseResult> {
   let lastErr: Error | undefined
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -277,12 +329,13 @@ export async function scrapeDump(onProgress?: (msg: string) => void): Promise<Ca
         throw new Error('unexpected dump.json shape (not an object)')
       }
       const dump = raw as Record<string, DumpEntry>
-      const { cache, skipped, total } = parseDumpWithStats(dump, onProgress)
-      if (total > 50 && skipped / total > SKIP_RATIO_THRESHOLD) {
+      const { cache, stats } = parseDumpWithStats(dump, onProgress)
+      if (stats.total > 50 && stats.skipped / stats.total > SKIP_RATIO_THRESHOLD) {
         throw new Error(
-          `bad dump: ${skipped}/${total} entries failed to parse (schema change?) — keeping old cache`
+          `bad dump: ${stats.skipped}/${stats.total} entries failed to parse (schema change?) — keeping old cache`
         )
       }
+      checkDeltaGuard(cache, opts?.prev, opts?.force)
       const cooldowns = await fetchCooldowns(onProgress)
       // cooldown is the #1 stat for a weapon — refuse to ship a cache where enrichment
       // silently matched almost nothing (source drift / fetch failure). ~100 floor avoids
@@ -301,7 +354,7 @@ export async function scrapeDump(onProgress?: (msg: string) => void): Promise<Ca
         throw new Error(`suspiciously few monsters (${cache.monsters.length}), refusing to use`)
       }
       onProgress?.(`${cache.items.length} items, ${cache.skills.length} skills, ${cache.monsters.length} monsters`)
-      return cache
+      return { cache, stats }
     } catch (e) {
       lastErr = e instanceof Error ? e : new Error(String(e))
       onProgress?.(`fetch failed: ${lastErr.message}`)
