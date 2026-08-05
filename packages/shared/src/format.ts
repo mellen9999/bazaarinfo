@@ -122,7 +122,9 @@ function appendShortlink(text: string, shortlink?: string): string {
   return cpText.slice(0, Math.max(0, room)).join('') + '...' + suffix
 }
 
-export function formatItem(card: BazaarCard, tier?: TierName): string {
+// `note` is an optional trailing segment (the caller's patch-change line). it rides in
+// the normal parts list so truncate and the required shortlink budget still apply.
+export function formatItem(card: BazaarCard, tier?: TierName, note?: string): string {
   const prefix = tierPrefix(tier)
   const name = card.Title
   const size = SIZE_LABEL[card.Size] ? ` [${SIZE_LABEL[card.Size]}]` : ''
@@ -138,6 +140,7 @@ export function formatItem(card: BazaarCard, tier?: TierName): string {
     `${prefix}${name}${size}${heroes ? ` · ${heroes}` : ''}${tags}`,
     cd,
     ...abilities,
+    note,
   ].filter(Boolean)
 
   const result = truncate(parts.join(' | '))

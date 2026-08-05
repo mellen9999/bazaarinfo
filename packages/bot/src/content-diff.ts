@@ -173,6 +173,9 @@ export function renderDiffAlert(d: ContentDiff): { title: string, body: string }
   if (d.newHeroes.length) {
     lines.push(`new hero${d.newHeroes.length > 1 ? 'es' : ''} (${d.newHeroes.join(', ')}): add KNOWLEDGE line in ai-query.ts + HERO_ALIASES in store.ts`)
   }
+  if (d.newHeroes.length || d.newItemCount > 0) {
+    lines.push('patch content moved: replace the OVERLAY block in patch-notes.ts with this patch\'s notes (version, date, notes, per-card deltas)')
+  }
   if (d.newEnchants.length) {
     lines.push(`new enchant${d.newEnchants.length > 1 ? 's' : ''} (${d.newEnchants.join(', ')}): auto-derived def live — curate prose in enchants.ts`)
   }

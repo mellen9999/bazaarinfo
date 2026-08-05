@@ -21,8 +21,18 @@ import { log } from './log'
 import * as raidCmds from './raid/commands'
 import * as dungeon from './dungeon'
 import { BLOCKED_BANG_CMDS, isModAliasCommand, ALLOWED_SLASH_CMDS } from './text-safety'
+import { OVERLAY, isOverlayFresh, getCardChange } from './patch-notes'
 
 const MAX_LEN = 480
+
+// the dump carries current stats but never deltas, and on patch day it hasn't even
+// absorbed the new numbers — so a changed card gets its patch line appended. exact-title
+// match only, and it goes quiet once the overlay ages out.
+function patchNote(title: string): string | undefined {
+  if (!isOverlayFresh()) return undefined
+  const change = getCardChange(title)
+  return change ? `${OVERLAY.version}: ${change.text}` : undefined
+}
 
 const NO_MATCH_LINES = [
   (q: string) => `"${q}" isn't a thing... yet. petition to add it tho`,
@@ -595,7 +605,7 @@ const subcommands: [RegExp, SubHandler][] = [
     const skill = store.findSkill(query)
     if (!skill) { logMiss(query, ctx); return aiOrQuip(`skill ${query}`, ctx, suffix) }
     logHit('skill', query, skill.Title, ctx)
-    return withSuffix(formatItem(skill), suffix)
+    return withSuffix(formatItem(skill, undefined, patchNote(skill.Title)), suffix)
   }],
   [/^trivia(?:\s+([\s\S]+))?$/i, (query, ctx, suffix) => runTrivia(ctx, query ?? '', suffix)],
   // natural-language trivia start: "make a trivia about happy gilmore", "do a quiz on
@@ -824,7 +834,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   if (card && isRelevantMatch(card.Title, !!exactCard)) {
     const v = validateTier(card, tier)
     logHit('item', query, card.Title, ctx, v.tier)
-    const result = formatItem(card, v.tier)
+    const result = formatItem(card, v.tier, patchNote(card.Title))
     return withSuffix(v.note ? `${result} (${v.note})` : result, suffix)
   }
 
@@ -865,7 +875,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
       if (sCard && isRelevantMatch(sCard.Title, !!sExact, sWords) && !isIncidentalMention(sCard.Title, queryWords)) {
         const v = validateTier(sCard, tier)
         logHit('item', query, sCard.Title, ctx, v.tier)
-        const result = formatItem(sCard, v.tier)
+        const result = formatItem(sCard, v.tier, patchNote(sCard.Title))
         return withSuffix(v.note ? `${result} (${v.note})` : result, suffix)
       }
       const sMonster = store.findMonster(salvaged.query)

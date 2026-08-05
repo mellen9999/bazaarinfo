@@ -3,6 +3,7 @@ import * as db from './db'
 import { isGameActive } from './trivia'
 import { getRedditDigest } from './reddit'
 import { getPatchInfo } from './patch'
+import { OVERLAY, isOverlayFresh, resolvePatch, selectNotes, getCardChange, getHeroChanges } from './patch-notes'
 import { getWorldCupLine } from './worldcup'
 import { getWeatherLine } from './weather'
 import { META_QUERY_RE } from './intents'
@@ -65,12 +66,38 @@ export function buildGameContext(entities: ResolvedEntities, channel?: string): 
     if (heroCounts.length > 0) sections.push(`Heroes: ${heroCounts.join(', ')}`)
   }
 
+  // per-card patch deltas. the dump gives current stats but never what changed, and on
+  // drop day it hasn't even absorbed the new numbers — so the overlay line is the
+  // authority where the two disagree. exact-name match only, so it can't mislabel a card.
+  const fresh = isOverlayFresh()
+  const dbBehind = fresh && resolvePatch(getPatchInfo()).dbBehind
+  let sawChange = false
   for (const card of entities.cards) {
-    sections.push(serializeCard(card))
+    const line = serializeCard(card)
+    const change = fresh ? getCardChange(card.Title) : null
+    if (change) sawChange = true
+    sections.push(change ? `${line}\nPatch ${OVERLAY.version} change to ${card.Title}: ${change.text}` : line)
+  }
+  if (sawChange && dbBehind) {
+    sections.push(
+      `NOTE: the stat lines above come from a card database still on the previous patch. Where a "Patch ${OVERLAY.version} change" line disagrees with them, the patch line is correct.`,
+    )
   }
 
   for (const monster of entities.monsters) {
     sections.push(serializeMonster(monster))
+  }
+
+  // "what changed for vanessa this patch" — only on a patch-shaped ask, capped so a
+  // hero with a dozen changes can't swallow the context budget.
+  if (entities.hero && fresh && /\b(patch|change[ds]?|nerf(ed|s)?|buff(ed|s)?|new|update[ds]?)\b/i.test(entities.effects.join(' '))) {
+    const hc = getHeroChanges(entities.hero)
+    if (hc.length > 0) {
+      const shown = hc.slice(0, 8)
+      sections.push(
+        `Patch ${OVERLAY.version} changes for ${entities.hero}${hc.length > shown.length ? ` (${shown.length} of ${hc.length})` : ''}:\n${shown.map((c) => `- ${c.card}: ${c.text}`).join('\n')}`,
+      )
+    }
   }
 
   if (entities.hero) {
@@ -745,9 +772,17 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // live patch/event awareness — authoritative from bazaardb patchnotes (fail-soft: getPatchInfo
   // returns null on any fetch/parse failure or stale cache, so we inject nothing and never
   // hallucinate a patch). only on a meta "what's new / is there an event" query.
-  const patch = META_QUERY_RE.test(query) ? getPatchInfo() : null
+  const isMetaQuery = META_QUERY_RE.test(query)
+  const patch = isMetaQuery ? resolvePatch(getPatchInfo()).info : null
+  const size = patch?.sizeBadge ? `, size ${patch.sizeBadge}` : ''
   const patchLine = patch
-    ? `\nCurrent game patch (authoritative, from bazaardb.gg — answer "what's new / is there an event" from THIS, don't deflect): ${patch.latestPatch} (${patch.patchDate}, size ${patch.sizeBadge}); active event: ${patch.activeEvent ?? 'none — no special limited-time event is running right now'}.`
+    ? `\nCurrent game patch (authoritative — answer "what's new / is there an event" from THIS, don't deflect): ${patch.latestPatch} (${patch.patchDate}${size}); active event: ${patch.activeEvent ?? 'none — no special limited-time event is running right now'}.`
+    : ''
+  // hand-grounded notes for the newest patch — the only source of "what actually changed",
+  // since the dump carries current stats but no deltas. query-ranked, capped at 3.
+  const notes = isMetaQuery && isOverlayFresh() ? selectNotes(query) : []
+  const notesLine = notes.length
+    ? `\nPatch ${OVERLAY.version} "${OVERLAY.name}" notes (real, from the official notes — use these, don't invent others):\n- ${notes.join('\n- ')}`
     : ''
 
   // next-stream schedule — the command layer answers most "when's the stream?" asks
@@ -994,6 +1029,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'triviaRef', text: triviaRefLine, base: -109 },
     // live patch/event line is the direct answer to "what's new" — keep it ahead of primaryPair
     { name: 'patch', text: patchLine, base: -108 },
+    // the actual "what changed" bullets sit right behind the version line, same tier
+    { name: 'patchNotes', text: notesLine, base: -107.5, trunc: true },
     // world cup scoreboard is the direct answer when it fires — same never-evict tier
     { name: 'worldCup', text: worldCupLine, base: -107 },
     // next-stream prediction — direct answer to "when's the stream", never-evict tier

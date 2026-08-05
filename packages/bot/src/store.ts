@@ -69,6 +69,9 @@ export const HERO_ALIASES: Record<string, string> = {
   karnak: 'Karnok',
   karnok: 'Karnok',
   karn: 'Karnok',
+  dragons: 'The Dragons',
+  'the dragons': 'The Dragons',
+  // deliberately no bare "dragon" alias — it would hijack Dragon's Tooth / Dragon Lighter
 }
 
 const dynamicAliases = new Map<string, string>()
