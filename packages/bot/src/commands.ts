@@ -548,7 +548,7 @@ const subcommands: [RegExp, SubHandler][] = [
       return aiOrQuip(`mob ${query}`, ctx, suffix)
     }
     logHit('mob', query, monster.Title, ctx)
-    return withSuffix(formatMonster(monster, resolveSkills(monster)), suffix)
+    return withSuffix(formatMonster(monster, resolveSkills(monster), patchNote(monster.Title)), suffix)
   }],
   [/^(?:event|encounter)\s+(.+)$/i, async (query, ctx, suffix) => {
     // explicit event lookup — forces the encounter even when an item shares the name
@@ -559,7 +559,7 @@ const subcommands: [RegExp, SubHandler][] = [
       return aiOrQuip(`event ${query}`, ctx, suffix)
     }
     logHit('event', query, event.Title, ctx)
-    return withSuffix(formatEvent(event), suffix)
+    return withSuffix(formatEvent(event, patchNote(event.Title)), suffix)
   }],
   [/^hero\s+(.+)$/i, async (query, ctx, suffix) => {
     const resolved = store.findHeroName(query)
@@ -841,7 +841,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   const monster = store.findMonster(query)
   if (monster && isRelevantMatch(monster.Title, false)) {
     logHit('mob', query, monster.Title, ctx)
-    return withSuffix(formatMonster(monster, resolveSkills(monster)), suffix)
+    return withSuffix(formatMonster(monster, resolveSkills(monster), patchNote(monster.Title)), suffix)
   }
 
   // exact event-encounter name ("!b bjorn") — lowest priority, so an item or monster
@@ -850,7 +850,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
   const event = store.findEventExact(query)
   if (event) {
     logHit('event', query, event.Title, ctx)
-    return withSuffix(formatEvent(event), suffix)
+    return withSuffix(formatEvent(event, patchNote(event.Title)), suffix)
   }
 
   // item + monster both missed — salvage the query: strip hero/size/filler wrapping
@@ -881,7 +881,7 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
       const sMonster = store.findMonster(salvaged.query)
       if (sMonster && isRelevantMatch(sMonster.Title, false, sWords) && !isIncidentalMention(sMonster.Title, queryWords)) {
         logHit('mob', query, sMonster.Title, ctx)
-        return withSuffix(formatMonster(sMonster, resolveSkills(sMonster)), suffix)
+        return withSuffix(formatMonster(sMonster, resolveSkills(sMonster), patchNote(sMonster.Title)), suffix)
       }
     }
   }

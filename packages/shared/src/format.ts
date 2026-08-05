@@ -177,7 +177,7 @@ export interface SkillDetail {
   tooltip: string
 }
 
-export function formatMonster(monster: Monster, skillDetails?: Map<string, SkillDetail>): string {
+export function formatMonster(monster: Monster, skillDetails?: Map<string, SkillDetail>, note?: string): string {
   const meta = monster.MonsterMetadata
   const day = meta.day != null ? `Day ${meta.day}` : meta.available || '?'
   const hp = meta.health
@@ -211,6 +211,7 @@ export function formatMonster(monster: Monster, skillDetails?: Map<string, Skill
     `${monster.Title} · ${day} · ${hp}HP`,
     items.length ? items.join(', ') : null,
     ...skills,
+    note,
   ].filter(Boolean)
 
   const result = truncate(parts.join(' | '))
@@ -220,10 +221,11 @@ export function formatMonster(monster: Monster, skillDetails?: Map<string, Skill
 // Event encounters are name-only in the dump (no effect tooltips). Identify the
 // encounter honestly and hand off to bazaardb (the shortlink) for the full effect —
 // never invent what it does.
-export function formatEvent(event: BazaarCard): string {
+export function formatEvent(event: BazaarCard, note?: string): string {
   const heroes = event.Heroes.filter((h) => !FAKE_HEROES.has(h)).map((h) => HERO_ABBREV[h] ?? h).join(', ')
   const who = heroes ? ` · ${heroes}` : ''
   // truncate like every other formatter — with an empty Shortlink, appendShortlink
   // returns the text as-is and this was the one path with no length cap at all.
-  return appendShortlink(truncate(`${event.Title}${who} — event encounter (details on bazaardb)`), event.Shortlink)
+  const body = `${event.Title}${who} — event encounter${note ? '' : ' (details on bazaardb)'}${note ? ` | ${note}` : ''}`
+  return appendShortlink(truncate(body), event.Shortlink)
 }

@@ -56,6 +56,29 @@ export const OVERLAY: PatchOverlay = {
     'monster changes: Yerdan is now diamond-tier with a whole new board. Ahexa dropped to silver Solar Farm. Drone Operator gained Pyrotechnic Drone, Ghost Pepper gained Dragon Lighter, Harkuvian Rocket Trooper gained Sparkler, Weapons Platform gained Power Bank, Stew gained Dragon’s Breath Mints, Street Gamer gained Rin Chibi, Product Demonstrator gained the It Still Works skill.',
   ],
   changes: [
+    // monsters + encounters (hero: 'Monster'/'Encounter' — not hero-scoped, so they never
+    // show up in a "what changed for <hero>" answer, only on a direct lookup)
+    { card: 'Yerdan', hero: 'Monster', text: 'now diamond-tier with a new board: Tournament Arena (D), Yo-Yo (D), Obsidian Premium Red + Green Piggles (D), Shielded Piggles Launcher (G), Streaming Setup (G)' },
+    { card: 'Ahexa', hero: 'Monster', text: 'nerf: its Solar Farm is now silver-tier (was gold)' },
+    { card: 'Drone Operator', hero: 'Monster', text: 'gained Pyrotechnic Drone, replacing Lightning Butterfly' },
+    { card: 'Ghost Pepper', hero: 'Monster', text: 'gained Dragon Lighter (replacing Lighter) and lost its Fiery skill' },
+    { card: 'Harkuvian Rocket Trooper', hero: 'Monster', text: 'gained Sparkler, replacing Eagle Talisman' },
+    { card: 'Weapons Platform', hero: 'Monster', text: 'gained Power Bank, replacing Battery' },
+    { card: 'Stew', hero: 'Monster', text: 'gained Dragon’s Breath Mints, replacing Curry' },
+    { card: 'Street Gamer', hero: 'Monster', text: 'gained Rin Chibi' },
+    { card: 'Product Demonstrator', hero: 'Monster', text: 'gained the It Still Works skill — the first 1/2 times your items are destroyed, it repairs them' },
+    { card: 'Likit', hero: 'Encounter', text: 'can now spawn on days 2-5 (was day 2 only)' },
+    { card: 'Pol', hero: 'Encounter', text: 'Pyg can now see Pol from day 4 on' },
+    { card: 'Prospero', hero: 'Encounter', text: 'no longer spawns Golden items — stops the strange item rolls' },
+    { card: 'Wishing Fountain', hero: 'Encounter', text: 'slightly better odds of finding higher-value items' },
+    { card: 'The Cult', hero: 'Encounter', text: 'you can decline it now, but declining gives no XP' },
+    { card: 'Advanced Training', hero: 'Encounter', text: 'can now add an Instrument' },
+    { card: 'Chronos', hero: 'Encounter', text: 'fixed: this merchant sometimes spawned the wrong number of items' },
+    { card: 'Cobweb', hero: 'Encounter', text: 'fixed: this merchant sometimes spawned the wrong number of items' },
+    { card: 'Freiya', hero: 'Encounter', text: 'fixed: this merchant sometimes spawned the wrong number of items' },
+    { card: 'Hef', hero: 'Encounter', text: 'fixed: this merchant sometimes spawned the wrong number of items' },
+    { card: 'Knightshade', hero: 'Encounter', text: 'fixed: this merchant sometimes spawned the wrong number of items' },
+
     // common
     { card: 'Cosmic Amulet', hero: 'Common', text: 'enchants now trigger off Crit or Flying item use' },
     { card: 'Coupon', hero: 'Common', text: 'fixed: it used to work on Nufu' },
@@ -134,7 +157,7 @@ export const OVERLAY: PatchOverlay = {
     { card: 'Riceballer', hero: 'Pygmalien', text: 'gained a missing Golden enchant' },
     { card: 'Sponsored Apparel', hero: 'Pygmalien', text: 'gained a missing Golden enchant' },
     { card: 'Streaming Setup', hero: 'Pygmalien', text: 'gained a missing Golden enchant' },
-    { card: 'Investment Pitch', hero: 'Pygmalien', text: 'Investment Pitch encounter: now enchants your leftmost item Golden instead of doubling your income' },
+    { card: 'Investment Pitch', hero: 'Pygmalien', text: 'now enchants your leftmost item Golden instead of doubling your income' },
 
     // stelle
     { card: 'Expert Pilot', hero: 'Stelle', text: 'skill buff: buffs 10/20/40/80 (was 10/20/30/40)' },

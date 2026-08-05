@@ -159,7 +159,7 @@ describe('overlay data integrity', () => {
   })
 
   test('every change is attributed and non-empty', () => {
-    const heroes = new Set(['Common', 'Dooley', 'Karnok', 'Jules', 'Mak', 'Pygmalien', 'Stelle', 'Vanessa', 'The Dragons'])
+    const heroes = new Set(['Common', 'Dooley', 'Karnok', 'Jules', 'Mak', 'Pygmalien', 'Stelle', 'Vanessa', 'The Dragons', 'Monster', 'Encounter'])
     for (const c of OVERLAY.changes) {
       expect(heroes.has(c.hero)).toBe(true)
       expect(c.card.length).toBeGreaterThan(1)
