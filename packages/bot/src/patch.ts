@@ -15,6 +15,15 @@ export interface PatchInfo {
   fetchedAt: string
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTH_RE = /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i
+
+function isoToBadgeDate(iso: string): string | null {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return null
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`
+}
+
 // pure parser — used by fetchPatchInfo and tests; no network
 export function parsePatchHtml(html: string): PatchInfo | null {
   try {
@@ -32,15 +41,22 @@ export function parsePatchHtml(html: string): PatchInfo | null {
     const latestPatch = verMatch[1]
     if (!/^\d+(\.\d+)+$/.test(latestPatch)) return null
 
-    // strip HTML comments, normalize whitespace, split on " - "
+    // strip HTML comments, normalize whitespace, split "SIZE - DATE" (date may be absent)
     const cleanBadge = rawBadge.replace(/<!--[\s\S]*?-->/g, '').replace(/\s+/g, ' ').trim()
-    const sep = ' - '
-    const dashIdx = cleanBadge.indexOf(sep)
-    const sizeBadge = dashIdx >= 0 ? cleanBadge.slice(0, dashIdx).trim() : ''
-    const patchDate = dashIdx >= 0 ? cleanBadge.slice(dashIdx + sep.length).trim() : ''
+    const bm = /^(\S+)\s*-\s*(.*)$/.exec(cleanBadge)
+    const sizeBadge = bm ? bm[1] : cleanBadge
+    let patchDate = bm ? bm[2].trim() : ''
+
+    // since ~Jul 2026 the per-entry date is hydrated client-side and missing from
+    // server HTML — recover it from the ISO date Next.js ships in its flight payload
+    if (!MONTH_RE.test(patchDate)) {
+      const iso = /latestPatchDate\\?":\s*\\?"\$D([^"\\]+)/.exec(html)?.[1]
+        ?? /\\?"date\\?":\s*\\?"\$D([^"\\]+)/.exec(html)?.[1]
+      patchDate = (iso && isoToBadgeDate(iso)) || patchDate
+    }
 
     // plausibility check: date must contain a month abbreviation
-    if (!/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i.test(patchDate)) return null
+    if (!MONTH_RE.test(patchDate)) return null
 
     // event: latest entry title contains the word "Event" (e.g. "13.3 Event Apr 29")
     const activeEvent = /\bEvent\b/i.test(rawTitle) ? rawTitle : null
