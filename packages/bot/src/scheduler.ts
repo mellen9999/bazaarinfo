@@ -1,5 +1,6 @@
 import { log } from './log'
 import { checkPatchStaleness, fetchPatchInfo, getPatchInfo } from './patch'
+import { fetchPatchNotes, loadOverlayCache } from './patch-notes'
 
 const TZ = 'America/Los_Angeles'
 const fmt = new Intl.DateTimeFormat('en-US', {
@@ -30,6 +31,9 @@ let patchRetryTimer: ReturnType<typeof setInterval> | null = null
 // call once from index.ts startup: runs an immediate fetch, arms the daily 4am slot,
 // and starts an hourly retry that only fires while the cache has no valid fresh patch info
 export async function schedulePatchRefresh() {
+  // cached parse first so the bot is grounded before any network call returns
+  loadOverlayCache()
+  refreshNotes('startup')
   try {
     const info = await fetchPatchInfo()
     if (info) {
@@ -49,6 +53,7 @@ export async function schedulePatchRefresh() {
     } catch (e) {
       log(`patch schedule error: ${e}`)
     }
+    await refreshNotes('daily')
     checkPatchStaleness()
   })
   schedulePatchRetry()
@@ -60,6 +65,7 @@ export async function schedulePatchRefresh() {
 function schedulePatchRetry() {
   if (patchRetryTimer) clearInterval(patchRetryTimer)
   patchRetryTimer = setInterval(async () => {
+    refreshNotes('hourly')
     if (getPatchInfo()) return // cache already fresh — nothing to do
     try {
       const info = await fetchPatchInfo()
@@ -74,6 +80,15 @@ function schedulePatchRetry() {
       checkPatchStaleness()
     }
   }, 3600_000)
+}
+
+// official patch notes are a separate source from bazaardb's dump and move first —
+// fetched on the same cadence so a patch grounds itself within the hour it drops.
+// fire-and-forget: never blocks the patch-info path, never throws.
+function refreshNotes(when: string): Promise<void> {
+  return fetchPatchNotes()
+    .then((o) => { if (o) log(`patch notes (${when}): ${o.version} ${o.name}`) })
+    .catch((e) => { log(`patch notes (${when}) error: ${e}`) })
 }
 
 export function scheduleDaily(hour: number, fn: () => Promise<void>) {

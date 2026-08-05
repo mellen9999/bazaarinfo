@@ -1,15 +1,22 @@
-// hand-maintained patch overlay.
+// current-patch grounding.
 //
-// bazaardb's dump stays the source of truth for *current* card stats, but it lags a
-// patch drop by hours-to-days, and it never records what actually CHANGED. this file
-// closes both gaps: it floors the reported latest version so the bot isn't confidently
-// a patch behind on drop day, and it indexes the per-card deltas so "did X get nerfed"
-// is answerable from real data instead of guessed.
+// bazaardb's dump is the source of truth for *current* card stats, but it lags a patch
+// drop by hours-to-days and never records what actually CHANGED. this module closes both
+// gaps: it floors the reported version until the scraper catches up, and it indexes the
+// per-card deltas so "did X get nerfed" is answerable from real data instead of guessed.
 //
-// maintenance: when the next patch lands, replace the OVERLAY block wholesale. stale
-// entries here are harmless for stats (the dump wins on numbers) but the delta text is
-// only true for the patch it describes — one patch at a time, never accumulate.
+// the data is parsed from the official patch notes (patch-parse.ts) and cached; the
+// committed SEED in patch-seed.ts is the offline/first-run fallback. nothing here is
+// hand-maintained on a normal patch day.
 
+import { existsSync, readFileSync } from 'fs'
+import { resolve } from 'path'
+import { log } from './log'
+import { notify } from './notify'
+import { writeAtomic } from './fs-util'
+import { SEED } from './patch-seed'
+import { parsePatchDoc, pickLatest } from './patch-parse'
+import * as store from './store'
 import type { PatchInfo } from './patch'
 
 export interface PatchChange {
@@ -25,7 +32,6 @@ export interface PatchOverlay {
   date: string
   /** ISO release date; used to age the overlay out rather than trusting it forever */
   released: string
-  headline: string
   /** heroes shipped in this patch that the dump may not list yet */
   newHeroes: string[]
   /** general / meta bullets, terse enough to drop straight into a 480-char reply */
@@ -33,170 +39,31 @@ export interface PatchOverlay {
   changes: PatchChange[]
 }
 
-export const OVERLAY: PatchOverlay = {
-  version: '17.0',
-  name: 'Roughtown Rockstars',
-  date: 'Aug 5',
-  released: '2026-08-05',
-  headline:
-    "patch 17.0 Roughtown Rockstars (aug 5 2026): the Dragons expansion — 120+ items, skills and encounters, a new hero (the Dragons), and the Instrument item type.",
-  newHeroes: ['The Dragons'],
-  notes: [
-    'new hero: the Dragons — a band. paid now, free for everyone after the Bazaar mobile launch (no ETA). buying before then earns a Founders skin later.',
-    'new item type: Instrument. Bagpipes, Ganjo, Jabalian Drum and Piano all gained the Instrument type.',
-    'new encounters: Uitar Center (Dragons only, sells Instruments), Equipment Van (Dragons only, grants an Instrument), Mama Bear (Dragons only, unique skill trainer), Ledger (Pyg only, improves properties), the Dragons merchant (every other hero, sells Dragons items).',
-    'max health gained from leveling is now capped at 800 — mostly bites from level 12 on.',
-    'gold-tier items were over-nerfed last season: the ramp now starts higher and catches back up to old values by day 9-10. days 6-8 are still down.',
-    'Golden enchant on value-gain items now buffs the value GAIN instead of the item’s own value.',
-    'season 17 started. season 16 leaderboard rewards are the Annexian Invasion titles (Champion top 10, Paragon top 100, Elite top 1000).',
-    'prize pass: Machine Dreams carpet + Secrets of Shred Mak skin. chests: Heavy Metal Stelle skin and Dragons item skins.',
-    'tournament mode is still test-only — it lives on a Steam public-test branch with its own separate account, access code is in the official patch notes. streamers are free to show it.',
-    'the Cult encounter can now be declined, but declining gives no XP.',
-    'Prospero no longer spawns Golden items. Wishing Fountain has slightly better odds on high-value items. Likit can now show up on days 2-5 instead of only day 2. Pyg can see Pol from day 4.',
-    'monster changes: Yerdan is now diamond-tier with a whole new board. Ahexa dropped to silver Solar Farm. Drone Operator gained Pyrotechnic Drone, Ghost Pepper gained Dragon Lighter, Harkuvian Rocket Trooper gained Sparkler, Weapons Platform gained Power Bank, Stew gained Dragon’s Breath Mints, Street Gamer gained Rin Chibi, Product Demonstrator gained the It Still Works skill.',
-  ],
-  changes: [
-    // monsters + encounters (hero: 'Monster'/'Encounter' — not hero-scoped, so they never
-    // show up in a "what changed for <hero>" answer, only on a direct lookup)
-    { card: 'Yerdan', hero: 'Monster', text: 'now diamond-tier with a new board: Tournament Arena (D), Yo-Yo (D), Obsidian Premium Red + Green Piggles (D), Shielded Piggles Launcher (G), Streaming Setup (G)' },
-    { card: 'Ahexa', hero: 'Monster', text: 'nerf: its Solar Farm is now silver-tier (was gold)' },
-    { card: 'Drone Operator', hero: 'Monster', text: 'gained Pyrotechnic Drone, replacing Lightning Butterfly' },
-    { card: 'Ghost Pepper', hero: 'Monster', text: 'gained Dragon Lighter (replacing Lighter) and lost its Fiery skill' },
-    { card: 'Harkuvian Rocket Trooper', hero: 'Monster', text: 'gained Sparkler, replacing Eagle Talisman' },
-    { card: 'Weapons Platform', hero: 'Monster', text: 'gained Power Bank, replacing Battery' },
-    { card: 'Stew', hero: 'Monster', text: 'gained Dragon’s Breath Mints, replacing Curry' },
-    { card: 'Street Gamer', hero: 'Monster', text: 'gained Rin Chibi' },
-    { card: 'Product Demonstrator', hero: 'Monster', text: 'gained the It Still Works skill — the first 1/2 times your items are destroyed, it repairs them' },
-    { card: 'Likit', hero: 'Encounter', text: 'can now spawn on days 2-5 (was day 2 only)' },
-    { card: 'Pol', hero: 'Encounter', text: 'Pyg can now see Pol from day 4 on' },
-    { card: 'Prospero', hero: 'Encounter', text: 'no longer spawns Golden items — stops the strange item rolls' },
-    { card: 'Wishing Fountain', hero: 'Encounter', text: 'slightly better odds of finding higher-value items' },
-    { card: 'The Cult', hero: 'Encounter', text: 'you can decline it now, but declining gives no XP' },
-    { card: 'Advanced Training', hero: 'Encounter', text: 'can now add an Instrument' },
-    { card: 'Chronos', hero: 'Encounter', text: 'fixed: this merchant sometimes spawned the wrong number of items' },
-    { card: 'Cobweb', hero: 'Encounter', text: 'fixed: this merchant sometimes spawned the wrong number of items' },
-    { card: 'Freiya', hero: 'Encounter', text: 'fixed: this merchant sometimes spawned the wrong number of items' },
-    { card: 'Hef', hero: 'Encounter', text: 'fixed: this merchant sometimes spawned the wrong number of items' },
-    { card: 'Knightshade', hero: 'Encounter', text: 'fixed: this merchant sometimes spawned the wrong number of items' },
+const MANIFEST_URL = 'https://www.playthebazaar.com/api/cdn/data/data/patch-notes.json'
+const CDN_BASE = 'https://www.playthebazaar.com/api/cdn/data'
+const UA = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
+const CACHE_DEFAULT = resolve(import.meta.dir, '../../../cache/patch-notes.json')
 
-    // common
-    { card: 'Cosmic Amulet', hero: 'Common', text: 'enchants now trigger off Crit or Flying item use' },
-    { card: 'Coupon', hero: 'Common', text: 'fixed: it used to work on Nufu' },
-    { card: 'Foundation Robe', hero: 'Common', text: 'enchants now reference your Regen instead of the target’s damage — kills several infinite recursions' },
-
-    // dooley
-    { card: 'Armored Core', hero: 'Dooley', text: 'nerf: base shield 30/60/120 (was 40/80/160)' },
-    { card: 'Bellelista', hero: 'Dooley', text: 'buff: cooldown 6s (was 8s)' },
-    { card: 'Chemsnail', hero: 'Dooley', text: 'starts gold now. slows 1/2 items (was 1/2/3), poison 6/12 (was 4/6)' },
-    { card: 'Cybersecurity', hero: 'Dooley', text: 'gained the Tech type' },
-    { card: 'Hologram Projector', hero: 'Dooley', text: 'buff: can now transform into legendaries' },
-    { card: 'Power Drill', hero: 'Dooley', text: 'starts silver now. cooldown 10/8/6 (was 12/10/8/6)' },
-    { card: 'Rampage Module', hero: 'Dooley', text: 'nerf: damage buff 6/12/18 (was 7/14/21)' },
-    { card: 'Remote Control', hero: 'Dooley', text: 'nerf: cooldown 8/7/6 (was 7/6/5)' },
-    { card: 'Solar Farm', hero: 'Dooley', text: 'starts silver now. cooldown 8/7/6 (was 7/6), regen 10/20/30 (was 10/20), haste flat 1s (was 1/2)' },
-    { card: 'Weaponized Core', hero: 'Dooley', text: 'nerf: base damage 30/60/120 (was 40/80/160)' },
-
-    // karnok
-    { card: 'Burning Temper', hero: 'Karnok', text: 'skill fixed: +5/10/15/20 burn while enraged (was wrongly 3/6/9/12)' },
-    { card: 'Piercing Rage', hero: 'Karnok', text: 'skill buff: damage buff 10/20/40/80 (was 10/20/30/40)' },
-    { card: 'Piercing Temper', hero: 'Karnok', text: 'skill buff: damage buff 20/40/80/160 (was 20/40/60/80)' },
-    { card: 'Aurora Vista', hero: 'Karnok', text: 'starts silver now. cooldown flat 4s, crit chance 20/30/40 (was flat 20)' },
-    { card: 'Beast Call', hero: 'Karnok', text: 'starts silver now. hastes a Friend AND the items adjacent to it for 1/2/3s (was just adjacent friends)' },
-    { card: 'Black Mamba', hero: 'Karnok', text: 'big buff: poison 3/6/9/12 (was 1)' },
-    { card: 'Bagpipes', hero: 'Karnok', text: 'gained the Instrument type' },
-    { card: 'Honey Badger', hero: 'Karnok', text: 'buff: cooldown 6/5/4/3 (was 7/6/5/4)' },
-    { card: 'Outlands Terror', hero: 'Karnok', text: 'starts silver now. cooldown 8/7/6, damage 200/400/800 (was 300/600). enraged now gives lifesteal + half cooldown' },
-    { card: 'Rope', hero: 'Karnok', text: 'buff: cooldown 4s (was 5s)' },
-    { card: 'Shotgun', hero: 'Karnok', text: 'starts bronze now, damage 20/40/80/160 (was 30/60/120)' },
-    { card: 'Tranquil Sigil', hero: 'Karnok', text: 'reworked: heal gives 4/6/8 rage (was flat 8), enrage gives items +50/100/150 heal (was a % of max hp)' },
-    { card: 'Utility Belt', hero: 'Karnok', text: 'rebuilt: bronze, 4s cooldown, reloads an item, adjacent items get 3/6/9/12% cooldown reduction' },
-
-    // jules
-    { card: 'Apron', hero: 'Jules', text: 'cooldown 6s (was 7), shield 20 (was 40), and it now scales +10/20/40/80 shield when you USE a food (was sell)' },
-    { card: 'Attachment Set', hero: 'Jules', text: 'now shields when you use any Tool (was weapon tools only)' },
-    { card: 'Baked Potato', hero: 'Jules', text: 'cooldown 6s (was 4), multicast 2 (was 1), heated is now -2s cooldown (was +1 multicast)' },
-    { card: 'Birthday Cake', hero: 'Jules', text: 'base crit 25% (was 30), and it gains +5/10/15/20% crit per DAY of the run — buy it silver on day 5 and it’s already +50%' },
-    { card: 'Blueberry Pie', hero: 'Jules', text: 'buff: cooldown 4s (was 5), shield 25/50/100/200 (was 20/40/80/160)' },
-    { card: 'Chopsticks', hero: 'Jules', text: 'starts silver now. cooldown flat 6s, damage 10 (was 5), multicast 2/3/4 (was 2)' },
-    { card: 'Decanter', hero: 'Jules', text: 'buff: chilled now cuts 2s of cooldown (was 1s)' },
-    { card: 'Durian', hero: 'Jules', text: 'big buff: shield 20/40/80/160 (was 10/20/40/80)' },
-    { card: 'Excellent Vintage', hero: 'Jules', text: 'buff: cooldown 6s (was 7s)' },
-    { card: 'Jambalaya', hero: 'Jules', text: 'starts bronze now. burn 1/2/3/4 (was 2/4/6), no longer regens — gaining regen now gives this and another item +1/2/3/4 burn for the fight' },
-    { card: 'Pancakes', hero: 'Jules', text: 'cooldown 6s (was 4), multicast 2 (was 1), heated is now -2s cooldown (was +1 multicast)' },
-
-    // mak
-    { card: 'Bloodthirst', hero: 'Mak', text: 'skill buff: damage buff 15/30/60/120 (was 20/30/40/50)' },
-    { card: 'Apothecary', hero: 'Mak', text: 'buff: now also charges on Freeze' },
-    { card: 'Barbed Claws', hero: 'Mak', text: 'buff: cooldown 5s (was 6s)' },
-    { card: 'Cloud Wisp', hero: 'Mak', text: 'buff: cooldown 4s (was 5s)' },
-    { card: 'Goop Flail', hero: 'Mak', text: 'big buff: damage 10 (was 1)' },
-    { card: 'Infused Bracers', hero: 'Mak', text: 'buff: flat 4s cooldown at every tier (was 6/5/4)' },
-    { card: 'Mirror', hero: 'Mak', text: 'buff: can now transform into legendaries' },
-    { card: 'Pendulum', hero: 'Mak', text: 'starts gold now, charge 1/1.5 (was flat 1)' },
-    { card: 'Runic Daggers', hero: 'Mak', text: 'starts gold now. flat 4s cooldown, damage 20/40 (was 10)' },
-    { card: 'Staff of the Wise', hero: 'Mak', text: 'buff: cooldown 9s (was 10s)' },
-    { card: 'Viper Cane', hero: 'Mak', text: 'buff: cooldown 4s (was 6s), damage 10/20/40 (was flat 10)' },
-    { card: 'Vitality Potion', hero: 'Mak', text: 'enchants now scale off the item’s heal — roughly double at diamond' },
-
-    // pygmalien
-    { card: 'Apropos Chapeau', hero: 'Pygmalien', text: 'buff: cooldown 6s (was 7), scaling 10/20/30 (was 6/9/12)' },
-    { card: 'Dragon Tooth', hero: 'Pygmalien', text: 'reworked: starts silver, 5s cooldown (was 10), 10 damage. each fight it spends 3 gold to permanently give your weapons +4/8/12 damage, and it now tracks the total' },
-    { card: 'Ganjo', hero: 'Pygmalien', text: 'gained the Instrument type. cooldown 4s (was 5), buffs 10/20/30/40 (was 10/15/20/25)' },
-    { card: 'Golf Clubs', hero: 'Pygmalien', text: 'buff: damage scaling 10/20/40/80 (was 10/20/30/40) and it now also triggers off Slow, not just heal' },
-    { card: 'Jabalian Drum', hero: 'Pygmalien', text: 'gained the Instrument type' },
-    { card: 'Laser Security System', hero: 'Pygmalien', text: 'starts gold now. damage 50 (was 20), cooldown 7/6 (was 9/8/7), and it scales off Relic use too, not just properties' },
-    { card: 'Lemonade Stand', hero: 'Pygmalien', text: 'gained the Food type' },
-    { card: 'Piggles Launcher', hero: 'Pygmalien', text: 'buff: cooldown 6s (was 7s)' },
-    { card: 'Skyscraper', hero: 'Pygmalien', text: 'cooldown flat 9s (was 10/8). also gained a Golden enchant' },
-    { card: 'Spacescraper', hero: 'Pygmalien', text: 'cooldown flat 5s (was 6/5). also gained a Golden enchant' },
-    { card: 'Subscraper', hero: 'Pygmalien', text: 'buff: cooldown 6s (was 7s)' },
-    { card: 'Spiky Shield', hero: 'Pygmalien', text: 'reworked: flat 6s cooldown (was 9/8/7/6), shield 20/40/80/160 (was flat 40)' },
-    { card: 'Truffles', hero: 'Pygmalien', text: 'buff: value buff 1/2/4/8 (was 1/2/3/4)' },
-    { card: 'Hypergreens', hero: 'Pygmalien', text: 'gained a missing Golden enchant' },
-    { card: 'Premium Piggles', hero: 'Pygmalien', text: 'gained a missing Golden enchant' },
-    { card: 'Riceballer', hero: 'Pygmalien', text: 'gained a missing Golden enchant' },
-    { card: 'Sponsored Apparel', hero: 'Pygmalien', text: 'gained a missing Golden enchant' },
-    { card: 'Streaming Setup', hero: 'Pygmalien', text: 'gained a missing Golden enchant' },
-    { card: 'Investment Pitch', hero: 'Pygmalien', text: 'now enchants your leftmost item Golden instead of doubling your income' },
-
-    // stelle
-    { card: 'Expert Pilot', hero: 'Stelle', text: 'skill buff: buffs 10/20/40/80 (was 10/20/30/40)' },
-    { card: 'Airplane Glue', hero: 'Stelle', text: 'nerf: buffs 8/16/24/32 (was 10/20/30/40). timing also made consistent' },
-    { card: 'Chicken Cannon', hero: 'Stelle', text: 'starts silver now' },
-    { card: 'Compass', hero: 'Stelle', text: 'starts silver now' },
-    { card: 'Flare Gun', hero: 'Stelle', text: 'nerf: burn 5 (was 10)' },
-    { card: 'Observatory', hero: 'Stelle', text: 'enchants now trigger off adjacent OR flying item use' },
-    { card: 'Portable Shield Generator', hero: 'Stelle', text: 'reworked: starts gold, charges adjacent shield items 1/2s instead of shielding 10, scaling 10/15 (was 6/12/18)' },
-    { card: 'Ramming Balloon', hero: 'Stelle', text: 'reworked: starts bronze and starts the fight FLYING. 20 damage base, +10/20/40/80 per shield (was 15/30/60)' },
-    { card: 'Security Drone', hero: 'Stelle', text: 'flat 5s cooldown (was 8/7/6/5) and it now starts each fight flying instead of getting -2s while flying' },
-    { card: 'Solar Drone', hero: 'Stelle', text: 'big buff: cooldown 4s (was 6), starts flying, shield 10/20/40/80 (was flat 10), burn 1/2/3/4' },
-    { card: 'Squirrel Suit', hero: 'Stelle', text: 'timing fixed so it lines up with same-cooldown items (same fix hit Bird Cage, Airplane Glue and Tugboat)' },
-    { card: 'Weather Machine', hero: 'Stelle', text: 'cooldown 5/4/3 (was flat 5) but freeze and slow no longer scale their duration' },
-    { card: 'Bird Cage', hero: 'Stelle', text: 'start/stop timing fixed to match same-cooldown items' },
-    { card: 'Tugboat', hero: 'Stelle', text: 'start/stop timing fixed to match same-cooldown items' },
-
-    // vanessa
-    { card: 'Barrel', hero: 'Vanessa', text: 'big buff: base shield 30 (was 10), scaling 15/30/60/120 (was 10/20/40/80)' },
-    { card: 'Cannonade', hero: 'Vanessa', text: 'nerf: damage 200/300 (was 200/400)' },
-    { card: 'Cove', hero: 'Vanessa', text: 'buff: +1/2/3/4 value per item sold (was 1/1/1/2)' },
-    { card: 'Cyber-Sai', hero: 'Vanessa', text: 'nerf: damage scaling 10/15/20 (was 10/20/30)' },
-    { card: 'Katana', hero: 'Vanessa', text: 'big buff: damage 15/30/60/120 (was 8/16/32/64)' },
-    { card: 'Musket', hero: 'Vanessa', text: 'now triggers on ANY burn, not just an adjacent item’s — but scaling dropped to 15/30/60 (was 25/50/100)' },
-    { card: 'Piano', hero: 'Vanessa', text: 'gained the Instrument type' },
-    { card: 'Powder Keg', hero: 'Vanessa', text: 'fixed: it now counts as used when it fires from being destroyed' },
-    { card: 'Scimitar of the Deep', hero: 'Vanessa', text: 'nerf: poison equal to 25% (was 50%)' },
-    { card: 'Turtle Shell', hero: 'Vanessa', text: 'starts silver now. cooldown 8s (was 10), scaling 10/20/30 (was 15/30)' },
-    { card: 'Wetware', hero: 'Vanessa', text: 'reworked: cooldown 5s (was 6), and shielding now gives an item +5/10/20/40 damage (was gaining shield on weapon use)' },
-  ],
+function cachePath(): string {
+  return process.env.BAZAARINFO_NOTES_CACHE || CACHE_DEFAULT
 }
 
-/** normalize a card name for matching — lowercase, alnum only (apostrophes/hyphens/spaces drop) */
+/** normalize a name for matching — lowercase, alnum only (apostrophes/hyphens/spaces drop) */
 function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '')
 }
 
-const byCard = new Map<string, PatchChange>()
-for (const c of OVERLAY.changes) byCard.set(norm(c.card), c)
+// --- live state -------------------------------------------------------------
+// OVERLAY is a live binding: importers see whatever the newest accepted parse produced.
+
+export let OVERLAY: PatchOverlay = SEED
+let byCard = indexChanges(SEED)
+
+function indexChanges(o: PatchOverlay): Map<string, PatchChange> {
+  const m = new Map<string, PatchChange>()
+  for (const c of o.changes) m.set(norm(c.card), c)
+  return m
+}
 
 /** semver-ish compare: 1 if a > b, -1 if a < b, 0 if equal. non-numeric parts sort as 0. */
 export function compareVersions(a: string, b: string): number {
@@ -210,10 +77,154 @@ export function compareVersions(a: string, b: string): number {
 }
 
 /**
- * the overlay only speaks for itself while it's plausibly current. once the scraped
- * data catches up (compareVersions in patch.ts) the overlay stops flooring the version,
- * and after this window it stops volunteering "what's new" entirely — a hand-written
- * file must never become a permanently-wrong source of truth.
+ * a parsed or cached overlay is only adopted if it's structurally sound AND not a
+ * downgrade. an upstream format change that yields three junk entries must never
+ * replace a good one — the seed is the floor, not a starting point to erode.
+ */
+export function validateOverlay(o: unknown): o is PatchOverlay {
+  const p = o as PatchOverlay | null
+  if (!p || typeof p !== 'object') return false
+  if (typeof p.version !== 'string' || !/^\d+(\.\d+)*$/.test(p.version)) return false
+  if (typeof p.name !== 'string' || p.name.length > 80) return false
+  if (typeof p.date !== 'string' || !/^[A-Z][a-z]{2} \d{1,2}$/.test(p.date)) return false
+  if (typeof p.released !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(p.released)) return false
+  if (isNaN(new Date(p.released + 'T00:00:00Z').getTime())) return false
+  if (!Array.isArray(p.newHeroes) || p.newHeroes.some(h => typeof h !== 'string' || h.length > 40)) return false
+  if (!Array.isArray(p.notes) || p.notes.some(n => typeof n !== 'string' || n.length > 600)) return false
+  if (!Array.isArray(p.changes) || p.changes.length < 5) return false
+  return p.changes.every(
+    c => c && typeof c.card === 'string' && c.card.length > 1 && c.card.length < 60
+      && typeof c.hero === 'string' && c.hero.length > 1
+      && typeof c.text === 'string' && c.text.length > 5 && c.text.length <= 400,
+  )
+}
+
+/** swap in a newer overlay. returns false (and changes nothing) if invalid or older. */
+export function adoptOverlay(next: unknown): boolean {
+  if (!validateOverlay(next)) return false
+  if (compareVersions(next.version, OVERLAY.version) < 0) return false
+  OVERLAY = next
+  byCard = indexChanges(next)
+  return true
+}
+
+/** test hook — drop back to the committed seed */
+export function resetOverlay(): void {
+  OVERLAY = SEED
+  byCard = indexChanges(SEED)
+}
+
+/** read the cached parse at startup. fail-soft: any problem leaves the seed in place. */
+export function loadOverlayCache(): boolean {
+  try {
+    if (!existsSync(cachePath())) return false
+    const parsed = JSON.parse(readFileSync(cachePath(), 'utf8'))
+    const ok = adoptOverlay(parsed)
+    if (ok) log(`patch notes: ${OVERLAY.version} "${OVERLAY.name}" (${OVERLAY.changes.length} changes) from cache`)
+    return ok
+  } catch (e) {
+    log(`patch notes: cache read failed: ${e}`)
+    return false
+  }
+}
+
+// --- fetch ------------------------------------------------------------------
+
+async function getJson(url: string): Promise<unknown | null> {
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(15_000) })
+    if (!res.ok) {
+      log(`patch notes: ${url} returned ${res.status}`)
+      return null
+    }
+    return await res.json()
+  } catch (e) {
+    log(`patch notes: fetch failed: ${e}`)
+    return null
+  }
+}
+
+async function getText(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(20_000) })
+    if (!res.ok) {
+      log(`patch notes: ${url} returned ${res.status}`)
+      return null
+    }
+    return await res.text()
+  } catch (e) {
+    log(`patch notes: fetch failed: ${e}`)
+    return null
+  }
+}
+
+/**
+ * pull the newest official patch notes, parse them, adopt and cache.
+ * never throws. returns the adopted overlay, or null if nothing changed.
+ */
+export async function fetchPatchNotes(): Promise<PatchOverlay | null> {
+  const manifest = await getJson(MANIFEST_URL)
+  if (!manifest) return null
+  const latest = pickLatest(manifest)
+  if (!latest) {
+    await notify('patch-notes-manifest', 'bazaarinfo: patch notes manifest unreadable',
+      'playthebazaar patch-notes.json parsed but had no usable entries — format changed.', 'default')
+    return null
+  }
+  // already have this patch and it came from a real parse — nothing to do
+  if (compareVersions(latest.version, OVERLAY.version) <= 0 && OVERLAY !== SEED) return null
+
+  const doc = await getText(CDN_BASE + latest.path)
+  if (!doc) return null
+
+  const parsed = parsePatchDoc(doc, store.getHeroNames(), store.getAllTitles())
+  if (!parsed) {
+    await notify('patch-notes-parse', 'bazaarinfo: patch notes parser broke',
+      `fetched ${latest.version} notes but parsed nothing — the document format changed. running on ${OVERLAY.version}.`, 'high')
+    return null
+  }
+
+  const overlay: PatchOverlay = {
+    version: parsed.version,
+    name: parsed.name,
+    date: parsed.date,
+    released: parsed.released,
+    newHeroes: parsed.newHeroes,
+    notes: parsed.notes,
+    changes: parsed.changes,
+  }
+  if (!adoptOverlay(overlay)) {
+    await notify('patch-notes-invalid', 'bazaarinfo: patch notes parse rejected',
+      `parsed ${parsed.version} but it failed validation (${parsed.changes.length} changes) — kept ${OVERLAY.version}.`, 'high')
+    return null
+  }
+
+  try {
+    await writeAtomic(cachePath(), JSON.stringify(overlay, null, 2))
+  } catch (e) {
+    log(`patch notes: cache write failed: ${e}`)
+  }
+
+  log(`patch notes: adopted ${overlay.version} "${overlay.name}" — ${overlay.changes.length} changes, ${overlay.notes.length} notes`)
+
+  // things worth a human glance: unresolved names are either brand-new cards or naming
+  // drift, and a new hero has no card data until the dump catches up.
+  const flags: string[] = []
+  if (parsed.newHeroes.length) flags.push(`new hero detected: ${parsed.newHeroes.join(', ')} — confirm the name`)
+  if (parsed.unmatchedCards.length) flags.push(`${parsed.unmatchedCards.length} names not in the card db: ${parsed.unmatchedCards.slice(0, 12).join(', ')}`)
+  if (parsed.emptySections.length) flags.push(`sections with no entries: ${parsed.emptySections.join(', ')}`)
+  if (flags.length) {
+    await notify('patch-notes-review', `bazaarinfo: patch ${overlay.version} absorbed`, flags.join('\n'), 'default')
+  }
+  return overlay
+}
+
+// --- queries ----------------------------------------------------------------
+
+/**
+ * the overlay only speaks while it's plausibly current. after this window it stops
+ * flooring the version and stops volunteering "what's new" — a stale patch description
+ * must never become a permanently-wrong source of truth.
  */
 const OVERLAY_LIFETIME_MS = 60 * 24 * 60 * 60 * 1000 // 60 days
 

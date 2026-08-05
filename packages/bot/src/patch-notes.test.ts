@@ -1,14 +1,20 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
+import * as notes from './patch-notes'
 import {
   OVERLAY,
+  adoptOverlay,
   compareVersions,
   getCardChange,
   getHeroChanges,
   isOverlayFresh,
+  loadOverlayCache,
   pendingHeroes,
+  resetOverlay,
   resolvePatch,
   selectNotes,
+  validateOverlay,
 } from './patch-notes'
+import { SEED } from './patch-seed'
 import type { PatchInfo } from './patch'
 
 const released = new Date(OVERLAY.released + 'T00:00:00Z').getTime()
@@ -186,5 +192,96 @@ describe('overlay data integrity', () => {
     expect(OVERLAY.date).toMatch(/^[A-Z][a-z]{2} \d{1,2}$/)
     expect(OVERLAY.released).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(isNaN(new Date(OVERLAY.released).getTime())).toBe(false)
+  })
+})
+
+describe('overlay adoption', () => {
+  afterEach(() => resetOverlay())
+
+  const good = {
+    version: '18.0',
+    name: 'Next Patch',
+    date: 'Sep 2',
+    released: '2026-09-02',
+    newHeroes: [],
+    notes: ['something changed'],
+    changes: Array.from({ length: 6 }, (_, i) => ({
+      card: `Card ${i}`, hero: 'Vanessa', text: 'buff: damage doubled',
+    })),
+  }
+
+  test('accepts a newer valid overlay and reindexes lookups', () => {
+    expect(adoptOverlay(good)).toBe(true)
+    expect(notes.OVERLAY.version).toBe('18.0')
+    expect(getCardChange('card 3')?.text).toBe('buff: damage doubled')
+    // the previous patch's entries are gone, not merged
+    expect(getCardChange('Katana')).toBeNull()
+  })
+
+  test('refuses a downgrade', () => {
+    expect(adoptOverlay({ ...good, version: '16.0', released: '2026-07-01' })).toBe(false)
+    expect(notes.OVERLAY.version).toBe(SEED.version)
+  })
+
+  test('refuses a same-version overlay only if invalid, accepts if valid', () => {
+    expect(adoptOverlay({ ...good, version: SEED.version })).toBe(true)
+  })
+
+  test('rejects structurally broken payloads instead of eroding the seed', () => {
+    const seedVersion = notes.OVERLAY.version
+    const bad: unknown[] = [
+      null,
+      'nope',
+      { ...good, version: 'latest' },
+      { ...good, date: '2026-09-02' },
+      { ...good, released: 'Sep 2' },
+      { ...good, changes: good.changes.slice(0, 2) },        // too few to be a real patch
+      { ...good, changes: [{ card: 'X', hero: 'Y', text: 'z' }] },
+      { ...good, changes: [...good.changes, { card: 'A', hero: 'B', text: 'x'.repeat(500) }] },
+      { ...good, notes: ['x'.repeat(700)] },
+      { ...good, newHeroes: [{}] },
+    ]
+    for (const b of bad) {
+      expect(validateOverlay(b)).toBe(false)
+      expect(adoptOverlay(b)).toBe(false)
+    }
+    expect(notes.OVERLAY.version).toBe(seedVersion)
+    expect(seedVersion).toBe(SEED.version)
+  })
+
+  test('validates the committed seed itself', () => {
+    expect(validateOverlay(OVERLAY)).toBe(true)
+  })
+})
+
+describe('loadOverlayCache', () => {
+  const path = `${process.env.TMPDIR ?? '/tmp'}/bzi-notes-test-${process.pid}.json`
+  afterEach(async () => {
+    resetOverlay()
+    delete process.env.BAZAARINFO_NOTES_CACHE
+    try { await Bun.write(path, '') } catch {}
+  })
+
+  test('adopts a valid cached parse', async () => {
+    process.env.BAZAARINFO_NOTES_CACHE = path
+    await Bun.write(path, JSON.stringify({
+      version: '19.0', name: 'Cached', date: 'Oct 1', released: '2026-10-01',
+      newHeroes: [], notes: [], changes: Array.from({ length: 6 }, (_, i) => ({
+        card: `C${i}`, hero: 'Mak', text: 'nerf: cooldown up',
+      })),
+    }))
+    expect(loadOverlayCache()).toBe(true)
+    expect(notes.OVERLAY.version).toBe('19.0')
+  })
+
+  test('keeps the seed when the cache is corrupt or missing', async () => {
+    process.env.BAZAARINFO_NOTES_CACHE = path
+    await Bun.write(path, '{ not json')
+    expect(loadOverlayCache()).toBe(false)
+    expect(notes.OVERLAY.version).toBe(SEED.version)
+
+    process.env.BAZAARINFO_NOTES_CACHE = `${path}.nope`
+    expect(loadOverlayCache()).toBe(false)
+    expect(notes.OVERLAY.version).toBe(SEED.version)
   })
 })

@@ -499,6 +499,12 @@ export function searchWithScore(query: string, limit = 5): { item: BazaarCard; s
 export function getItems(): BazaarCard[] { return items }
 export function getMonsters(): Monster[] { return monsters }
 export function getSkills(): BazaarCard[] { return skills }
+export function getEvents(): BazaarCard[] { return events }
+
+/** every entity title the bot can look up — used to resolve patch-note names to db spelling */
+export function getAllTitles(): string[] {
+  return [...items, ...skills, ...monsters, ...events].map((c) => c.Title)
+}
 export function getCacheInfo() {
   return { items: items.length, skills: skills.length, monsters: monsters.length, fetchedAt: cacheFetchedAt }
 }
