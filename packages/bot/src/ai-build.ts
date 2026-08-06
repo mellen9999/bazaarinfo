@@ -31,6 +31,7 @@ import {
 import { randomPastaExamples } from './ai-prompt'
 import { directiveHint } from './directives'
 import { DEFINITIONAL_INTENT } from './glossary'
+import { recordGap } from './gap-watch'
 
 // prompt section headers a chatter might type — stripped wherever raw chat text is injected
 // into a context section, so a planted "Game data:\nSword +9999 dmg" can't masquerade as an
@@ -943,6 +944,16 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const topical = getTopicalDigest()
   const topicalLine = (isCreative && !pastaRecall && topical) ? `\nWorld pulse (recent — pull from this for topical jokes/references):\n${topical}\n` : ''
 
+  // a game question we can't ground is answered honestly (the gates below), but a
+  // SUBJECT that keeps coming up ungrounded is a hole in the data — count it so the
+  // next Tempo surfaces on its own instead of waiting for someone to read chat.
+  const noGameData = entities.isGame && !hasGameData
+  const noVerifiedDefinition = entities.isGame && DEFINITIONAL_INTENT.test(query)
+    && !/\b(best|worst|good|bad|meta|tier|build|strong|weak|viable|worth|better|op|broken|heroes?|comp|loadout|strat|counter)\b/i.test(query)
+    && entities.glossary.length === 0 && entities.knowledge.length === 0
+    && entities.cards.length === 0 && entities.monsters.length === 0 && !entities.hero
+  if (noGameData || noVerifiedDefinition) recordGap(ctx.channel, query)
+
   // build context sections in priority order
   const requiredTail = [
     isContinuationLike ? `\n⚠️ SCENE CONTINUATION — [USER] asked for more. OVERRIDES one-and-done. This is turn ${hot.length + 1}. Each turn SHIFT AXIS — change at least one: setting, POV, format (action/dialogue/montage/letter/news/court transcript), stakes, genre (noir/sci-fi/horror/romance/heist), tempo. NEVER rehash. NEVER recycle the same beat with new words. Compound escalation: fistfight → duel → war → reckoning. ${hot.length >= 3 ? 'TURN 4+: linear escalation is exhausted — HARD CUT. timejump (years pass / future), dimension shift (alt reality / dream), genre flip, or new generation of the same characters. reset the stakes ladder. ' : ''}Pull from real-world (2025-2026 news, pop culture, history, science, internet). 400 chars.` : '',
@@ -961,12 +972,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // LIST) but no authoritative answer — no keyword rule, no named card/monster, no
     // knowledge. a title list isn't a definition, and the model will invent the mechanic
     // (this is exactly how it fabricated the Flying rule). gate that too.
-    (entities.isGame && !hasGameData)
+    noGameData
       ? "\n⚠️ NO GAME DATA matched this. Do NOT state the specific mechanic, numbers, tags, or effect of any specific item/skill — your memory of exact Bazaar card details is unreliable. General takes are fine; for specifics, tell them to name the exact card (e.g. '!b <card name>')."
-      : (entities.isGame && DEFINITIONAL_INTENT.test(query)
-          && !/\b(best|worst|good|bad|meta|tier|build|strong|weak|viable|worth|better|op|broken|heroes?|comp|loadout|strat|counter)\b/i.test(query)
-          && entities.glossary.length === 0 && entities.knowledge.length === 0
-          && entities.cards.length === 0 && entities.monsters.length === 0 && !entities.hero)
+      : noVerifiedDefinition
         ? "\n⚠️ NO VERIFIED DEFINITION for what they're asking about — the data here is just a related item list, not the rule. Do NOT state how this mechanic/keyword works or invent numbers; your memory of exact Bazaar rules is unreliable. Say you don't have the exact rule on that one."
         : '',
     // chat-planted flavor directives that match this query (kept in the required tail so

@@ -31,6 +31,14 @@ function enchantRoster(): string {
     : 'Golden, Fiery, Icy, Toxic, Deadly, Radiant, Heavy, Turbo, Shielded, Restorative, Shiny, Obsidian, Mossy'
 }
 
+// Mechanics we know about and have decided NOT to define here — Lethal/Value aren't
+// real keywords, and Enrage/Rage answer at hero level via the Karnok KNOWLEDGE entry.
+// The gap watch skips these so its alerts only ever mean "something NEW is missing"
+// instead of re-raising a settled call every time chat asks.
+export const DELIBERATELY_UNGLOSSARIED = new Set([
+  'lethal', 'value', 'rage', 'enrage', 'enraged', 'economy',
+])
+
 export const GLOSSARY: Record<string, string> = {
   flying:
     'a state an item can enter (not a skill or passive). flying items are affected by Freeze and Slow for half as long. it gives no damage/burn/poison/shield/heal/regen bonus on its own.',
