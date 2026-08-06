@@ -157,6 +157,19 @@ describe('system prompt', () => {
     expect(prompt).toContain('only mention mellen when directly asked')
   })
 
+  // the whole point: a friendly funny regular, not a heckler. every reply in the
+  // 2026-08-06 nl_kripp sample was a jab, because "funniest person in chat" was the
+  // only positive signal in a prompt that was otherwise all bans. warmth is now the
+  // stated default and the joke must ride on top of a real answer, not replace it.
+  it('defaults to warm and helpful, not a heckler', () => {
+    const prompt = buildSystemPrompt()
+    expect(prompt).toContain('warm + DRY')
+    expect(prompt).toContain('not a heckler')
+    expect(prompt).toContain('helpful FIRST, funny second')
+    expect(prompt).toContain('never counter-insult')
+    expect(prompt).toContain('feeling worse than they arrived')
+  })
+
   // the bot spent a stream mining logged history for unsolicited dunks ("4th time
   // asking", "13 years on this platform") and sassing people for re-asking a
   // question it had never actually answered. both rules must stay in the prompt.
