@@ -158,6 +158,36 @@ describe('buildTitleMap + findExact', () => {
     expect(findExact(cards, 'nonexistent', map)).toBeUndefined()
   })
 
+  // chat types item names without spaces. "bubblegum" used to fuzzy-rank
+  // "Bubblegum Floor" above "Bubble Gum", so the bot told chat no Bubble Gum existed.
+  it('findExact matches a title with the spaces knocked out', () => {
+    const map = buildTitleMap(cards)
+    expect(findExact(cards, 'horseshoe', map)?.Title).toBe('Horse Shoe')
+    expect(findExact(cards, 'HORSESHOE', map)?.Title).toBe('Horse Shoe')
+  })
+
+  it('squashed matching works without a titleMap too', () => {
+    expect(findExact(cards, 'horseshoe')?.Title).toBe('Horse Shoe')
+  })
+
+  it('a real title always beats another card\'s squashed form', () => {
+    const clash = [{ Title: 'Horseshoe' }, { Title: 'Horse Shoe' }] as typeof cards
+    const map = buildTitleMap(clash)
+    expect(findExact(clash, 'horseshoe', map)?.Title).toBe('Horseshoe')
+    expect(findExact(clash, 'horse shoe', map)?.Title).toBe('Horse Shoe')
+  })
+
+  it('drops an ambiguous squashed key instead of guessing', () => {
+    // two distinct cards squashing to the same key must fall through to fuzzy,
+    // never silently resolve to whichever one was indexed first
+    const ambiguous = [{ Title: 'Fire Ball' }, { Title: 'Fireball' }, { Title: 'Fire-ball' }] as typeof cards
+    const map = buildTitleMap(ambiguous)
+    expect(findExact(ambiguous, 'fire ball', map)?.Title).toBe('Fire Ball')
+    expect(findExact(ambiguous, 'fireball', map)?.Title).toBe('Fireball')
+    // only reachable via its own exact title — the squashed key is contested
+    expect(findExact(ambiguous, 'fire-ball', map)?.Title).toBe('Fire-ball')
+  })
+
   it('buildTitleMap overwrites duplicate titles (last wins)', () => {
     const dupes = [makeCard('Sword'), makeCard('Sword')]
     const map = buildTitleMap(dupes)

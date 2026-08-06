@@ -77,8 +77,30 @@ export function buildLowercaseTitles(cards: BazaarCard[]): string[] {
   return cards.map((c) => c.Title.toLowerCase())
 }
 
+// "Bubble Gum" -> "bubblegum". chat types item names without the spaces, and fuzzy
+// search ranks a wrong-but-single-word title above the right one ("bubblegum" hit
+// "Bubblegum Floor", so the bot told chat no Bubble Gum existed).
+export function squashName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+// keyed by exact lowercase title AND by squashed title. squashed keys go in first so
+// a real title always outranks another item's squashed form, and any squashed key that
+// two different cards share is dropped rather than guessed at — ambiguous input falls
+// through to fuzzy search instead of silently resolving to the wrong card.
 export function buildTitleMap(cards: BazaarCard[]): Map<string, BazaarCard> {
-  return new Map(cards.map((c) => [c.Title.toLowerCase(), c]))
+  const squashed = new Map<string, BazaarCard>()
+  const collided = new Set<string>()
+  for (const c of cards) {
+    const key = squashName(c.Title)
+    if (!key) continue
+    const prev = squashed.get(key)
+    if (prev && prev !== c) collided.add(key)
+    else squashed.set(key, c)
+  }
+  for (const key of collided) squashed.delete(key)
+  for (const c of cards) squashed.set(c.Title.toLowerCase(), c)
+  return squashed
 }
 
 /**
@@ -87,6 +109,7 @@ export function buildTitleMap(cards: BazaarCard[]): Map<string, BazaarCard> {
  */
 export function findExact(cards: BazaarCard[], name: string, titleMap?: Map<string, BazaarCard>) {
   const lower = name.toLowerCase()
-  if (titleMap) return titleMap.get(lower)
+  if (titleMap) return titleMap.get(lower) ?? titleMap.get(squashName(lower))
   return cards.find((c) => c.Title.toLowerCase() === lower)
+    ?? cards.find((c) => squashName(c.Title) === squashName(lower))
 }

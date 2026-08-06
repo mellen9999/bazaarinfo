@@ -67,6 +67,26 @@ describe('entity extraction via store', () => {
     const results = store.searchByEffect('burn', undefined, 5)
     expect(results.length).toBeGreaterThan(0)
   })
+
+  // live regression: chat asked "what does the bubblegum do" and the bot answered
+  // "no bubblegum item logged" — Bubble Gum exists, but fuzzy ranked the unrelated
+  // single-word "Bubblegum Floor" first and the relevance gate then dropped it.
+  // an exact title with the spaces removed must beat fuzzy ranking.
+  it('a spaceless item name beats a higher-scoring fuzzy hit', () => {
+    expect(store.search('bubblegum', 1)[0]?.Title).toBe('Bubble Gum')
+    expect(store.exact('bubblegum')?.Title).toBe('Bubble Gum')
+    // the other card is still reachable by its own name
+    expect(store.search('bubblegum floor', 1)[0]?.Title).toBe('Bubblegum Floor')
+  })
+
+  it('reaches long multi-word items fuzzy search cannot', () => {
+    expect(store.search('deathmetaldrumkit', 1)[0]?.Title).toBe('Death Metal Drum Kit')
+  })
+
+  it('still resolves the documented fuzzy cases', () => {
+    expect(store.search('champion belt', 1)[0]?.Title).toBe('Championship Belt')
+    expect(store.search('moose', 1)[0]?.Title).toBe('Staff of the Moose')
+  })
 })
 
 // ============================================================

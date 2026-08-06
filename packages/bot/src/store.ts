@@ -1,5 +1,5 @@
 import type { BazaarCard, CardCache, Monster } from '@bazaarinfo/shared'
-import { buildIndex, buildTitleMap, searchCards, findExact, searchPrefix, searchAllWords, resolveTooltip } from '@bazaarinfo/shared'
+import { buildIndex, buildTitleMap, searchCards, findExact, searchPrefix, searchAllWords, resolveTooltip, squashName } from '@bazaarinfo/shared'
 import Fuse from 'fuse.js'
 import { resolve } from 'path'
 import { log } from './log'
@@ -299,11 +299,10 @@ function wordBoundaryRe(lower: string): RegExp {
 
 export function search(query: string, limit = 5) {
   const resolved = resolveAlias(query)
-  // try alias exact match first
-  if (resolved !== query) {
-    const aliased = findExact(allCards, resolved, titleMap)
-    if (aliased) return [aliased]
-  }
+  // an exact title (or the same title with the spaces knocked out) always wins over
+  // fuzzy ranking — "bubblegum" is Bubble Gum, not the higher-scoring Bubblegum Floor.
+  const direct = findExact(allCards, resolved, titleMap)
+  if (direct) return [direct]
   const scored = searchCards(index, resolved, limit * 2)
   const results = scored.filter((r) => r.score <= SCORE_GATE).map((r) => r.item)
   // fallbacks when fuzzy misses: prefix first ("boom" -> Boomerang), then a multi-word
@@ -400,6 +399,10 @@ function findByTitle<T extends { Title: string }>(list: T[], query: string): T |
   const exact = list.find((x) => x.Title.toLowerCase() === lower)
   if (exact) return exact
   if (lower.length < 4) return undefined
+  // same spacing-insensitive match cards get ("banannaking" -> "Bananna King")
+  const squashed = squashName(lower)
+  const bySquash = list.filter((x) => squashName(x.Title) === squashed)
+  if (bySquash.length === 1) return bySquash[0]
   return list.find((x) => x.Title.toLowerCase().startsWith(lower))
     ?? list.find((x) => wordIncludes(x.Title.toLowerCase(), lower))
 }
