@@ -998,6 +998,43 @@ def setup_config(config_path: Path):
     print("Starting companion...\n")
 
 
+def verify_credentials(ebs_url: str, channel_id: str, secret: str) -> bool:
+    """
+    Prove the Channel ID and secret work BEFORE the streamer goes live. Sends an empty
+    card list — the same payload used whenever the board is empty, so it's a real no-op
+    that just exercises auth. A mistyped secret used to surface as a failed broadcast
+    mid-run; now it fails here, in setup, with an instruction attached.
+
+    Network trouble is NOT a rejection — we say so and carry on, because the game may
+    well outlast a flaky minute of wifi.
+    """
+    try:
+        r = _session.post(
+            f"{ebs_url}/detect",
+            json={"channelId": channel_id, "secret": secret, "cards": []},
+            timeout=8,
+        )
+    except Exception as e:
+        print(f"  ! couldn't reach the overlay server ({e})")
+        print("    starting anyway — it'll keep retrying while you play")
+        print()
+        return True
+
+    if r.ok:
+        print("  connected — your overlay is ready")
+        print()
+        return True
+    if r.status_code == 401:
+        print("  ! the server rejected your Channel ID or Secret")
+        print("    open the extension's Configure page and copy both again,")
+        print("    then re-run with --setup")
+        print()
+        return False
+    print(f"  ! overlay server returned {r.status_code} — starting anyway")
+    print()
+    return True
+
+
 def check_for_update():
     """Best-effort update notice — GitHub releases API, 3s cap, fail-silent, no tracking."""
     try:
@@ -1075,6 +1112,14 @@ def main():
             os.chmod(args.config, 0o600)
         except OSError:
             pass  # no-op on Windows; best-effort on POSIX
+
+    # fail on a bad secret here, not halfway through a live run
+    if not verify_credentials(
+        config["ebs"]["url"].rstrip("/"),
+        config["ebs"]["channel_id"],
+        config["ebs"]["secret"],
+    ):
+        raise SystemExit(1)
 
     # Find cards.json (wait if game not installed yet)
     game_cards = find_cards_json()

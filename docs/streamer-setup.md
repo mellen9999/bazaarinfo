@@ -139,7 +139,7 @@ Only the `!b` prefix — nothing else is hijacked from your chat.
 | hover-zones don't line up with the cards | capture the game **16:9, filling the frame** — no ultrawide/4:3, no borders or webcam boxing the board |
 | opponent cards or skills have no tooltip | expected — the game doesn't expose opponent/skill names to your client, so those aren't shown (only your named items are) |
 | cards linger after they leave your board | the overlay self-clears if the companion goes quiet; if it persists, the companion likely crashed — restart it |
-| "unauthorized" from the server | re-run the companion with `--setup` and re-paste your secret from the config page |
+| "the server rejected your Channel ID or Secret" | re-run with `--setup` and re-paste both from the extension's Configure page — the companion checks them at startup, so this never surprises you mid-stream |
 | SmartScreen blocks the exe | **More info → Run anyway** |
 | companion crashes on startup | delete `config.ini` next to the exe and re-run to reconfigure |
 | it asks for your Channel ID every launch | you're on v1.0.5 or older — grab the latest release; older builds saved settings to a temp folder Windows wipes |

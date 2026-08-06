@@ -17,7 +17,9 @@ from logwatch import (
     process_line,
     default_config_path,
     user_config_path,
+    verify_credentials,
 )
+import logwatch
 
 
 # --- #2 + #8: item socket clamp ---
@@ -211,3 +213,39 @@ class TestConfigLocation:
         monkeypatch.setenv("XDG_CONFIG_HOME", str(home))
         monkeypatch.delenv("APPDATA", raising=False)
         assert default_config_path() == existing
+
+
+class _Resp:
+    def __init__(self, code):
+        self.status_code = code
+        self.ok = code < 400
+        self.text = "body"
+
+
+class TestCredentialCheck:
+    """
+    A mistyped secret used to surface as a failed broadcast partway through a live run.
+    It has to fail at startup instead — but only a real rejection may block, or a flaky
+    minute of wifi would stop someone streaming.
+    """
+
+    def _with_post(self, monkeypatch, fn):
+        monkeypatch.setattr(logwatch._session, "post", fn)
+
+    def test_accepts_valid_credentials(self, monkeypatch):
+        self._with_post(monkeypatch, lambda *a, **k: _Resp(202))
+        assert verify_credentials("http://e", "1", "s") is True
+
+    def test_blocks_only_on_rejected_credentials(self, monkeypatch):
+        self._with_post(monkeypatch, lambda *a, **k: _Resp(401))
+        assert verify_credentials("http://e", "1", "s") is False
+
+    def test_server_error_does_not_block_startup(self, monkeypatch):
+        self._with_post(monkeypatch, lambda *a, **k: _Resp(502))
+        assert verify_credentials("http://e", "1", "s") is True
+
+    def test_offline_does_not_block_startup(self, monkeypatch):
+        def boom(*a, **k):
+            raise OSError("network down")
+        self._with_post(monkeypatch, boom)
+        assert verify_credentials("http://e", "1", "s") is True
