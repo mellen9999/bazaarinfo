@@ -19,6 +19,7 @@ let stmts: {
   incrUserCommands: Statement
   insertChat: Statement
   hasChatted: Statement
+  chattedSince: Statement
   insertAsk: Statement
   incrUserAsks: Statement
   selectUser: Statement
@@ -88,6 +89,10 @@ function prepareStatements() {
       'INSERT INTO chat_messages (channel, username, message) VALUES (?, ?, ?)',
     ),
     hasChatted: db.prepare('SELECT 1 FROM chat_messages WHERE username = ? AND channel = ? LIMIT 1'),
+    chattedSince: db.prepare(
+      `SELECT 1 FROM chat_messages WHERE LOWER(username) = ? AND channel = ?
+       AND created_at >= datetime('now', ?) LIMIT 1`,
+    ),
     insertAsk: db.prepare(
       'INSERT INTO ask_queries (user_id, channel, query, response, tokens_used, latency_ms) VALUES (?, ?, ?, ?, ?, ?)',
     ),
@@ -849,6 +854,13 @@ export function userHasChatted(username: string, channel: string): boolean {
   if (chattedCache.size > 5000) chattedCache.clear()
   chattedCache.add(key)
   return true
+}
+
+// Has this name chatted in this channel inside the window? Unlike userHasChatted this is
+// time-bounded and deliberately uncached — it answers "is this someone in chat RIGHT NOW",
+// which is what separates a bare handle used as a trivia topic from a same-spelled word.
+export function userChattedSince(username: string, channel: string, sinceExpr = '-6 hours'): boolean {
+  return !!stmts.chattedSince.get(username.toLowerCase(), channel, sinceExpr)
 }
 
 export interface UserStats {

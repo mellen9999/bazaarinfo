@@ -1369,6 +1369,16 @@ function recentChatLines(channel: string): string[] {
 // the bare twitch handle. one token only — "@a b c" isn't a username.
 const PERSON_TOPIC_RE = /^@([a-z0-9_]{2,25})$/i
 
+// chat writes handles bare — "!trivia about hamstornado", no @. a single-token topic that
+// matches someone who's been chatting HERE in the last few hours is a person ask, not a
+// world-knowledge subject: the topic model knows nothing about them, so it nulls out and
+// the round dead-ends in a labelled random substitute. gated three ways so a real subject
+// is never hijacked — game content wins first, the name must be recently active in THIS
+// channel, and there must be a real dossier; anything short of all three falls through to
+// the normal topic path.
+const BARE_NAME_RE = /^[a-z0-9_]{3,25}$/i
+const BARE_NAME_WINDOW = '-6 hours'
+
 // on the `!b` path, @mentions are stripped out of the command text before dispatch (they
 // survive only in the suffix tag), so "!b trivia about @x" reaches us as topic "about".
 // a leftover bare connector like this, paired with a mention, IS the person intent —
@@ -1475,7 +1485,10 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   // topic model (which knows nothing about them and drifts to an unrelated question).
   // the @ may survive in the topic (top-level !trivia) or only in the suffix tag (!b).
   const mention = suffix.match(/@(\w{2,25})/)?.[1] ?? null
+  // resolved once — both the bare-handle gate below and the game-data branch need it.
+  const gameTopic = isChatTrivia ? null : detectGameTopic(t)
   let person: string | null = null
+  let personDossier: string | null = null
   if (!isChatTrivia) {
     const pm = t.startsWith('@') ? t.match(PERSON_TOPIC_RE) : null
     if (pm) person = pm[1]
@@ -1483,6 +1496,13 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
     // a dangling connector with no target ("trivia about" alone) has nothing to quiz on —
     // don't feed the bare word to the topic model (it drifts to a nonsense question).
     else if (PERSON_CONNECTOR_RE.test(t)) return null
+    else if (BARE_NAME_RE.test(t) && !gameTopic && db.userChattedSince(t, channel, BARE_NAME_WINDOW)) {
+      const d = buildPersonDossier(t, channel)
+      if (d) {
+        person = t
+        personDossier = d
+      }
+    }
   }
 
   customPending.add(channel)
@@ -1500,7 +1520,7 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
       }
       missMsg = `not enough fresh chat to make a trivia about yet — let it cook`
     } else if (person) {
-      const dossier = buildPersonDossier(person, channel)
+      const dossier = personDossier ?? buildPersonDossier(person, channel)
       if (!dossier) {
         return withSuffix(`don't know enough about @${person} yet to quiz on — they gotta chat more`, suffix)
       }
@@ -1526,7 +1546,6 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
       // to the world-knowledge model — the game postdates its knowledge and changes every
       // patch, so it can only fabricate or null out. generate from the live card cache
       // instead; on a miss, serve a real bazaar round rather than an off-game substitute.
-      const gameTopic = detectGameTopic(t)
       if (gameTopic) {
         const dossier = buildGameDossier(gameTopic)
         q = dossier ? await generateGameTrivia(dossier, t, channel, avoid, avoidAnswers) : null

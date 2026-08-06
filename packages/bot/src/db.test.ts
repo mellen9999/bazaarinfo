@@ -252,6 +252,20 @@ describe('db', () => {
     expect(hits[0].username).toBe('alice')
   })
 
+  // --- recent-chatter check (gates bare-handle trivia topics) ---
+
+  it('userChattedSince is scoped to the name, the channel and the window', () => {
+    db.logChat('rc-chan', 'HamsTornado', 'hello')
+    db.logChat('other-chan', 'elsewhere', 'hello')
+    db.flushWrites()
+
+    expect(db.userChattedSince('hamstornado', 'rc-chan', '-6 hours')).toBe(true)
+    expect(db.userChattedSince('HAMSTORNADO', 'rc-chan', '-6 hours')).toBe(true) // case-insensitive
+    expect(db.userChattedSince('hamstornado', 'other-chan', '-6 hours')).toBe(false) // per-channel
+    expect(db.userChattedSince('nobody', 'rc-chan', '-6 hours')).toBe(false)
+    expect(db.userChattedSince('hamstornado', 'rc-chan', '+1 hour')).toBe(false) // window respected
+  })
+
   // --- pasta recall (recite existing chat pasta verbatim) ---
 
   const PASTA = 'day 1,847 of watching kripp play the exact same pygmalien max hp build. globe. whammy. belt. lion cane. i have memorized the item pickups in my sleep. my therapist recognizes the icons now.'

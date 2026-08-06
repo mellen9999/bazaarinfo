@@ -1,4 +1,4 @@
-import { describe, expect, it, mock, beforeEach } from 'bun:test'
+import { describe, expect, it, mock, beforeEach, afterEach } from 'bun:test'
 import type { BazaarCard, TierName, Monster } from '@bazaarinfo/shared'
 
 // --- mock store before importing commands ---
@@ -59,6 +59,9 @@ const mockGetUserFacts = mock<(user: string, limit?: number) => string[]>(() => 
 const mockGetUserMessages = mock<(user: string, channel: string, limit?: number) => string[]>(() => [])
 const mockGetUserTopItems = mock<(user: string, limit?: number) => string[]>(() => [])
 const mockGetLastTriviaResult = mock<(channel: string) => { question: string; answer: string; winner: string | null } | null>(() => null)
+// bare-handle trivia topics ("!trivia about hamstornado") only route to person trivia when
+// the name has chatted here recently — off by default so word topics stay word topics.
+const mockUserChattedSince = mock<(user: string, channel: string, since?: string) => boolean>(() => false)
 
 mock.module('./db', () => ({
   logCommand: mockLogCommand,
@@ -70,6 +73,7 @@ mock.module('./db', () => ({
   getUserFacts: mockGetUserFacts,
   getUserMessages: mockGetUserMessages,
   getUserTopItems: mockGetUserTopItems,
+  userChattedSince: mockUserChattedSince,
   getChannelLeaderboard: mock(() => []),
   getTriviaLeaderboard: mock(() => []),
   createTriviaGame: mock(() => 1),
@@ -2615,6 +2619,14 @@ describe('person-targeted trivia: !trivia about @user', () => {
     mockGetUserFacts.mockClear(); mockGetUserFacts.mockImplementation(() => [])
     mockGetUserMessages.mockClear(); mockGetUserMessages.mockImplementation(() => [])
     mockGetUserTopItems.mockClear(); mockGetUserTopItems.mockImplementation(() => [])
+    mockUserChattedSince.mockClear(); mockUserChattedSince.mockImplementation(() => false)
+  })
+
+  // these two gate the bare-handle route — leaving either seeded would turn ordinary word
+  // topics in later describes into person asks, so restore the module defaults.
+  afterEach(() => {
+    mockUserChattedSince.mockImplementation(() => false)
+    mockGetUserMessages.mockImplementation(() => [])
   })
 
   it('routes "@user" to the person generator, built from logged facts + messages', async () => {
@@ -2649,10 +2661,61 @@ describe('person-targeted trivia: !trivia about @user', () => {
     expect(res).toContain("don't know enough about @ghost")
   })
 
-  it('a bare username with no @ stays a normal topic, not a person', async () => {
+  it('a bare name nobody here has chatted under stays a normal topic', async () => {
+    // not a recent chatter -> a word topic, even with logged data under that name elsewhere
+    mockGetUserMessages.mockImplementation(() => ['a', 'b', 'c', 'd', 'e', 'f', 'g'])
     await handleCommand('!b trivia about sw1ngggg', { user: 'asker', channel: 'pt-3' })
     expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('sw1ngggg', 'pt-3', [], [])
     expect(mockGeneratePersonTrivia).not.toHaveBeenCalled()
+  })
+
+  it('routes a bare handle to person trivia when they have been chatting here', async () => {
+    // chat types handles without the @ — "!trivia about hamstornado". the topic model
+    // knows nothing about them, so this must not dead-end in a random substitute.
+    mockUserChattedSince.mockImplementation(() => true)
+    mockGetUserMessages.mockImplementation(() => ['Sadge', 'gg', 'Sadge', 'nice play', 'Sadge', 'lol', 'wp'])
+    const res = await handleCommand('!b trivia about hamstornado', { user: 'asker', channel: 'pt-bare' })
+    expect(mockGeneratePersonTrivia).toHaveBeenCalledTimes(1)
+    expect(mockGeneratePersonTrivia.mock.calls[0][1]).toBe('@hamstornado')
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+    expect(res).toContain('Trivia!')
+  })
+
+  it('builds the bare-handle dossier once (no duplicate DB pass)', async () => {
+    mockUserChattedSince.mockImplementation(() => true)
+    mockGetUserMessages.mockImplementation(() => ['Sadge', 'gg', 'Sadge', 'nice play', 'Sadge', 'lol', 'wp'])
+    await handleCommand('!b trivia about hamstornado', { user: 'asker', channel: 'pt-bare2' })
+    expect(mockGetUserFacts).toHaveBeenCalledTimes(1)
+  })
+
+  it('a recent chatter we have no real data on falls through to the topic path', async () => {
+    // thin dossier means we cannot be sure the word is a person — never dead-end the topic
+    mockUserChattedSince.mockImplementation(() => true)
+    const res = await handleCommand('!b trivia about pancakes', { user: 'asker', channel: 'pt-thin' })
+    expect(mockGeneratePersonTrivia).not.toHaveBeenCalled()
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('pancakes', 'pt-thin', [], [])
+    expect(res).toContain('Trivia!')
+  })
+
+  it('game content wins over a same-spelled chatter', async () => {
+    mockUserChattedSince.mockImplementation(() => true)
+    mockGetUserMessages.mockImplementation(() => ['Sadge', 'gg', 'Sadge', 'nice', 'lol', 'wp', 'gl'])
+    mockExact.mockImplementation((n) => (n === 'toaster' ? ({ Title: 'Toaster', Tags: [], Tooltips: [] } as any) : undefined))
+    try {
+      await handleCommand('!b trivia about toaster', { user: 'asker', channel: 'pt-game' })
+      expect(mockGeneratePersonTrivia).not.toHaveBeenCalled()
+      expect(mockGenerateCustomTrivia).not.toHaveBeenCalled() // the game-data branch owns it
+    } finally {
+      mockExact.mockImplementation(() => undefined)
+    }
+  })
+
+  it('a multi-word topic is never treated as a handle', async () => {
+    mockUserChattedSince.mockImplementation(() => true)
+    mockGetUserMessages.mockImplementation(() => ['Sadge', 'gg', 'Sadge', 'nice', 'lol', 'wp', 'gl'])
+    await handleCommand('!b trivia about roman aqueducts', { user: 'asker', channel: 'pt-multi' })
+    expect(mockGeneratePersonTrivia).not.toHaveBeenCalled()
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('roman aqueducts', 'pt-multi', [], [])
   })
 })
 
