@@ -110,6 +110,15 @@ describe('glossaryAnswer — deterministic structured-path answer', () => {
     expect(glossaryAnswer('what is an enchantment')).toStartWith('Enchant:')
     expect(glossaryAnswer('what does enchanted mean')).toStartWith('Enchant:')
   })
+  // Tempo shipped in patch 17 and had no entry — "what does tempo do" was asked six
+  // times in one stream and brushed off six times, each snarkier than the last.
+  it('answers the Tempo mechanic', () => {
+    expect(glossaryAnswer('what does tempo do')).toStartWith('Tempo:')
+    expect(glossaryAnswer('how do you gain tempo')).toStartWith('Tempo:')
+    expect(glossaryAnswer('what is tempo')).toStartWith('Tempo:')
+    // build asks still route to items, not the rule
+    expect(glossaryAnswer('best tempo item')).toBeNull()
+  })
   it('does NOT hijack enchant-on-item lookups (Golden Dagger stays an item query)', () => {
     // a specific enchant name + item must fall through to the item+enchant path
     expect(glossaryAnswer('golden dagger')).toBeNull()

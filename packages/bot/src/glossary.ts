@@ -66,6 +66,8 @@ export const GLOSSARY: Record<string, string> = {
     'replaces an item with a different one for the rest of the fight (e.g. into a Potion, Jerky, or Virus). the new item takes the slot but brings its own stats and text — the original is gone.',
   cleanse:
     'removes Burn and/or Poison you are currently suffering (e.g. "Cleanse half your Burn and Poison"). it clears the debuff ticking on you — it is not a heal and does not restore Health.',
+  tempo:
+    'a resource you build up and spend during a fight. you gain Tempo from triggers on your items — start of fight, using a Weapon/Burn/Shield item, Critting, the enemy using an item, playing on the right Note. items that cost Tempo show it as "N : effect" and fire that extra effect when you can pay; others scale off how much Tempo you have or gained this fight.',
   enchant:
     `an enchantment is a permanent upgrade on a single item (${ENCHANT_NAMES_TOKEN}). each adds a themed bonus — e.g. Fiery=Burn, Icy=Freeze, Toxic=Poison, Deadly=Crit, Golden=extra Value. an Enchanted item is one that has one; some items only reward using Enchanted items.`,
 }
@@ -106,7 +108,7 @@ export const LABEL: Record<string, string> = {
   lifesteal: 'Lifesteal', charge: 'Charge', cooldown: 'Cooldown', ammo: 'Ammo',
   reload: 'Reload', multicast: 'Multicast', damage: 'Damage', sandstorm: 'Sandstorm',
   heated: 'Heated', chilled: 'Chilled', destroy: 'Destroy', transform: 'Transform',
-  cleanse: 'Cleanse', enchant: 'Enchant',
+  cleanse: 'Cleanse', enchant: 'Enchant', tempo: 'Tempo',
 }
 
 // full surface->canonical index, built once: every base key maps to itself, plus aliases.

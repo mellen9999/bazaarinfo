@@ -119,9 +119,12 @@ describe('system prompt', () => {
   // for the no-latency-excuses brush-off rule, ->9800 for the deadpan voice
   // retune (VOICE BANS), then TIGHTENED ->8000 after the dedupe/consolidation
   // pass (never-deflect 4x->1, death 2x->1, mellen-mention 3x->1; ~7100 chars).
-  it('is under 8000 chars (runaway-growth guard)', () => {
+  // ->8400 for the target-the-game-not-the-person + MISSING DATA rules (the bot
+  // was mining logged history for unsolicited dunks and sassing repeat askers);
+  // three overlapping no-data rules were folded into one in the same pass.
+  it('is under 8400 chars (runaway-growth guard)', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt.length).toBeLessThan(8000)
+    expect(prompt.length).toBeLessThan(8400)
   })
 
   it('contains core identity', () => {
@@ -152,6 +155,23 @@ describe('system prompt', () => {
     const prompt = buildSystemPrompt()
     expect(prompt.toLowerCase()).toContain('privacy')
     expect(prompt).toContain('only mention mellen when directly asked')
+  })
+
+  // the bot spent a stream mining logged history for unsolicited dunks ("4th time
+  // asking", "13 years on this platform") and sassing people for re-asking a
+  // question it had never actually answered. both rules must stay in the prompt.
+  it('forbids using logged context as ammo against chatters', () => {
+    const prompt = buildSystemPrompt()
+    expect(prompt).toContain('TARGET THE GAME, NOT THE PERSON')
+    expect(prompt).toContain('never ammo')
+    expect(prompt).toContain('no unprompted personal jabs')
+  })
+
+  it('makes a data gap the bot\'s own, not the asker\'s fault', () => {
+    const prompt = buildSystemPrompt()
+    expect(prompt).toContain('MISSING DATA')
+    expect(prompt).toContain('the gap is YOURS')
+    expect(prompt).toContain('never sass someone for asking')
   })
 
   it('contains copypasta instructions', () => {
