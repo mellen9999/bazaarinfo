@@ -142,9 +142,20 @@ describe('system prompt', () => {
   // ->8400 for the target-the-game-not-the-person + MISSING DATA rules (the bot
   // was mining logged history for unsolicited dunks and sassing repeat askers);
   // three overlapping no-data rules were folded into one in the same pass.
-  it('is under 8400 chars (runaway-growth guard)', () => {
+  // ->8500 to leave room for the parts that are GENERATED, not authored: the hero
+  // count and the pending-hero line both grow with the dump, so a patch that ships a
+  // hero before bazaardb has its cards used to land within ~15 chars of the ceiling.
+  // patch day is meant to be hands-off — the alarm must not fire on data drift.
+  it('is under 8500 chars (runaway-growth guard)', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt.length).toBeLessThan(8400)
+    expect(prompt.length).toBeLessThan(8500)
+  })
+
+  // the guard has to hold on patch day too, when a newly announced hero adds a line
+  // the dump can't back yet — that path is exactly when nobody is watching the tests
+  it('still fits with a pending-hero line on patch day', () => {
+    const worstCase = buildSystemPrompt().length + ' new: The Dragons (17.0) — no card data yet, never invent their items.'.length
+    expect(worstCase).toBeLessThan(8500)
   })
 
   it('contains core identity', () => {
