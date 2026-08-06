@@ -367,6 +367,21 @@ export function stripInputEcho(response: string, query: string): string {
 
 // --- emote dedup ---
 
+// Pulling an emote out of a space-joined word list orphans the punctuation that sat
+// around it: "kripp is buffering, KEKW — the tour bus" came out as "kripp is
+// buffering, — the tour bus". Chat saw the dangling comma in ~7 replies over 3 days.
+// Only ever runs when a word was actually removed, so a reply that kept all its
+// emotes is returned byte-for-byte unchanged.
+export function healPunctuation(text: string): string {
+  return text
+    .replace(/\s+([,.;:!?])/g, '$1')           // space left before punctuation
+    .replace(/([,;:])\s*([—–])\s*/g, ' $2 ')   // comma stranded against a dash
+    .replace(/([,;:])\1+/g, '$1')              // doubled separators
+    .replace(/\s{2,}/g, ' ')
+    .replace(/[\s,;:]+$/, '')                  // trailing separator with nothing after
+    .trim()
+}
+
 export function fixEmoteCase(text: string, channel?: string): string {
   if (!channel) return text
   const emotes = getEmotesForChannel(channel)
@@ -420,7 +435,7 @@ export function dedupeEmote(text: string, channel?: string): string {
     return true
   })
 
-  return stripped ? filtered.join(' ').trim() : text
+  return stripped ? healPunctuation(filtered.join(' ')) : text
 }
 
 function recordEmoteUsed(channel: string, emote: string) {
@@ -500,7 +515,7 @@ export function dedupeUserEmote(text: string, user: string, channel?: string): s
     return true
   })
 
-  return stripped ? filtered.join(' ').trim() : text
+  return stripped ? healPunctuation(filtered.join(' ')) : text
 }
 
 // --- @mention dedup ---

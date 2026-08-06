@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { healPunctuation } from './ai-sanitize'
 import { sanitize, getAiCooldown, getGlobalAiCooldown, recordUsage, isModelRefusal, buildFTSQuery, capEmoteTotal, capRepeatedSpam, hasHallucinatedStats } from './ai'
 
 describe('sanitize', () => {
@@ -932,5 +933,40 @@ describe('capRepeatedSpam', () => {
 
   it('leaves normal prose alone', () => {
     expect(capRepeatedSpam('hello world thanks for the game')).toBe('hello world thanks for the game')
+  })
+})
+
+// Live regression, 2026-08-06. dedupeEmote/dedupeEmotesForUser drop a repeated emote
+// out of a space-joined word list, which orphaned whatever punctuation surrounded it.
+// Chat saw "kripp is buffering, — the tour bus" — 7 such replies in 3 days. Every
+// string below is a verbatim response pulled from ask_queries.
+describe('healPunctuation (emote-strip fallout)', () => {
+  it('heals the comma stranded against a dash', () => {
+    expect(healPunctuation('kripp is buffering, — the tour bus has a ticket holder.'))
+      .toBe('kripp is buffering — the tour bus has a ticket holder.')
+    expect(healPunctuation('zero, — but there is a challenge'))
+      .toBe('zero — but there is a challenge')
+    expect(healPunctuation('nice try, — instructions stay put'))
+      .toBe('nice try — instructions stay put')
+  })
+
+  it('heals the space left before punctuation', () => {
+    expect(healPunctuation('merry chirstmas , may your board have synergy.'))
+      .toBe('merry chirstmas, may your board have synergy.')
+  })
+
+  it('drops a separator left dangling at the end', () => {
+    expect(healPunctuation('you are already fielding red dragons. ,'))
+      .toBe('you are already fielding red dragons.')
+  })
+
+  it('leaves correct text byte-for-byte alone', () => {
+    for (const good of [
+      'inferno faction, easily — you are already fielding red dragons.',
+      'wait, what?',
+      'one, two, three',
+      'yes — really',
+      'hi!',
+    ]) expect(healPunctuation(good)).toBe(good)
   })
 })
