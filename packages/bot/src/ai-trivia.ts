@@ -188,11 +188,23 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
   // so the answer must be a fact ABOUT it, never the subject's own name.
   const lenses = pickDistinctLenses(channel, CANDIDATES)
   const items = lenses.map((lens, i) => ({ subject: subjects[i % subjects.length], instruction: lensInstruction(lens) }))
-  let passed: Scored[] = await generateAndVerify(channel, items, clean, avoidBlock, !namesSubject)
+  const r1 = await generateAndVerify(channel, items, clean, avoidBlock, !namesSubject)
+  let passed = r1.passed
+  const soft = [...r1.soft]
   // round 2 only if round 1 produced nothing usable — a single play-it-safe broaden pass on
   // the raw topic (naming allowed). cap re-checked so a spree can't dodge the backstop.
   if (passed.length === 0 && !isOverDailyCap(channel)) {
-    passed = await generateAndVerify(channel, [{ subject: clean, instruction: BROADEN }], clean, avoidBlock, true)
+    const r2 = await generateAndVerify(channel, [{ subject: clean, instruction: BROADEN }], clean, avoidBlock, true)
+    passed = r2.passed
+    soft.push(...r2.soft)
+  }
+  // last resort before abandoning the topic: a question every lens agreed is CORRECT and
+  // on-topic, held back only for reading as a gimme. asking chat an easy Digimon question
+  // beats answering "what's the hardest natural material" to someone who asked about
+  // Digimon. objective defects are never eligible — those were binned at the panel.
+  if (passed.length === 0 && soft.length > 0) {
+    log(`ai-trivia: no strong candidate for "${clean}" — shipping the best verified-easy one`)
+    return pickBestCandidate(soft)
   }
   if (passed.length === 0) return null
   return pickBestCandidate(passed)
@@ -236,7 +248,7 @@ async function generateAndVerify(
   topic: string,
   avoidBlock: string,
   guessTheSubject: boolean,
-): Promise<Scored[]> {
+): Promise<{ passed: Scored[]; soft: Scored[] }> {
   const gens = await Promise.all(
     items.map(async (it) => {
       const content = `SUBJECT: ${it.subject}\nGUESS_THE_SUBJECT: ${guessTheSubject}\n\n${it.instruction}${avoidBlock}`
@@ -266,14 +278,19 @@ async function generateAndVerify(
     }),
   )
   const cands = dedupeCandidates(gens.filter((q): q is CustomTrivia => q !== null))
-  if (cands.length === 0) return []
+  if (cands.length === 0) return { passed: [], soft: [] }
   const verdicts = await Promise.all(cands.map((q) => verifyPanel(q, channel, topic)))
   const passed: Scored[] = []
+  const soft: Scored[] = []
   cands.forEach((q, i) => {
-    if (verdicts[i].ok) passed.push({ q, quality: verdicts[i].quality })
-    else log(`ai-trivia: verify rejected "${q.question.slice(0, 50)}" (ans: ${q.answer})`)
+    const v = verdicts[i]
+    if (v.ok) passed.push({ q, quality: v.quality })
+    else if (v.reason === 'easy') {
+      soft.push({ q, quality: v.quality })
+      log(`ai-trivia: held as too-easy "${q.question.slice(0, 50)}" (ans: ${q.answer})`)
+    } else log(`ai-trivia: verify rejected "${q.question.slice(0, 50)}" (ans: ${q.answer}) — defect`)
   })
-  return passed
+  return { passed, soft }
 }
 
 // deterministic giveaway check: true if any distinctive accepted answer appears as a
@@ -411,6 +428,12 @@ or
 export interface Verdict {
   ok: boolean
   quality: number // 1-3 when ok, 0 when rejected — ranks survivors so the best one ships
+  // WHY it was rejected, and the two are not equally serious. 'defect' = a lens found a
+  // false fact, a leaked answer, an ambiguity or a fabrication: never shippable. 'easy' =
+  // every lens agreed it's correct and on-topic, it just reads as a gimme — a taste call.
+  // Abandoning someone's topic for an unrelated question is worse than asking them an
+  // easy on-topic one, so 'easy' survivors are kept as a last resort.
+  reason?: 'defect' | 'easy'
 }
 
 // run ONE verifier lens. fails closed (reject) on any error so a wrong question can't slip
@@ -468,14 +491,20 @@ export async function verifyAllLenses(q: CustomTrivia, channel: string, topic = 
   ])
 }
 
+// Pure panel rule, split out so it can be tested without three API calls.
+// An objective defect (false fact / leak / ambiguity / fabrication) is a veto from ANY
+// lens. A unanimous-but-soft question is NOT a defect — it is correct and on topic, just
+// a gimme, so it is returned with reason 'easy' and held as a last resort rather than binned.
+export function panelVerdict(verdicts: Verdict[]): Verdict {
+  if (!verdicts.every((v) => v.ok)) return { ok: false, quality: 0, reason: 'defect' }
+  const quality = Math.max(...verdicts.map((v) => v.quality))
+  if (quality < MIN_QUALITY) return { ok: false, quality, reason: 'easy' }
+  return { ok: true, quality }
+}
+
 export async function verifyPanel(q: CustomTrivia, channel: string, topic = ''): Promise<Verdict> {
   if (!API_KEY) return { ok: true, quality: 2 } // can't verify without a key; don't block generation
-  const verdicts = await verifyAllLenses(q, channel, topic)
-  // an objective defect (false fact / leak / ambiguity / fabrication) — any lens vetoes.
-  if (!verdicts.every((v) => v.ok)) return { ok: false, quality: 0 }
-  const quality = Math.max(...verdicts.map((v) => v.quality))
-  if (quality < MIN_QUALITY) return { ok: false, quality: 0 } // consensus gimme — drop it
-  return { ok: true, quality }
+  return panelVerdict(await verifyAllLenses(q, channel, topic))
 }
 
 // GAME-DATA trivia: the topic names Bazaar content (a hero, item, monster, tag), so both

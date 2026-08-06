@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { splitAlternates, pickDistinctLenses, LENSES, answerLeaks, answerEchoesTopic, parseGen } from './ai-trivia'
+import { splitAlternates, pickDistinctLenses, LENSES, answerLeaks, answerEchoesTopic, parseGen, panelVerdict } from './ai-trivia'
 
 describe('splitAlternates — fold answer alternates into accept', () => {
   it('splits a parenthetical alternate', () => {
@@ -114,5 +114,38 @@ describe('parseGen — person/chat trivia post-parse gate', () => {
   it('rejects unparseable/refused output with retry', () => {
     expect(parseGen('{"ok":false}')).toEqual({ ok: false, retry: true })
     expect(parseGen('not json at all')).toEqual({ ok: false, retry: true })
+  })
+})
+
+
+// Live regression, 2026-08-06. "!b trivia about digimon" answered "What is the hardest
+// naturally occurring material on Earth?" — the panel had binned every candidate,
+// including "This rookie-level Digimon partners with Tai" (Agumon), which is true and on
+// topic. Rejections were being treated as one bucket; they are two.
+describe('panelVerdict — correctness vs taste', () => {
+  const ok = (quality: number) => ({ ok: true, quality })
+
+  it('ships a question the whole panel likes', () => {
+    expect(panelVerdict([ok(3), ok(2), ok(2)])).toEqual({ ok: true, quality: 3 })
+  })
+
+  it('vetoes on a single objective defect, however good the others rate it', () => {
+    const v = panelVerdict([ok(3), { ok: false, quality: 0 }, ok(3)])
+    expect(v.ok).toBe(false)
+    expect(v.reason).toBe('defect')
+    expect(v.quality).toBe(0)
+  })
+
+  it('marks a unanimous-but-soft question as taste, not defect', () => {
+    const v = panelVerdict([ok(1), ok(1), ok(1)])
+    expect(v.ok).toBe(false)
+    expect(v.reason).toBe('easy')
+    // quality is preserved so the least-bad soft candidate can still be ranked
+    expect(v.quality).toBe(1)
+  })
+
+  it('never labels a defect as merely easy', () => {
+    // a defect alongside low quality must still read as a defect — it can never be shipped
+    expect(panelVerdict([{ ok: false, quality: 0 }, ok(1), ok(1)]).reason).toBe('defect')
   })
 })
