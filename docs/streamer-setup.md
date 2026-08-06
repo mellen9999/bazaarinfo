@@ -51,7 +51,7 @@ Your secret is unique to your channel. Don't share it; it's the only thing that 
 1. download **`bazaarinfo-companion-windows.exe`** from [GitHub Releases](https://github.com/mellen9999/bazaarinfo/releases/latest)
 2. double-click to run
 3. paste in your **Channel ID** and **Companion Secret** when asked
-4. settings save to `config.ini` next to the exe — you only do this once
+4. settings save to `config.ini` next to the exe — you only do this once (if that folder is read-only, it saves to `%APPDATA%\bazaarinfo` instead and tells you)
 
 > **SmartScreen warning?** The exe isn't code-signed, so Windows may warn. Click **More info → Run anyway** — or run from source instead (below).
 
@@ -142,6 +142,7 @@ Only the `!b` prefix — nothing else is hijacked from your chat.
 | "unauthorized" from the server | re-run the companion with `--setup` and re-paste your secret from the config page |
 | SmartScreen blocks the exe | **More info → Run anyway** |
 | companion crashes on startup | delete `config.ini` next to the exe and re-run to reconfigure |
+| it asks for your Channel ID every launch | you're on v1.0.5 or older — grab the latest release; older builds saved settings to a temp folder Windows wipes |
 
 ---
 

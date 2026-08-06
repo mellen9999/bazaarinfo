@@ -15,6 +15,8 @@ from logwatch import (
     build_payload,
     new_state,
     process_line,
+    default_config_path,
+    user_config_path,
 )
 
 
@@ -160,3 +162,52 @@ class TestTitleLengthCap:
         # Must not raise
         payload = build_payload(state)
         assert len(payload["cards"]) == 1
+
+
+class TestConfigLocation:
+    """
+    PyInstaller --onefile unpacks to a temp dir that is deleted on exit. Anchoring the
+    config to __file__ put config.ini in that temp dir, so the shipped exe forgot the
+    streamer's Channel ID and secret on every launch and re-ran first-time setup — while
+    the setup docs promised "you only do this once".
+    """
+
+    def test_frozen_config_sits_next_to_the_exe_not_the_temp_dir(self, tmp_path, monkeypatch):
+        exe_dir = tmp_path / "app"
+        exe_dir.mkdir()
+        unpack_dir = tmp_path / "_MEIxxxx"
+        unpack_dir.mkdir()
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        monkeypatch.setattr(sys, "executable", str(exe_dir / "companion.exe"))
+        monkeypatch.setattr("logwatch.__file__", str(unpack_dir / "logwatch.py"))
+        got = default_config_path()
+        assert got == exe_dir / "config.ini"
+        assert unpack_dir not in got.parents
+
+    def test_falls_back_to_user_dir_when_app_dir_is_read_only(self, tmp_path, monkeypatch):
+        exe_dir = tmp_path / "readonly"
+        exe_dir.mkdir()
+        exe_dir.chmod(0o500)
+        home = tmp_path / "home"
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        monkeypatch.setattr(sys, "executable", str(exe_dir / "companion.exe"))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(home))
+        monkeypatch.delenv("APPDATA", raising=False)
+        try:
+            assert default_config_path() == user_config_path()
+        finally:
+            exe_dir.chmod(0o700)
+
+    def test_an_existing_config_always_wins(self, tmp_path, monkeypatch):
+        """Upgrading must never orphan credentials the streamer already entered."""
+        exe_dir = tmp_path / "app"
+        exe_dir.mkdir()
+        home = tmp_path / "home"
+        (home / "bazaarinfo").mkdir(parents=True)
+        existing = home / "bazaarinfo" / "config.ini"
+        existing.write_text("[ebs]\n")
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        monkeypatch.setattr(sys, "executable", str(exe_dir / "companion.exe"))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(home))
+        monkeypatch.delenv("APPDATA", raising=False)
+        assert default_config_path() == existing

@@ -11,7 +11,7 @@ Usage:
     python logwatch.py [--config config.ini] [--debug] [--setup]
 """
 
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 
 import argparse
 import configparser
@@ -34,6 +34,54 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+# --- Config location ---
+#
+# PyInstaller --onefile unpacks to a temp dir and deletes it on exit, so __file__ is
+# NOT next to the exe — a config written there vanishes the moment the app closes and
+# the streamer gets asked for their Channel ID and secret on every single launch.
+# Anchor to the executable instead, and fall back to the per-user config dir when the
+# exe sits somewhere unwritable (Program Files, a read-only mount, a locked Downloads).
+
+APP_NAME = "bazaarinfo"
+
+
+def _is_frozen() -> bool:
+    return getattr(sys, "frozen", False)
+
+
+def user_config_path() -> Path:
+    """Per-user config location — the fallback when the app directory is read-only."""
+    if os.name == "nt":
+        base = Path(os.environ.get("APPDATA") or Path.home() / "AppData/Roaming")
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    return base / APP_NAME / "config.ini"
+
+
+def _writable_dir(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".bzi-write-test"
+        probe.write_text("")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def default_config_path() -> Path:
+    """
+    Where config.ini lives. Prefers next to the app (portable, and what the setup docs
+    promise); an existing config always wins so an upgrade never loses credentials.
+    """
+    app_dir = Path(sys.executable).parent if _is_frozen() else Path(__file__).parent
+    candidates = [app_dir / "config.ini", user_config_path()]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0] if _writable_dir(app_dir) else candidates[1]
+
 
 # --- Platform-aware path detection ---
 
@@ -924,8 +972,23 @@ def setup_config(config_path: Path):
         "secret": secret,
     }
 
-    with open(config_path, "w") as f:
-        config.write(f)
+    # last-resort relocation: the directory looked writable when we picked it, but a
+    # sync client or AV can lock it between the check and the write. never make the
+    # streamer retype their secret because of that.
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w") as f:
+            config.write(f)
+    except OSError as e:
+        fallback = user_config_path()
+        if fallback == config_path:
+            print(f"\nCouldn't save settings to {config_path} ({e})")
+            raise SystemExit(1)
+        print(f"\nCouldn't write {config_path} ({e}) — saving to {fallback} instead")
+        fallback.parent.mkdir(parents=True, exist_ok=True)
+        with open(fallback, "w") as f:
+            config.write(f)
+        config_path = fallback
     try:
         os.chmod(config_path, 0o600)
     except OSError:
@@ -973,7 +1036,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="BazaarInfo companion — streams card data to the Twitch overlay"
     )
-    parser.add_argument("--config", type=Path, default=Path(__file__).parent / "config.ini")
+    parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--log", type=Path, default=DEFAULT_LOG)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--setup", action="store_true", help="re-run first-time setup")
@@ -983,6 +1046,9 @@ def main():
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    if args.config is None:
+        args.config = default_config_path()
+
     print_banner()
     check_for_update()
 
@@ -991,6 +1057,8 @@ def main():
         if args.config.exists() and args.setup:
             logger.info("Re-running setup (existing config will be overwritten)")
         setup_config(args.config)
+    else:
+        logger.info("Using settings from %s", args.config)
 
     # Load and validate config
     config = configparser.ConfigParser()
