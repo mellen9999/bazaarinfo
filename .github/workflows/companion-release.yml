@@ -3,6 +3,10 @@ name: Build Companion
 on:
   push:
     tags: ['companion-v*']
+  # manual re-run: a tag push silently failed to trigger a build once, and with a
+  # streamer waiting on the binary there has to be a way to kick it without inventing
+  # a throwaway version number. run it against the tag you want to publish.
+  workflow_dispatch:
 
 jobs:
   build-windows:
