@@ -8,6 +8,7 @@ import * as store from './store'
 import { sanitize, buildSystemPrompt, isModelRefusal, buildFTSQuery, GREETINGS } from './ai'
 import { handleCommand, parseArgs } from './commands'
 import { GAME_TERMS, extractEntities } from './ai-context'
+import { AI_CHANNELS, enableAiForChannel, disableAiForChannel, aiUnavailableReason } from './ai-cache'
 
 // --- load real data so extractEntities / store calls work ---
 beforeAll(async () => {
@@ -1269,5 +1270,37 @@ describe('SEC: dedup prevents spam amplification', () => {
     // which read as ignoring a real re-ask).
     expect(r2).not.toBe(r1)
     expect(r2).toContain('posted that just now')
+  })
+})
+
+// Found by the 2026-08-06 e2e sweep. The bot was joined to 8 channels but AI was enabled
+// in 2 — AI_CHANNELS came from env only and never learned about !join. The join reply
+// says "type !b help in your chat", !b help routes through AI, so a streamer who onboarded
+// themselves got total silence and concluded the bot was broken.
+describe('AI enablement tracks joined channels', () => {
+  it('a joined channel becomes AI-enabled', () => {
+    expect(AI_CHANNELS.has('brand_new_streamer')).toBe(false)
+    enableAiForChannel('brand_new_streamer')
+    expect(AI_CHANNELS.has('brand_new_streamer')).toBe(true)
+  })
+
+  it('accepts either channel form — IRC gives bare names, callers sometimes add #', () => {
+    enableAiForChannel('#hash_streamer')
+    expect(AI_CHANNELS.has('hash_streamer')).toBe(true)
+    disableAiForChannel('hash_streamer')
+    expect(AI_CHANNELS.has('hash_streamer')).toBe(false)
+  })
+
+  it('parting a channel switches AI back off', () => {
+    enableAiForChannel('leaver')
+    disableAiForChannel('leaver')
+    expect(AI_CHANNELS.has('leaver')).toBe(false)
+  })
+
+  it('never reports a permanent off-state as a transient outage', () => {
+    // the caller uses this to decide between silence and "servers are lagging, try again" —
+    // the latter must never fire for a state that no amount of retrying can fix
+    expect(aiUnavailableReason(undefined)).not.toBe('ok')
+    expect(aiUnavailableReason('some_channel_never_joined')).not.toBe('ok')
   })
 })

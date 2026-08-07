@@ -11,6 +11,7 @@ import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam, CONTINUE_RE } from './ai'
+import { aiUnavailableReason } from './ai-cache'
 import { isLowValue } from './ai-query'
 import { META_QUERY_RE } from './intents'
 import { isEmote, findEmote } from './emotes'
@@ -66,6 +67,11 @@ let aiBusyIdx = 0
 function aiBusyLine(): string {
   return AI_BUSY_LINES[aiBusyIdx++ % AI_BUSY_LINES.length]
 }
+
+// AI off for a PERMANENT reason, as opposed to the transient misses above. Never claims an
+// outage and never asks for a retry that cannot work — it just says the true thing and
+// names what still answers, so chat doesn't read the bot as dead.
+const AI_OFF_LINE = 'ai is off in this channel — item lookups and trivia still work'
 
 // trivial words allowed around an emote in "<emote> spam" intent — stripped before the
 // all-tokens-are-emotes check so "the 67 spam" still fires but "stop the 67 spam" doesn't.
@@ -1222,6 +1228,11 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     // not a transient failure — stay silent rather than lie with a "glitched, run it back"
     // line that invites a doomed retry. aiBusyLine is strictly for real-query transient misses.
     if (isLowValue(cleanArgs)) return null
+    // AI switched off here (no key, channel never enabled) is PERMANENT, not a hiccup.
+    // "servers are lagging, give it a few seconds" would be a lie inviting a retry that can
+    // never succeed — but going quiet breaks the answer-every-!b contract. So: say the true
+    // thing, don't beg a retry, and point at what still works.
+    if (aiUnavailableReason(ctx.channel) !== 'ok') return withSuffix(AI_OFF_LINE, suffix)
     // never go silent on a real creative/conversational ask — a transient AI miss
     // (timeout, retry-exhaustion) still gets an answer. every real !b is answered.
     return withSuffix(aiBusyLine(), suffix)

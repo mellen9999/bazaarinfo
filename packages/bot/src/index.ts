@@ -14,6 +14,7 @@ import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, carriesLiveQuestion } from './trivia'
 import { isMuted } from './directives'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
+import { enableAiForChannel, disableAiForChannel } from './ai-cache'
 import { refreshRedditDigest } from './reddit'
 import { refreshTopicalDigest } from './topical'
 import { refreshActivity } from './activity'
@@ -51,6 +52,11 @@ if (!envChannels.includes(BOT_USERNAME.toLowerCase())) {
 // merge env channels + stored dynamic channels
 const storedChannels = await channelStore.load()
 const channelNames = [...new Set([...envChannels, ...storedChannels])]
+
+// AI follows the channels the bot is actually in. Without this a streamer who ran !join
+// got a bot that sat in their chat and answered nothing — and the join reply tells them to
+// type "!b help", which routes through AI and so returned silence.
+for (const name of channelNames) enableAiForChannel(name)
 
 // validate + refresh token
 const token = await ensureValidToken(CLIENT_ID, CLIENT_SECRET)
@@ -393,6 +399,7 @@ const client = new TwitchClient(
             await client.joinChannel(info)
             setChannelInfos(client.getChannels())
             await channelStore.add(target)
+            enableAiForChannel(target)
             refreshChannelEmotes(target, targetId).then(() => {
               const setId = getEmoteSetId(target)
               if (setId) emoteEvents.subscribeChannel(target, setId)
@@ -415,6 +422,7 @@ const client = new TwitchClient(
             return
           }
           await partChannel(target)
+          disableAiForChannel(target)
           client.say(channel, `@${username} left #${target}`, messageId)
           return
         }

@@ -75,9 +75,45 @@ export const AI_VIP = new Set(
     .map((s) => s.trim().toLowerCase()).filter(Boolean),
 )
 
+// Channels where the AI paths are allowed to spend. Seeded from env, then kept in step
+// with the channels the bot is actually IN (see enableAiForChannel, called on startup and
+// on !join).
+//
+// Why they must track each other: this was env-only, so a streamer who ran !join got a bot
+// that had joined their chat but answered nothing. The join reply even says "type !b help
+// in your chat" — and !b help routes through AI, so it returned silence. 6 of 8 joined
+// channels were in that state. If the bot is in your channel, it works in your channel.
+//
+// Spend stays bounded by the per-user and global AI cooldowns, the queue cap, the circuit
+// breaker, and the Anthropic console's monthly wall — not by keeping this list short.
 export const AI_CHANNELS = new Set(
   (process.env.AI_CHANNELS ?? process.env.TWITCH_CHANNELS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
 )
+
+// AI_CHANNELS entries are bare names ("nl_kripp"); callers pass either form.
+function bareChannel(name: string): string {
+  return name.trim().toLowerCase().replace(/^#/, '')
+}
+
+export function enableAiForChannel(name: string): void {
+  const ch = bareChannel(name)
+  if (ch) AI_CHANNELS.add(ch)
+}
+
+export function disableAiForChannel(name: string): void {
+  AI_CHANNELS.delete(bareChannel(name))
+}
+
+/**
+ * Why the AI path is unavailable here, so a caller can tell a PERMANENT state apart from a
+ * transient miss. Reporting "servers are lagging" for a missing key invites a retry that
+ * can never succeed.
+ */
+export function aiUnavailableReason(channel?: string): 'ok' | 'no-key' | 'not-enabled' {
+  if (!process.env.ANTHROPIC_API_KEY) return 'no-key'
+  if (!channel || !AI_CHANNELS.has(bareChannel(channel))) return 'not-enabled'
+  return 'ok'
+}
 
 // --- live channels + current game ---
 
