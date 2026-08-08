@@ -12,27 +12,13 @@ import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
 // Painting the tier hue on the border, the art frame, the name and the hover outline
 // all at once — as this did — says "tier" four times and everything else zero times,
 // so it reads as decoration and buries the one place a reader is actually looking.
-// Luminance runs the whole ramp in one direction: the fill is the darkest end and
-// the outer frame the brightest, so the card cuts a hard edge out of the video.
-// Only that outer edge is bright — internal rules stay dim, because a box where
-// every line shouts has no frame, just noise.
 //
-// Nothing that carries words sits below 246. 242 measures 3.8:1 on this fill, which
-// is under AA at 13px — it reads as a quiet label in a mock and as unreadable over
-// moving video.
-export const INK = {
-  panel: '#000000',    // 16  — panel fill, the dark end
-  rule: '#303030',     // 236 — section rules
-  ruleDim: '#1c1c1c',  // 234 — rules between blocks
-  artFrame: '#585858', // 240 — art box, the mid step
-  sep: '#4e4e4e',      // 239 — punctuation, never words
-  label: '#949494',    // 246 — stat keys, block labels, tags (AA floor)
-  text: '#d0d0d0',     // 252 — body text
-  frame: '#eeeeee',    // 255 — the outer border, the bright end
-  bright: '#ffffff',   // 231 — card name; content outranks chrome
-  ench: '#af87ff',     // 141 — enchantment
-  opponent: '#ff5f5f', // 203 — opponent ownership
-} as const
+// The greys themselves live in style.css and ONLY there. They used to be mirrored
+// into an `INK` map here that nothing ever imported — a second source of truth that
+// could drift from the stylesheet without a single test noticing. That is precisely
+// how the card art died (a hash map nothing read, quietly going stale), so the copy
+// is gone. Tier hues stay here because they are the one part of the palette real code
+// consumes: tierColor() feeds the tooltip's --tier-color and the panel's tier row.
 
 const TIER_COLORS: Record<string, string> = {
   Bronze: '#d75f00',    // 166
