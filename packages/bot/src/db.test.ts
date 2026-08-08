@@ -6,7 +6,7 @@ import { tmpdir } from 'os'
 // dynamic import to avoid mock.module conflicts from other test files
 const db = await import('./db')
 const { buildChatRecall } = await import('./ai-build')
-const { isPastaRecall } = await import('./pasta')
+const { isPastaRecall, findChatPasta, isConfidentPasta } = await import('./pasta')
 
 let dbPath: string
 
@@ -478,5 +478,50 @@ describe('db', () => {
     expect(db.countUserWordUsage('bob', 'test', '%', '-1 year')).toBe(1)
     // full phrase match
     expect(db.countUserWordUsage('bob', 'test', '100%', '-1 year')).toBe(1)
+  })
+})
+
+// Pasta recall used to return the wrong message entirely. Two ranking bugs compounded:
+// bm25 penalises long documents, so a 43-char chat line sharing a keyword outranked the
+// 494-char pasta chat had posted 316 times; and sorting purely by repeats surfaced the
+// auto-posted ad announcements ("Shop on Amazon...", 2831 reps, 73 chars) instead.
+describe('pasta candidate ranking', () => {
+  // own db lifecycle — this block sits outside describe('db') so it gets no setup from it
+  let pastaDbPath: string
+  const CH = 'pastachan'
+  const PASTA = '"Give me a second, guys," Kripp says. "Gotta hit up the bathroom." He turns down the volume and immediately gives Dex a swift kick down a flight of stairs, then slams Rania into the coffee table without breaking eye contact.'
+  const AD = 'Subscribe to Kripp for daily highlights and guides -- http://example.com/sub'
+
+  beforeEach(() => {
+    pastaDbPath = resolve(tmpdir(), `.bazaarinfo-pasta-${Date.now()}-${Math.random().toString(36).slice(2)}.db`)
+    db.initDb(pastaDbPath)
+    for (let i = 0; i < 30; i++) db.logChat(CH, `spammer${i}`, PASTA)
+    for (let i = 0; i < 60; i++) db.logChat(CH, 'adbot', AD)
+    db.logChat(CH, 'someone', 'Kripp kicked dex down a flight of stairs? D:')
+    db.flushWrites()
+  })
+
+  afterEach(() => {
+    try { db.closeDb() } catch {}
+    cleanPath(pastaDbPath)
+  })
+
+  it('picks the long repeated pasta over a short line that shares keywords', () => {
+    const hit = findChatPasta('recite the pasta where dex gets kicked down the stairs', CH)
+    expect(hit?.message).toBe(PASTA)
+  })
+
+  it('never returns an auto-posted ad, however often it repeats', () => {
+    const hit = findChatPasta('recite the kripp daily highlights pasta', CH)
+    expect(hit?.message).not.toBe(AD)
+  })
+
+  it('trusts a well-matched, heavily repeated hit enough to post verbatim', () => {
+    const hit = findChatPasta('recite the pasta where dex gets kicked down the stairs', CH)
+    expect(hit && isConfidentPasta(hit)).toBe(true)
+  })
+
+  it('does not trust a barely-matched one-off — that still goes through the model', () => {
+    expect(isConfidentPasta({ message: 'x', reps: 2, coverage: 1 })).toBe(false)
   })
 })

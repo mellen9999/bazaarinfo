@@ -85,8 +85,13 @@ export function pastaText(hit: PastaHit): string {
 // A hit we trust enough to post verbatim without the model in the loop. The model kept
 // "reciting" pastas by substituting words with the kripp emote ("Subscribe kripp Kripp's
 // kripp for kripp daily kripp..."), so a confident hit skips it entirely.
+// Two ways to be sure. Several matched keywords is the obvious one. The other covers the
+// natural phrasing "recite the kripp brb copypasta", where the user's own descriptor
+// ("brb") never appears in the pasta text and coverage stalls at 1 — but a long message
+// chat has posted 25+ times that matches what they typed is not ambiguous. The short ad
+// announcements can't reach here; the length floor in searchPastaFTS already dropped them.
 export function isConfidentPasta(hit: PastaHit): boolean {
-  return hit.coverage >= 2 && hit.reps >= 3
+  return (hit.coverage >= 2 && hit.reps >= 3) || (hit.coverage >= 1 && hit.reps >= 25)
 }
 
 
