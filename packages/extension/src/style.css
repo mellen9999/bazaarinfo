@@ -342,6 +342,8 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
   line-height: 1.9;
 }
 
+.panel-lede { color: #949494; margin-bottom: 4px; }
+
 .panel-keys kbd {
   font-family: inherit;
   font-size: inherit;

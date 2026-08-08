@@ -215,6 +215,9 @@ function Panel() {
           wraps into an orphan word */}
       {!selected && results.length === 0 && !noMatch && (
         <div class="panel-keys">
+          {/* the only place we can say the overlay exists without putting anything
+              on the broadcaster's video */}
+          <div class="panel-lede">hover any card on the stream for its tooltip</div>
           <div><kbd>↑</kbd><kbd>↓</kbd> move · <kbd>⏎</kbd> pick</div>
           <div><kbd>←</kbd><kbd>→</kbd> tier · <kbd>esc</kbd> clear</div>
         </div>
