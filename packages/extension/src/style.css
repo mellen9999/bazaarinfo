@@ -76,11 +76,24 @@ body[data-twitch-mode="panel"] #root { position: static; pointer-events: auto; }
    (tier value, enchantment). No blur, no gradient, no transform: a tooltip that
    animates in is a tooltip you read late.
 
+   Luminance runs the full ANSI ramp and it runs in one direction. The fill is the
+   darkest end (16) and the outer frame is the brightest (255), so the card cuts a
+   hard edge out of whatever video is behind it. Only that outer edge is bright —
+   the rules inside stay at 236/234 — because a box where every line shouts has no
+   frame, just noise. The black ring outside the border isolates that bright
+   hairline from a light or busy frame of video.
+
+   Nothing carrying words sits below 246. 242 tested at 3.8:1 on this fill, which is
+   under AA for 13px type: it read as "quiet label" in a mock and as unreadable over
+   moving video.
+
    Size: --ui is how big the video is (scale.ts), --fit is how far this particular
    card had to shrink to fit the frame. The box width follows --ui alone, so the
    fit pass only ever removes wrapping and one measurement always lands. Everything
    inside is em-relative to the one font-size below, so the whole panel is a single
-   number; 1em == 14px at scale 1. Hairlines stay 1px at every scale — a border
+   number; 1em == 14px at scale 1. The em fractions are carried to 4 places so every
+   step lands on a whole pixel at scale 1 — 0.93em is 13.02px, and fractional type
+   is exactly how monospace goes soft. Hairlines stay 1px at every scale — a border
    that thickens with the type reads as a frame instead of a rule. */
 
 .card-tooltip {
@@ -88,9 +101,9 @@ body[data-twitch-mode="panel"] #root { position: static; pointer-events: auto; }
   position: absolute;
   width: min(calc(310px * var(--ui, 1)), calc(100vw - 8px));
   max-width: 100vw;
-  background: rgba(8, 8, 8, 0.96);
-  border: 1px solid #585858;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9);
+  background: rgba(0, 0, 0, 0.96);
+  border: 1px solid #eeeeee;
+  box-shadow: 0 0 0 1px #000;
   color: #d0d0d0;
   font-family: var(--mono);
   font-size: calc(14px * var(--s));
@@ -121,8 +134,8 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 }
 
 .tt-art {
-  width: 2.43em;
-  height: 2.43em;
+  width: 2.4286em;
+  height: 2.4286em;
   flex-shrink: 0;
   background: #121212;
   border: 1px solid #585858;
@@ -143,9 +156,9 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 .tt-art-img.loaded { opacity: 1; }
 
 .tt-art-fallback {
-  font-size: 1.07em;
+  font-size: 1.0714em;
   line-height: 1;
-  color: #6c6c6c;
+  color: #949494;
 }
 
 .tt-head-text {
@@ -154,11 +167,12 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 }
 
 /* The name leads by luminance, not by hue — it is the most important string here
-   regardless of what tier the card happens to be. */
+   regardless of what tier the card happens to be. It sits at the top of the ramp
+   with the frame, so the loudest thing on the card is content rather than chrome. */
 .tt-name {
-  font-size: 1.14em;
+  font-size: 1.1429em;
   font-weight: 700;
-  color: #e4e4e4;
+  color: #ffffff;
   letter-spacing: 0.01em;
   white-space: nowrap;
   overflow: hidden;
@@ -168,7 +182,7 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 .tt-stats {
   margin-top: 0.15em;
   color: #949494;
-  font-size: 0.93em;
+  font-size: 0.9286em;
   display: flex;
   flex-wrap: wrap;
 }
@@ -177,8 +191,8 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
    different facts */
 .tt-stat { white-space: nowrap; }
 
-.tt-sep { color: #4e4e4e; padding: 0 0.38em; }
-.tt-stat-k { color: #6c6c6c; }
+.tt-sep { color: #4e4e4e; padding: 0 0.3846em; }
+.tt-stat-k { color: #949494; }
 .tt-stat-k::after { content: ' '; }
 .tt-stat-v { color: #d0d0d0; }
 
@@ -192,14 +206,14 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 .tt-block + .tt-block { border-top: 1px solid #1c1c1c; }
 
 .tt-label {
-  font-size: 0.93em;
-  color: #6c6c6c;
+  font-size: 0.9286em;
+  color: #949494;
   text-transform: lowercase;
   letter-spacing: 0.02em;
 }
 
-.tt-label::before { content: '── '; color: #3a3a3a; }
-.tt-label::after { content: ' ──'; color: #3a3a3a; }
+.tt-label::before { content: '── '; color: #4e4e4e; }
+.tt-label::after { content: ' ──'; color: #4e4e4e; }
 
 .tt-text { color: #d0d0d0; }
 
@@ -216,7 +230,7 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
    dump has not caught up with still gets its name and tier from the wire, which is
    more than the viewer could read off the stream. */
 .tt-block--note { border-top: 1px solid #1c1c1c; }
-.tt-note { color: #6c6c6c; }
+.tt-note { color: #949494; }
 
 .tt-tags {
   display: flex;
@@ -227,11 +241,11 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 }
 
 .tt-tag {
-  padding: 0 0.38em;
+  padding: 0 0.3846em;
   background: #1c1c1c;
   border: 1px solid #303030;
   color: #949494;
-  font-size: 0.93em;
+  font-size: 0.9286em;
   line-height: 1.35;
 }
 

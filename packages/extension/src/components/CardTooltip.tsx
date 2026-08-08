@@ -142,10 +142,13 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
           <div class="tt-stats">
             {stats.map(([slug, label, v], i) => (
               <span class="tt-stat" key={slug}>
+                {/* Leading, never trailing. Four stats always wrap at this width, and
+                    a trailing separator strands a lone dot at the end of the first
+                    line; leading, the last stat can never end on punctuation and the
+                    wrapped line opens on a continuation mark instead. */}
+                {i > 0 && <span class="tt-sep">·</span>}
                 <span class="tt-stat-k">{label}</span>
                 <span class={`tt-stat-v tt-stat-v--${slug}`}>{v}</span>
-                {/* trailing, so a wrapped line opens on a key rather than a bullet */}
-                {i < stats.length - 1 && <span class="tt-sep">·</span>}
               </span>
             ))}
           </div>
