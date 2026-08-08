@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { tessellate, padVertical } from './tessellate'
+import { tessellate, separateRows, padVertical } from './tessellate'
 
 const row = (xs: [number, number][], extra: Record<string, unknown> = {}) =>
   xs.map(([x, w]) => ({ x, y: 0.6, w, h: 0.2, owner: 'player', type: 'Item', ...extra }))
@@ -94,5 +94,70 @@ describe('tessellate', () => {
     expect(t[0].tier).toBe('Gold')
     expect(t.length).toBe(2)
     expect(input[0].w).toBe(0.05) // input not mutated
+  })
+})
+
+// Real geometry the companion ships: both item rows are quoted as socket-panel
+// heights, and the panels sit flush, so the raw boxes cross by ~0.011 before any
+// padding is applied. These are the numbers from logwatch.py.
+const PLAYER_ROW = { y: 0.502838, h: 0.231916, owner: 'player', type: 'Item' }
+const OPPONENT_ROW = { y: 0.281485, h: 0.231916, owner: 'opponent', type: 'Item' }
+
+describe('separateRows', () => {
+  it('splits an overlapping player/opponent pair at the midpoint', () => {
+    const [opp, ply] = separateRows([
+      { x: 0.5, w: 0.06, ...OPPONENT_ROW },
+      { x: 0.5, w: 0.06, ...PLAYER_ROW },
+    ])
+    const oppBottom = opp.y + opp.h
+    expect(oppBottom).toBeCloseTo(ply.y, 9)
+    // split point sits inside the original overlap band, not outside it
+    expect(oppBottom).toBeGreaterThan(PLAYER_ROW.y)
+    expect(oppBottom).toBeLessThan(OPPONENT_ROW.y + OPPONENT_ROW.h)
+  })
+
+  it('leaves same-row neighbours alone', () => {
+    const zs = row([[0.10, 0.05], [0.20, 0.05]])
+    expect(separateRows(zs)).toEqual(zs)
+  })
+
+  it('never grows a zone', () => {
+    const before = [{ x: 0.5, w: 0.06, ...OPPONENT_ROW }, { x: 0.5, w: 0.06, ...PLAYER_ROW }]
+    for (const [i, z] of separateRows(before).entries()) {
+      expect(z.h).toBeLessThanOrEqual(before[i].h + 1e-12)
+    }
+  })
+
+  it('refuses to trim a row fully swallowed by another', () => {
+    const zs = [
+      { x: 0.5, w: 0.06, y: 0.2, h: 0.6, owner: 'opponent', type: 'Item' },
+      { x: 0.5, w: 0.06, y: 0.4, h: 0.1, owner: 'player', type: 'Item' },
+    ]
+    expect(separateRows(zs)).toEqual(zs)
+  })
+})
+
+describe('padVertical row clamp', () => {
+  it('cannot pad one row into another', () => {
+    const [opp, ply] = padVertical(separateRows([
+      { x: 0.5, w: 0.06, ...OPPONENT_ROW },
+      { x: 0.5, w: 0.06, ...PLAYER_ROW },
+    ]), 0.12, 0.03)
+    expect(opp.y + opp.h).toBeLessThanOrEqual(ply.y + 1e-12)
+  })
+
+  it('still pads freely when there is nothing above or below', () => {
+    const [z] = padVertical([{ x: 0.5, w: 0.06, ...PLAYER_ROW }], 0.12, 0.03)
+    const grow = Math.min(PLAYER_ROW.h * 0.12, 0.03)
+    expect(z.y).toBeCloseTo(PLAYER_ROW.y - grow, 9)
+    expect(z.y + z.h).toBeCloseTo(PLAYER_ROW.y + PLAYER_ROW.h + grow, 9)
+  })
+
+  it('lets a same-row neighbour pad by the full amount', () => {
+    const zs = row([[0.10, 0.05], [0.20, 0.05]])
+    const grow = Math.min(0.2 * 0.12, 0.03)
+    for (const z of padVertical(zs, 0.12, 0.03)) {
+      expect(z.y).toBeCloseTo(0.6 - grow, 9)
+    }
   })
 })
