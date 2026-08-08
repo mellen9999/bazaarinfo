@@ -1,61 +1,44 @@
 import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
 
-export interface TierStyle {
-  color: string
-  glow: string
-  gradient: string
-  hzColor: string
-  hzGlow: string
+// Colour doctrine for the overlay: monochrome by default, hue only where the hue IS
+// the information. Greys carry all structure and all text hierarchy (luminance =
+// importance); a colour appears exactly once per fact it encodes.
+//
+//   grey ramp    structure, labels, values — everything not listed below
+//   tier hue     the tier value in the stat line, and nowhere else
+//   purple 141   enchantment (stat value + effect block)
+//   red 203      opponent ownership (hover-zone outline)
+//
+// Painting the tier hue on the border, the art frame, the name and the hover outline
+// all at once — as this did — says "tier" four times and everything else zero times,
+// so it reads as decoration and buries the one place a reader is actually looking.
+export const INK = {
+  panel: '#080808',    // 232 — panel fill
+  rule: '#303030',     // 236 — section rules
+  ruleDim: '#1c1c1c',  // 234 — rules between blocks
+  frame: '#585858',    // 240 — panel and art border
+  label: '#6c6c6c',    // 242 — stat keys, block labels
+  dim: '#949494',      // 246 — tags
+  text: '#d0d0d0',     // 252 — body text
+  bright: '#e4e4e4',   // 254 — card name
+  ench: '#af87ff',     // 141 — enchantment
+  opponent: '#ff5f5f', // 203 — opponent ownership
+} as const
+
+const TIER_COLORS: Record<string, string> = {
+  Bronze: '#d75f00',    // 166
+  Silver: '#bcbcbc',    // 250
+  Gold: '#ffd700',      // 220
+  Diamond: '#87ffff',   // 123
+  Legendary: '#af87ff', // 141
 }
 
-const FALLBACK: TierStyle = {
-  color: '#9aa0a6',
-  glow: 'rgba(154, 160, 166, 0.3)',
-  gradient: 'linear-gradient(90deg, #9aa0a6 0%, #5f6368 100%)',
-  hzColor: 'rgba(154, 160, 166, 0.6)',
-  hzGlow: 'rgba(154, 160, 166, 0.18)',
-}
+const UNKNOWN_TIER = '#8a8a8a' // 245
 
-const TIER_STYLES: Record<string, TierStyle> = {
-  Bronze: {
-    color: '#cd7f32',
-    glow: 'rgba(205, 127, 50, 0.35)',
-    gradient: 'linear-gradient(90deg, #cd7f32 0%, #a0522d 100%)',
-    hzColor: 'rgba(205, 127, 50, 0.7)',
-    hzGlow: 'rgba(205, 127, 50, 0.22)',
-  },
-  Silver: {
-    color: '#c0c0c0',
-    glow: 'rgba(192, 192, 192, 0.28)',
-    gradient: 'linear-gradient(90deg, #c0c0c0 0%, #888 100%)',
-    hzColor: 'rgba(192, 192, 192, 0.6)',
-    hzGlow: 'rgba(192, 192, 192, 0.18)',
-  },
-  Gold: {
-    color: '#ffd700',
-    glow: 'rgba(255, 215, 0, 0.38)',
-    gradient: 'linear-gradient(90deg, #ffd700 0%, #b8860b 100%)',
-    hzColor: 'rgba(255, 215, 0, 0.75)',
-    hzGlow: 'rgba(255, 215, 0, 0.26)',
-  },
-  Diamond: {
-    color: '#b9f2ff',
-    glow: 'rgba(185, 242, 255, 0.32)',
-    gradient: 'linear-gradient(90deg, #b9f2ff 0%, #5bb8d4 100%)',
-    hzColor: 'rgba(185, 242, 255, 0.65)',
-    hzGlow: 'rgba(185, 242, 255, 0.22)',
-  },
-  Legendary: {
-    color: '#b060ff',
-    glow: 'rgba(176, 96, 255, 0.42)',
-    gradient: 'linear-gradient(90deg, #b060ff 0%, #6a0daa 100%)',
-    hzColor: 'rgba(176, 96, 255, 0.72)',
-    hzGlow: 'rgba(176, 96, 255, 0.28)',
-  },
-}
-
-export function tierStyle(tier: string): TierStyle {
-  return TIER_STYLES[tier] ?? FALLBACK
+// The tier's colour, for the one place the tier is stated. An unrecognised tier gets
+// neutral grey rather than a guess — a wrong hue asserts a tier we don't have.
+export function tierColor(tier: string): string {
+  return TIER_COLORS[tier] ?? UNKNOWN_TIER
 }
 
 export function deriveValidTiers(cards: Iterable<BazaarCard>): Set<string> {
@@ -67,5 +50,5 @@ export function deriveValidTiers(cards: Iterable<BazaarCard>): Set<string> {
 export function isPlausibleTierString(s: unknown, valid: Set<string>): s is TierName {
   if (typeof s !== 'string' || s.length === 0 || s.length > 32) return false
   if (valid.size > 0) return valid.has(s)
-  return s in TIER_STYLES
+  return s in TIER_COLORS
 }

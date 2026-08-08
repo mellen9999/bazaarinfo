@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { tierStyle, deriveValidTiers, isPlausibleTierString } from './tiers'
+import { tierColor, deriveValidTiers, isPlausibleTierString } from './tiers'
 import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
 
 const FAKE = (tiers: TierName[]): BazaarCard => ({
@@ -9,24 +9,23 @@ const FAKE = (tiers: TierName[]): BazaarCard => ({
   Size: 'Small', Type: 'Item', ArtKey: '', Shortlink: '',
 } as unknown as BazaarCard)
 
-describe('tierStyle', () => {
-  it('returns canonical styles for known tiers', () => {
-    for (const t of ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']) {
-      const s = tierStyle(t)
-      expect(s.color).not.toBe('#9aa0a6')
-      expect(s.gradient).toContain('linear-gradient')
+const TIERS = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
+
+describe('tierColor', () => {
+  it('gives every known tier its own colour', () => {
+    const colors = TIERS.map(tierColor)
+    expect(new Set(colors).size).toBe(TIERS.length)
+    for (const c of colors) expect(c).not.toBe(tierColor('Mythic'))
+  })
+
+  it('always returns a colour', () => {
+    for (const t of [...TIERS, 'Mythic', '']) {
+      expect(tierColor(t)).toMatch(/^#[0-9a-f]{6}$/i)
     }
   })
 
-  it('falls back gracefully for unknown tier', () => {
-    const s = tierStyle('Mythic')
-    expect(s.color).toBe('#9aa0a6')
-    expect(s.gradient).toContain('linear-gradient')
-    expect(s.hzColor).toBeTruthy()
-  })
-
-  it('handles empty string', () => {
-    expect(tierStyle('').color).toBe('#9aa0a6')
+  it('falls back to one neutral grey for anything unknown', () => {
+    expect(tierColor('')).toBe(tierColor('Mythic'))
   })
 })
 

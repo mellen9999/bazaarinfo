@@ -1,7 +1,6 @@
 import { memo } from 'preact/compat'
 import { useCallback, useMemo } from 'preact/hooks'
 import type { TierName } from '@bazaarinfo/shared/src/types'
-import { tierStyle } from '../tiers'
 
 interface DetectedSlot {
   title: string
@@ -30,17 +29,16 @@ export const HoverZone = memo(function HoverZone({ title, tier, x, y, w, h, owne
     [title, tier, x, y, w, h, owner, type, enchantment],
   )
 
-  const style = useMemo(() => {
-    const s = tierStyle(tier)
-    return {
-      left: `${Math.max(0, Math.min(1 - w, x)) * 100}%`,
-      top: `${Math.max(0, Math.min(1 - h, y)) * 100}%`,
-      width: `${Math.min(w, 1) * 100}%`,
-      height: `${Math.min(h, 1) * 100}%`,
-      '--hz-color': isOpponent ? undefined : s.hzColor,
-      '--hz-glow': isOpponent ? undefined : s.hzGlow,
-    } as Record<string, string>
-  }, [x, y, w, h, tier, isOpponent])
+  // An outline means "you are on this card", not "this card is Gold" — the tier is
+  // already stated, in colour, inside the tooltip. The only thing worth encoding
+  // here is whose card it is, so the outline is neutral for the player and red for
+  // the opponent (see the colour doctrine in tiers.ts).
+  const style = useMemo(() => ({
+    left: `${Math.max(0, Math.min(1 - w, x)) * 100}%`,
+    top: `${Math.max(0, Math.min(1 - h, y)) * 100}%`,
+    width: `${Math.min(w, 1) * 100}%`,
+    height: `${Math.min(h, 1) * 100}%`,
+  }), [x, y, w, h])
 
   const handleEnter = useCallback(() => onHover(slot), [onHover, slot])
 

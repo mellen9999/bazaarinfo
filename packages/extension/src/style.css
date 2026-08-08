@@ -40,259 +40,174 @@ body[data-twitch-mode="panel"] { background: #111; }
   content: '';
   position: absolute;
   inset: -1px;
-  border-radius: 5px;
-  border: 1.5px solid rgba(255, 255, 255, 0.0);
-  box-shadow: 0 0 0 0 transparent;
+  border: 1.5px solid transparent;
   opacity: 0;
-  transition: opacity 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+  transition: opacity 140ms ease, border-color 140ms ease;
   pointer-events: none;
 }
 
+/* An outline says "you are on this card". The only extra fact worth carrying is
+   whose card it is, so the player's is neutral and the opponent's is red — the tier
+   is stated once, in colour, inside the tooltip. */
 .hover-zone:hover::after,
 .hover-zone:focus-visible::after {
   opacity: 1;
-  border-color: var(--hz-color, rgba(255, 255, 255, 0.55));
-  box-shadow: 0 0 8px 1px var(--hz-glow, rgba(255, 255, 255, 0.18));
+  border-color: rgba(228, 228, 228, 0.85);
 }
 
 .hover-zone:focus { outline: none; }
-.hover-zone:focus-visible::after {
-  border-width: 2px;
+.hover-zone:focus-visible::after { border-width: 2px; }
+
+.hover-zone--opponent:hover::after,
+.hover-zone--opponent:focus-visible::after {
+  border-color: #ff5f5f;
 }
 
-.hover-zone--skill::after {
-  border-radius: 50%;
-}
-
-.hover-zone--opponent::after {
-  border-color: rgba(255, 80, 80, 0.65);
-  box-shadow: 0 0 8px 1px rgba(220, 40, 40, 0.25);
-}
-
-.hover-zone--opponent:hover::after {
-  border-color: rgba(255, 80, 80, 0.9);
-  box-shadow: 0 0 12px 2px rgba(220, 40, 40, 0.35);
-}
-
-/* ── Tooltip ── */
+/* ── Tooltip ──
+   Terminal panel: monospace, square, solid background, one readable text size.
+   Colour follows the doctrine in tiers.ts — the grey ramp carries all structure and
+   all hierarchy, and a hue appears only where the hue is the fact being stated
+   (tier value, enchantment). No blur, no gradient, no transform: a tooltip that
+   animates in is a tooltip you read late. */
 
 .card-tooltip {
   position: absolute;
-  width: min(280px, calc(100vw - 8px));
+  width: min(310px, calc(100vw - 8px));
   max-width: 100vw;
-  background: rgba(10, 10, 14, 0.94);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  box-shadow:
-    0 0 0 1px var(--tier-glow, transparent),
-    0 0 20px 2px var(--tier-glow, transparent),
-    0 12px 40px rgba(0, 0, 0, 0.65),
-    0 2px 8px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  color: #dcdcdc;
-  font-size: 12px;
+  background: rgba(8, 8, 8, 0.96);
+  border: 1px solid #585858;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9);
+  color: #d0d0d0;
+  font-family: ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 14px;
   line-height: 1.45;
-  overflow: hidden;
+  max-height: min(360px, calc(100vh - 8px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   pointer-events: none;
   opacity: 0;
-  transform: translateY(8px) scale(0.96);
-  transition: opacity 150ms ease, transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
-  will-change: transform, opacity;
   contain: layout style;
   z-index: 100;
 }
 
-.card-tooltip.visible {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-}
+.card-tooltip.visible { opacity: 1; }
 
-.tooltip-tier-bar {
-  height: 3px;
-  width: 100%;
-  background: var(--tier-gradient, #888);
-  opacity: 0.9;
-}
-
-.tooltip-body {
-  padding: 12px 14px 14px;
-  max-height: min(320px, calc(100vh - 24px));
-  overflow-y: auto;
-  contain: layout;
-  overscroll-behavior: contain;
-}
-
-.tooltip-header {
+.tt-head {
   display: flex;
-  align-items: center;
-  gap: 11px;
-  margin-bottom: 11px;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 9px;
+  border-bottom: 1px solid #303030;
 }
 
-.tooltip-art {
-  width: 42px;
-  height: 42px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 2px solid var(--ring-color, rgba(255, 255, 255, 0.12));
-  box-shadow: 0 0 10px 1px var(--ring-glow, transparent);
+.tt-art {
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
+  background: #121212;
+  border: 1px solid #585858;
   overflow: hidden;
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.tooltip-art-img {
+.tt-art-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
   opacity: 0;
-  transition: opacity 200ms ease;
 }
 
-.tooltip-art-img.loaded {
-  opacity: 1;
-}
+.tt-art-img.loaded { opacity: 1; }
 
-.tooltip-art-fallback {
-  font-size: 20px;
+.tt-art-fallback {
+  font-size: 15px;
   line-height: 1;
-  opacity: 0.7;
+  color: #6c6c6c;
 }
 
-.tooltip-title-block {
+.tt-head-text {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
-.tooltip-name {
+/* The name leads by luminance, not by hue — it is the most important string here
+   regardless of what tier the card happens to be. */
+.tt-name {
+  font-size: 16px;
   font-weight: 700;
-  font-size: 15px;
-  color: #fff;
+  color: #e4e4e4;
+  letter-spacing: 0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  letter-spacing: -0.015em;
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
 }
 
-.tooltip-badges {
-  display: flex;
-  gap: 5px;
-  align-items: center;
-}
-
-.tooltip-size {
-  display: inline-block;
-  font-size: 9px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #888;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.tooltip-enchantment {
-  display: inline-block;
-  font-size: 9px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 4px;
-  background: rgba(147, 51, 234, 0.18);
-  border: 1px solid rgba(176, 96, 255, 0.3);
-  color: #c084fc;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  box-shadow: 0 0 8px rgba(147, 51, 234, 0.25);
-}
-.tooltip-tier {
-  display: inline-block;
-  font-size: 9px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid currentColor;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  opacity: 0.9;
-}
-.tooltip-cd {
-  display: inline-block;
-  font-size: 9px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(56, 189, 248, 0.14);
-  border: 1px solid rgba(56, 189, 248, 0.32);
-  color: #7dd3fc;
-  letter-spacing: 0.04em;
-}
-.tooltip-cd::before {
-  content: "↻ ";
-}
-.tooltip-enchant-effect {
-  margin-top: 6px;
-  border-left: 2px solid rgba(176, 96, 255, 0.5);
-  padding-left: 7px;
-}
-.tooltip-enchant-effect .tooltip-tip-type {
-  color: #c084fc;
-}
-
-.tooltip-tooltips {
-  margin-bottom: 10px;
-}
-
-.tooltip-tip {
-  padding: 7px 0;
-  color: #c4c4c4;
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.tooltip-tip + .tooltip-tip {
-  border-top: 1px solid rgba(255, 255, 255, 0.055);
-}
-
-.tooltip-tip-type {
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: #555;
-  margin-bottom: 3px;
-}
-
-.tooltip-tags {
+.tt-stats {
+  margin-top: 2px;
+  color: #949494;
+  font-size: 13px;
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.055);
 }
 
-.tooltip-tag {
-  font-size: 9.5px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.055);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #6a6a6a;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+/* wraps as a whole, never mid-pair — a stat split across two lines reads as two
+   different facts */
+.tt-stat { white-space: nowrap; }
+
+.tt-sep { color: #4e4e4e; padding: 0 5px; }
+.tt-stat-k { color: #6c6c6c; }
+.tt-stat-k::after { content: ' '; }
+.tt-stat-v { color: #d0d0d0; }
+
+/* the two values that ARE a colour */
+.tt-stat-v--tier { color: var(--tier-color, #8a8a8a); }
+.tt-stat-v--ench { color: #af87ff; }
+
+.tt-blocks { padding: 2px 0; }
+
+.tt-block { padding: 5px 9px; }
+.tt-block + .tt-block { border-top: 1px solid #1c1c1c; }
+
+.tt-label {
+  font-size: 13px;
+  color: #6c6c6c;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+
+.tt-label::before { content: '── '; color: #3a3a3a; }
+.tt-label::after { content: ' ──'; color: #3a3a3a; }
+
+.tt-text { color: #d0d0d0; }
+
+.tt-block--ench {
+  border-top: 1px solid #1c1c1c;
+  border-left: 2px solid #af87ff;
+}
+
+.tt-block--ench .tt-label { color: #af87ff; }
+.tt-block--ench .tt-label::before,
+.tt-block--ench .tt-label::after { color: #5f4a87; }
+
+.tt-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 9px;
+  border-top: 1px solid #303030;
+}
+
+.tt-tag {
+  padding: 0 5px;
+  background: #1c1c1c;
+  border: 1px solid #303030;
+  color: #949494;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 /* ── Panel ── */
@@ -308,7 +223,6 @@ body[data-twitch-mode="panel"] { background: #111; }
 .panel-search {
   width: 100%;
   padding: 8px;
-  border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   background: rgba(255, 255, 255, 0.07);
   color: #fff;
@@ -321,14 +235,13 @@ body[data-twitch-mode="panel"] { background: #111; }
   margin: 4px 0 0;
   padding: 0;
   background: rgba(0, 0, 0, 0.8);
-  border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .panel-result {
   padding: 8px 12px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .panel-selected {
@@ -344,10 +257,9 @@ body[data-twitch-mode="panel"] { background: #111; }
 
 .panel-tier-btn {
   padding: 2px 8px;
-  border-radius: 4px;
   border: none;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   background: rgba(255, 255, 255, 0.07);
   color: #ddd;
 }
@@ -359,9 +271,7 @@ body[data-twitch-mode="panel"] { background: #111; }
 /* ── Accessibility ── */
 
 @media (prefers-reduced-motion: reduce) {
-  .hover-zone::after,
-  .card-tooltip,
-  .tooltip-art-img {
+  .hover-zone::after {
     transition: none;
   }
 }

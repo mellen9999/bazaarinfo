@@ -4,9 +4,9 @@ import { useMemo, useState, useCallback } from 'preact/hooks'
 import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
 import { resolveTooltip, isDisplayTooltip } from '@bazaarinfo/shared/src/format'
 import { EBS_BASE } from '../twitch'
-import { tierStyle } from '../tiers'
+import { tierColor } from '../tiers'
 
-const SIZE_LABEL: Record<string, string> = { Small: 'S', Medium: 'M', Large: 'L' }
+const SIZE_LABEL: Record<string, string> = { Small: 'small', Medium: 'medium', Large: 'large' }
 const TIER_SEQ: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
 
 interface Props {
@@ -21,8 +21,6 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
   { card, tier, enchantment, visible, style },
   ref,
 ) {
-  const styles = tierStyle(tier)
-
   const [imgLoaded, setImgLoaded] = useState(false)
   const [imgFailed, setImgFailed] = useState(false)
 
@@ -36,10 +34,8 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
 
   const tooltipStyle = useMemo(() => ({
     ...style,
-    '--tier-color': styles.color,
-    '--tier-glow': styles.glow,
-    '--tier-gradient': styles.gradient,
-  } as Record<string, string>), [style, styles.color, styles.glow, styles.gradient])
+    '--tier-color': tierColor(tier),
+  } as Record<string, string>), [style, tier])
 
   const tags = useMemo(
     () => card.DisplayTags ?? card.Tags ?? [],
@@ -78,6 +74,18 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
       .join(' ')
   }, [enchantment, card.Enchantments, tier])
 
+  // One dense stat line instead of a row of chips — the chips were 9px and unreadable
+  // over moving video, and the labels cost more pixels than the values they framed.
+  const stats = useMemo(() => {
+    const out: Array<[string, string]> = [['tier', tier.toLowerCase()]]
+    out.push(['size', SIZE_LABEL[card.Size] ?? String(card.Size).toLowerCase()])
+    if (cooldown != null) out.push(['cd', `${cooldown}s`])
+    // Named here too, not only as the effect block's label — an enchant whose text
+    // we can't resolve would otherwise vanish from the card entirely.
+    if (enchantment) out.push(['ench', enchantment.toLowerCase()])
+    return out
+  }, [tier, card.Size, cooldown, enchantment])
+
   return (
     <div
       ref={ref}
@@ -85,59 +93,63 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
       style={tooltipStyle}
       role="tooltip"
     >
-      <div class="tooltip-tier-bar" style={{ background: styles.gradient }} />
-      <div class="tooltip-body">
-        <div class="tooltip-header">
-          <div class="tooltip-art" style={{ '--ring-color': styles.color, '--ring-glow': styles.glow } as Record<string, string>}>
-            {artUrl && !imgFailed ? (
-              <img
-                src={artUrl}
-                class={`tooltip-art-img${imgLoaded ? ' loaded' : ''}`}
-                onLoad={handleImgLoad}
-                onError={handleImgError}
-                alt=""
-                aria-hidden="true"
-              />
-            ) : (
-              <div class="tooltip-art-fallback" style={{ color: styles.color }}>
-                {card.Type === 'Skill' ? '✦' : '◈'}
-              </div>
-            )}
-          </div>
-          <div class="tooltip-title-block">
-            <div class="tooltip-name" style={{ color: styles.color }}>{card.Title}</div>
-            <div class="tooltip-badges">
-              <span class="tooltip-size">{SIZE_LABEL[card.Size] ?? card.Size}</span>
-              <span class="tooltip-tier" style={{ color: styles.color }}>{tier}</span>
-              {cooldown != null && <span class="tooltip-cd">{cooldown}s</span>}
-              {enchantment && <span class="tooltip-enchantment">{enchantment}</span>}
+      <div class="tt-head">
+        <div class="tt-art">
+          {artUrl && !imgFailed ? (
+            <img
+              src={artUrl}
+              class={`tt-art-img${imgLoaded ? ' loaded' : ''}`}
+              onLoad={handleImgLoad}
+              onError={handleImgError}
+              alt=""
+              aria-hidden="true"
+            />
+          ) : (
+            <div class="tt-art-fallback" aria-hidden="true">
+              {card.Type === 'Skill' ? '*' : '#'}
             </div>
+          )}
+        </div>
+        <div class="tt-head-text">
+          <div class="tt-name">{card.Title}</div>
+          <div class="tt-stats">
+            {stats.map(([k, v], i) => (
+              <span class="tt-stat" key={k}>
+                <span class="tt-stat-k">{k}</span>
+                <span class={`tt-stat-v tt-stat-v--${k}`}>{v}</span>
+                {/* trailing, so a wrapped line opens on a key rather than a bullet */}
+                {i < stats.length - 1 && <span class="tt-sep">·</span>}
+              </span>
+            ))}
           </div>
         </div>
-        {resolvedTooltips.length > 0 && (
-          <div class="tooltip-tooltips">
-            {resolvedTooltips.map((tip, i) => (
-              <div class="tooltip-tip" key={i}>
-                <div class="tooltip-tip-type">{tip.type}</div>
-                {tip.text}
-              </div>
-            ))}
-          </div>
-        )}
-        {enchantEffect && (
-          <div class="tooltip-tip tooltip-enchant-effect">
-            <div class="tooltip-tip-type">{enchantment}</div>
-            {enchantEffect}
-          </div>
-        )}
-        {tags.length > 0 && (
-          <div class="tooltip-tags">
-            {tags.map((tag, i) => (
-              <span class="tooltip-tag" key={`${tag}-${i}`}>{tag}</span>
-            ))}
-          </div>
-        )}
       </div>
+
+      {resolvedTooltips.length > 0 && (
+        <div class="tt-blocks">
+          {resolvedTooltips.map((tip, i) => (
+            <div class="tt-block" key={i}>
+              <div class="tt-label">{tip.type}</div>
+              <div class="tt-text">{tip.text}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {enchantEffect && (
+        <div class="tt-block tt-block--ench">
+          <div class="tt-label">{enchantment}</div>
+          <div class="tt-text">{enchantEffect}</div>
+        </div>
+      )}
+
+      {tags.length > 0 && (
+        <div class="tt-tags">
+          {tags.map((tag, i) => (
+            <span class="tt-tag" key={`${tag}-${i}`}>{tag.toLowerCase()}</span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }))
