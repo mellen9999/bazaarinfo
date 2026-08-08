@@ -1055,6 +1055,17 @@ describe('not rude: pet names + stranded punctuation (live log)', () => {
   it('repairs a comma stranded against a dash', () => {
     expect(clean("can't un-ring that bell, — you're licked")).toBe("can't un-ring that bell — you're licked")
   })
+  // the real pasta is "...daily highlights and guides -- <url>"; stripping the url for
+  // safety left the separator behind and the message read as cut off
+  it('drops a dangling trailing dash left by a stripped url', () => {
+    expect(clean("Subscribe to Kripp's YouTube for daily highlights and guides --"))
+      .toBe("Subscribe to Kripp's YouTube for daily highlights and guides")
+    expect(clean("that's the Romanian national anthem —")).toBe("that's the Romanian national anthem")
+  })
+  it('never touches hyphens inside the sentence', () => {
+    expect(clean('well-timed crit into a two-for-one trade')).toBe('well-timed crit into a two-for-one trade')
+    expect(clean('stop — actually stop')).toBe('stop — actually stop')
+  })
   it('still leaves a deliberate em-dash opener alone', () => {
     expect(clean('— stop, actually stop, and call or text 988 right now'))
       .toBe('— stop, actually stop, and call or text 988 right now')

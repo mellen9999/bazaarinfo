@@ -432,7 +432,11 @@ export function healPunctuation(text: string): string {
     .replace(/([,;:])\s*([—–])\s*/g, ' $2 ')   // comma stranded against a dash
     .replace(/([,;:])\1+/g, '$1')              // doubled separators
     .replace(/\s{2,}/g, ' ')
-    .replace(/[\s,;:]+$/, '')                  // trailing separator with nothing after
+    // trailing separator with nothing after it. dashes included: they are left behind
+    // when whatever followed gets stripped (a URL out of a recited pasta, a clause off
+    // the length cap), and "…daily highlights and guides --" reads as a broken message.
+    .replace(/[\s,;:]+$/, '')
+    .replace(/\s*[-–—]{1,3}\s*$/, '')
     // leading separator with nothing before it — left by stripping whatever opened the
     // line (a pet name, a tic, the asker's own name). a comma/colon never opens a
     // sentence on purpose; a dash can, so dashes are handled only where a name came out.
