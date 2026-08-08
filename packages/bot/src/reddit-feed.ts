@@ -18,8 +18,11 @@ import { notify } from './notify'
 const UA = 'BazaarInfo/1.0 (+github.com/mellen9999/bazaarinfo)'
 const FETCH_TIMEOUT = 20_000
 
-// measured against the live feed: back-to-back requests 429, and even a 20s gap does.
-// 90s clears it with margin. This is a floor between requests, not a poll interval.
+// Measured against the live feed: back-to-back and 20s both 429; 60s and 90s pass; a
+// third request at 150s 429'd anyway. So this is a QUOTA over a window, not a fixed
+// interval — spacing alone cannot guarantee a slot, which is why the 429 backoff below
+// is the real safety net and a total failure is allowed to return empty rather than throw.
+// 90s is simply the cheapest spacing that made the two scheduled refreshes both land.
 const MIN_GAP_MS = 90_000
 const MAX_429_RETRIES = 3
 const RETRY_BACKOFF_MS = [60_000, 120_000, 240_000]
