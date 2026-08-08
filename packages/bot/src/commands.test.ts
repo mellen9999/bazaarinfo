@@ -3563,3 +3563,33 @@ describe('AI-miss fallback does not pose as a failed item lookup', () => {
     expect(out).toMatch(/found only dust|isn't a thing|ancient scrolls|bazaar keeper|squints|laughed|no record|turning the bazaar/i)
   })
 })
+
+// "roast a random chatter" made the bot pick a bystander who never opted in — three
+// times in one stream, twice using the target's own logged asks as the punchline.
+// Redirected, never refused: chat asked for a roast and still gets one.
+describe('roasts aim at someone who opted in', () => {
+  const askedWith = () => (mockAiRespond.mock.calls.at(-1)?.[0] ?? '') as string
+
+  it('steers a random-chatter roast away from the bystander', async () => {
+    mockAiRespond.mockResolvedValueOnce({ text: 'fine', mentions: [] })
+    await handleCommand('!b roast a random chatter not me', { user: 'u', channel: 'c' })
+    expect(askedWith()).toMatch(/ROAST TARGET/)
+  })
+
+  it('steers "roast someone" and "cook a random chatter" too', async () => {
+    for (const q of ['roast someone', 'cook a random chatter']) {
+      mockAiRespond.mockResolvedValueOnce({ text: 'fine', mentions: [] })
+      await handleCommand(`!b ${q}`, { user: 'u', channel: 'c' })
+      expect(askedWith()).toMatch(/ROAST TARGET/)
+    }
+  })
+
+  // naming a target is a chat-culture opt-in, and self/meta roasts were never the problem
+  it('leaves named, self and meta roasts completely open', async () => {
+    for (const q of ['roast DeviantHS', 'roast me', 'roast the meta', 'roast my build']) {
+      mockAiRespond.mockResolvedValueOnce({ text: 'fine', mentions: [] })
+      await handleCommand(`!b ${q}`, { user: 'u', channel: 'c' })
+      expect(askedWith()).not.toMatch(/ROAST TARGET/)
+    }
+  })
+})

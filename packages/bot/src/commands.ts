@@ -47,6 +47,18 @@ const NO_MATCH_LINES = [
   (q: string) => `the ancient scrolls contain no record of "${q}"`,
 ]
 let noMatchIdx = 0
+// "roast a random chatter", "cook someone (not me)" — the asker volunteers a BYSTANDER.
+// Whoever gets picked never opted in, and the bot went at them three times in one stream,
+// twice using their own logged asks as the punchline. Named targets are left alone: naming
+// someone is a chat-culture opt-in and this bot stays open. Only the unnamed pick is
+// redirected, and redirected rather than refused — chat asked for a roast, so they get a
+// real one, aimed at the person who actually asked for it.
+const BYSTANDER_ROAST_RE = /\b(roast|cook|flame|destroy|dunk on|insult|make fun of|clown on|drag)\b[^.?!]{0,20}\b(random|some(?:one|body)|any(?:one|body)|a chatter|another chatter|other chatters?|a viewer|a user|chat)\b/i
+function steerBystanderRoast(query: string): string {
+  if (!BYSTANDER_ROAST_RE.test(query)) return query
+  return `${query} [ROAST TARGET: do NOT pick an uninvolved chatter — they never opted in. Turn it on the ASKER instead (they asked for it) or on yourself/the meta, and actually land it. Never use anyone's logged history or ask-count as the punchline.]`
+}
+
 // an item lookup is a NAME — a few words, no question, no ask for an opinion. only those
 // deserve the "searched the bazaar, found only dust" miss line; anything else that reaches
 // the AI fallback is conversation, where that quip is the banned no-bazaar-data dodge.
@@ -901,7 +913,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // extract @mentions to tag at end of response
   const mentions = args.match(/@\w+/g) ?? []
   // keep usernames in AI query (strip @ only), strip fully for item lookup
-  const aiQuery = args.replace(/@(\w+)/g, '$1').replace(/"/g, '').replace(/\s+/g, ' ').trim()
+  const aiQuery = steerBystanderRoast(args.replace(/@(\w+)/g, '$1').replace(/"/g, '').replace(/\s+/g, ' ').trim())
   const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
 
   // bare !b in a thread reply → read the full thread and try to help

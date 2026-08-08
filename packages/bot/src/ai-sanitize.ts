@@ -10,7 +10,11 @@ export const BANNED_OPENERS = /^(chief|ok so|alright so)\b,?\s*/i
 export const BANNED_FILLER = /,\s*chat\s*$/i
 export const SELF_REF = /\b(as a bot,? i (can'?t|don'?t|shouldn'?t)|as an ai|im (just )?an ai|im just code|im (just )?software|im (just )?a program)\b/i
 export const NARRATION = /^.{0,20}(the user|they|he|she|you)\s+(just asked|is asking|asked about|wants to know|asking me to|asked me to|asked for)\b/i
-export const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chief)\b/gi
+// pet names are a VOICE BAN in the prompt and shipped anyway ("we can do this, champ",
+// "buddy, that's not a vibe") — condescending in exactly the way a roast is not supposed
+// to be. Stripped rather than blocked: the rest of the reply is usually fine, and
+// healPunctuation closes the hole the removed word leaves behind.
+export const VERBAL_TICS = /\b(respect the commitment|thats just how it goes|the natural evolution|chief|champ|buddy|bud|pal|sport|kiddo|kid|big guy|my guy|my dude)\b/gi
 export const BANNED_PHRASES: [RegExp, string[]][] = [
   [/\bno clue\b/gi, ['not sure', 'beats me', "couldn't tell ya"]],
   [/\bno idea\b/gi, ['not sure', 'beats me', "couldn't tell ya"]],
@@ -373,7 +377,11 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
     s = lastBreak > 200 ? cut.slice(0, lastBreak) : cut.replace(/\s+\S*$/, '')
   }
 
-  return { text: s.trim(), mentions }
+  // final punctuation repair. sanitize removes a lot by this point — names, tics, pet
+  // names, banned openers, filler — and each removal can strand a separator. healPunctuation
+  // already existed for the emote strippers; running it once at the end covers every
+  // stripper instead, so lines like "can't un-ring that bell, — you're licked" stop shipping.
+  return { text: healPunctuation(s), mentions }
 }
 
 // --- model refusal detection ---
@@ -425,6 +433,10 @@ export function healPunctuation(text: string): string {
     .replace(/([,;:])\1+/g, '$1')              // doubled separators
     .replace(/\s{2,}/g, ' ')
     .replace(/[\s,;:]+$/, '')                  // trailing separator with nothing after
+    // leading separator with nothing before it — left by stripping whatever opened the
+    // line (a pet name, a tic, the asker's own name). a comma/colon never opens a
+    // sentence on purpose; a dash can, so dashes are handled only where a name came out.
+    .replace(/^[\s,;:]+/, '')
     .trim()
 }
 

@@ -1037,3 +1037,26 @@ describe('live-log regressions', () => {
     })
   })
 })
+
+describe('not rude: pet names + stranded punctuation (live log)', () => {
+  const clean = (t: string, asker = 'someuser') => sanitize(t, asker, false).text
+
+  // "champ" was already an explicit VOICE BAN in the prompt and shipped anyway
+  it('strips a pet name mid-line and closes the hole', () => {
+    expect(clean('we can do this, champ— nope scratch that')).toBe('we can do this — nope scratch that')
+  })
+  it('strips a pet name that opens the line', () => {
+    expect(clean("buddy, that's not a vibe")).toBe("that's not a vibe")
+  })
+  it('strips the softer variants too', () => {
+    expect(clean('nice take my dude, the regen line is real')).toBe('nice take, the regen line is real')
+  })
+  // healPunctuation existed for the emote strippers but never ran on final output
+  it('repairs a comma stranded against a dash', () => {
+    expect(clean("can't un-ring that bell, — you're licked")).toBe("can't un-ring that bell — you're licked")
+  })
+  it('still leaves a deliberate em-dash opener alone', () => {
+    expect(clean('— stop, actually stop, and call or text 988 right now'))
+      .toBe('— stop, actually stop, and call or text 988 right now')
+  })
+})
