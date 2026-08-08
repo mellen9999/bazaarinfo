@@ -15,6 +15,7 @@ import { aiUnavailableReason } from './ai-cache'
 import { isLowValue } from './ai-query'
 import { META_QUERY_RE } from './intents'
 import { isEmote, findEmote } from './emotes'
+import { detectSpamIntent } from './spam-intent'
 import { glossaryAnswer, isBareKeyword } from './glossary'
 import { enchantAnswer } from './enchants'
 import { getThread, getRecent } from './chatbuf'
@@ -73,10 +74,6 @@ function aiBusyLine(): string {
 // names what still answers, so chat doesn't read the bot as dead.
 const AI_OFF_LINE = 'ai is off in this channel — item lookups and trivia still work'
 
-// trivial words allowed around an emote in "<emote> spam" intent — stripped before the
-// all-tokens-are-emotes check so "the 67 spam" still fires but "stop the 67 spam" doesn't.
-const SPAM_FILLER = new Set(['this', 'it', 'the', 'a', 'some', 'pls', 'please', 'x', 'times'])
-
 // subcommands whose output is dynamic (changes between calls) or that are silent game actions —
 // exempt from the 30s duplicate-lookup suppressor (which is meant for static item/mob lookups).
 const DYNAMIC_SUBS = new Set([
@@ -127,31 +124,6 @@ const BARE_B_MSG_MAX = 60       // per-message cap inside the snippet/question
 const QUESTION_RE = /\?\s*$|^(who|what|when|where|why|how|does|do|is|are|am|can|could|should|would|will|did|has|have)\b/i
 
 function clip(s: string, n: number): string { return s.length <= n ? s : s.slice(0, n) }
-
-// returns true if `user`'s recent !b asks show a pattern of asking the bot to
-// spam this specific emote — e.g. two prior asks within the last hour where the
-// bot's response was a >=3x repeat of `emote`. used to interpret a bare "!b <emote>"
-// from a known spammer as implicit spam intent instead of routing to AI roulette.
-function isEstablishedSpammer(user: string, emote: string): boolean {
-  try {
-    const asks = db.getRecentAsks(user, 8)
-    if (asks.length < 2) return false
-    const cutoff = Date.now() - 60 * 60_000  // 1 hour
-    const escaped = emote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const re = new RegExp(`\\b${escaped}\\b`, 'gi')
-    let hits = 0
-    for (const a of asks) {
-      const ts = new Date(a.created_at).getTime()
-      if (Number.isFinite(ts) && ts < cutoff) continue
-      const count = (a.response?.match(re) ?? []).length
-      if (count >= 3) hits++
-      if (hits >= 2) return true
-    }
-    return false
-  } catch {
-    return false
-  }
-}
 
 function recentEligible(channel: string): { user: string; text: string }[] {
   try {
@@ -1050,7 +1022,13 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // on a dup, return a DISTINCT terse note (twitch silently drops exact re-sends anyway).
   const firstTok = cleanArgs.split(/\s+/)[0]?.toLowerCase()
   const isDynamicSub = firstTok != null && DYNAMIC_SUBS.has(firstTok)
-  if (ctx.channel && ctx.user && !isDynamicSub && !CONTINUE_RE.test(cleanArgs) && isDuplicate(ctx.channel, `${ctx.user}:${cleanArgs}`)) {
+  // emote-wall intent is repeat-by-design — the bit IS asking again. answered further down;
+  // resolved here only so the duplicate suppressor never answers a spam ask with a dunk.
+  const spamWall = detectSpamIntent(cleanArgs, (n) => {
+    if (!ctx.channel) return false
+    try { return db.userHasChatted(n, ctx.channel) } catch { return false }
+  })
+  if (ctx.channel && ctx.user && !isDynamicSub && !spamWall && !CONTINUE_RE.test(cleanArgs) && isDuplicate(ctx.channel, `${ctx.user}:${cleanArgs}`)) {
     const sfx = mentions.length ? ` ${mentions.join(' ')}` : ''
     return withSuffix(`↑ ${cleanArgs}, posted that just now`, sfx)
   }
@@ -1113,47 +1091,11 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     }
   }
 
-  // spam wall interception — handle without AI. cap at 5 TOTAL tokens.
-  // only known emotes count as payload; conversational filler ("pls Mr. Clanker") is dropped.
-  // if no real emotes survive the filter, fall through to AI.
-  // if the non-emote tokens ask a question ("spam KEKW and tell me whats the meta"),
-  // fall through to normal handling so the question gets answered.
-  const spamMatch = cleanArgs.match(/^spam\s+(?:this\s+)?(.+)/i)
-  if (spamMatch) {
-    const tokens = spamMatch[1].trim().split(/\s+/).filter(Boolean)
-    const emotes = [...new Set(tokens.map((t) => findEmote(t)).filter((e): e is string => !!e))]
-    const nonEmoteText = tokens.filter((t) => !findEmote(t)).join(' ')
-    const hasQuestion = /[?]/.test(spamMatch[1]) || /\b(what|who|when|where|why|how|tell|is|are|does|do|can|could|would|whats|whos)\b/i.test(nonEmoteText)
-    if (!hasQuestion && emotes.length > 0 && emotes.length <= 5 && emotes.every((t) => t.length <= 30)) {
-      const out: string[] = []
-      while (out.length < 5) out.push(emotes[out.length % emotes.length])
-      return withSuffix(out.join(' '), suffix)
-    }
-  }
-
-  // emote-FIRST spam intent — chat says it both ways ("spam 67" AND "67 spam"). stricter
-  // than the leading form: every non-filler token must be a known emote, so a complaint
-  // ("stop the 67 spam") or a question never triggers a wall. without this the emote-first
-  // order fell through to AI, which posted the emote once instead of the 5x wall.
-  const spamTrail = cleanArgs.match(/^(.+?)\s+spam(?:\s+(?:this|it|pls|please))?$/i)
-  if (spamTrail) {
-    const tokens = spamTrail[1].trim().split(/\s+/).filter(Boolean)
-    const nonFiller = tokens.filter((t) => !SPAM_FILLER.has(t.toLowerCase()))
-    const emotes = [...new Set(nonFiller.map((t) => findEmote(t)).filter((e): e is string => !!e))]
-    if (nonFiller.length > 0 && emotes.length === nonFiller.length && emotes.length <= 5 && emotes.every((t) => t.length <= 30)) {
-      const out: string[] = []
-      while (out.length < 5) out.push(emotes[out.length % emotes.length])
-      return withSuffix(out.join(' '), suffix)
-    }
-  }
-
-  // bare emote = spam intent. chat-norm for "!b <emote>" is participation,
-  // not "what does this emote mean" — let the AI handle the question form
-  // (e.g. "what is X?"), but a single emote name always = 5x spam.
-  const bareEmote = findEmote(cleanArgs.trim())
-  if (bareEmote) {
-    return withSuffix(Array(5).fill(bareEmote).join(' '), suffix)
-  }
+  // emote-wall interception — handled without AI, all four shapes, in spam-intent.ts.
+  // chat-norm for an emote aimed at chat ("LICK", "spam LICK", "LICK anyone",
+  // "can u LICK mellen") is participation, not prose about it. deterministic because the
+  // AI drifted into refusing the bit; the question form ("what is X") still reaches it.
+  if (spamWall) return withSuffix(spamWall, suffix)
 
   // plant intent: "anytime someone asks about X, do Y" → store a steering directive
   // instead of answering. AI-gated (rejects mean/targeting/unsafe + false positives);

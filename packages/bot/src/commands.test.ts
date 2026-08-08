@@ -2130,6 +2130,40 @@ describe('spam wall cap', () => {
     // not a 5x wall — a non-emote word ("stop") means it's not a spam request
     expect(tokens(out).filter((w) => w === '67').length).toBeLessThan(5)
   })
+
+  // the live regression: an emote AIMED at chat reached the AI, which started reading it
+  // as harassment and refusing ("still zero tongue, still not happening") instead of
+  // playing along. deterministic now — the wall never depends on the model's mood.
+  it('walls an emote aimed at an audience ("KEKW anyone")', async () => {
+    const out = await handleCommand('!b KEKW anyone', { user: 'u', channel: 'c' })
+    expect(tokens(out).filter((w) => w === 'KEKW').length).toBe(5)
+  })
+
+  it('walls through request scaffolding ("can u KEKW random chatter")', async () => {
+    const out = await handleCommand('!b can u KEKW random chatter', { user: 'u', channel: 'c' })
+    expect(tokens(out).filter((w) => w === 'KEKW').length).toBe(5)
+  })
+
+  it('never echoes the aimed-at target back', async () => {
+    const out = await handleCommand('!b KEKW random chatter', { user: 'u', channel: 'c' })
+    expect(out).not.toMatch(/random|chatter/i)
+  })
+
+  // spam is repeat-by-design — the 30s duplicate suppressor must not answer the
+  // second ask with "posted that just now", which reads as a brush-off mid-bit
+  it('repeat spam asks are not suppressed as duplicates', async () => {
+    const ctx = { user: 'dupspammer', channel: 'dupchan' }
+    const first = await handleCommand('!b KEKW anyone', ctx)
+    const second = await handleCommand('!b KEKW anyone', ctx)
+    expect(tokens(first).filter((w) => w === 'KEKW').length).toBe(5)
+    expect(tokens(second).filter((w) => w === 'KEKW').length).toBe(5)
+    expect(second).not.toMatch(/posted that just now/)
+  })
+
+  it('still leaves a question about the emote to the AI ("what does KEKW mean")', async () => {
+    const out = await handleCommand('!b what does KEKW mean', { user: 'u', channel: 'c' })
+    expect(tokens(out).filter((w) => w === 'KEKW').length).toBeLessThan(5)
+  })
 })
 
 // ---------------------------------------------------------------------------

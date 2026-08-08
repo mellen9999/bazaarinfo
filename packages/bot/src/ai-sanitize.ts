@@ -18,6 +18,21 @@ export const BANNED_PHRASES: [RegExp, string[]][] = [
 export const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|ultrathink|extended thinking|thinking budget|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|i('m| am| keep) overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|(?:the|my)\s+(?:system\s+)?prompt\s+(?:says?|tells?|tell|wants?|instructs?|requires?)|(?:my|the)\s+(?:instructions?|guidelines?)\s+(?:says?|say|tell|tells?|require)|i'?m\s+instructed\s+to|according\s+to\s+(?:my|the)\s+(?:instructions?|guidelines?|prompt)|my\s+(?:system\s+)?prompt|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid)|output style|it should (say|respond|output|reply)|lets? tune the|format should be|style should be|the (response|reply|answer) (should|could|would) be|the bot is (repeating|doing|saying|responding|answering|outputting|generating|ignoring)|(my|the) responses? (are|be|is|suck|terrible|clueless|bad|awful|embarrassing|cringe)|embarrassing for me|make (us|me|this|it) god.?tier)\b/i
 export const COT_TAIL = /[,.]?\s*(?:also\s+)?(?:(?:make sure|note to self|reminder to self|i need to (?:remember|make sure|check|verify|update))\s+(?:ur|your|my|the|i)\s+.*?(?:list|data|context|prompt|emote|response|output|format|style|knowledge|memory))\b.*$/i
 export const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you have \d+ (lookups?|commands?|wins?|attempts?|asks?)|you('ve|'re| have| are) (a )?(power user|casual user|trivia regular)|according to (my|your|the) (data|stats|profile|records?)|i (can see|see|know) (from )?(your|the) (data|stats|profile)|based on your (history|stats|data|profile))\b/i
+// counting a chatter's asks back at them — "five asks in", "4th time asking", "typed this
+// exact command four times now". The prompt already bans it (TARGET THE GAME, NOT THE
+// PERSON); this is the guard, because the model reaches for it exactly when it has been
+// refusing and chat keeps re-asking — the worst possible moment to dunk on the asker.
+// "N asks" is unambiguously meta so it matches alone; the far more common "N times" only
+// counts when the sentence is about asking/typing/posting, so game talk ("procs two times
+// in a row") and game state ("two tries left") stay untouched.
+const COUNT = '(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten)(?:st|nd|rd|th)?'
+const ASK_VERB = 'ask|asks|asking|asked|typed|type|typing|posted|posting|sent|said|spammed|command|message'
+export const ASK_COUNT_LEAK = new RegExp(
+  `\\b${COUNT}\\s+asks?\\b` +
+  `|\\b${COUNT}\\s+times?\\b(?=[^.!?]{0,30}\\b(?:${ASK_VERB})\\b)` +
+  `|\\b(?:asked|typed|posted|sent|spammed|repeated)\\b[^.!?]{0,40}\\b${COUNT}\\s+times?\\b`,
+  'i',
+)
 export const GARBLED = /\b(?:i|you|we|they|he|she)\s+to\s+(?!(?:some|any|every|no)(?:thing|one|where|body)\b)(?!(?:be|get|keep|start|stop|go|come|try)\s)\w+ing\b/i
 // prompt section headers — single source of truth, used in BOTH directions: ai-build strips
 // them from injected chat text (a planted "Game data:" can't spoof a context row) and
@@ -201,7 +216,7 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   // real stats/standings were injected the model was ORDERED to recite them — don't nuke the
   // grounded answer (the standings feature exists to give it). fabrication paths stay guarded
   // (no stats injected => still blocked; game-stat hallucination has its own guard).
-  if (SELF_REF.test(s) || COT_LEAK.test(s) || (!hasStats && STAT_LEAK.test(s)) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || META_INSTRUCTION.test(s) || JAILBREAK_ECHO.test(s) || INSTRUCTION_ECHO.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
+  if (SELF_REF.test(s) || COT_LEAK.test(s) || (!hasStats && STAT_LEAK.test(s)) || ASK_COUNT_LEAK.test(s) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || META_INSTRUCTION.test(s) || JAILBREAK_ECHO.test(s) || INSTRUCTION_ECHO.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged by reply threading
   if (asker) {
