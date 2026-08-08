@@ -343,3 +343,76 @@ describe('isValidCard tierKnown', () => {
     expect(out?.cards[0].tierKnown).toBe(false)
   })
 })
+
+// ── /api/cards launch cost ──────────────────────────────────────────────────
+// Every viewer of every channel downloads this blob before the overlay or the
+// panel can do anything. It is prepared once per cache load, so the checks below
+// are about what a viewer actually pays on the wire.
+
+import { handleCards, setCardCache } from './routes/cards'
+
+const CARD_CACHE = {
+  items: Array.from({ length: 200 }, (_, i) => ({
+    Type: 'Item', Title: `Card ${i}`, Size: 'Small', BaseTier: 'Bronze',
+    Tiers: ['Bronze', 'Silver'], Heroes: ['Vanessa'], Tags: ['Weapon'], HiddenTags: [],
+    DisplayTags: ['Weapon'], Tooltips: [{ text: 'Deal {ability.0} damage', type: 'Active' }],
+    TooltipReplacements: {}, Enchantments: {}, Shortlink: `https://bzdb.to/x${i}`,
+  })),
+  skills: [], monsters: [], fetchedAt: '2026-08-08T00:00:00Z',
+} as never
+
+describe('/api/cards', () => {
+  beforeEach(() => setCardCache(CARD_CACHE))
+
+  const get = (headers: Record<string, string> = {}) =>
+    handleCards(new Request('https://ebs.test/api/cards', { headers }))
+
+  it('serves brotli when the client accepts it, and it is much smaller', async () => {
+    const raw = await get().arrayBuffer()
+    const res = get({ 'Accept-Encoding': 'gzip, deflate, br' })
+    expect(res.headers.get('Content-Encoding')).toBe('br')
+    const body = await res.arrayBuffer()
+    expect(body.byteLength).toBeLessThan(raw.byteLength / 4)
+  })
+
+  it('falls back to gzip, then to raw json, following what was actually offered', async () => {
+    expect(get({ 'Accept-Encoding': 'gzip' }).headers.get('Content-Encoding')).toBe('gzip')
+    expect(get({ 'Accept-Encoding': 'identity' }).headers.get('Content-Encoding')).toBeNull()
+    expect(get().headers.get('Content-Encoding')).toBeNull()
+  })
+
+  it('never mistakes a substring for an accepted encoding', () => {
+    // "brotli-ish" tokens and vendor junk must not win a br body
+    expect(get({ 'Accept-Encoding': 'zbr' }).headers.get('Content-Encoding')).toBeNull()
+    expect(get({ 'Accept-Encoding': 'brx, gzipx' }).headers.get('Content-Encoding')).toBeNull()
+  })
+
+  it('the raw json is still valid and complete', async () => {
+    const data = JSON.parse(await get().text())
+    expect(data.items).toHaveLength(200)
+  })
+
+  it('a returning viewer revalidates for free', async () => {
+    const etag = get().headers.get('ETag')
+    expect(etag).toBeTruthy()
+    const again = get({ 'If-None-Match': etag! })
+    expect(again.status).toBe(304)
+    expect(await again.text()).toBe('')
+  })
+
+  it('the tag is content-addressed, so an unchanged dump survives a restart', () => {
+    const first = get().headers.get('ETag')
+    setCardCache(CARD_CACHE)
+    expect(get().headers.get('ETag')).toBe(first)
+  })
+
+  it('a changed dump gets a new tag', () => {
+    const first = get().headers.get('ETag')
+    setCardCache({ ...(CARD_CACHE as object), fetchedAt: '2026-09-09T00:00:00Z' } as never)
+    expect(get().headers.get('ETag')).not.toBe(first)
+  })
+
+  it('tells caches the body varies by encoding', () => {
+    expect(get().headers.get('Vary')).toBe('Accept-Encoding')
+  })
+})

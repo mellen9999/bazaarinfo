@@ -114,7 +114,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
   // GET /api/cards
   if (req.method === 'GET' && path === '/api/cards') {
-    return cors(handleCards(), origin)
+    return cors(handleCards(req), origin)
   }
 
   // GET /health/live — process is up
