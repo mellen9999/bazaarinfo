@@ -104,9 +104,9 @@ const DYNAMIC_SUBS = new Set([
 ])
 
 /** shared AI call + post-processing (dedup emotes/mentions, append missing @mentions) */
-async function tryAiRespond(query: string, ctx: CommandContext, mentions: string[] = []): Promise<string | null> {
+async function tryAiRespond(query: string, ctx: CommandContext, mentions: string[] = [], displayQuery?: string): Promise<string | null> {
   let result: Awaited<ReturnType<typeof aiRespond>> = null
-  try { result = await aiRespond(query, { ...ctx, direct: true }) } catch (e) { log(`ai: call failed: ${e}`) }
+  try { result = await aiRespond(query, { ...ctx, direct: true, displayQuery }) } catch (e) { log(`ai: call failed: ${e}`) }
   if (!result?.text) return null
   // creative writing may use an emote as a recurring character/noun — skip channel-recent
   // emote dedup there so we don't gut the prose ("Crowge watched" → "the watched"). the
@@ -935,13 +935,13 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
       }
       // no item match → AI with full thread as context
       const threadContext = threadMsgs.map((m, i) => i === 0 ? m : `followup: ${m}`).join('\n')
-      return tryAiRespond(threadContext, ctx)
+      return tryAiRespond(threadContext, ctx, [], cleanArgs || '!b')
     }
   }
 
   // bare !b → riff on recent chat; help/info → describe capabilities (no hardcoded usage line)
-  if (!cleanArgs) return tryAiRespond(buildBareBQuery(ctx.channel), ctx, mentions)
-  if (cleanArgs === 'help' || cleanArgs === 'info') return tryAiRespond('what does this bot do', ctx, mentions)
+  if (!cleanArgs) return tryAiRespond(buildBareBQuery(ctx.channel), ctx, mentions, '!b')
+  if (cleanArgs === 'help' || cleanArgs === 'info') return tryAiRespond('what does this bot do', ctx, mentions, cleanArgs)
 
   // a pure identity ask gets the bot's VOICE, not a static brochure — the old hardcoded
   // "try: !b <item>..." blurb was exactly the banned usage-string format. identity facts are
@@ -949,7 +949,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // end-anchored so only a pure identity ask fires — trailing words ("doing rn", "card do",
   // "talking about") fall through to the isDeictic → tryAiRespond path.
   if (/^(how (do you|does this( bot)?) work|what are you|what is this( bot)?)\??$/i.test(cleanArgs))
-    return tryAiRespond('introduce yourself — who are you and what can you do', ctx, mentions)
+    return tryAiRespond('introduce yourself — who are you and what can you do', ctx, mentions, cleanArgs)
 
   // trivia-result questions ("who won the trivia?", "trivia leaderboard") answered from
   // REAL data — never routed to the AI, which would invent a winner. tightly scoped to
@@ -1197,7 +1197,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
 
   // conversational queries go straight to AI — no item lookup, no fallback cooldown
   if (isConversational) {
-    const response = await tryAiRespond(aiQuery, ctx, mentions)
+    const response = await tryAiRespond(aiQuery, ctx, mentions, cleanArgs)
     if (response) {
       try { db.logCommand(ctx, 'ai', cleanArgs, 'fallback') } catch {}
       return response
@@ -1227,7 +1227,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     return withSuffix(noMatchMsg(cleanArgs), suffix)
   }
 
-  const aiResponse = await tryAiRespond(aiQuery, ctx, mentions)
+  const aiResponse = await tryAiRespond(aiQuery, ctx, mentions, cleanArgs)
   if (aiResponse) {
     if (ctx.user) {
       bFallbackCooldowns.set(ctx.user.toLowerCase(), Date.now())

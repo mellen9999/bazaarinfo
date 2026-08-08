@@ -3593,3 +3593,38 @@ describe('roasts aim at someone who opted in', () => {
     }
   })
 })
+
+// Bare "!b" sends the model a built nudge ("answer bluntly and accurately — unanswered
+// chat question from X…"), and that string was being stored as the user's ask. It then
+// came back through "Previously chatted about" as if THEY had said it — the model was
+// reading our own scaffolding as an instruction from the chatter. Same for the roast
+// steering suffix. What gets logged must be what they typed.
+describe('scaffolding is never logged as the user ask', () => {
+  const lastCtx = () => (mockAiRespond.mock.calls.at(-1)?.[1] ?? {}) as any
+
+  it('logs "!b" for a bare ask, not the generated nudge', async () => {
+    mockAiRespond.mockResolvedValueOnce({ text: 'ok', mentions: [] })
+    await handleCommand('!b', { user: 'u', channel: 'c' })
+    expect(lastCtx().displayQuery).toBe('!b')
+    expect(mockAiRespond.mock.calls.at(-1)?.[0]).not.toBe('!b') // still SENDS the nudge
+  })
+
+  it('logs the typed words, not the roast steering suffix', async () => {
+    mockAiRespond.mockResolvedValueOnce({ text: 'ok', mentions: [] })
+    await handleCommand('!b roast a random chatter', { user: 'u', channel: 'c' })
+    expect(lastCtx().displayQuery).toBe('roast a random chatter')
+    expect(mockAiRespond.mock.calls.at(-1)?.[0]).toMatch(/ROAST TARGET/)
+  })
+
+  it('logs "help", not the capability prompt', async () => {
+    mockAiRespond.mockResolvedValueOnce({ text: 'ok', mentions: [] })
+    await handleCommand('!b help', { user: 'u', channel: 'c' })
+    expect(lastCtx().displayQuery).toBe('help')
+  })
+
+  it('leaves a normal ask untouched', async () => {
+    mockAiRespond.mockResolvedValueOnce({ text: 'ok', mentions: [] })
+    await handleCommand('!b whats the meta', { user: 'u', channel: 'c' })
+    expect(lastCtx().displayQuery).toBe('whats the meta')
+  })
+})

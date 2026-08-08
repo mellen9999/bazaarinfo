@@ -90,6 +90,13 @@ export interface AiContext {
   isMod?: boolean
   mention?: boolean
   direct?: boolean
+  // What the user actually TYPED, when `query` is something we built for the model
+  // (the bare-!b nudge, an identity prompt, a steering suffix). Everything that gets
+  // replayed to the model later — the ask log, the hot exchange cache, fact extraction —
+  // must record this, not our scaffolding. Otherwise "Previously chatted about" tells the
+  // model the user once said "answer bluntly and accurately — unanswered chat question
+  // from X", and it reads as an instruction they gave.
+  displayQuery?: string
 }
 
 export interface AiResult { text: string; mentions: string[] }
@@ -162,6 +169,8 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 // --- API call + retry + sanitize + background triggers ---
 
 async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
+  // never let scaffolding we wrote get recorded as something the user said
+  const loggedQuery = ctx.displayQuery ?? query
   // fire-and-forget voice refresh (background, non-blocking)
   refreshVoice(ctx.channel).catch(() => {})
 
@@ -418,14 +427,14 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         try {
           const inT = data.usage?.input_tokens ?? 0
           const outT = data.usage?.output_tokens ?? 0
-          db.logAsk(ctx, query, result.text, inT + outT, latency)
+          db.logAsk(ctx, loggedQuery, result.text, inT + outT, latency)
           // recordAiSpend is called in fetchOnce at the 200-parse point so every
           // dispatched request (retries + hedge loser) is counted; not here.
         } catch {}
         // hot cache for instant follow-up context
-        cacheExchange(ctx.user, query, result.text, ctx.channel)
+        cacheExchange(ctx.user, loggedQuery, result.text, ctx.channel)
         // fire-and-forget memo + fact extraction (force both on identity requests)
-        maybeExtractFacts(ctx.user, query, result.text, isRememberReq).catch(() => {})
+        maybeExtractFacts(ctx.user, loggedQuery, result.text, isRememberReq).catch(() => {})
         if (isRememberReq) {
           setTimeout(() => maybeUpdateMemo(ctx.user!, true).catch(() => {}), 3_000)
         } else {
