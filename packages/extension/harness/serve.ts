@@ -119,7 +119,7 @@ async function configPage(): Promise<string> {
     : _f(u,o);
   </script>`
   // swap the real Twitch helper for the mock so set()/onChanged work offline
-  html = html.replace(/<script src="https:\/\/extension-files[^"]*"><\/script>/, mock)
+  html = html.replace(/<script [^>]*src="https:\/\/extension-files[^"]*"><\/script>/, mock)
   return html
 }
 

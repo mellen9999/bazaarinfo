@@ -56,7 +56,7 @@ function init() {
   initCalibrator()
   const twitch = window.Twitch?.ext
   if (!twitch) {
-    setStatus('Twitch extension helper unavailable', 'error')
+    setStatus('twitch extension helper unavailable', 'error')
     return
   }
 
@@ -68,14 +68,14 @@ function init() {
         headers: { Authorization: `Bearer ${auth.token}` },
       })
       if (!res.ok) {
-        const reason = res.status === 403 ? 'Only the broadcaster can view this' : `Failed to load (${res.status})`
+        const reason = res.status === 403 ? 'only the broadcaster can view this' : `failed to load (${res.status})`
         setStatus(reason, 'error')
         return
       }
       const data = await res.json() as { channelId: string; secret: string }
       reveal(data.channelId, data.secret)
     } catch {
-      setStatus('Network error — try again', 'error')
+      setStatus('network error — try again', 'error')
     }
   })
 }

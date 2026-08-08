@@ -37,7 +37,6 @@ p { font-size: 14px; line-height: 1.5; margin-bottom: 12px; color: var(--text-mu
 .setup-box {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 8px;
   padding: 16px;
   margin: 12px 0;
 }
@@ -45,7 +44,7 @@ p { font-size: 14px; line-height: 1.5; margin-bottom: 12px; color: var(--text-mu
 .field { margin: 8px 0 }
 .field label {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   margin-bottom: 4px;
 }
@@ -58,7 +57,6 @@ code {
   display: block;
   background: var(--code-bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
   padding: 8px 12px;
   font-size: 13px;
   color: var(--text);
@@ -73,7 +71,7 @@ code {
 .field code::after {
   content: " (click to copy)";
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 code.copied {
@@ -122,7 +120,6 @@ li { font-size: 14px; line-height: 1.8; color: var(--text-muted) }
     linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 6.25% 100%,
     var(--code-bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
   overflow: hidden;
   touch-action: none;
   background-repeat: no-repeat;
@@ -138,7 +135,7 @@ li { font-size: 14px; line-height: 1.8; color: var(--text-muted) }
   left: 0;
   right: 0;
   text-align: center;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-muted);
   pointer-events: none;
   z-index: 1;
@@ -187,7 +184,7 @@ li { font-size: 14px; line-height: 1.8; color: var(--text-muted) }
   opacity: 0.5;
 }
 .cal-hint-label {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-muted);
   letter-spacing: 0.04em;
   text-transform: lowercase;
@@ -201,7 +198,6 @@ li { font-size: 14px; line-height: 1.8; color: var(--text-muted) }
 .cal-hint-row span {
   flex: 1;
   border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 2px;
 }
 
 .cal-bar {
@@ -214,7 +210,7 @@ li { font-size: 14px; line-height: 1.8; color: var(--text-muted) }
 }
 
 .cal-readout {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   white-space: nowrap;
 }
@@ -223,10 +219,9 @@ li { font-size: 14px; line-height: 1.8; color: var(--text-muted) }
 
 .cal-btn {
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   padding: 5px 12px;
   border: 1px solid var(--border);
-  border-radius: 4px;
   background: var(--bg-card);
   color: var(--text);
   cursor: pointer;
@@ -244,20 +239,19 @@ li { font-size: 14px; line-height: 1.8; color: var(--text-muted) }
 }
 
 .muted { color: var(--text-muted) }
-#cal-status { font-size: 12px; margin-top: 6px; min-height: 1.2em }
+#cal-status { font-size: 13px; margin-top: 6px; min-height: 1.2em }
 #cal-status.ok { color: var(--success) }
 
 .cal-tip {
-  font-size: 11px !important;
+  font-size: 13px !important;
   line-height: 1.6;
   margin-top: 8px;
 }
 .cal-tip kbd {
   font-family: "Cascadia Code", ui-monospace, monospace;
-  font-size: 10px;
+  font-size: inherit;
   padding: 1px 4px;
   border: 1px solid var(--border);
-  border-radius: 3px;
   background: var(--code-bg);
 }
 
