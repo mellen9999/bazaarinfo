@@ -46,6 +46,7 @@ let stmts: {
   maxSessionId: Statement
   searchFTS: Statement
   searchFTSByUser: Statement
+  searchPastaFTS: Statement
   recentAsks: Statement
   searchAskFTS: Statement
   selectMemo: Statement
@@ -178,6 +179,22 @@ function prepareStatements() {
        JOIN chat_messages cm ON cm.id = chat_fts.rowid
        WHERE chat_fts MATCH ? AND cm.channel = ?
        ORDER BY bm25(chat_fts), cm.created_at DESC LIMIT ?`,
+    ),
+    // Copypasta lookup. Deliberately NOT ordered by bm25: bm25 penalises long documents,
+    // and a copypasta is long by definition — the real 494-char pasta was unreachable at
+    // any limit while 40-char chat lines that merely shared a keyword ranked top.
+    // Ranking is by what actually makes something a pasta: chat repeats it, and it is long.
+    // The length floor is also what separates a pasta from the auto-posted ad announcements
+    // ("Shop on Amazon...", 2831 reps, 73 chars) that otherwise dominate a repeat sort.
+    searchPastaFTS: db.prepare(
+      `SELECT cm.message, COUNT(*) AS reps FROM chat_fts
+       JOIN chat_messages cm ON cm.id = chat_fts.rowid
+       WHERE chat_fts MATCH ? AND cm.channel = ?
+         AND LENGTH(cm.message) >= ?
+         AND SUBSTR(cm.message, 1, 1) NOT IN ('!', '/')
+       GROUP BY cm.message
+       HAVING reps >= ?
+       ORDER BY reps DESC, LENGTH(cm.message) DESC LIMIT ?`,
     ),
     searchFTSByUser: db.prepare(
       `SELECT cm.username, cm.message, cm.created_at FROM chat_fts
@@ -1201,6 +1218,17 @@ export function searchChatFTS(channel: string, query: string, limit = 10, userna
       return stmts.searchFTSByUser.all(query, channel, username.toLowerCase(), limit) as FTSResult[]
     }
     return stmts.searchFTS.all(query, channel, limit) as FTSResult[]
+  } catch {
+    return []
+  }
+}
+
+export interface PastaRow { message: string; reps: number }
+
+/** copypasta candidates for a keyword query — repeated, long, ad-free. See searchPastaFTS. */
+export function searchPastaFTS(channel: string, query: string, minLen = 180, minReps = 2, limit = 12): PastaRow[] {
+  try {
+    return stmts.searchPastaFTS.all(query, channel, minLen, minReps, limit) as PastaRow[]
   } catch {
     return []
   }

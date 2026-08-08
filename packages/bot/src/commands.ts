@@ -16,6 +16,7 @@ import { isLowValue } from './ai-query'
 import { META_QUERY_RE } from './intents'
 import { isEmote, findEmote } from './emotes'
 import { detectSpamIntent } from './spam-intent'
+import { isPastaRecall, findChatPasta, isConfidentPasta, pastaText } from './pasta'
 import { glossaryAnswer, isBareKeyword } from './glossary'
 import { enchantAnswer } from './enchants'
 import { getThread, getRecent } from './chatbuf'
@@ -1117,6 +1118,20 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // "can u LICK mellen") is participation, not prose about it. deterministic because the
   // AI drifted into refusing the bit; the question form ("what is X") still reaches it.
   if (spamWall) return withSuffix(spamWall, suffix)
+
+  // pasta recall — post the logged pasta verbatim, no model in the loop. asked to recite
+  // one, the model kept substituting words with the kripp emote ("Subscribe kripp Kripp's
+  // kripp for kripp daily kripp...") because it mimics chat's voice, and a verbatim quote
+  // is the one place voice must not apply. only a CONFIDENT hit skips the model; a weak
+  // match still goes through the AI path, which can hedge or ask. outgoing command
+  // stripping happens centrally at twitch.say, so chat text is safe to echo.
+  if (ctx.channel && isPastaRecall(cleanArgs)) {
+    const hit = findChatPasta(cleanArgs, ctx.channel)
+    if (hit && isConfidentPasta(hit)) {
+      try { db.logCommand(ctx, 'ai', cleanArgs, 'keyword') } catch {}
+      return withSuffix(pastaText(hit), suffix)
+    }
+  }
 
   // plant intent: "anytime someone asks about X, do Y" → store a steering directive
   // instead of answering. AI-gated (rejects mean/targeting/unsafe + false positives);

@@ -5,7 +5,8 @@ import { tmpdir } from 'os'
 
 // dynamic import to avoid mock.module conflicts from other test files
 const db = await import('./db')
-const { buildChatRecall, isPastaRecall } = await import('./ai-build')
+const { buildChatRecall } = await import('./ai-build')
+const { isPastaRecall } = await import('./pasta')
 
 let dbPath: string
 

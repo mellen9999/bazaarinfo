@@ -8,6 +8,7 @@ import { getWorldCupLine } from './worldcup'
 import { getWeatherLine } from './weather'
 import { META_QUERY_RE } from './intents'
 import { SECTION_HEADERS } from './ai-sanitize'
+import { isPastaRecall, findChatPasta, pastaText } from './pasta'
 import { getTopicalDigest } from './topical'
 import { getActivityFor } from './activity'
 import { getRecent, getSummary, getActiveThreads } from './chatbuf'
@@ -309,71 +310,12 @@ export function buildRecallContext(query: string, channel: string): string {
 
 const PASTA_INTENT_RE = /\b(copypasta|pasta|meme|bit|joke|rant|trend|spam(ming|med)?|chat'?s? (current|latest|recent|new))\b/i
 
-// --- pasta recall: recite an EXISTING chat pasta verbatim (not generate a new one) ---
-const PASTA_NOUN_RE = /\b(copypasta|pasta|bit|rant|meme)\b/i
-// unambiguous "reproduce the existing thing" verbs — always recall
-const STRONG_RECALL_RE = /\b(remind|recite|repost|re-?post|reread|re-?read|recall|again|read (?:it|that|the).{0,12}back|bring (?:it|that) back)\b/i
-// "generate something new" verbs — veto recall (unless a strong-recall verb is also present)
-const CREATE_VERB_RE = /\b(write|make|create|generate|come up with|new|another|original|about)\b/i
-// definite reference to an existing pasta ("the whammy pasta", "that copypasta", "chat's rant")
-const DEF_PASTA_RE = /\b(?:the|that|this|our|your|his|her|their|chat'?s|kripp'?s)(?:\s+\w+){0,4}\s+(?:copypasta|pasta|bit|rant|meme)\b/i
-// scaffolding words stripped before keyword search so only the pasta's distinctive terms remain
-const PASTA_SCAFFOLD = new Set([
-  'remind','reminds','reminder','recite','repost','reread','recall','recalls','again','back','bring',
-  'copypasta','copypastas','pasta','pastas','bit','rant','meme','memes','line','thing',
-  'please','can','you','your','yall','yous','give','gimme','tell','show','post','say','said','read',
-  'whats','what','wheres','where','does','did','how','the','that','this','our','his','her','their',
-  'chats','chat','remember','remembers','just','wtf','was','were','one','from','earlier','before',
-  'yesterday','today','stream','someone','somebody','people','everyone','used','use','type','typed',
-])
-
-export function isPastaRecall(query: string): boolean {
-  if (!PASTA_NOUN_RE.test(query)) return false
-  if (STRONG_RECALL_RE.test(query)) return true      // remind/recite/repost/again → recall
-  if (CREATE_VERB_RE.test(query)) return false        // write/make/new/about → fresh generation
-  return DEF_PASTA_RE.test(query)                      // "give us the pasta" → recall existing
-}
-
-function pastaKeywordCoverage(message: string, kw: string[]): number {
-  const lower = message.toLowerCase()
-  return kw.reduce((n, w) => (lower.includes(w) ? n + 1 : n), 0)
-}
-
-// Pull the actual chat pasta the user is asking for and instruct a verbatim recite.
-// Precise path: FTS over ALL history on the pasta's distinctive keywords ("whammy cane"),
-// pick the best-covered long message. Fallback: most-repeated long message all-time.
 function buildPastaRecall(query: string, channel: string): string {
-  const kw = query.toLowerCase().split(/\s+/)
-    .map((w) => w.replace(/[^a-z0-9]/g, ''))
-    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w) && !PASTA_SCAFFOLD.has(w))
-    .slice(0, 6)
-
-  let pasta = ''
-  if (kw.length > 0) {
-    try {
-      const ftsQ = kw.map((w) => `"${w}"`).join(' OR ')
-      const hits = db.searchChatFTS(channel, ftsQ, 30)
-        .filter((h) => h.message.length >= 40 && !/^[!/]/.test(h.message))
-      if (hits.length > 0) {
-        hits.sort((a, b) =>
-          pastaKeywordCoverage(b.message, kw) - pastaKeywordCoverage(a.message, kw)
-          || b.message.length - a.message.length)
-        pasta = hits[0].message
-      }
-    } catch {}
-  }
-  if (!pasta) {
-    try {
-      const rep = db.findRepeatedMessages(channel, null, 3, 80, 5)
-      if (rep.length > 0) pasta = rep[0].message
-    } catch {}
-  }
-
-  if (!pasta) {
+  const hit = findChatPasta(query, channel)
+  if (!hit) {
     return 'Requested pasta: NOT in chat logs. Tell [USER] plainly you don\'t have that one logged — do NOT invent a "retired/burned/not reheating" excuse. Offer to write a fresh one if they want.'
   }
-  pasta = pasta.replace(/\s+/g, ' ').trim().slice(0, 460)
-  return `Requested pasta — recite this VERBATIM (exact text, no rewrite, no refusal, never call it retired/burned):\n"${pasta}"`
+  return `Requested pasta — recite this VERBATIM (exact text, no rewrite, no refusal, never call it retired/burned). Do NOT substitute or inject emotes into it:\n"${pastaText(hit)}"`
 }
 
 // Content-only recall when query references chat history with no specific user
