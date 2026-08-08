@@ -1,14 +1,13 @@
 import { log } from './log'
 import { readJson } from './http'
+import { fetchSubreddit } from './reddit-feed'
 
 const HN_TOP = 'https://hacker-news.firebaseio.com/v0/topstories.json'
 const HN_ITEM = (id: number) => `https://hacker-news.firebaseio.com/v0/item/${id}.json`
-const REDDIT_POPULAR = 'https://www.reddit.com/r/popular/hot.json?limit=15'
 const USER_AGENT = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
 const FETCH_TIMEOUT = 20_000
 
 interface HnItem { title?: string; score?: number; type?: string }
-interface RedditChild { data: { title: string; score: number; subreddit: string; over_18?: boolean; stickied?: boolean } }
 
 let cachedDigest = ''
 
@@ -39,12 +38,14 @@ async function fetchHnTitles(): Promise<string[]> {
     .slice(0, 5)
 }
 
+// r/popular via the shared RSS transport — the JSON endpoint 403s from this host and had
+// been failing silently inside allSettled below, leaving the digest quietly HN-only.
+// RSS carries no score, so the feed's own ordering does the filtering instead.
 async function fetchRedditTitles(): Promise<string[]> {
-  const data = await fetchJson<{ data: { children: RedditChild[] } }>(REDDIT_POPULAR)
-  return data.data.children
-    .map((c) => c.data)
-    .filter((d) => !d.over_18 && !d.stickied && d.score > 1000)
-    .map((d) => `[${d.subreddit}] ${d.title.replace(/\s+/g, ' ').trim()}`.slice(0, 90))
+  const entries = await fetchSubreddit('popular', 'popular')
+  return entries
+    .map((e) => e.title.replace(/\s+/g, ' ').trim().slice(0, 90))
+    .filter(Boolean)
     .slice(0, 4)
 }
 
@@ -56,7 +57,13 @@ export async function refreshTopicalDigest(): Promise<void> {
     if (reddit.status === 'fulfilled' && reddit.value.length > 0) parts.push(`Reddit: ${reddit.value.map((t) => `"${t}"`).join(' • ')}`)
     if (parts.length === 0) return
     cachedDigest = parts.join(' || ')
-    log(`topical: refreshed (${cachedDigest.length} chars)`)
+    // name which halves landed — "refreshed (243 chars)" looked healthy for a week while
+    // the reddit half was 403ing into allSettled and being dropped on the floor
+    const sources = [
+      hn.status === 'fulfilled' && hn.value.length > 0 ? 'hn' : null,
+      reddit.status === 'fulfilled' && reddit.value.length > 0 ? 'reddit' : null,
+    ].filter(Boolean).join('+')
+    log(`topical: refreshed (${cachedDigest.length} chars, ${sources || 'none'})`)
   } catch (e) {
     log(`topical: refresh failed: ${e}`)
   }
