@@ -1,3 +1,7 @@
+:root {
+  --mono: ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -9,10 +13,10 @@ html, body {
   padding: 0;
   background: transparent;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--mono);
 }
 
-body[data-twitch-mode="panel"] { background: #111; }
+body[data-twitch-mode="panel"] { background: #111; overflow: auto; }
 
 #root {
   position: fixed;
@@ -22,6 +26,8 @@ body[data-twitch-mode="panel"] { background: #111; }
   left: 0;
   pointer-events: none;
 }
+
+body[data-twitch-mode="panel"] #root { position: static; pointer-events: auto; }
 
 .overlay {
   position: relative;
@@ -68,20 +74,28 @@ body[data-twitch-mode="panel"] { background: #111; }
    Colour follows the doctrine in tiers.ts — the grey ramp carries all structure and
    all hierarchy, and a hue appears only where the hue is the fact being stated
    (tier value, enchantment). No blur, no gradient, no transform: a tooltip that
-   animates in is a tooltip you read late. */
+   animates in is a tooltip you read late.
+
+   Size: --ui is how big the video is (scale.ts), --fit is how far this particular
+   card had to shrink to fit the frame. The box width follows --ui alone, so the
+   fit pass only ever removes wrapping and one measurement always lands. Everything
+   inside is em-relative to the one font-size below, so the whole panel is a single
+   number; 1em == 14px at scale 1. Hairlines stay 1px at every scale — a border
+   that thickens with the type reads as a frame instead of a rule. */
 
 .card-tooltip {
+  --s: calc(var(--ui, 1) * var(--fit, 1));
   position: absolute;
-  width: min(310px, calc(100vw - 8px));
+  width: min(calc(310px * var(--ui, 1)), calc(100vw - 8px));
   max-width: 100vw;
   background: rgba(8, 8, 8, 0.96);
   border: 1px solid #585858;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9);
   color: #d0d0d0;
-  font-family: ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace;
-  font-size: 14px;
+  font-family: var(--mono);
+  font-size: calc(14px * var(--s));
   line-height: 1.45;
-  max-height: min(360px, calc(100vh - 8px));
+  max-height: calc(100vh - 8px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -93,17 +107,22 @@ body[data-twitch-mode="panel"] { background: #111; }
 
 .card-tooltip.visible { opacity: 1; }
 
+/* In the panel the card is a document, not a floating layer: the panel itself
+   scrolls, so capping the card's height would clip a long one against a scrollbar
+   it cannot own (it is pointer-events:none). */
+body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
+
 .tt-head {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 7px 9px;
+  gap: 0.57em;
+  padding: 0.5em 0.64em;
   border-bottom: 1px solid #303030;
 }
 
 .tt-art {
-  width: 34px;
-  height: 34px;
+  width: 2.43em;
+  height: 2.43em;
   flex-shrink: 0;
   background: #121212;
   border: 1px solid #585858;
@@ -124,7 +143,7 @@ body[data-twitch-mode="panel"] { background: #111; }
 .tt-art-img.loaded { opacity: 1; }
 
 .tt-art-fallback {
-  font-size: 15px;
+  font-size: 1.07em;
   line-height: 1;
   color: #6c6c6c;
 }
@@ -137,7 +156,7 @@ body[data-twitch-mode="panel"] { background: #111; }
 /* The name leads by luminance, not by hue — it is the most important string here
    regardless of what tier the card happens to be. */
 .tt-name {
-  font-size: 16px;
+  font-size: 1.14em;
   font-weight: 700;
   color: #e4e4e4;
   letter-spacing: 0.01em;
@@ -147,9 +166,9 @@ body[data-twitch-mode="panel"] { background: #111; }
 }
 
 .tt-stats {
-  margin-top: 2px;
+  margin-top: 0.15em;
   color: #949494;
-  font-size: 13px;
+  font-size: 0.93em;
   display: flex;
   flex-wrap: wrap;
 }
@@ -158,7 +177,7 @@ body[data-twitch-mode="panel"] { background: #111; }
    different facts */
 .tt-stat { white-space: nowrap; }
 
-.tt-sep { color: #4e4e4e; padding: 0 5px; }
+.tt-sep { color: #4e4e4e; padding: 0 0.38em; }
 .tt-stat-k { color: #6c6c6c; }
 .tt-stat-k::after { content: ' '; }
 .tt-stat-v { color: #d0d0d0; }
@@ -167,13 +186,13 @@ body[data-twitch-mode="panel"] { background: #111; }
 .tt-stat-v--tier { color: var(--tier-color, #8a8a8a); }
 .tt-stat-v--ench { color: #af87ff; }
 
-.tt-blocks { padding: 2px 0; }
+.tt-blocks { padding: 0.14em 0; }
 
-.tt-block { padding: 5px 9px; }
+.tt-block { padding: 0.36em 0.64em; }
 .tt-block + .tt-block { border-top: 1px solid #1c1c1c; }
 
 .tt-label {
-  font-size: 13px;
+  font-size: 0.93em;
   color: #6c6c6c;
   text-transform: lowercase;
   letter-spacing: 0.02em;
@@ -193,80 +212,159 @@ body[data-twitch-mode="panel"] { background: #111; }
 .tt-block--ench .tt-label::before,
 .tt-block--ench .tt-label::after { color: #5f4a87; }
 
+/* Why there is nothing else to show. Said plainly, never guessed at — a card the
+   dump has not caught up with still gets its name and tier from the wire, which is
+   more than the viewer could read off the stream. */
+.tt-block--note { border-top: 1px solid #1c1c1c; }
+.tt-note { color: #6c6c6c; }
+
 .tt-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 6px 9px;
+  gap: 0.29em;
+  padding: 0.43em 0.64em;
   border-top: 1px solid #303030;
 }
 
 .tt-tag {
-  padding: 0 5px;
+  padding: 0 0.38em;
   background: #1c1c1c;
   border: 1px solid #303030;
   color: #949494;
-  font-size: 13px;
+  font-size: 0.93em;
   line-height: 1.35;
 }
 
-/* ── Panel ── */
+/* ── Panel ──
+   Same terminal as the overlay: one typeface, the same grey ramp, square edges.
+   It hosts the identical card block, so anything that framed it in a different
+   font read as two products stacked on top of each other.
+
+   Interactive things invert on hover and while active — white ground, black ink.
+   That is the only place in the extension where a surface lights up, which is
+   exactly why it works as "this is the one you're on". */
 
 .panel {
-  padding: 12px;
+  padding: 10px;
   background: #111;
   min-height: 100%;
-  color: #e8e8e8;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #d0d0d0;
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .panel-search {
   width: 100%;
-  padding: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.07);
-  color: #fff;
-  font-size: 13px;
+  padding: 7px 9px;
+  border: 1px solid #303030;
+  background: #080808;
+  color: #e4e4e4;
+  font-family: inherit;
+  font-size: 14px;
   outline: none;
 }
 
+.panel-search::placeholder { color: #6c6c6c; }
+.panel-search:focus { border-color: #585858; }
+.panel-search:disabled { color: #6c6c6c; }
+
 .panel-results {
   list-style: none;
-  margin: 4px 0 0;
+  margin: 0;
   padding: 0;
-  background: rgba(0, 0, 0, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #080808;
+  border: 1px solid #303030;
 }
 
 .panel-result {
-  padding: 8px 12px;
+  padding: 4px 9px;
   cursor: pointer;
-  font-size: 13px;
+  color: #d0d0d0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.panel-selected {
-  margin-top: 12px;
+.panel-result[aria-selected='true'] {
+  background: #fff;
+  color: #000;
 }
+
+.panel-selected { display: flex; flex-direction: column; gap: 8px; }
 
 .panel-tiers {
-  margin-top: 8px;
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
 }
 
-.panel-tier-btn {
-  padding: 2px 8px;
-  border: none;
-  cursor: pointer;
+/* Inactive tiers wear their own hue — the row doubles as the card's tier ladder.
+   The active one inverts like every other control here; its hue is still stated,
+   in colour, one line up in the card's stat line. */
+.panel-tier {
+  padding: 1px 8px;
+  border: 1px solid #303030;
+  background: #080808;
+  color: var(--tier, #8a8a8a);
+  font-family: inherit;
   font-size: 13px;
-  background: rgba(255, 255, 255, 0.07);
-  color: #ddd;
+  line-height: 1.5;
+  cursor: pointer;
 }
 
-.panel-tier-btn.active {
-  background: rgba(255, 255, 255, 0.2);
+.panel-tier:hover,
+.panel-tier:focus-visible {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
+  outline: none;
 }
+
+.panel-tier.active {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
+  font-weight: 700;
+}
+
+.panel-note {
+  color: #6c6c6c;
+  font-size: 13px;
+}
+
+.panel-keys {
+  color: #6c6c6c;
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.panel-keys kbd {
+  font-family: inherit;
+  font-size: inherit;
+  padding: 0 4px;
+  border: 1px solid #303030;
+  background: #080808;
+  color: #949494;
+}
+
+.panel-foot {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid #1c1c1c;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 13px;
+}
+
+.panel-link { color: #6c6c6c; text-decoration: none; }
+.panel-link:hover,
+.panel-link:focus-visible { background: #fff; color: #000; outline: none; }
+.panel-link--card { color: #949494; }
 
 /* ── Accessibility ── */
 

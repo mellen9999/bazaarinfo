@@ -9,17 +9,31 @@ import { tierColor } from '../tiers'
 const SIZE_LABEL: Record<string, string> = { Small: 'small', Medium: 'medium', Large: 'large' }
 const TIER_SEQ: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
 
+// Why a hovered card has no body. Each of these is a different truth and the
+// viewer can act on the difference — wait, reload, or accept that the dump has
+// not caught up with the patch — so they are never collapsed into one line.
+export type MissingReason = 'loading' | 'failed' | 'unknown'
+
+const MISSING_TEXT: Record<MissingReason, string> = {
+  loading: 'loading card data…',
+  failed: 'card data unavailable',
+  unknown: 'no data for this card yet',
+}
+
 interface Props {
-  card: BazaarCard
+  card: BazaarCard | null
+  // the name off the wire — the only thing we know when `card` is null
+  title?: string
   tier: TierName
   enchantment?: string
   tierKnown?: boolean
+  missing?: MissingReason
   visible: boolean
   style?: Record<string, string>
 }
 
 export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardTooltip(
-  { card, tier, enchantment, tierKnown, visible, style },
+  { card, title, tier, enchantment, tierKnown, missing, visible, style },
   ref,
 ) {
   const [imgLoaded, setImgLoaded] = useState(false)
@@ -29,8 +43,8 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
   const handleImgError = useCallback(() => setImgFailed(true), [])
 
   const artUrl = useMemo(
-    () => card.ArtKey ? `${EBS_BASE}/api/images/${card.ArtKey}` : null,
-    [card.ArtKey],
+    () => card?.ArtKey ? `${EBS_BASE}/api/images/${card.ArtKey}` : null,
+    [card?.ArtKey],
   )
 
   const tooltipStyle = useMemo(() => ({
@@ -39,23 +53,23 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
   } as Record<string, string>), [style, tier])
 
   const tags = useMemo(
-    () => card.DisplayTags ?? card.Tags ?? [],
-    [card.DisplayTags, card.Tags],
+    () => card?.DisplayTags ?? card?.Tags ?? [],
+    [card?.DisplayTags, card?.Tags],
   )
 
   const resolvedTooltips = useMemo(
-    () => (card.Tooltips ?? []).filter(isDisplayTooltip).map((tip) => ({
+    () => (card?.Tooltips ?? []).filter(isDisplayTooltip).map((tip) => ({
       type: tip.type,
-      text: resolveTooltip(tip.text, card.TooltipReplacements ?? {}, tier),
+      text: resolveTooltip(tip.text, card?.TooltipReplacements ?? {}, tier),
     })),
-    [card.Tooltips, card.TooltipReplacements, tier],
+    [card?.Tooltips, card?.TooltipReplacements, tier],
   )
 
   // Cooldown — the single most important stat on a Bazaar weapon. Flat number or
   // per-tier; if this exact tier isn't listed, use the nearest defined tier (down
   // first, since cooldowns are defined from the item's base tier up, then up).
   const cooldown = useMemo(() => {
-    const cd = card.Cooldown
+    const cd = card?.Cooldown
     if (cd == null) return null
     if (typeof cd === 'number') return cd
     if (cd[tier] != null) return cd[tier]
@@ -63,17 +77,17 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
     for (let i = idx - 1; i >= 0; i--) if (cd[TIER_SEQ[i]] != null) return cd[TIER_SEQ[i]]
     for (let i = idx + 1; i < TIER_SEQ.length; i++) if (cd[TIER_SEQ[i]] != null) return cd[TIER_SEQ[i]]
     return null
-  }, [card.Cooldown, tier])
+  }, [card?.Cooldown, tier])
 
   // What the applied enchantment actually does on this card (not just its name).
   const enchantEffect = useMemo(() => {
     if (!enchantment) return null
-    const e = card.Enchantments?.[enchantment]
+    const e = card?.Enchantments?.[enchantment]
     if (!e?.tooltips?.length) return null
     return e.tooltips
       .map((t) => resolveTooltip(t.text, e.tooltipReplacements ?? {}, tier))
       .join(' ')
-  }, [enchantment, card.Enchantments, tier])
+  }, [enchantment, card?.Enchantments, tier])
 
   // One dense stat line instead of a row of chips — the chips were 9px and unreadable
   // over moving video, and the labels cost more pixels than the values they framed.
@@ -87,13 +101,17 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
     const out: Array<[string, string, string]> = [
       ['tier', tierKnown === false ? 'base' : 'tier', tier.toLowerCase()],
     ]
-    out.push(['size', 'size', SIZE_LABEL[card.Size] ?? String(card.Size).toLowerCase()])
+    // Size and cooldown come from the dump, so without a card there is nothing
+    // honest to put here — tier and enchantment came off the wire and still stand.
+    if (card) out.push(['size', 'size', SIZE_LABEL[card.Size] ?? String(card.Size).toLowerCase()])
     if (cooldown != null) out.push(['cd', 'cd', `${cooldown}s`])
     // Named here too, not only as the effect block's label — an enchant whose text
     // we can't resolve would otherwise vanish from the card entirely.
     if (enchantment) out.push(['ench', 'ench', enchantment.toLowerCase()])
     return out
-  }, [tier, card.Size, cooldown, enchantment, tierKnown])
+  }, [tier, card, cooldown, enchantment, tierKnown])
+
+  const name = card?.Title ?? title ?? ''
 
   return (
     <div
@@ -115,12 +133,12 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
             />
           ) : (
             <div class="tt-art-fallback" aria-hidden="true">
-              {card.Type === 'Skill' ? '*' : '#'}
+              {!card ? '?' : card.Type === 'Skill' ? '*' : '#'}
             </div>
           )}
         </div>
         <div class="tt-head-text">
-          <div class="tt-name">{card.Title}</div>
+          <div class="tt-name">{name}</div>
           <div class="tt-stats">
             {stats.map(([slug, label, v], i) => (
               <span class="tt-stat" key={slug}>
@@ -149,6 +167,12 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
         <div class="tt-block tt-block--ench">
           <div class="tt-label">{enchantment}</div>
           <div class="tt-text">{enchantEffect}</div>
+        </div>
+      )}
+
+      {missing && (
+        <div class="tt-block tt-block--note">
+          <div class="tt-text tt-note">{MISSING_TEXT[missing]}</div>
         </div>
       )}
 

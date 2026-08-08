@@ -21,9 +21,8 @@ interface Props extends DetectedSlot {
 }
 
 export const HoverZone = memo(function HoverZone({ title, tier, x, y, w, h, owner, type, enchantment, tierKnown, onHover, onLeave }: Props) {
-  const isSkill = type === 'Skill'
   const isOpponent = owner === 'opponent'
-  const cls = `hover-zone${isSkill ? ' hover-zone--skill' : ''}${isOpponent ? ' hover-zone--opponent' : ''}`
+  const cls = `hover-zone${isOpponent ? ' hover-zone--opponent' : ''}`
 
   const slot = useMemo(
     () => ({ title, tier, x, y, w, h, owner, type, enchantment, tierKnown }),
