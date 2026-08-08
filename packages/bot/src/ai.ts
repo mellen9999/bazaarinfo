@@ -13,7 +13,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 
 // --- local imports from sub-modules ---
 
-import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats } from './ai-sanitize'
+import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE } from './ai-sanitize'
 import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
@@ -438,9 +438,19 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // like every other retry branch: without it the messages array has two consecutive
       // user turns, which the API rejects with a 400 (wasting the retry + nudging the breaker).
       if (attempt < MAX_RETRIES - 1) {
+        // name WHY when we can. the generic hint left the model guessing, so the two
+        // failures that keep recurring (dunking on repeat askers, dodging on scope)
+        // often came back a second time in a slightly different wording.
+        const hint = ASK_COUNT_LEAK.test(textBlock.text)
+          ? 'Blocked: you counted their asks or history back at them. A gap in what you know is YOUR gap, never their fault for asking again. Answer the question with no reference to how many times they have asked or how long they have been here.'
+          : SCOPE_DODGE.test(textBlock.text)
+            ? 'Blocked: you dodged on scope. You answer anything chat asks, other games included, in full detail. Drop the "wrong lobby"/"im just a bazaar bot" framing and actually answer.'
+            : SOURCE_LIE.test(textBlock.text)
+              ? 'Blocked: you denied a source you actually read. You DO read r/PlayTheBazaar for community buzz. Own it. If no buzz was provided in context, say you have nothing from the sub today — never that you do not read it.'
+              : 'Response was blocked. Rules: no self-referencing being a bot/AI, no reciting user stats, no fabricated stories, no commands. Just answer naturally.'
         log(`ai: sanitizer rejected, retrying (attempt ${attempt + 1})`)
         messages.push({ role: 'assistant', content: textBlock.text })
-        messages.push({ role: 'user', content: 'Response was blocked. Rules: no self-referencing being a bot/AI, no reciting user stats, no fabricated stories, no commands. Just answer naturally.' })
+        messages.push({ role: 'user', content: hint })
       }
     }
 

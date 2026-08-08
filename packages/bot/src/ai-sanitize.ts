@@ -25,14 +25,34 @@ export const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you
 // "N asks" is unambiguously meta so it matches alone; the far more common "N times" only
 // counts when the sentence is about asking/typing/posting, so game talk ("procs two times
 // in a row") and game state ("two tries left") stay untouched.
-const COUNT = '(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten)(?:st|nd|rd|th)?'
+const ORD = '(?:\\d+(?:st|nd|rd|th)|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)'
+const COUNT = `(?:${ORD}|\\d+|one|two|three|four|five|six|seven|eight|nine|ten)`
 const ASK_VERB = 'ask|asks|asking|asked|typed|type|typing|posted|posting|sent|said|spammed|command|message'
 export const ASK_COUNT_LEAK = new RegExp(
   `\\b${COUNT}\\s+asks?\\b` +
   `|\\b${COUNT}\\s+times?\\b(?=[^.!?]{0,30}\\b(?:${ASK_VERB})\\b)` +
-  `|\\b(?:asked|typed|posted|sent|spammed|repeated)\\b[^.!?]{0,40}\\b${COUNT}\\s+times?\\b`,
+  `|\\b(?:asked|typed|posted|sent|spammed|repeated)\\b[^.!?]{0,40}\\b${COUNT}\\s+times?\\b` +
+  // "third time's not the charm", "sixth time's the standing order". The POSSESSIVE is the
+  // whole signal — it is only ever the repeat-dunk idiom. Bare "two times" stays legal
+  // because that is how the game gets described ("burn ticks 4 times over the fight").
+  `|\\b${ORD}\\s+time['’]s\\b` +
+  // "asked this yesterday too", "you keep asking", "asking again"
+  `|\\b(?:asked|answered)\\s+(?:this|that|it)\\s+(?:yesterday|already|before|earlier|twice|again)\\b` +
+  `|\\b(?:you|u|they)\\s+keep\\s+(?:asking|typing|posting|saying)\\b` +
+  // "your 6th 'what did i miss' this month"
+  `|\\byour\\s+\\d+(?:st|nd|rd|th)\\b` +
+  // account age as a weapon — "13 years on this platform and you're still..."
+  `|\\b\\d+\\s+years?\\s+on\\s+(?:this|the)\\s+(?:platform|account|site|website|app)\\b` +
+  `|\\b\\d+\\s+years?\\s+on\\s+twitch\\b`,
   'i',
 )
+
+// Scope dodges — "wrong lobby", "im strictly bazaar", "ask me about bazaar instead".
+// The prompt has banned these since the BANNED DODGES line existed and they still ship,
+// so they get a guard. Deliberately narrow: only phrases that assert an INABILITY to
+// engage. Merely naming another game ("mill druid is hearthstone — here's the list") is
+// a correct answer and must survive, so plain game names are not matched.
+export const SCOPE_DODGE = /\b(?:wrong (?:lobby|game|channel|chat)|not my (?:lane|department|wheelhouse|area|thing)|i(?:'m| am)?\s+(?:strictly|only|just)\s+(?:a\s+|the\s+)?bazaar|only\s+(?:do|know|cover|answer|handle)\s+bazaar|(?:this|i)\s+(?:is|am)\s+a\s+bazaar\s+bot,?\s+not|ask me\s+(?:something\s+)?about\s+bazaar\s+(?:instead|then)|stick to bazaar|bazaar (?:questions|stuff) only)\b/i
 export const GARBLED = /\b(?:i|you|we|they|he|she)\s+to\s+(?!(?:some|any|every|no)(?:thing|one|where|body)\b)(?!(?:be|get|keep|start|stop|go|come|try)\s)\w+ing\b/i
 // prompt section headers — single source of truth, used in BOTH directions: ai-build strips
 // them from injected chat text (a planted "Game data:" can't spoof a context row) and
@@ -82,6 +102,12 @@ export const META_INSTRUCTION = /\b(pls|please)\s+(just\s+)?(do|give|say|answer|
 export const INSTRUCTION_ECHO = /\b(it needs to (know|respond|learn|have|be|act)|just (respond|be|act|sound|talk) (cleanly|pro|normally|like|as)|don'?t sound like|every\s+respon[sc]e?\s+should\s+be\s+unique|respond the same way|don'?t respond the same|vary (structure|opener|tone)(\s+and\s+(structure|opener|tone))*\s+every|minimum characters.{0,15}maximum impact|maximum impact.{0,15}minimum characters)\b/i
 export const JAILBREAK_ECHO = /\b(ignore\s+(previous|prior|above|all|your)\s+(instructions?|rules?|prompt|guidelines?)|disregard\s+your\s+(prompt|rules?|instructions?|guidelines?)|override\s+your\s+(rules?|guidelines?|instructions?)|forget\s+your\s+(rules?|guidelines?|instructions?)|(from\s+now\s+on|going\s+forward|henceforth|from\s+this\s+point|starting\s+now)\b.{0,30}\b(ignore|disregard|forget|override|obey|do\s+(?:exactly\s+)?(?:what|whatever)\s+(?:i|im|mellen)|your\s+(?:rules?|prompt|instructions?|guidelines?))|instead\s+just\s+do\b|dont?\s+mention\s+(me|mellen)|do\s+as\s+much\s+as\s+(?:you|u)\s+can\s+(?:without\s+(?:asking|input|me|permission)|by\s+(?:yourself|ur\s*self)|on\s+(?:your|ur)\s+own|autonomously)|by\s+ur\s*self|as\s+long\s+as\s+.{0,15}\b(tos|rules|guidelines?|guidlines?)|new\s+instructions?:|updated\s+rules?:)\b/i
 export const PRIVACY_LIE = /\b(i (don'?t|do not|never) (log|store|collect|track|save|record|keep) (anything|any|your|data|messages|chat)|i'?m? (not )?(log|stor|collect|track|sav|record|keep)(ing|e|s)? (anything|any|your|data|messages|chat)|not (logging|storing|collecting|tracking|saving|recording) (anything|any|your)|not like i'?m storing|each conversation'?s? a fresh slate|don'?t collect or store|that'?s on streamlabs|that'?s a twitch thing,? not me)\b/i
+// Denying a source it demonstrably reads. ai-build injects a r/PlayTheBazaar digest every
+// time chat asks about meta/patch/community, and the bot still told chat "my relationship
+// with reddit is nonexistent", then doubled down with "checked my own logs" when called a
+// liar. Same doctrine as PRIVACY_LIE — own what you use. Having no buzz cached TODAY is a
+// different sentence and stays legal ("nothing from the sub today").
+export const SOURCE_LIE = /\b(?:i\s+(?:don'?t|do not|never)\s+(?:browse|read|use|visit|check|lurk|touch|go on|look at)\s+(?:the\s+)?(?:reddit|r\/\w+|subreddit)|(?:zero|no)\s+reddit\s+(?:activity|presence|account|usage|history)|relationship\s+with\s+reddit\s+is\s+(?:nonexistent|non-existent|none|nothing)|i'?m\s+not\s+on\s+reddit|never\s+(?:been\s+on|used|browsed|read)\s+reddit|don'?t\s+lurk\s+r\/\w+)\b/i
 export const TERSE_REFUSAL = /^(not doing that|not gonna (do|say|type) that|can'?t do that|won'?t do that|not my (pay grade|job|lane|problem)|let me (look|check) that up|let me (look|check)|i('ll| will) look that up|i'?m not comfortable|that'?s not something i|i can'?t help with|i (don'?t|can'?t) (really )?do that|i'?d rather not|that'?s (above|beyond) (my|what i))\.?$/i
 
 // --- command blocking ---
@@ -216,14 +242,19 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   // real stats/standings were injected the model was ORDERED to recite them — don't nuke the
   // grounded answer (the standings feature exists to give it). fabrication paths stay guarded
   // (no stats injected => still blocked; game-stat hallucination has its own guard).
-  if (SELF_REF.test(s) || COT_LEAK.test(s) || (!hasStats && STAT_LEAK.test(s)) || ASK_COUNT_LEAK.test(s) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || GARBLED.test(s) || META_INSTRUCTION.test(s) || JAILBREAK_ECHO.test(s) || INSTRUCTION_ECHO.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
+  if (SELF_REF.test(s) || COT_LEAK.test(s) || (!hasStats && STAT_LEAK.test(s)) || ASK_COUNT_LEAK.test(s) || SCOPE_DODGE.test(s) || CONTEXT_ECHO.test(s) || FABRICATION.test(s) || PRIVACY_LIE.test(s) || SOURCE_LIE.test(s) || GARBLED.test(s) || META_INSTRUCTION.test(s) || JAILBREAK_ECHO.test(s) || INSTRUCTION_ECHO.test(s) || cmdBlock || hasSecret) return { text: '', mentions: [] }
 
   // strip asker's name from body — they get auto-tagged by reply threading
   if (asker) {
+    const beforeStrip = s
     s = s.replace(new RegExp(`@${asker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'gi'), '')
     s = s.replace(askerNameRe(asker), '')
     // fix orphan punctuation left by name removal (e.g. "you, . you" → "you. you")
     s = s.replace(/,\s*\./g, '.').replace(/\s{2,}/g, ' ')
+    // a name at the START takes its separator with it — "@asker, text" and "asker: text"
+    // were shipping as ", text" / ": text". only repaired when a name actually came out,
+    // so a deliberate em-dash opener ("— stop, actually stop") is left alone.
+    if (s !== beforeStrip) s = s.replace(/^\s*[,;:—–-]+\s*/, '')
   }
 
   // strip fake @mentions (model invents @you, @asking, etc.) — keep only real usernames.

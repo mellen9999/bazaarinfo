@@ -147,19 +147,22 @@ describe('system prompt', () => {
   // count and the pending-hero line both grow with the dump, so a patch that ships a
   // hero before bazaardb has its cards used to land within ~15 chars of the ceiling.
   // patch day is meant to be hands-off — the alarm must not fire on data drift.
-  // ->8700 for the emote-bit carve-out in HARD NOs: the bot had started refusing
-  // "LICK <chatter>" as harassment and lecturing chat about consent, so the rule has
-  // to name the exception rather than leave it to the model's read of "harassing".
-  it('is under 8700 chars (runaway-growth guard)', () => {
+  // ->8800 for three rules the live logs proved were needed, all the same shape — the
+  // model over-applying a narrow ban: the emote-bit carve-out in HARD NOs (it refused
+  // "LICK <chatter>" as harassment and lectured chat about consent), scope dodges stated
+  // as a CATEGORY not one sample string (it still said "wrong lobby, thats hearthstone"
+  // with "thats a diablo Q" already banned), and owning the reddit source (it told chat
+  // "my relationship with reddit is nonexistent" while reading r/PlayTheBazaar).
+  it('is under 8800 chars (runaway-growth guard)', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt.length).toBeLessThan(8700)
+    expect(prompt.length).toBeLessThan(8800)
   })
 
   // the guard has to hold on patch day too, when a newly announced hero adds a line
   // the dump can't back yet — that path is exactly when nobody is watching the tests
   it('still fits with a pending-hero line on patch day', () => {
     const worstCase = buildSystemPrompt().length + ' new: The Dragons (17.0) — no card data yet, never invent their items.'.length
-    expect(worstCase).toBeLessThan(8700)
+    expect(worstCase).toBeLessThan(8800)
   })
 
   it('contains core identity', () => {
