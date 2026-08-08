@@ -87,9 +87,9 @@ function page(crop: string | null): string {
     const it=CARDS.items, sk=CARDS.skills||[], D=[];
     const w=s=>s==='Small'?0.058:s==='Large'?0.14:0.092;
     let x=0.075; it.forEach((c,i)=>{const cw=w(c.Size);
-      D.push({title:c.Title,tier:(c.Tiers||['Gold']).slice(-1)[0],x,y:0.60,w:cw,h:0.23,owner:'player',type:c.Type,enchantment:i===1?'Fiery':i===4?'Golden':undefined}); x+=cw+0.012;});
+      D.push({title:c.Title,tier:(c.Tiers||['Gold']).slice(-1)[0],x,y:0.60,w:cw,h:0.23,tierKnown:false,owner:'player',type:c.Type,enchantment:i===1?'Fiery':i===4?'Golden':undefined}); x+=cw+0.012;});
     let ox=0.10; it.slice(0,4).forEach(c=>{const cw=w(c.Size);
-      D.push({title:c.Title,tier:(c.Tiers||['Gold']).slice(-1)[0],x:ox,y:0.135,w:cw,h:0.20,owner:'opponent',type:c.Type}); ox+=cw+0.012;});
+      D.push({title:c.Title,tier:(c.Tiers||['Gold']).slice(-1)[0],x:ox,y:0.135,w:cw,h:0.20,tierKnown:false,owner:'opponent',type:c.Type}); ox+=cw+0.012;});
     let sx=0.06; sk.forEach(c=>{D.push({title:c.Title,tier:(c.Tiers||['Gold']).slice(-1)[0],x:sx,y:0.865,w:0.033,h:0.058,owner:'player',type:'Skill'}); sx+=0.043;});
     return D;
   }

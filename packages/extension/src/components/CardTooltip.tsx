@@ -13,12 +13,13 @@ interface Props {
   card: BazaarCard
   tier: TierName
   enchantment?: string
+  tierKnown?: boolean
   visible: boolean
   style?: Record<string, string>
 }
 
 export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardTooltip(
-  { card, tier, enchantment, visible, style },
+  { card, tier, enchantment, tierKnown, visible, style },
   ref,
 ) {
   const [imgLoaded, setImgLoaded] = useState(false)
@@ -76,15 +77,23 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
 
   // One dense stat line instead of a row of chips — the chips were 9px and unreadable
   // over moving video, and the labels cost more pixels than the values they framed.
+  // [slug, label, value]. The slug drives styling and stays fixed even when the
+  // label changes, so the colour tracks the fact rather than the wording.
   const stats = useMemo(() => {
-    const out: Array<[string, string]> = [['tier', tier.toLowerCase()]]
-    out.push(['size', SIZE_LABEL[card.Size] ?? String(card.Size).toLowerCase()])
-    if (cooldown != null) out.push(['cd', `${cooldown}s`])
+    // A sender that only knows the card's *starting* tier says so, and we label it
+    // "base" rather than "tier". The numbers below are that tier's numbers, so
+    // claiming it as the live tier would put wrong damage on screen after any
+    // upgrade — and a confidently wrong number is worse than an honest one.
+    const out: Array<[string, string, string]> = [
+      ['tier', tierKnown === false ? 'base' : 'tier', tier.toLowerCase()],
+    ]
+    out.push(['size', 'size', SIZE_LABEL[card.Size] ?? String(card.Size).toLowerCase()])
+    if (cooldown != null) out.push(['cd', 'cd', `${cooldown}s`])
     // Named here too, not only as the effect block's label — an enchant whose text
     // we can't resolve would otherwise vanish from the card entirely.
-    if (enchantment) out.push(['ench', enchantment.toLowerCase()])
+    if (enchantment) out.push(['ench', 'ench', enchantment.toLowerCase()])
     return out
-  }, [tier, card.Size, cooldown, enchantment])
+  }, [tier, card.Size, cooldown, enchantment, tierKnown])
 
   return (
     <div
@@ -113,10 +122,10 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
         <div class="tt-head-text">
           <div class="tt-name">{card.Title}</div>
           <div class="tt-stats">
-            {stats.map(([k, v], i) => (
-              <span class="tt-stat" key={k}>
-                <span class="tt-stat-k">{k}</span>
-                <span class={`tt-stat-v tt-stat-v--${k}`}>{v}</span>
+            {stats.map(([slug, label, v], i) => (
+              <span class="tt-stat" key={slug}>
+                <span class="tt-stat-k">{label}</span>
+                <span class={`tt-stat-v tt-stat-v--${slug}`}>{v}</span>
                 {/* trailing, so a wrapped line opens on a key rather than a bullet */}
                 {i < stats.length - 1 && <span class="tt-sep">·</span>}
               </span>

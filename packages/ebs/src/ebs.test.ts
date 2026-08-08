@@ -316,3 +316,30 @@ describe('readyStatus (/health/ready staleness)', () => {
     expect(readyStatus({ ...emptyCache, fetchedAt: undefined as unknown as string }, now)).toEqual({ cacheAgeHours: null, stale: true })
   })
 })
+
+// ── tierKnown: does the sender actually know this tier, or is it assuming? ──────
+
+describe('isValidCard tierKnown', () => {
+  const base = { title: 'Fang', tier: 'Bronze', x: 0.1, y: 0.1, w: 0.1, h: 0.1 }
+
+  it('accepts either boolean', () => {
+    expect(isValidCard({ ...base, tierKnown: false })).toBe(true)
+    expect(isValidCard({ ...base, tierKnown: true })).toBe(true)
+  })
+
+  it('treats absence as valid — the plugin and older companions never send it', () => {
+    expect(isValidCard(base)).toBe(true)
+  })
+
+  it('rejects a non-boolean', () => {
+    expect(isValidCard({ ...base, tierKnown: 'false' })).toBe(false)
+    expect(isValidCard({ ...base, tierKnown: 0 })).toBe(false)
+  })
+
+  it('forwards the flag through to the broadcast payload', () => {
+    const out = parsePayload({
+      channelId: '123', secret: 's', cards: [{ ...base, tierKnown: false }],
+    })
+    expect(out?.cards[0].tierKnown).toBe(false)
+  })
+})

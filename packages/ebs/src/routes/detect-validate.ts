@@ -13,6 +13,7 @@ export interface DetectPayload {
     owner?: string
     type?: string
     enchantment?: string
+    tierKnown?: boolean
     attrs?: Record<string, number>
   }>
 }
@@ -36,6 +37,9 @@ export function isValidCard(c: Record<string, unknown>): boolean {
   if (c.owner !== undefined && (typeof c.owner !== 'string' || c.owner.length > MAX_OWNER_LEN)) return false
   if (c.type !== undefined && (typeof c.type !== 'string' || c.type.length > MAX_TYPE_LEN)) return false
   if (c.enchantment !== undefined && (typeof c.enchantment !== 'string' || c.enchantment.length > MAX_ENCHANTMENT_LEN)) return false
+  // Whether the sender actually observed this tier or is assuming the card's starting
+  // tier. Absent means observed, so the plugin and older companions need no change.
+  if (c.tierKnown !== undefined && typeof c.tierKnown !== 'boolean') return false
   if (c.attrs !== undefined) {
     if (typeof c.attrs !== 'object' || c.attrs === null || Array.isArray(c.attrs)) return false
     const attrsObj = c.attrs as Record<string, unknown>

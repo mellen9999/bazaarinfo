@@ -15,6 +15,7 @@ interface DetectedCard {
   owner?: string
   type?: string
   enchantment?: string
+  tierKnown?: boolean
 }
 
 interface BroadcastPayload {
