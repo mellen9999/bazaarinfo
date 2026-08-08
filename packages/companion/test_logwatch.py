@@ -249,3 +249,106 @@ class TestCredentialCheck:
             raise OSError("network down")
         self._with_post(monkeypatch, boom)
         assert verify_credentials("http://e", "1", "s") is True
+
+
+# --- board integrity: a card that leaves the board must leave our board ---
+
+DB = {
+    "tid_sub": {"title": "Submarine", "tier": "Silver", "size": "Large", "type": "Item"},
+    "tid_ext": {"title": "Extract", "tier": "Bronze", "size": "Small", "type": "Item"},
+}
+
+
+def _spawn(inst, socket, size, section="Hand", owner="Player"):
+    return (f"[GameSimHandler] Cards Spawned: {inst} [{owner}] [{section}] "
+            f"[Socket_{socket}] [{size}]")
+
+
+def _moved(inst, socket, size, section="Hand", owner="Player"):
+    return ("[CardOperationUtility] Successfully moved card to: "
+            f"[{inst} [{owner}] [{section}] [Socket_{socket}] [{size}]")
+
+
+class TestBoardLeavesOnStash:
+    def _state(self):
+        s = new_state()
+        s["instance_map"]["i_sub"] = "tid_sub"
+        s["instance_map"]["i_ext"] = "tid_ext"
+        return s
+
+    def test_moved_to_stash_removes_from_board(self):
+        s = self._state()
+        process_line(_spawn("i_sub", 0, "Large"), s, DB, False)
+        assert "i_sub" in s["player_board"]
+        assert process_line(_moved("i_sub", 0, "Large", section="Stash"), s, DB, False) is True
+        assert "i_sub" not in s["player_board"]
+
+    def test_spawned_in_stash_removes_from_board(self):
+        s = self._state()
+        process_line(_spawn("i_sub", 0, "Large"), s, DB, False)
+        process_line(_spawn("i_sub", 0, "Large", section="Stash"), s, DB, False)
+        assert "i_sub" not in s["player_board"]
+
+    def test_stashed_card_frees_its_socket_for_the_next_one(self):
+        # The live bug: a Large at socket 0 went to the stash and stayed tracked, so a
+        # Small later placed at socket 0 double-booked the slot and the overlay
+        # squeezed both zones — dragging every card in the row off its real position.
+        s = self._state()
+        process_line(_spawn("i_sub", 0, "Large"), s, DB, False)
+        process_line(_moved("i_sub", 0, "Large", section="Stash"), s, DB, False)
+        process_line(_spawn("i_ext", 0, "Small"), s, DB, False)
+        cards = build_payload(s)["cards"]
+        assert [c["title"] for c in cards] == ["Extract"]
+
+    def test_unknown_instance_in_stash_is_not_an_error(self):
+        s = self._state()
+        assert process_line(_moved("i_ghost", 3, "Small", section="Stash"), s, DB, False) is False
+
+
+class TestResolveBoard:
+    def test_no_two_cards_share_a_socket(self):
+        board = {
+            "a": {"title": "A", "tier": "Bronze", "size": "Large", "socket": 0},
+            "b": {"title": "B", "tier": "Bronze", "size": "Small", "socket": 1},
+        }
+        kept = logwatch.resolve_board(board, "player")
+        assert [c["title"] for c in kept] == ["B"]
+
+    def test_disjoint_cards_all_survive(self):
+        board = {
+            "a": {"title": "A", "tier": "Bronze", "size": "Medium", "socket": 0},
+            "b": {"title": "B", "tier": "Bronze", "size": "Medium", "socket": 2},
+            "c": {"title": "C", "tier": "Bronze", "size": "Small", "socket": 4},
+        }
+        assert len(logwatch.resolve_board(board, "player")) == 3
+
+    def test_board_can_never_exceed_its_slots(self):
+        board = {
+            str(i): {"title": f"C{i}", "tier": "Bronze", "size": "Large", "socket": i}
+            for i in range(10)
+        }
+        kept = logwatch.resolve_board(board, "player")
+        used = sum(logwatch._slot_span(c)[1] - logwatch._slot_span(c)[0] for c in kept)
+        assert used <= logwatch.BOARD_SLOTS
+
+    def test_payload_zones_never_overlap(self):
+        s = new_state()
+        s["player_board"] = {
+            "a": {"title": "A", "tier": "Bronze", "size": "Large", "socket": 0},
+            "b": {"title": "B", "tier": "Bronze", "size": "Medium", "socket": 1},
+            "c": {"title": "C", "tier": "Bronze", "size": "Small", "socket": 4},
+        }
+        cards = sorted(build_payload(s)["cards"], key=lambda c: c["x"])
+        for a, b in zip(cards, cards[1:]):
+            assert a["x"] + a["w"] <= b["x"] + 1e-9
+
+
+class TestPurchaseWithoutSocket:
+    def test_socketless_purchase_does_not_invent_a_slot(self):
+        s = new_state()
+        line = ("[BoardManager] Card Purchased: InstanceId: i_x - "
+                "TemplateIdtid_sub - Target:Stash - SectionPlayer")
+        process_line(line, s, DB, False)
+        assert s["player_board"] == {}
+        # the template mapping is still learned, so the spawn line can place it
+        assert s["instance_map"]["i_x"] == "tid_sub"

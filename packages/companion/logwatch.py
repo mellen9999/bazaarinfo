@@ -11,7 +11,7 @@ Usage:
     python logwatch.py [--config config.ini] [--debug] [--setup]
 """
 
-VERSION = "1.0.6"
+VERSION = "1.0.7"
 
 import argparse
 import configparser
@@ -259,6 +259,7 @@ RE_CARD_REMOVED = re.compile(
 # --- Overlay positions (viewport-normalized, 1920x1080 reference) ---
 
 # Item sockets: 10 slots per side, center-aligned
+BOARD_SLOTS = 10
 # Measured from 1920x1080 fullscreen screenshots (ss1fin.png, 2ssfin.png)
 ITEM_SOCKET_W = 0.058604   # slot pitch (from BepInEx CoordsLogger)
 ITEM_CARD_W = 0.058604     # visible card width = pitch (single slot)
@@ -366,13 +367,8 @@ def load_card_db(cards_json: Path) -> dict:
 
 def make_item_payload(info: dict, owner: str) -> dict:
     """Build a card payload dict for an item on the board."""
-    socket = info.get("socket", 5)
-    try:
-        socket = max(0, min(9, int(socket)))
-    except (TypeError, ValueError):
-        socket = 5
-    size = info.get("size", "Medium")
-    slots = SIZE_SLOTS.get(size, 2)
+    socket, end = _slot_span(info)
+    slots = end - socket
     if owner == "player":
         y_center = PLAYER_ITEM_Y
         h = PLAYER_ITEM_H
@@ -381,7 +377,7 @@ def make_item_payload(info: dict, owner: str) -> dict:
         h = OPPONENT_ITEM_H
     w = ITEM_CARD_W + (slots - 1) * ITEM_SOCKET_W
     # socket is the leftmost slot. Card center = leftmost slot center + half the extra slots
-    slot_center_x = ITEM_BOARD_CENTER_X + (socket - 4.5) * ITEM_SOCKET_W
+    slot_center_x = ITEM_BOARD_CENTER_X + (socket - (BOARD_SLOTS - 1) / 2) * ITEM_SOCKET_W
     card_center_x = slot_center_x + (slots - 1) * ITEM_SOCKET_W / 2
     return {
         "title": info["title"],
@@ -437,12 +433,56 @@ def make_skill_payload(info: dict, owner: str, total_skills: int) -> dict | None
     }
 
 
+def _slot_span(info: dict) -> "tuple[int, int]":
+    """[start, end) board slots an item occupies, clamped to the board."""
+    try:
+        socket = max(0, min(BOARD_SLOTS - 1, int(info.get("socket", 0))))
+    except (TypeError, ValueError):
+        socket = 0
+    slots = SIZE_SLOTS.get(info.get("size", "Medium"), 2)
+    return socket, min(socket + slots, BOARD_SLOTS)
+
+
+def resolve_board(board: dict, label: str) -> list:
+    """Return the board's items with every socket claimed by at most one card.
+
+    A board is physically incapable of holding two cards in one slot, so if our
+    tracked state says otherwise, that state is stale — a log line we missed, or a
+    format we don't parse yet. Shipping it anyway is the worst outcome: the overlay
+    resolves the collision by shrinking both zones, which silently drags every
+    neighbouring card off its real position, so one stale entry corrupts the whole
+    row rather than just itself. Last writer wins (the newest sighting is the one
+    the game most recently confirmed) and the loser is logged, loudly, once.
+    """
+    owners: dict = {}   # slot -> instance id
+    kept: dict = {}     # instance id -> info, in board order
+    for inst_id, info in board.items():
+        lo, hi = _slot_span(info)
+        for slot in range(lo, hi):
+            clash = owners.get(slot)
+            if clash is None or clash == inst_id:
+                continue
+            clo, chi = _slot_span(kept[clash])
+            for s in range(clo, chi):
+                if owners.get(s) == clash:
+                    del owners[s]
+            logger.warning(
+                "board(%s): '%s' and '%s' both claim socket %d — dropping the stale one",
+                label, kept[clash]["title"], info["title"], slot,
+            )
+            del kept[clash]
+        kept[inst_id] = info
+        for slot in range(lo, hi):
+            owners[slot] = inst_id
+    return list(kept.values())
+
+
 def build_payload(state: dict) -> dict:
     """Build the full EBS payload from current game state."""
     cards = []
 
     # Player items
-    for info in state["player_board"].values():
+    for info in resolve_board(state["player_board"], "player"):
         cards.append(make_item_payload(info, "player"))
 
     # Opponent items — skip any we couldn't name. The game only gives the local
@@ -450,9 +490,12 @@ def build_payload(state: dict) -> dict:
     # their cards are usually unresolvable; a fallback title is just the raw id, which
     # would render a dead, tooltip-less hover zone over the opponent board. Only show
     # opponent cards we can actually identify (future game builds may expose them).
-    for inst_id, info in state["opponent_board"].items():
-        if info.get("tier") == "Unknown" or info.get("title") == _cap(inst_id):
-            continue
+    named_opponent = {
+        inst_id: info
+        for inst_id, info in state["opponent_board"].items()
+        if info.get("tier") != "Unknown" and info.get("title") != _cap(inst_id)
+    }
+    for info in resolve_board(named_opponent, "opponent"):
         cards.append(make_item_payload(info, "opponent"))
 
     # Player skills
@@ -550,6 +593,16 @@ def parse_spawned_chunk(chunk: str) -> dict | None:
 _LINE_PREFIXES = ("BoardManager", "GameSimHandler", "AppState", "CardOperationUtility")
 
 
+def _drop_from_boards(state: dict, inst_id: str) -> bool:
+    """Remove an instance from both boards. Returns True if anything was removed."""
+    dropped = False
+    for key in ("player_board", "opponent_board"):
+        if inst_id in state[key]:
+            del state[key][inst_id]
+            dropped = True
+    return dropped
+
+
 def _next_skill_socket(state: dict) -> "int | None":
     """Lowest free skill socket (0..11), or None if all 12 are taken. Computed from the
     sockets currently in use, so a removed/reforged skill frees its slot — unlike the old
@@ -606,14 +659,19 @@ def _process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
         instance_id, template_id, target, section = m.groups()
         state["instance_map"][instance_id] = template_id
 
-        socket_num = 5
+        # No socket in the target means this purchase did not land on the board
+        # (stash buy, or a target shape we don't understand). Guessing a slot puts a
+        # phantom card mid-board that nothing ever moves or clears, so don't guess —
+        # the Cards Spawned line that follows a real board placement carries the
+        # socket and will add it for real.
+        socket_num = None
         if "_" in target:
             try:
                 socket_num = int(target.split("_")[-1])
             except ValueError:
                 pass
 
-        if section == "Player":
+        if section == "Player" and socket_num is not None:
             info = card_db.get(template_id)
             if info:
                 entry = {
@@ -695,8 +753,12 @@ def _process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
             if parsed["socket"] is None:
                 continue
 
-            # Skip stash items
+            # Not on the board (stash, shop). Skipping is not enough: if we were
+            # already tracking it, its old socket is now occupied by something else,
+            # so it has to be dropped or the board double-books that slot.
             if parsed["section"] != "Hand":
+                if _drop_from_boards(state, inst_id):
+                    changed = True
                 continue
 
             title = info["title"] if info else _cap(inst_id)
@@ -730,25 +792,30 @@ def _process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
     if m:
         inst_id, owner, section, socket_str, size = m.groups()
         socket_num = int(socket_str)
-        if section == "Hand":
-            tid = state["instance_map"].get(inst_id)
-            info = card_db.get(tid) if tid else None
-            board = state["player_board"] if owner == "Player" else state["opponent_board"]
-            if inst_id in board:
-                board[inst_id]["socket"] = socket_num
-                if size in ("Small", "Medium", "Large"):
-                    board[inst_id]["size"] = size
-            elif info:
-                board[inst_id] = {
-                    "title": info["title"],
-                    "tier": info["tier"],
-                    "size": size if size in ("Small", "Medium", "Large") else info["size"],
-                    "socket": socket_num,
-                }
-                if debug:
-                    logger.debug("+ moved_to %s -> Socket_%d (%s)", info["title"], socket_num, owner)
-            return True
-        return False
+        if section != "Hand":
+            # Left the board (stash, shop, anywhere else). Its socket now belongs to
+            # whatever slid into it, so keeping the entry double-books that slot —
+            # two cards claim one socket, the overlay tessellates them into slivers
+            # and neighbours shift. A card off the board must leave the board.
+            return _drop_from_boards(state, inst_id)
+
+        tid = state["instance_map"].get(inst_id)
+        info = card_db.get(tid) if tid else None
+        board = state["player_board"] if owner == "Player" else state["opponent_board"]
+        if inst_id in board:
+            board[inst_id]["socket"] = socket_num
+            if size in ("Small", "Medium", "Large"):
+                board[inst_id]["size"] = size
+        elif info:
+            board[inst_id] = {
+                "title": info["title"],
+                "tier": info["tier"],
+                "size": size if size in ("Small", "Medium", "Large") else info["size"],
+                "socket": socket_num,
+            }
+            if debug:
+                logger.debug("+ moved_to %s -> Socket_%d (%s)", info["title"], socket_num, owner)
+        return True
 
     # Card moved to different socket (no owner/section info — assume player)
     m = RE_CARD_MOVED_SOCKET.search(line)
