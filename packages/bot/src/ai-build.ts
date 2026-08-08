@@ -894,7 +894,10 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     && !/\b(best|worst|good|bad|meta|tier|build|strong|weak|viable|worth|better|op|broken|heroes?|comp|loadout|strat|counter)\b/i.test(query)
     && entities.glossary.length === 0 && entities.knowledge.length === 0
     && entities.cards.length === 0 && entities.monsters.length === 0 && !entities.hero
-  if (noGameData || noVerifiedDefinition) recordGap(ctx.channel, query)
+  // count the subject the CHATTER raised, never the nudge we wrote — replaying the log
+  // showed "bluntly", "accurately" and "unanswered" building toward an alert, all of them
+  // words out of the bare-!b scaffolding rather than anything chat ever asked about.
+  if (noGameData || noVerifiedDefinition) recordGap(ctx.channel, ctx.displayQuery ?? query)
 
   // build context sections in priority order
   const requiredTail = [
