@@ -1,7 +1,12 @@
 // GET /api/images/:hash — proxies bazaardb.gg CDN images
 // so the extension only needs to allowlist the EBS domain
 
-const CDN_BASE = 'https://s.bazaardb.gg/v1/z11.0'
+// The z-segment tracks the game version. It is a rendition selector, not part of
+// the identity — a given hash resolves under old versions too — but it should still
+// follow the live site, so it is one env var rather than a literal buried in code.
+// Regenerate the hashes (scripts/scrape-images.ts) whenever this moves.
+const CDN_VERSION = process.env.BAZAARDB_CDN_VERSION ?? 'z17.0'
+const CDN_BASE = `https://s.bazaardb.gg/v1/${CDN_VERSION}`
 const HASH_RE = /^[a-f0-9]{20,64}$/
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024 // 2MB
 

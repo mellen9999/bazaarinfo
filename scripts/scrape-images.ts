@@ -4,29 +4,45 @@
 //   1. Parse bazaardb.gg/sitemap.xml to get card page URLs (/card/{id}/{slug})
 //   2. Fetch each card via RSC (React Server Components) endpoint, which returns
 //      server-rendered data including the CDN image URL
-//   3. Extract the sha1 hash from the CDN pattern: s.bazaardb.gg/v1/z11.0/{hash}@...
+//   3. Extract the sha1 hash from the CDN pattern: s.bazaardb.gg/v1/z{ver}/{hash}@...
+//
+// The version segment is NOT matched literally. It tracks the game version and has
+// already moved once (z11.0 -> z17.0); a pinned pattern silently matches nothing,
+// which is how every card ended up with no art and nobody noticed.
+//
+// Output is packages/data/art-keys.json — the map the data scraper actually reads,
+// committed so a deploy carries it. If bazaardb ever re-keys its CDN, the stored
+// hashes all go stale at once: delete that file and re-run, since resume treats any
+// existing entry as done.
+//
+// Run it here, commit the result, deploy. Do NOT wire it into the bot's refresh
+// pipeline: that would have the bot write a git-tracked file on mele, and the deploy
+// there is a bare `git pull` over pre-existing local work — a dirty tracked file is
+// exactly what turns the next pull into a conflict. The content diff already alerts
+// with "N items missing art" on patch day; that alert is the trigger.
 //
 // NOTE: A cleaner alternative would be to ask teemaw (bazaardb.gg owner) to include
 // image hashes in dump.json. This scraper is a working fallback in the meantime.
 //
 // Usage: bun scripts/scrape-images.ts
-// (or: NODE_TLS_REJECT_UNAUTHORIZED=0 bun scripts/scrape-images.ts)
 //
-// bazaardb.gg uses a ZeroSSL cert that isn't in Bun's trust store on some systems.
-// Setting this env var at process start bypasses the TLS verification.
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+// This used to force NODE_TLS_REJECT_UNAUTHORIZED=0 for a bazaardb cert Bun didn't
+// trust. That cert verifies cleanly now, and turning verification off process-wide
+// to scrape a third party is a MITM waiting to happen — if it ever fails again, add
+// the CA to the trust store rather than bringing this back.
 
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 
 const CACHE_PATH = 'cache/items.json'
-const HASHES_PATH = 'cache/image-hashes.json'
+const HASHES_PATH = 'packages/data/art-keys.json'
 const SITEMAP_URL = 'https://bazaardb.gg/sitemap.xml'
 const USER_AGENT = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
 const DELAY_MS = 150
 const LOG_EVERY = 50
 
-// RSC response contains CDN URLs like: bazaardb.gg/v1/z11.0/{hash}@256.webp
-const HASH_RE = /\/v1\/z11\.0\/([a-f0-9]{20,64})@/
+// RSC response contains CDN URLs like: s.bazaardb.gg/v1/z17.0/{hash}@256.webp.
+// The z-segment is the game version and moves with patches — match any of them.
+const HASH_RE = /\/v1\/z[\d.]+\/([a-f0-9]{20,64})@/
 
 interface CardLike { Title: string }
 interface CardCache {
@@ -44,11 +60,21 @@ async function fetchSitemap(): Promise<Map<string, string>> {
   const xml = await res.text()
 
   // build slug → path map: /card/{id}/{slug}
+  //
+  // Sitemap slugs are percent-encoded, so "Mortar & Pestle" appears as
+  // "Mortar-%26-Pestle". Keyed raw, every title carrying punctuation misses — that
+  // was 5 real cards (&, :, ,) silently left with no art. Key both forms: the
+  // decoded one matches how titles are spelled, the raw one costs nothing and keeps
+  // working if a slug is ever stored unencoded.
   const map = new Map<string, string>()
   for (const match of xml.matchAll(/https:\/\/bazaardb\.gg(\/card\/[^<\s]+)/g)) {
     const path = match[1]
     const slug = path.split('/').pop()!
     map.set(slug, path)
+    try {
+      const decoded = decodeURIComponent(slug)
+      if (decoded !== slug) map.set(decoded, path)
+    } catch { /* malformed escape — the raw key above still stands */ }
   }
   return map
 }
