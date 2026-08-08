@@ -3542,3 +3542,24 @@ describe('fix6c: glossary + standings compound result', () => {
     expect(r).not.toContain('no trivia scores yet')
   })
 })
+
+// When the AI misses (timeout, or every retry blocked by a guard), a conversational ask
+// used to get "searched the entire bazaar for X, found only dust" — an item-lookup miss
+// line standing in for an AI miss, which on an off-topic question is exactly the
+// "no bazaar data" dodge the prompt bans. A real near-miss item name still gets suggestions.
+describe('AI-miss fallback does not pose as a failed item lookup', () => {
+  it('gives an honest transient line for a conversational miss', async () => {
+    mockAiRespond.mockResolvedValueOnce(null)
+    const out = await handleCommand('!b thoughts on mill druid decks', { user: 'u', channel: 'c' })
+    expect(out).not.toMatch(/found only dust|isn't a thing|ancient scrolls|bazaar keeper|squints|laughed at me/i)
+    // AI is unavailable in the test env, so the honest permanent line stands in for the
+    // transient one — either way it is an AI-state answer, never a fake lookup miss
+    expect(out).toMatch(/lagging|hiccup|crawling|scroll|ai is off/i)
+  })
+
+  it('still uses the bazaar miss line for a genuine item-shaped whiff', async () => {
+    mockAiRespond.mockResolvedValueOnce(null)
+    const out = await handleCommand('!b zzqqxxwv', { user: 'u', channel: 'c' })
+    expect(out).toMatch(/found only dust|isn't a thing|ancient scrolls|bazaar keeper|squints|laughed|no record|turning the bazaar/i)
+  })
+})

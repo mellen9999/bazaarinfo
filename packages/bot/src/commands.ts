@@ -47,6 +47,15 @@ const NO_MATCH_LINES = [
   (q: string) => `the ancient scrolls contain no record of "${q}"`,
 ]
 let noMatchIdx = 0
+// an item lookup is a NAME — a few words, no question, no ask for an opinion. only those
+// deserve the "searched the bazaar, found only dust" miss line; anything else that reaches
+// the AI fallback is conversation, where that quip is the banned no-bazaar-data dodge.
+const CONVERSATIONAL_RE = /\?|\b(who|what|when|where|why|how|which|is|are|do|does|did|can|could|should|would|will|thoughts|opinion|think|explain|tell|say|make|write|help)\b/i
+function looksLikeItemQuery(query: string): boolean {
+  const words = query.trim().split(/\s+/).filter(Boolean)
+  return words.length > 0 && words.length <= 4 && !CONVERSATIONAL_RE.test(query)
+}
+
 function noMatchMsg(query: string): string {
   const q = query.slice(0, 30)
   const msg = NO_MATCH_LINES[noMatchIdx % NO_MATCH_LINES.length](q)
@@ -1206,9 +1215,18 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     return aiResponse
   }
 
+  // AI was attempted and missed (timeout, or every retry blocked by a guard). a
+  // bazaar-flavoured "found only dust" quip here lies twice: it blames a failed ITEM
+  // lookup for what was an AI miss, and on a conversational ask it IS the "no bazaar
+  // data" dodge the prompt bans. mirror the conversational branch above instead.
+  // a real near-miss item name still gets suggestions — that part was always right.
   const suggestions = store.suggest(cleanArgs, 3)
   if (suggestions.length) return withSuffix(`try: ${suggestions.join(', ')}`, suffix)
-  return withSuffix(noMatchMsg(cleanArgs), suffix)
+  // an item-shaped whiff is a genuine lookup miss and reads correctly whether or not the
+  // AI is up — it stays ahead of both AI-state lines.
+  if (looksLikeItemQuery(cleanArgs)) return withSuffix(noMatchMsg(cleanArgs), suffix)
+  if (aiUnavailableReason(ctx.channel) !== 'ok') return withSuffix(AI_OFF_LINE, suffix)
+  return withSuffix(aiBusyLine(), suffix)
 }
 
 // --- !b AI fallback cooldown: per-user ---
