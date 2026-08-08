@@ -352,3 +352,126 @@ class TestPurchaseWithoutSocket:
         assert s["player_board"] == {}
         # the template mapping is still learned, so the spawn line can place it
         assert s["instance_map"]["i_x"] == "tid_sub"
+
+
+# --- transforms: the original card is destroyed, replacements spawn separately ---
+
+class TestTransformed:
+    def _state(self):
+        s = new_state()
+        s["instance_map"]["i_old"] = "tid_sub"
+        return s
+
+    def _line(self, body):
+        return "[GameSimHandler] " + body
+
+    def test_original_leaves_the_board(self):
+        s = self._state()
+        process_line(_spawn("i_old", 0, "Large"), s, DB, False)
+        assert "i_old" in s["player_board"]
+        assert process_line(self._line("Transformed: i_old into: i_new "), s, DB, False) is True
+        assert s["player_board"] == {}
+
+    def test_many_pairs_on_one_line(self):
+        s = new_state()
+        for n in ("a", "b", "c"):
+            s["instance_map"][n] = "tid_ext"
+            process_line(_spawn(n, {"a": 0, "b": 1, "c": 2}[n], "Small"), s, DB, False)
+        line = self._line("Transformed: a into: x Transformed: b into: y Transformed: c into: z ")
+        assert process_line(line, s, DB, False) is True
+        assert s["player_board"] == {}
+
+    def test_one_card_transforming_into_several(self):
+        s = self._state()
+        process_line(_spawn("i_old", 0, "Large"), s, DB, False)
+        process_line(self._line("Transformed: i_old into: n1 n2 n3 "), s, DB, False)
+        assert s["player_board"] == {}
+
+    def test_replacement_ids_are_not_treated_as_originals(self):
+        s = new_state()
+        for n in ("keep", "gone"):
+            s["instance_map"][n] = "tid_ext"
+        process_line(_spawn("keep", 4, "Small"), s, DB, False)
+        process_line(_spawn("gone", 5, "Small"), s, DB, False)
+        # "keep" appears only as a replacement — it must survive
+        process_line(self._line("Transformed: gone into: keep "), s, DB, False)
+        assert list(s["player_board"]) == ["keep"]
+
+    def test_unknown_original_is_not_a_change(self):
+        s = new_state()
+        assert process_line(self._line("Transformed: nobody into: someone "), s, DB, False) is False
+
+    def test_transformed_card_frees_its_socket(self):
+        # the live leak: the original kept its socket forever, so its replacement
+        # double-booked the slot and the row was squeezed off position
+        s = self._state()
+        process_line(_spawn("i_old", 0, "Large"), s, DB, False)
+        process_line(self._line("Transformed: i_old into: i_new "), s, DB, False)
+        s["instance_map"]["i_new"] = "tid_sub"
+        process_line(_spawn("i_new", 0, "Large"), s, DB, False)
+        cards = build_payload(s)["cards"]
+        assert [c["title"] for c in cards] == ["Submarine"]
+
+
+# --- cards we cannot name must never reach the wire ---
+
+class TestNamedOnly:
+    def test_unnameable_card_is_dropped(self):
+        s = new_state()
+        process_line(_spawn("i_ghost", 3, "Small"), s, DB, False)  # no template ever seen
+        assert "i_ghost" in s["player_board"]
+        assert build_payload(s)["cards"] == []
+
+    def test_unnameable_card_cannot_evict_a_named_one(self):
+        # regression: filtering after resolve_board let an anonymous card win the
+        # socket clash and then get dropped, costing the viewer a real tooltip
+        s = new_state()
+        s["instance_map"]["i_real"] = "tid_sub"
+        process_line(_spawn("i_real", 0, "Large"), s, DB, False)
+        process_line(_spawn("i_ghost", 1, "Small"), s, DB, False)
+        assert [c["title"] for c in build_payload(s)["cards"]] == ["Submarine"]
+
+    def test_every_shipped_card_has_a_real_title_and_tier(self):
+        s = new_state()
+        s["instance_map"]["i_real"] = "tid_ext"
+        process_line(_spawn("i_real", 2, "Small"), s, DB, False)
+        process_line(_spawn("i_ghost", 6, "Small"), s, DB, False)
+        for c in build_payload(s)["cards"]:
+            assert c["tier"] != "Unknown"
+            assert not c["title"].startswith(("itm_", "skl_"))
+
+
+# --- honest tier: the log never states a live tier, so say so on the wire ---
+
+class TestTierHonesty:
+    def test_items_and_skills_declare_the_tier_unverified(self):
+        s = new_state()
+        s["instance_map"]["i_real"] = "tid_sub"
+        process_line(_spawn("i_real", 0, "Large"), s, DB, False)
+        cards = build_payload(s)["cards"]
+        assert cards and all(c["tierKnown"] is False for c in cards)
+
+
+# --- coalescing: one send per game action, never per log line ---
+
+class TestShouldFlush:
+    def test_nothing_pending_never_sends(self):
+        assert logwatch.should_flush(False, 100.0, 100.0, 0.0) is False
+
+    def test_holds_while_the_log_is_still_talking(self):
+        now = 100.0
+        assert logwatch.should_flush(True, now, now - 0.05, now - 0.05) is False
+
+    def test_sends_once_the_log_goes_quiet(self):
+        now = 100.0
+        assert logwatch.should_flush(True, now, now - logwatch.SEND_COALESCE_S, now - 0.5) is True
+
+    def test_never_holds_a_change_past_the_latency_cap(self):
+        # a log that never stops must not stall the overlay
+        now = 100.0
+        assert logwatch.should_flush(True, now, now, now - logwatch.SEND_MAX_LATENCY_S) is True
+
+    def test_a_two_line_swap_collapses_into_one_send(self):
+        # the drag case: both lines land inside the coalesce window
+        start = 100.0
+        assert logwatch.should_flush(True, start + 0.002, start, start) is False

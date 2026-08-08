@@ -97,6 +97,31 @@ CARDS_LEGACY_SUBPATH = Path("TheBazaar_Data/StreamingAssets/cards.json")
 # How often to re-send current state (handles EBS recovery)
 HEARTBEAT_INTERVAL = 30
 
+# One game action is several log lines. A drag writes two "moved card" lines 2ms
+# apart, and every combat writes "Cards Disposed: <whole board>" immediately followed
+# by "Cards Spawned: <whole board>". Sending on each line meant broadcasting the
+# half-applied states in between — a board with two cards in one socket, and a
+# completely empty board on every single combat, so the overlay blanked and refilled
+# each round. Wait for the log to go quiet instead, and only then send.
+#
+# The blocking POST also sat inside the tail loop, so a burst of lines was read at the
+# speed of the network. Coalescing fixes that too: one send per burst, not per line.
+SEND_COALESCE_S = 0.2
+# ...but never hold a change longer than this, however chatty the log gets.
+SEND_MAX_LATENCY_S = 1.0
+
+
+def should_flush(dirty: bool, now: float, last_change: float, last_send: float) -> bool:
+    """Whether pending changes are ready to broadcast.
+
+    Send once the log has been quiet for SEND_COALESCE_S — that quiet is what marks
+    the end of one game action — or once the change has been held SEND_MAX_LATENCY_S,
+    which bounds staleness if the log never stops talking.
+    """
+    if not dirty:
+        return False
+    return (now - last_change) >= SEND_COALESCE_S or (now - last_send) >= SEND_MAX_LATENCY_S
+
 
 def _find_steam_library_dirs() -> list[Path]:
     """Find all Steam library directories from libraryfolders.vdf."""
@@ -255,6 +280,15 @@ RE_CARD_MOVED_SOCKET = re.compile(
 RE_CARD_REMOVED = re.compile(
     r"\[CardOperationUtility\] Successfully removed item (\S+) from (\w+)'s inventory"
 )
+# A transform replaces a card in place: the original is destroyed and one or more new
+# instances take its socket. The game logs every pair from one message on a single
+# line — "Transformed: A into: B Transformed: C into: D E" — and deliberately omits
+# transformed originals from the following Cards Spawned line, so nothing else ever
+# mentions the original again. Unparsed, it sat on the board forever, double-booking
+# the socket its replacement now occupies. The token before each " into:" is the
+# original; the ids after it are the replacements, which arrive via Cards Spawned.
+RE_CARD_TRANSFORMED = re.compile(r"\[GameSimHandler\] Transformed: ")
+RE_TRANSFORM_ORIGINAL = re.compile(r"(\S+) into:")
 
 # --- Overlay positions (viewport-normalized, 1920x1080 reference) ---
 
@@ -388,6 +422,11 @@ def make_item_payload(info: dict, owner: str) -> dict:
         "h": h,
         "owner": owner,
         "type": "Item",
+        # The log never states a card's live tier (see resolve_board's note on what
+        # this parser can and cannot know), so this is the tier the card *starts* at.
+        # Any upgrade since leaves it stale, and a stale tier picks the wrong numbers
+        # out of the tooltip — so say it is unverified rather than assert it.
+        "tierKnown": False,
     }
 
 
@@ -430,6 +469,7 @@ def make_skill_payload(info: dict, owner: str, total_skills: int) -> dict | None
         "h": sh,
         "owner": owner,
         "type": "Skill",
+        "tierKnown": False,
     }
 
 
@@ -477,25 +517,39 @@ def resolve_board(board: dict, label: str) -> list:
     return list(kept.values())
 
 
+def _named_only(board: dict) -> dict:
+    """Drop cards we could not resolve to a real card.
+
+    A template id reaches us only through a Card Purchased line, so anything picked up
+    as loot, won from an encounter, or produced by a transform stays anonymous — about
+    a third of a real run's board. Its title falls back to the raw instance id and its
+    tier to Unknown, which renders a hover zone that pops no tooltip: a dead patch of
+    board that swallows the cursor and tells the viewer nothing.
+
+    This has to run before resolve_board, not after. These entries still occupy sockets,
+    so left in they can win a socket clash against a card we *can* name, and then get
+    dropped downstream — costing the viewer a real tooltip to show nothing at all.
+    """
+    return {
+        inst_id: info
+        for inst_id, info in board.items()
+        if info.get("tier") != "Unknown" and info.get("title") != _cap(inst_id)
+    }
+
+
 def build_payload(state: dict) -> dict:
     """Build the full EBS payload from current game state."""
     cards = []
 
     # Player items
-    for info in resolve_board(state["player_board"], "player"):
+    for info in resolve_board(_named_only(state["player_board"]), "player"):
         cards.append(make_item_payload(info, "player"))
 
-    # Opponent items — skip any we couldn't name. The game only gives the local
-    # client the opponent's *instance* ids (no template id anywhere in the log), so
-    # their cards are usually unresolvable; a fallback title is just the raw id, which
-    # would render a dead, tooltip-less hover zone over the opponent board. Only show
-    # opponent cards we can actually identify (future game builds may expose them).
-    named_opponent = {
-        inst_id: info
-        for inst_id, info in state["opponent_board"].items()
-        if info.get("tier") != "Unknown" and info.get("title") != _cap(inst_id)
-    }
-    for info in resolve_board(named_opponent, "opponent"):
+    # Opponent items — the same anonymity problem, only total: the local client is
+    # never told the opponent's template ids at all, so in practice almost nothing
+    # survives _named_only here. Kept rather than removed because a future game build
+    # that logs them would light this up for free.
+    for info in resolve_board(_named_only(state["opponent_board"]), "opponent"):
         cards.append(make_item_payload(info, "opponent"))
 
     # Player skills
@@ -713,6 +767,15 @@ def _process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
                 changed = True
         return changed
 
+    # Cards transformed — the originals are gone, their replacements spawn separately
+    if RE_CARD_TRANSFORMED.search(line):
+        changed = False
+        for original in RE_TRANSFORM_ORIGINAL.findall(line):
+            dropped = _drop_from_boards(state, original)
+            freed = _remove_skill(state, original)
+            changed = changed or dropped or freed
+        return changed
+
     # Cards spawned (items re-appear after combat, opponent board, skills)
     m = RE_CARDS_SPAWNED.search(line)
     if m:
@@ -921,6 +984,23 @@ def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, d
 
     last_send = time.monotonic()
     last_inode = log_path.stat().st_ino
+    dirty = False
+    last_change = 0.0
+
+    def flush() -> None:
+        """Send pending changes once the log has gone quiet, or once they're overdue.
+
+        A failed send leaves the state dirty so the next tick retries it — dropping a
+        change here would leave the overlay showing a board the player has moved on
+        from until the next heartbeat.
+        """
+        nonlocal dirty, last_send
+        if not should_flush(dirty, time.monotonic(), last_change, last_send):
+            return
+        if send_state(ebs_url, channel_id, secret, state):
+            dirty = False
+            last_send = time.monotonic()
+
     f = open(log_path, encoding="utf-8", errors="replace")
     f.seek(0, 2)
 
@@ -931,9 +1011,12 @@ def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, d
                 if not line:
                     time.sleep(0.1)
 
+                    # The log just went quiet — this is where a coalesced burst lands.
+                    flush()
+
                     # Heartbeat: re-send state periodically so EBS recovery works
                     now = time.monotonic()
-                    if state["show_overlay"] and (now - last_send) >= HEARTBEAT_INTERVAL:
+                    if not dirty and state["show_overlay"] and (now - last_send) >= HEARTBEAT_INTERVAL:
                         if send_state(ebs_url, channel_id, secret, state):
                             last_send = now
 
@@ -971,12 +1054,16 @@ def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, d
                         if state["show_overlay"]:
                             send_state(ebs_url, channel_id, secret, state)
                             last_send = time.monotonic()
+                        dirty = False
                     continue
 
                 line = line.strip()
                 if process_line(line, state, card_db, debug):
-                    if send_state(ebs_url, channel_id, secret, state):
-                        last_send = time.monotonic()
+                    dirty = True
+                    last_change = time.monotonic()
+                # Only fires when a change has been held too long; a normal burst is
+                # sent by the flush above, once the log stops.
+                flush()
             except Exception as e:
                 logger.error("Tail loop error: %s", e)
                 time.sleep(1)
