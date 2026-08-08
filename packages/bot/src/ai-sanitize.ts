@@ -93,10 +93,30 @@ export const STAT_LOOSE = /\b(deals?|gains?|grants?|gives?|adds?|stacks?|does|he
 // we have no game data — even in creative/banter. STAT_BARE/STAT_LOOSE (a bare "50 damage")
 // are only suspect for a BAZAAR query; for an other-game question (PoE/D2/WoW) the system
 // prompt explicitly wants real numbers, so otherGame suppresses those two.
+// Inventing an item's IDENTITY rather than its numbers. Asked about "microscope" — which
+// does not exist; the real card is Makroscope, a Mak tool — the bot answered "microscope's
+// a Test Subject Alpha item, big value if you're stacking crit or poison scaling". Every
+// specific was wrong and not one of them was a number, so the stat guards above all passed.
+// Deliberately narrow: it only fires on an attribution — assigning the thing to a named
+// group, a hero, a tier or a size. That is a claim only the dump can support. Vaguer
+// praise ("that's a strong item") is opinion, not fabricated data, and stays legal, as
+// does denying item-hood ("not an item, that's a keyword").
+const IS_A = "(?:\\b(?:is|are|was)|(?:that|it|this|he|she)'?s|'s)\\s+(?:a|an|the)\\s+"
+const ITEM_NOUN = '(?:item|card|skill)\\b'
+const ITEM_CLASS = '(?:vanessa|pygmalien|pyg|dooley|mak|stelle|jules|karnok|common|bronze|silver|gold|diamond|legendary|small|medium|large)'
+// (a) attribution to a PROPER NOUN — "a Test Subject Alpha item". Case-sensitive on
+//     purpose: the capitals are what make it a claim about a named thing in the game
+//     rather than an adjective. (b) attribution to a hero/tier/size, any case.
+export const ITEM_IDENTITY_CLAIM = new RegExp(
+  `${IS_A}(?:[A-Z][\\w'’-]*\\s+){1,3}${ITEM_NOUN}`
+  + `|(?i:${IS_A}(?:[\\w'’-]+\\s+){0,2}${ITEM_CLASS}\\s+${ITEM_NOUN})`
+  + `|(?i:${IS_A}${ITEM_CLASS}[- ](?:tier|hero)\\s+${ITEM_NOUN})`,
+)
+
 export function hasHallucinatedStats(text: string, creative = false, otherGame = false): boolean {
   if (STAT_FACT.test(text)) return true
   if (creative || otherGame) return false
-  return STAT_BARE.test(text) || STAT_LOOSE.test(text)
+  return STAT_BARE.test(text) || STAT_LOOSE.test(text) || ITEM_IDENTITY_CLAIM.test(text)
 }
 export const DIPLOMATIC_REFUSAL = /\b(can'?t (do|pick|choose) favorites?|play favorites|not gonna (pick|choose) favorites?|not gonna rank (chatters?|people|users?|favorites?)|no favorites)\b/i
 // soft/ambiguous: "everyone is special" is a real dodge when a ranking was ASKED, but also

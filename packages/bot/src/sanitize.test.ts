@@ -1071,3 +1071,30 @@ describe('not rude: pet names + stranded punctuation (live log)', () => {
       .toBe('— stop, actually stop, and call or text 988 right now')
   })
 })
+
+// "!b microscope" — there is no Microscope; the real card is Makroscope, a Mak tool.
+// The bot replied "microscope's a Test Subject Alpha item — big value if you're stacking
+// crit or poison scaling". Every specific was wrong and none of them was a number, so
+// every stat guard passed it. Identity is a claim only the dump can support.
+describe('fabricated item identity (live log)', () => {
+  const claims = (t: string) => hasHallucinatedStats(t, false, false)
+
+  it('blocks the shipped microscope answer', () => {
+    expect(claims("microscope's a Test Subject Alpha item — small board slot, big value if you're stacking crit or poison scaling")).toBe(true)
+  })
+  it('blocks hero, tier and size attributions', () => {
+    expect(claims('thats a Mak item, tools tag')).toBe(true)
+    expect(claims("it's a gold item that scales")).toBe(true)
+    expect(claims("pyro's a small item for Dooley")).toBe(true)
+  })
+  // opinion is not fabricated data, and denying item-hood is the honest answer
+  it('leaves opinion and denials alone', () => {
+    expect(claims("that's a strong item in a burn build")).toBe(false)
+    expect(claims('not an item, thats a keyword')).toBe(false)
+    expect(claims('it is the best card in the game right now')).toBe(false)
+  })
+  // creative/roleplay is exempt, same as the bare-number guard above it
+  it('stays out of creative writing', () => {
+    expect(hasHallucinatedStats("it's a Dragons item in the story", true, false)).toBe(false)
+  })
+})
