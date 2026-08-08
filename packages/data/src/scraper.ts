@@ -154,6 +154,13 @@ function parseDumpWithStats(dump: Record<string, DumpEntry>, onProgress?: (msg: 
           break
         }
         case 'EventEncounter':
+        // PedestalEncounter (the map locations — Murkwood Bayou, Plains of Edin) has the
+        // same shape and, like events, carries no Tooltips: a name, a tier and a shortlink.
+        // These 28 were the entire "skipped bad entries" line in every scrape, which meant
+        // asking about a real location got a miss and then an invented answer. Same bucket,
+        // so the same name-only recognition applies; event lookup is lowest priority, so an
+        // item or monster of the same name still wins. Verified: zero title collisions.
+        case 'PedestalEncounter':
           // event-only cards: same structure as items but kept separate to avoid polluting item search
           // Type field at runtime will be 'EventEncounter'; BazaarCard.Type union needs | 'EventEncounter' once integrator updates shared/src/types.ts
           total++

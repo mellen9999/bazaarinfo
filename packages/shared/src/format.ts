@@ -226,6 +226,9 @@ export function formatEvent(event: BazaarCard, note?: string): string {
   const who = heroes ? ` · ${heroes}` : ''
   // truncate like every other formatter — with an empty Shortlink, appendShortlink
   // returns the text as-is and this was the one path with no length cap at all.
-  const body = `${event.Title}${who} — event encounter${note ? '' : ' (details on bazaardb)'}${note ? ` | ${note}` : ''}`
+  // name the kind honestly — pedestal encounters (map locations) share this bucket and
+  // this formatter, and calling one an "event encounter" would be a small fabrication
+  const kind = String(event.Type) === 'PedestalEncounter' ? 'pedestal encounter' : 'event encounter'
+  const body = `${event.Title}${who} — ${kind}${note ? '' : ' (details on bazaardb)'}${note ? ` | ${note}` : ''}`
   return appendShortlink(truncate(body), event.Shortlink)
 }

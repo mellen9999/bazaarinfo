@@ -182,6 +182,35 @@ describe('parseDump', () => {
     expect(events).toHaveLength(1)
     expect(events[0].Title).toBe('The Travel Agent')
   })
+
+  // PedestalEncounters (the map locations) were the entire "skipped bad entries" line on
+  // every scrape — 28 real cards dropped, so asking about one got a miss and then an
+  // invented answer. Same shape and same empty Tooltips as events, so same bucket.
+  it('ingests PedestalEncounters instead of dropping them', () => {
+    const dump: Record<string, any> = {
+      a: makeDumpEntry({ Type: 'Item', Title: 'Sword' }),
+      b: makeDumpEntry({
+        Type: 'PedestalEncounter',
+        Title: 'Murkwood Bayou',
+        Size: 'Medium',
+        BaseTier: 'Legendary',
+        Heroes: ['Common'],
+        Tags: ['PedestalEncounter', 'Common'],
+        HiddenTags: [],
+        Tiers: [],
+        Tooltips: [],
+        TooltipReplacements: {},
+        Enchantments: {},
+      }),
+    }
+    const msgs: string[] = []
+    const { cache } = parseDumpWithStats(dump, (m) => msgs.push(m))
+    expect(msgs.some((m) => m.startsWith('skipped'))).toBe(false)
+    expect(cache.items).toHaveLength(1)
+    const events = (cache as any).events as any[]
+    expect(events).toHaveLength(1)
+    expect(events[0].Title).toBe('Murkwood Bayou')
+  })
 })
 
 describe('applyCooldowns', () => {

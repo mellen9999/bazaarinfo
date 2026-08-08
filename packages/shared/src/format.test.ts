@@ -552,3 +552,18 @@ describe('formatMonster', () => {
     expect(result).toContain('bzdb.to/spider')
   })
 })
+
+describe('formatEvent — encounter kind', () => {
+  const base = { Size: 'Medium', BaseTier: 'Legendary', Heroes: ['Common'], Tags: [], HiddenTags: [], Tooltips: [], Tiers: [], Shortlink: '' } as any
+
+  it('names a pedestal encounter as one, not an event', () => {
+    const out = formatEvent({ ...base, Type: 'PedestalEncounter', Title: 'Murkwood Bayou' })
+    expect(out).toContain('pedestal encounter')
+    expect(out).not.toContain('event encounter')
+  })
+
+  it('leaves event encounters reading exactly as before', () => {
+    const out = formatEvent({ ...base, Type: 'EventEncounter', Title: 'The Travel Agent' })
+    expect(out).toContain('event encounter')
+  })
+})
