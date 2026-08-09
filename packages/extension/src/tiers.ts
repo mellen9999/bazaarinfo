@@ -5,9 +5,16 @@ import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
 // importance); a colour appears exactly once per fact it encodes.
 //
 //   grey ramp    structure, labels, values — everything not listed below
-//   tier hue     the tier value in the stat line, and nowhere else
+//   tier hue     the tier value in the stat line, and each rung of a tier ladder
 //   purple 141   enchantment (stat value + effect block)
 //   red 203      opponent ownership (hover-zone outline)
+//
+// The ladder is the second sanctioned place and the rule is unchanged, not relaxed:
+// when we can't know the live tier we print every tier's value, and there the hue IS
+// the information — tier windows vary per card (many items exist only at
+// Gold/Diamond), so position doesn't imply tier and a bare "60/80" would be read as
+// bronze/silver. Without the hue the row is ambiguous; that is the test for whether
+// a colour has earned its place.
 //
 // Painting the tier hue on the border, the art frame, the name and the hover outline
 // all at once — as this did — says "tier" four times and everything else zero times,

@@ -86,6 +86,80 @@ export function resolveTooltip(text: string, replacements: Record<string, Replac
   })
 }
 
+// --- structured (tier-labelled) resolution -------------------------------------
+//
+// resolveTooltip flattens a per-tier value to a string, which is all chat can carry
+// — the bot leans on tier emoji to say which number is which. A renderer that has
+// real styling wants the tiers back as data so it can label them its own way, so
+// these return the same resolution as parts instead of prose. The bot's path above
+// is untouched.
+//
+// This matters because tier windows are not uniform: plenty of items exist only at
+// Gold/Diamond, so a bare "60/80" would be read as Bronze/Silver by anyone counting
+// from the left. The tier has to travel with the value.
+
+export interface LadderStep { tier: TierName; value: string }
+
+export type TooltipPart =
+  | { t: 'text'; s: string }
+  | { t: 'ladder'; steps: LadderStep[] }
+
+// A ladder for one replacement, or null when there is nothing tier-dependent to say
+// (a Fixed value, or a resolved single tier) — the caller renders those as plain text.
+function replacementLadder(val: ReplacementValue, tier?: TierName): LadderStep[] | null {
+  if (typeof val !== 'object' || val === null) return null
+  if ('Fixed' in val) return null
+  const available = TIER_ORDER.filter((t) => t in val)
+  if (!available.length) return null
+  // A concrete tier means the sender knows the live tier — one value, no ladder.
+  if (tier) return null
+  const steps = available
+    .map((t) => ({ tier: t, value: String((val as Record<string, number>)[t]) }))
+    .filter((s) => s.value !== 'undefined' && s.value !== 'null')
+  // A single rung still comes back as a ladder. It renders as one plain number, but
+  // it carries its tier, so a Diamond-only item says "this is the diamond value"
+  // instead of an unlabelled figure — and, critically, it keeps us off
+  // resolveReplacement's untiered branch, which prefixes chat's tier emoji.
+  return steps.length ? steps : null
+}
+
+export function resolveTooltipParts(
+  text: string,
+  replacements: Record<string, ReplacementValue>,
+  tier?: TierName,
+): TooltipPart[] {
+  const parts: TooltipPart[] = []
+  let last = 0
+  const push = (s: string) => {
+    if (!s) return
+    const prev = parts[parts.length - 1]
+    if (prev?.t === 'text') prev.s += s
+    else parts.push({ t: 'text', s })
+  }
+
+  RE_PLACEHOLDER.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = RE_PLACEHOLDER.exec(text)) !== null) {
+    push(text.slice(last, m.index))
+    const val = replacements[m[0]]
+    const steps = val ? replacementLadder(val, tier) : null
+    if (steps) parts.push({ t: 'ladder', steps })
+    // No ladder — fall through to the exact same string resolveTooltip would emit,
+    // including leaving an unknown placeholder literal.
+    else push(val ? resolveReplacement(val, tier) : m[0])
+    last = m.index + m[0].length
+  }
+  push(text.slice(last))
+  return parts
+}
+
+// Cooldowns are the same shape one level up: a scalar for most items, a per-tier map
+// for the ones whose cooldown scales.
+export function cooldownLadder(cd: BazaarCard['Cooldown'], tier?: TierName): LadderStep[] | null {
+  if (cd == null || typeof cd === 'number') return null
+  return replacementLadder(cd as ReplacementValue, tier)
+}
+
 // A card's Tooltips can include bazaardb-internal entries (type "bzdbgg.*", e.g.
 // HiddenSearchable) that are search metadata, not player-facing abilities. Never
 // show them — they'd render with an ugly internal type label + off-model text.

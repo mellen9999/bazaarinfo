@@ -200,6 +200,13 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 .tt-stat-v--tier { color: var(--tier-color, #8a8a8a); }
 .tt-stat-v--ench { color: #af87ff; }
 
+/* A value we can't pin to one tier, shown at every tier the card has. Each rung is
+   inline-coloured with its own tier hue (tiers.ts) — the hue is the label, because
+   tier windows differ per card and position alone would mislead. The slash is dimmer
+   than the numbers so the row reads as one value, not four. Never wraps mid-ladder. */
+.tt-ladder { white-space: nowrap; }
+.tt-step-sep { color: #4e4e4e; padding: 0 0.08em; }
+
 .tt-blocks { padding: 0.14em 0; }
 
 .tt-block { padding: 0.36em 0.64em; }

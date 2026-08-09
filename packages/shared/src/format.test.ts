@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { truncate, formatItem, formatEnchantment, formatMonster, formatEvent, formatTagResults, formatDayResults } from './format'
+import { truncate, formatItem, formatEnchantment, formatMonster, formatEvent, formatTagResults, formatDayResults, resolveTooltip, resolveTooltipParts, cooldownLadder } from './format'
+import type { TooltipPart } from './format'
 import type { BazaarCard, TierName, Monster } from './types'
 import type { SkillDetail } from './format'
 
@@ -565,5 +566,97 @@ describe('formatEvent — encounter kind', () => {
   it('leaves event encounters reading exactly as before', () => {
     const out = formatEvent({ ...base, Type: 'EventEncounter', Title: 'The Travel Agent' })
     expect(out).toContain('event encounter')
+  })
+})
+
+describe('resolveTooltipParts / cooldownLadder — tier ladders', () => {
+  const reps = {
+    '{ability.0}': { Bronze: 20, Silver: 40, Gold: 80, Diamond: 160 },
+    '{ability.1}': { Gold: 60, Diamond: 80 },
+    '{ability.2}': { Fixed: 3 },
+    '{ability.3}': { Diamond: 12 },
+  } as Record<string, any>
+
+  const ladders = (parts: TooltipPart[]) => parts.filter((p) => p.t === 'ladder')
+  const flat = (parts: TooltipPart[]) =>
+    parts.map((p) => (p.t === 'text' ? p.s : p.steps.map((s) => s.value).join('/'))).join('')
+
+  it('emits one rung per tier when no tier is known', () => {
+    const parts = resolveTooltipParts('Deal {ability.0} Damage', reps)
+    const l = ladders(parts)
+    expect(l).toHaveLength(1)
+    expect(l[0]).toEqual({
+      t: 'ladder',
+      steps: [
+        { tier: 'Bronze', value: '20' },
+        { tier: 'Silver', value: '40' },
+        { tier: 'Gold', value: '80' },
+        { tier: 'Diamond', value: '160' },
+      ],
+    })
+    expect(flat(parts)).toBe('Deal 20/40/80/160 Damage')
+  })
+
+  // The reason the rungs are tier-labelled at all: this card has no bronze or silver,
+  // so a bare "60/80" would be read as bronze/silver by anyone counting from the left.
+  it('labels a gold/diamond-only card with its real tiers, not positions', () => {
+    const [l] = ladders(resolveTooltipParts('Deal {ability.1} Damage', reps))
+    expect(l).toEqual({
+      t: 'ladder',
+      steps: [{ tier: 'Gold', value: '60' }, { tier: 'Diamond', value: '80' }],
+    })
+  })
+
+  it('never ladders a Fixed value — it does not scale', () => {
+    const parts = resolveTooltipParts('Burn {ability.2}', reps)
+    expect(ladders(parts)).toHaveLength(0)
+    expect(flat(parts)).toBe('Burn 3')
+  })
+
+  // One rung, still tier-labelled — and never via resolveReplacement's untiered
+  // branch, which would prefix chat's 💎 emoji into a DOM that has no use for it.
+  it('keeps a single-tier value labelled, and free of chat emoji', () => {
+    const parts = resolveTooltipParts('Heal {ability.3}', reps)
+    expect(ladders(parts)).toEqual([{ t: 'ladder', steps: [{ tier: 'Diamond', value: '12' }] }])
+    expect(flat(parts)).toBe('Heal 12')
+  })
+
+  it('never emits a tier emoji anywhere in a resolved part', () => {
+    const all = Object.keys(reps).map((k) => resolveTooltipParts(`x ${k} y`, reps))
+    for (const parts of all) expect(flat(parts)).not.toMatch(/[🟤⚪🟡💎🟣]/u)
+  })
+
+  it('resolves to one exact value when the tier IS known', () => {
+    const parts = resolveTooltipParts('Deal {ability.0} Damage', reps, 'Silver')
+    expect(ladders(parts)).toHaveLength(0)
+    expect(flat(parts)).toBe('Deal 40 Damage')
+  })
+
+  it('leaves an unknown placeholder literal, exactly as resolveTooltip does', () => {
+    const text = 'Gain {nope.0} gold'
+    expect(flat(resolveTooltipParts(text, reps))).toBe(text)
+    expect(flat(resolveTooltipParts(text, reps))).toBe(resolveTooltip(text, reps))
+  })
+
+  it('agrees with resolveTooltip on every non-laddered path', () => {
+    for (const t of ['Bronze', 'Silver', 'Gold', 'Diamond'] as TierName[]) {
+      const text = 'Deal {ability.0} then {ability.2} and {ability.3}'
+      expect(flat(resolveTooltipParts(text, reps, t))).toBe(resolveTooltip(text, reps, t))
+    }
+  })
+
+  it('handles back-to-back placeholders without dropping text between them', () => {
+    const parts = resolveTooltipParts('{ability.2}{ability.2} x', reps)
+    expect(flat(parts)).toBe('33 x')
+  })
+
+  it('ladders a per-tier cooldown but leaves a scalar one alone', () => {
+    expect(cooldownLadder(5)).toBeNull()
+    expect(cooldownLadder(undefined)).toBeNull()
+    expect(cooldownLadder({ Bronze: 6, Silver: 5 })).toEqual([
+      { tier: 'Bronze', value: '6' },
+      { tier: 'Silver', value: '5' },
+    ])
+    expect(cooldownLadder({ Bronze: 6, Silver: 5 }, 'Silver')).toBeNull()
   })
 })
