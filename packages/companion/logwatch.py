@@ -5,7 +5,8 @@ Tails the Unity Player.log, extracts card events, maps template IDs to
 card names, tracks player/opponent boards + skills + shop, and POSTs
 overlay positions to the EBS.
 
-Replaces BepInEx plugin — no game memory hooks, TOS-safe.
+Reads only the log file the game writes on its own: no memory reading, no
+injection, no modification, nothing touching the game process.
 
 Usage:
     python logwatch.py [--config config.ini] [--debug] [--setup]
@@ -294,14 +295,16 @@ RE_TRANSFORM_ORIGINAL = re.compile(r"(\S+) into:")
 
 # Item sockets: 10 slots per side, center-aligned
 BOARD_SLOTS = 10
-# Measured from 1920x1080 fullscreen screenshots (ss1fin.png, 2ssfin.png)
-ITEM_SOCKET_W = 0.058604   # slot pitch (from BepInEx CoordsLogger)
+# Measured off 1920x1080 fullscreen screenshots (ss1fin.png, 2ssfin.png) and
+# cross-checked against the board's own socket spacing, which is why these carry
+# more decimal places than pixel-counting alone would justify.
+ITEM_SOCKET_W = 0.058604   # slot pitch
 ITEM_CARD_W = 0.058604     # visible card width = pitch (single slot)
-PLAYER_ITEM_H = 0.231916   # player card height (from BepInEx)
-OPPONENT_ITEM_H = 0.231916  # opponent card height (from BepInEx)
-PLAYER_ITEM_Y = 0.618796   # vertical center (from BepInEx)
-OPPONENT_ITEM_Y = 0.397443  # vertical center (from BepInEx)
-ITEM_BOARD_CENTER_X = 0.5000  # exact center (from BepInEx)
+PLAYER_ITEM_H = 0.231916   # player card height
+OPPONENT_ITEM_H = 0.231916  # opponent card height
+PLAYER_ITEM_Y = 0.618796   # vertical center
+OPPONENT_ITEM_Y = 0.397443  # vertical center
+ITEM_BOARD_CENTER_X = 0.5000  # exact center
 
 # Multi-size items occupy multiple slots
 SIZE_SLOTS = {"Small": 1, "Medium": 2, "Large": 3}
