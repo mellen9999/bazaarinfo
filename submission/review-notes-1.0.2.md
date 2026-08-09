@@ -8,7 +8,7 @@ previous text over.
 
 ---
 
-CHANGE LOG — 1.0.2 (previous released version: 1.0.1)
+CHANGE LOG - 1.0.2 (previous released version: 1.0.1)
 
 Addresses the 2.9 rejection from the last review:
 - The Twitch Extension Helper (twitch-ext.min.js) is now the first element in <head> after <meta charset> in all three HTML files (video_overlay.html, panel.html, config.html), and is loaded synchronously. It previously carried a "defer" attribute, so it was not guaranteed to execute before our own scripts. No script now precedes it; our own bundles remain deferred.
@@ -22,7 +22,7 @@ WALKTHROUGH
 
 Purpose: viewers hover a card on the broadcaster's stream and see that card's stats and tooltip text for the game The Bazaar.
 
-Panel (reviewable at any time, no live stream or broadcaster setup required):
+Panel (needs no live stream and no broadcaster setup - see REVIEW ENVIRONMENT below for slot details):
 1. Open the extension panel on the channel page.
 2. Type any card name to search the game's card list.
 3. Select a result to see full card detail. Keyboard navigable: arrow keys move the selection, Enter selects, Escape clears, left/right arrows step through tiers.
@@ -44,6 +44,6 @@ REVIEW ENVIRONMENT
 
 Channel: mellen
 
-The panel can be reviewed at any time and needs nothing running.
+Twitch allows this extension only one active slot on a channel at a time, so the panel and the video overlay cannot both be live at once. It is currently activated in the video-overlay slot. The panel needs no live stream and no companion app - ask and I will move it to a panel slot right away.
 
-The video overlay requires the broadcaster's companion app to be running alongside the game, so it can only be shown on a live stream. This channel is not live continuously, so per the note above: please reach out and I will schedule a time to go live with the companion running so the overlay can be reviewed.
+The video overlay requires the broadcaster's companion app to be running alongside the game, so it can only be shown on a live stream. This channel is not live continuously, so please reach out and I will schedule a time to go live with the companion running so the overlay can be reviewed.
