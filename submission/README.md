@@ -46,11 +46,32 @@ Drop the following PNGs into `packages/extension/assets/` (referenced by `manife
 
 ```
 cd packages/extension
-bun run build         # produces dist/
-zip -r ../../bazaarinfo-extension.zip dist/ manifest.json assets/
+bun run zip           # build + zip, in one step
 ```
 
-Upload the resulting zip via the Twitch Developer Console.
+The zip must be **flat** — `video_overlay.html` at the root, matching the viewer
+paths in Asset Hosting. Zipping the `dist/` folder itself nests every file one level
+down and Twitch then serves 404s for all of them, so use the `zip` script rather than
+rolling your own. `manifest.json` and `assets/` do **not** go in: hosted extensions
+take their config and images from the console, not from the archive.
+
+Upload via Developer Console → the version → **Files**. The version must be in Local
+Test to accept an upload; a version in Hosted Test, Pending Action or In Review is
+read-only, so move it back first. After uploading, check the MD5 shown on that page
+against `md5sum packages/extension/bazaarinfo-extension.zip`.
+
+## Submitting
+
+Full path from an editable version: Local Test → Hosted Test → Submit For Review.
+Each move opens a confirm dialog with its own button; the page does nothing until you
+answer it.
+
+The review form's **Walkthrough Guide and Change Log** box is empty on every
+submission — Twitch keeps nothing from the previous one. The text last submitted is
+kept in `review-notes-1.0.2.md`; update it rather than rewriting from scratch.
+
+Because the overlay needs the companion running against a live game, the review team
+has to be scheduled — say so in that box.
 
 ## Final pre-submission checklist
 
