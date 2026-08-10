@@ -4,6 +4,9 @@ import { detectSpamIntent } from './spam-intent'
 
 // register the 7TV emotes this suite aims — KEKW/Sadge are already known globals.
 // findEmote is channel-agnostic, so registering anywhere is enough.
+// NOTE: this file must run in its own `bun test` invocation (see package.json):
+// commands.test.ts mock.module()s './emotes' and the mock leaks process-wide on
+// some bun versions, turning addChannelEmote into a no-op here.
 beforeAll(() => {
   for (const e of ['LICK', 'Crowge', 'ffzW', '67']) addChannelEmote('spamtest', e)
 })
