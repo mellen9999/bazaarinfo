@@ -18,6 +18,9 @@ const LOOSE_CONFIDENCE = 3 * HOUR // wider than this and we flag the guess as ro
 const MAX_CONFIDENCE = 6 * HOUR // hard cap on the reported ± window
 const LOOKAHEAD_DAYS = 16 // how far forward to search for the next stream day
 const GRACE = 15 * MIN // a start this-soon-past still counts as "upcoming"
+const STREAK_RUN = 5 // most recent starts examined for an active near-daily run
+const STREAK_MAX_GAP = 40 * HOUR // median recent gap at/below this = actively streaming ~daily
+const STREAK_BROKEN = 3 // silent for this × the recent gap ⇒ the run ended, use the long models
 
 export interface StreamSession {
   startedAt: number // epoch ms — authoritative Helix started_at
@@ -27,6 +30,7 @@ export interface StreamSession {
 export type Prediction =
   | { kind: 'insufficient'; sessions: number; needed: number }
   | { kind: 'irregular'; sessions: number; medianGapMs: number | null }
+  | { kind: 'streak'; at: number; confidenceMs: number; samples: number }
   | { kind: 'weekday'; at: number; confidenceMs: number; loose: boolean; samples: number }
   | { kind: 'gap'; at: number; confidenceMs: number; samples: number }
 
@@ -87,6 +91,31 @@ export function predictNextStream(raw: StreamSession[], now: number): Prediction
   // moves the typical start to local-noon. that keeps each stream day's start cluster far
   // from a day boundary, so weekday bucketing never splits one night across two days.
   const utcFrac = (ts: number) => (((ts % DAY) + DAY) % DAY) / DAY
+
+  // recent-cadence model, checked first: a near-daily run in the last few starts beats
+  // weekday averages — weeks containing a vacation or a schedule change poison those
+  // hit-rates long after the streamer is back to a steady daily rhythm.
+  const recent = s.slice(-STREAK_RUN)
+  if (recent.length >= 4) {
+    const rGaps: number[] = []
+    for (let i = 1; i < recent.length; i++) rGaps.push(recent[i].startedAt - recent[i - 1].startedAt)
+    const medR = median(rGaps)
+    const lastStart = recent[recent.length - 1].startedAt
+    if (medR > 0 && medR <= STREAK_MAX_GAP && now - lastStart <= STREAK_BROKEN * medR) {
+      const st = circStats(recent.map((x) => utcFrac(x.startedAt)))
+      // next start: the typical recent clock, on the first day still meaningfully ahead
+      let at = Math.floor(lastStart / DAY) * DAY + st.mean * DAY
+      while (at <= lastStart + medR / 2 || at <= now - GRACE) at += DAY
+      const raw = st.stdFrac * DAY
+      return {
+        kind: 'streak',
+        at,
+        confidenceMs: Math.max(MIN_CONFIDENCE, Math.min(raw, MAX_CONFIDENCE)),
+        samples: recent.length,
+      }
+    }
+  }
+
   const globalUtc = circStats(s.map((x) => utcFrac(x.startedAt)))
   const shift = ((((0.5 - globalUtc.mean) % 1) + 1) % 1) * DAY
   const L = (ts: number) => ts + shift // shifted-local epoch; a day's starts cluster near noon
@@ -198,6 +227,12 @@ export function formatSchedule(channel: string, pred: Prediction, now: number, l
       return pred.medianGapMs
         ? `${channel}'s schedule is too irregular to call a time — roughly one stream every ${humanizeDelta(pred.medianGapMs)}, but no reliable pattern.`
         : `not enough of a pattern in ${channel}'s streams to predict a next one yet.`
+    case 'streak': {
+      const when = dayLabel(pred.at, now)
+      const inMs = pred.at - now
+      const soon = inMs <= GRACE ? 'any moment now' : `in ${humanizeDelta(inMs)}`
+      return `${channel}'s been streaming near-daily lately — next likely ${when} ${soon} (±${humanizeDelta(pred.confidenceMs)}), around ${utcClock(pred.at)}. going off the last ${pred.samples} starts, not a promise.`
+    }
     case 'weekday':
     case 'gap': {
       const when = dayLabel(pred.at, now)
@@ -212,7 +247,7 @@ export function formatSchedule(channel: string, pred: Prediction, now: number, l
 // does this message ask when the channel next streams? drives both the deterministic
 // command answer and the AI-context injection. narrow enough not to catch item lookups.
 const STREAM_WORD_RE = /\b(?:stream(?:ing|s|ed)?|live|broadcast(?:ing)?)\b/i
-const WHEN_WORD_RE = /\b(?:when|next|what\s*time|how\s*long|schedule|soon|again|tonight|today|tomorrow|eta|back|going\s+live)\b/i
+const WHEN_WORD_RE = /\b(?:when|next|what\s*time|how\s*long|schedule|soon|again|tonight|today|tomorrow|eta|back|going\s+live|predict\w*)\b/i
 export function isScheduleQuery(q: string): boolean {
   if (/\b(?:next\s+stream|stream\s+schedule|stream\s+predict\w*)\b/i.test(q)) return true
   return STREAM_WORD_RE.test(q) && WHEN_WORD_RE.test(q)
@@ -234,6 +269,8 @@ export function scheduleContext(channel: string, pred: Prediction, now: number, 
       return `Stream schedule for ${channel}: not enough data yet (${pred.sessions}/${pred.needed} starts logged). Do not guess a time.`
     case 'irregular':
       return `Stream schedule for ${channel}: too irregular to predict${pred.medianGapMs ? ` (~1 every ${humanizeDelta(pred.medianGapMs)})` : ''}. Do not guess a specific time.`
+    case 'streak':
+      return `Stream schedule for ${channel}: streaming near-daily lately; next likely ${dayLabel(pred.at, now)} in ${humanizeDelta(pred.at - now)} (±${humanizeDelta(pred.confidenceMs)}), ~${utcClock(pred.at)}, from the last ${pred.samples} starts. Currently offline. This is a statistical estimate, not confirmed.`
     case 'weekday':
     case 'gap':
       return `Stream schedule for ${channel}: next likely ${dayLabel(pred.at, now)} in ${humanizeDelta(pred.at - now)} (±${humanizeDelta(pred.confidenceMs)}), ~${utcClock(pred.at)}, from ${pred.samples} logged starts. Currently offline. This is a statistical estimate, not confirmed.`

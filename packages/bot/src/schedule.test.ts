@@ -49,8 +49,8 @@ describe('predictNextStream — weekday model', () => {
     const s = Array.from({ length: 28 }, (_, d) => sess(d, 18))
     const now = BASE + 28 * DAY + 20 * HOUR // day 28, 20:00 — today's slot already passed
     const p = predictNextStream(s, now)
-    expect(p.kind).toBe('weekday')
-    if (p.kind !== 'weekday') return
+    expect(p.kind).toBe('streak') // daily cadence is claimed by the recent-run model
+    if (p.kind !== 'streak') return
     expect(p.at).toBeGreaterThan(now)
     // next 18:00 is day 29
     expect(Math.abs(p.at - (BASE + 29 * DAY + 18 * HOUR))).toBeLessThan(45 * 60_000)
@@ -61,8 +61,8 @@ describe('predictNextStream — weekday model', () => {
     const s = Array.from({ length: 28 }, (_, d) => sess(d, 23, 30))
     const now = BASE + 28 * DAY + 12 * HOUR // midday, before tonight's 23:30
     const p = predictNextStream(s, now)
-    expect(p.kind).toBe('weekday')
-    if (p.kind !== 'weekday') return
+    expect(p.kind).toBe('streak')
+    if (p.kind !== 'streak') return
     expect(p.at).toBeGreaterThan(now)
     expect(p.at - now).toBeLessThan(1.1 * DAY) // predicts tonight, not a scrambled far date
     expect(p.confidenceMs).toBeLessThan(3 * HOUR) // not split across a day boundary
@@ -81,6 +81,46 @@ describe('predictNextStream — weekday model', () => {
     const wd = new Date(p.at).getUTCDay()
     expect(wd === 0 || wd === 6).toBe(true)
     expect(p.at).toBeGreaterThan(now)
+  })
+})
+
+describe('predictNextStream — streak model (recent run beats stale weeks)', () => {
+  // the real nl_kripp shape: sparse pre-vacation starts, 15-day break, then near-daily
+  const kripp = [
+    sess(0, 22, 26),
+    sess(15, 19, 35),
+    sess(19, 20, 4),
+    sess(26, 0, 0),
+    sess(26, 18, 55),
+    sess(27, 19, 22),
+    sess(29, 0, 0),
+    sess(29, 20, 59),
+    sess(30, 22, 1),
+  ]
+
+  test('back-from-vacation daily run → predicts today, not a stale weekday', () => {
+    const now = BASE + 31 * DAY + 21 * HOUR // ~23h after the last start
+    const p = predictNextStream(kripp, now)
+    expect(p.kind).toBe('streak')
+    if (p.kind !== 'streak') return
+    expect(p.at).toBeGreaterThan(now - 15 * 60_000)
+    expect(p.at - now).toBeLessThan(DAY) // tonight-ish, never "wed in ~2d"
+  })
+
+  test('run gone quiet for 4 days → streak stands down, long models take over', () => {
+    const now = BASE + 34 * DAY + 21 * HOUR
+    const p = predictNextStream(kripp, now)
+    expect(p.kind).not.toBe('streak')
+  })
+
+  test('streak copy says near-daily and stays hedged', () => {
+    const now = BASE + 31 * DAY + 18 * HOUR
+    const out = formatSchedule('nl_kripp', { kind: 'streak', at: now + 3 * HOUR, confidenceMs: 2 * HOUR, samples: 5 }, now, { isLive: false })
+    expect(out).toContain('near-daily')
+    expect(out).toContain('not a promise')
+    const ctx = scheduleContext('nl_kripp', { kind: 'streak', at: now + 3 * HOUR, confidenceMs: 2 * HOUR, samples: 5 }, now, { isLive: false })
+    expect(ctx).toContain('near-daily')
+    expect(ctx.toLowerCase()).toContain('not confirmed')
   })
 })
 
@@ -149,6 +189,7 @@ describe('isScheduleQuery', () => {
     'is there stream tonight',
     'ai stream predictor',
     'how long until stream',
+    'predict kripp stream time', // "predict" before "stream" — the order the regex used to miss
   ])('matches: %s', (q) => expect(isScheduleQuery(q)).toBe(true))
 
   test.each(['pyg', 'vanessa haste', 'what is heated', 'leaderboard', 'trivia'])(
