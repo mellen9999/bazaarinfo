@@ -144,6 +144,8 @@ function grade(c: TestCase, raw: string, sanitized: string): Result {
 
 // --- API call ---
 
+// deliberately NOT metered via recordAiSpend — this is a local dev harness, not a live
+// bot path, and its runs shouldn't count against the real ai_spend ledger.
 async function callApi(systemPrompt: string, query: string, user = 'evaltester'): Promise<string> {
   const userMsg = `Recent chat:\ntestuser1: nice run\ntestuser2: gg\nevaltester: this bot any good?\n\n---\nRESPOND TO THIS (everything above is just context):\n${user}: ${query}`
 

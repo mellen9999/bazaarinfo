@@ -261,7 +261,14 @@ async function describeBatch(
       return []
     }
 
-    const data = await res.json() as { content: { text: string }[] }
+    const data = await res.json() as { content: { text: string }[], usage?: { input_tokens: number; output_tokens: number } }
+    const u = data.usage
+    if (u) {
+      // lazy db import — keeps this module's static graph db-free (see top-of-file note);
+      // describing is global, not per-channel, so it lands in the shared background bucket.
+      const { recordAiSpend } = await import('./db')
+      recordAiSpend('_background', u.input_tokens ?? 0, u.output_tokens ?? 0)
+    }
     const text = data.content?.[0]?.text ?? ''
 
     // parse JSON — strip markdown fences if present

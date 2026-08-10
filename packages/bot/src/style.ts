@@ -257,7 +257,9 @@ export async function refreshVoice(channel: string) {
         })
 
         if (res.ok) {
-          const json = await res.json() as { content: { type: string; text?: string }[] }
+          const json = await res.json() as { content: { type: string; text?: string }[], usage?: { input_tokens: number; output_tokens: number } }
+          const u = json.usage
+          if (u) db.recordAiSpend(ch, u.input_tokens ?? 0, u.output_tokens ?? 0)
           const text = json.content?.find(b => b.type === 'text')?.text?.trim()
           if (text && text.length <= 200) {
             profile = text

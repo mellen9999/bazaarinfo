@@ -1,10 +1,14 @@
 import { log } from './log'
 import { readJson } from './http'
 import { fetchSubreddit, type FeedEntry } from './reddit-feed'
+import * as db from './db'
 
 const SUBREDDIT = 'PlayTheBazaar'
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
+// digest is global, not per-channel — attribute spend to the same sentinel other
+// unattributable background jobs use, so the ledger's totals stay accurate.
+const BACKGROUND_SPEND_CHANNEL = '_background'
 
 const FETCH_TIMEOUT = 30_000
 
@@ -57,8 +61,10 @@ Raw posts:\n\n${context}`,
 
   if (!res.ok) throw new Error(`Haiku API ${res.status}`)
 
-  const parsed = await readJson<{ content: { type: string; text?: string }[] }>(res)
+  const parsed = await readJson<{ content: { type: string; text?: string }[], usage?: { input_tokens: number; output_tokens: number } }>(res)
   if (!parsed.data) return '' // empty/truncated body — skip this digest, don't throw
+  const u = parsed.data.usage
+  if (u) db.recordAiSpend(BACKGROUND_SPEND_CHANNEL, u.input_tokens ?? 0, u.output_tokens ?? 0)
   const text = parsed.data.content?.find((b) => b.type === 'text')?.text ?? ''
   return text.slice(0, 600)
 }
