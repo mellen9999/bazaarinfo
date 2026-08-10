@@ -6,8 +6,10 @@
 //   - MUTE: ignore a specific user ("don't respond to bloodstreamchaos") for the TTL.
 // This module is PURE STATE: store/match/expire + build the prompt hint + mute check.
 // The plant is AI-gated (ai-directive.ts) — steering and muting a named user are
-// allowed chaos, but demeaning/harassing CONTENT, slurs, nsfw, politics, ads, and
-// rule-overrides are rejected. Every steered answer still passes the output sanitizer.
+// allowed chaos, and edgy flavor (innuendo, crude humor, political jokes) is fine; what's
+// rejected is demeaning/harassing CONTENT, slurs, explicit sexual content, political or
+// religious attacks, ads, and rule-overrides. Every steered answer still passes the
+// output sanitizer.
 // Mods/broadcaster can't be muted (enforced at call time), so the streamer/mods can
 // never be silenced by a viewer.
 
