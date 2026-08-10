@@ -86,7 +86,7 @@ export const FABRICATION = /\b(it was a dream|someone had a dream|someone dreame
 //          so it's only enforced OUTSIDE creative.
 //  LOOSE — verb+number / "base X is N". real Bazaar tells, but they also trip on
 //          incidental narrative numbers ("gained 50 pounds"), so also creative-exempt.
-export const STAT_FACT = /\+\d+%?\s*(damage|crit|shield|hp|heal|poison|burn|lifesteal|multicast|cooldown|haste|regen|freeze|slow)\b|\+\d+\s*\/\s*\+?\d+|\b\+?\d{2,}\s+(?:at|on)\s+(?:bronze|silver|gold|diamond|legendary)\b/i
+export const STAT_FACT = /\+\d+%?\s*(damage|crit|shield|hp|heal|poison|burn|lifesteal|multicast|cooldown|haste|regen|freeze|slow)\b|\+\d+\s*\/\s*\+?\d+|\b\+?\d{2,}\s+(?:at|on)\s+(?:bronze|silver|gold|diamond|legendary)\b|\b(?:deals?|shields?|heals?|hastes?|burns?|poisons?|gains?|gives?|grants?|slows?|freezes?|regens?|charges?)\s+(?:for\s+)?\d+\s*\/\s*\d+(?:\s*\/\s*\d+)?\b/i
 export const STAT_BARE = /\b\d{2,}\s*(damage|poison|burn|shield|heal|hp|health|crit|gold|regen|haste|freeze|slow|attack|lifesteal|multicast|cooldown|luck)\b/i
 export const STAT_LOOSE = /\b(deals?|gains?|grants?|gives?|adds?|stacks?|does|heals?)\s+(for\s+)?\+?\d{2,}\b|\b(base|starting)\s+\w+\s+is\s+\d{2,}\b/i
 // STAT_FACT (Bazaar tooltip notation: +X stat, B:/S: tiers) is ALWAYS a hallucination when
@@ -383,6 +383,10 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   // outgoing funnel neutralizes) to judge the real payload; if nothing meaningful remains,
   // block it so the caller retries / falls back instead of emitting a fragment.
   s = s.trim()
+  // the model opening with the bot's OWN trigger ("!b LMAO reboot complete") is prompt-format
+  // leak, never intent — posted, it would self-address the bot. strip it; other commands
+  // stay (chat play) and are judged by the degenerate check below.
+  s = s.replace(/^(?:!b\s+)+/i, '').trim()
   if (/^[!\\/.]/.test(s)) {
     const meat = peelLeadingTriggers(s).replace(/@\w+/g, '').replace(/\s+/g, ' ').trim()
     if (!meat || /^\w{1,2}$/.test(meat)) return { text: '', mentions: [] }
@@ -396,6 +400,11 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
     const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf(', '), cut.lastIndexOf(' — '))
     s = lastBreak > 200 ? cut.slice(0, lastBreak) : cut.replace(/\s+\S*$/, '')
   }
+
+  // a max_tokens-cut reply whittled to under 10 chars is a fragment ("n", "for"), not an
+  // answer — reject so the caller retries with a hint instead of posting a single letter.
+  // deliberate short answers ("no", "she's mid") never hit max_tokens, so they pass.
+  if (truncated && s.trim().length < 10) return { text: '', mentions: [] }
 
   // final punctuation repair. sanitize removes a lot by this point — names, tics, pet
   // names, banned openers, filler — and each removal can strand a separator. healPunctuation

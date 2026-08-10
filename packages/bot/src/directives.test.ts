@@ -165,4 +165,25 @@ describe('directives', () => {
     expect(isMuted('ch', 'user0')).toBe(false)
     expect(isMuted('ch', 'user4')).toBe(true)
   })
+
+  // stacking cap — the aug 2026 word-salad storm: several global persona twists live at
+  // once, all honored simultaneously, garbling an hour of answers for everyone.
+  it('only the newest GLOBAL steer is honored, however many are stored', () => {
+    addDirective('ch', 'a', { instruction: 'say dude after every word' })
+    addDirective('ch', 'b', { instruction: 'talk phonetically' })
+    addDirective('ch', 'c', { instruction: 'end with B==D' })
+    expect(listDirectives('ch').length).toBe(3) // all stored
+    const honored = matchingDirectives('ch', 'any question', 'anyone')
+    expect(honored.length).toBe(1) // only one colors the answer
+    expect(honored[0].instruction).toBe('end with B==D') // the newest
+  })
+
+  it('scoped steers rank before the global one, at most 2 honored total', () => {
+    addDirective('ch', 'a', { instruction: 'global vibe' })
+    addDirective('ch', 'b', { instruction: 'pirate speak for bob', targetUser: 'bob' })
+    addDirective('ch', 'c', { instruction: 'topology bit', trigger: ['topology'] })
+    const honored = matchingDirectives('ch', 'topology question', 'bob')
+    expect(honored.length).toBe(2)
+    expect(honored.every((d) => d.targetUser || d.trigger.length > 0)).toBe(true) // scoped won both slots
+  })
 })

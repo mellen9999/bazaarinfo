@@ -1098,3 +1098,31 @@ describe('fabricated item identity (live log)', () => {
     expect(hasHallucinatedStats("it's a Dragons item in the story", true, false)).toBe(false)
   })
 })
+
+// aug 2026 directive-storm regressions: fragments, self-invocation leak, tier-triplet gap
+describe('directive-storm fallout (live log)', () => {
+  it('rejects a max_tokens fragment instead of posting a single letter', () => {
+    expect(sanitize('n', undefined, undefined, undefined, true).text).toBe('')
+    expect(sanitize('for', undefined, undefined, undefined, true).text).toBe('')
+  })
+
+  it('keeps deliberate short answers that were not cut off', () => {
+    expect(sanitize('no').text).toBe('no')
+    expect(sanitize("she's mid").text).toBe("she's mid")
+  })
+
+  it('strips the bot self-invoking with its own trigger, keeps the payload', () => {
+    expect(sanitize('!b LMAO reboot complete, vowels restored').text).toBe('LMAO reboot complete, vowels restored')
+    expect(sanitize('!b !b nested echo but a real answer follows here').text).toBe('nested echo but a real answer follows here')
+  })
+
+  it('verb-led tier-triplet stat claim is tooltip notation → blocked without game data', () => {
+    expect(hasHallucinatedStats('shields 50/100/150 and hastes 1/2/3 items', false, false)).toBe(true)
+    expect(hasHallucinatedStats('deals 20/40/80 damage at higher tiers', true, false)).toBe(true) // FACT-level: even creative
+  })
+
+  it('incidental slash numbers without a stat verb stay legal', () => {
+    expect(hasHallucinatedStats('split the pot 50/50 with him', false, false)).toBe(false)
+    expect(hasHallucinatedStats('he went 3/7 on guesses today', false, false)).toBe(false)
+  })
+})

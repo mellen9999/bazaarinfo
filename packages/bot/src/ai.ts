@@ -19,6 +19,7 @@ import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGam
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
 import { detectFancyStyle, toFancy } from './fancy'
+import { matchingDirectives } from './directives'
 import { isWorldCupQuery, refreshWorldCupIfNeeded } from './worldcup'
 import { isWeatherQuery, refreshWeatherIfNeeded } from './weather'
 
@@ -192,7 +193,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // 3-5 tokens each — generating them directly cost ~800 tokens and 10-12s, and
   // truncated mid-word ("Dearly beloved" bug). transcoding is instant and exact.
   const fancyStyle = isCreative ? detectFancyStyle(query) : null
-  const effectiveMaxTokens = baseMaxTokens
+  // an active steer twist ("say dude after every word") inflates tokens-per-word; on the
+  // 80-token chat budget that meant generations cut to 1-3 words. headroom, not a new tier.
+  const steerActive = ctx.channel && ctx.user ? matchingDirectives(ctx.channel, query, ctx.user).length > 0 : false
+  const effectiveMaxTokens = baseMaxTokens + (steerActive && !isCreative ? 40 : 0)
 
   // when a fancy font is requested, force ascii output so transcoding has clean
   // input — otherwise the model emits its own (expensive, inconsistent) glyphs.
@@ -450,7 +454,9 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         // name WHY when we can. the generic hint left the model guessing, so the two
         // failures that keep recurring (dunking on repeat askers, dodging on scope)
         // often came back a second time in a slightly different wording.
-        const hint = ASK_COUNT_LEAK.test(textBlock.text)
+        const hint = data.stop_reason === 'max_tokens' && textBlock.text.length < 40
+          ? 'Your reply was cut off to a fragment. Answer in ONE short complete sentence, nothing else.'
+          : ASK_COUNT_LEAK.test(textBlock.text)
           ? 'Blocked: you counted their asks or history back at them. A gap in what you know is YOUR gap, never their fault for asking again. Answer the question with no reference to how many times they have asked or how long they have been here.'
           : SCOPE_DODGE.test(textBlock.text)
             ? 'Blocked: you dodged on scope. You answer anything chat asks, other games included, in full detail. Drop the "wrong lobby"/"im just a bazaar bot" framing and actually answer.'

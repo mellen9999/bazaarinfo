@@ -103,8 +103,16 @@ function appliesTo(d: Directive, query: string, asker: string): boolean {
 }
 
 // steering directives that apply to this (query, asker) — mutes are handled separately.
+// stacking cap: honoring several twists at once compounds into word salad (aug 2026
+// storm: dude-stapling + phonetic accent + token inserts simultaneously garbled an hour
+// of answers). a GLOBAL steer (no trigger, no target) colors every reply, so only the
+// newest one is honored; scoped steers rank first; at most 2 twists total per answer.
 export function matchingDirectives(channel: string, query: string, asker: string): Directive[] {
-  return active(channel).filter((d) => !d.mute && d.instruction && appliesTo(d, query, asker))
+  const m = active(channel).filter((d) => !d.mute && d.instruction && appliesTo(d, query, asker))
+  const newestFirst = [...m].reverse()
+  const scoped = newestFirst.filter((d) => d.targetUser || d.trigger.length > 0)
+  const global = newestFirst.find((d) => !d.targetUser && d.trigger.length === 0)
+  return [...scoped, ...(global ? [global] : [])].slice(0, 2)
 }
 
 // is this asker currently muted by a planted directive? (mods/broadcaster exemption is
