@@ -1,4 +1,5 @@
 import type { BazaarCard, Monster, CardCache, DumpTooltip, DumpEnchantment, ReplacementValue, TierName, ItemSize, MonsterBoardEntry } from '@bazaarinfo/shared'
+import { resolve } from 'path'
 
 import artKeys from '../art-keys.json'
 
@@ -101,11 +102,18 @@ const RETRY_DELAYS = [1000, 2000, 4000]
 // structurally broken (e.g. schema change) and we refuse to swap in the new cache
 const SKIP_RATIO_THRESHOLD = 0.15
 
+// past this fraction of cards missing art, treat it as a systemic break (a CDN re-key, or
+// ART_MAP gone stale) rather than the usual trickle of brand-new cards art hasn't been
+// scraped for yet. loud log only — art coverage never fails the scrape.
+const ART_MISS_RATIO_THRESHOLD = 0.1
+
 interface ScrapeStats {
   unknownTiers: string[]
   unknownSizes: string[]
   skipped: number  // hard failures (throw or unknown Type)
   total: number    // all entries seen (excludes CombatEncounters without MonsterMetadata — those are expected)
+  artMisses: number       // items/skills/events that ended up with no ArtKey
+  artMissSamples: string[] // first few titles missing art, for the alert message
 }
 
 interface ParseResult {
@@ -162,7 +170,6 @@ function parseDumpWithStats(dump: Record<string, DumpEntry>, onProgress?: (msg: 
         // item or monster of the same name still wins. Verified: zero title collisions.
         case 'PedestalEncounter':
           // event-only cards: same structure as items but kept separate to avoid polluting item search
-          // Type field at runtime will be 'EventEncounter'; BazaarCard.Type union needs | 'EventEncounter' once integrator updates shared/src/types.ts
           total++
           events.push(toCard(entry))
           break
@@ -179,7 +186,16 @@ function parseDumpWithStats(dump: Record<string, DumpEntry>, onProgress?: (msg: 
     }
   }
 
-  for (const c of [...items, ...skills, ...events]) collectUnknowns(unknownTiers, unknownSizes, c)
+  const artCards = [...items, ...skills, ...events]
+  let artMisses = 0
+  const artMissSamples: string[] = []
+  for (const c of artCards) {
+    collectUnknowns(unknownTiers, unknownSizes, c)
+    if (!c.ArtKey) {
+      artMisses++
+      if (artMissSamples.length < 5) artMissSamples.push(c.Title)
+    }
+  }
   for (const m of monsters) collectUnknowns(unknownTiers, unknownSizes, m)
 
   if (skipped > 0) {
@@ -189,12 +205,16 @@ function parseDumpWithStats(dump: Record<string, DumpEntry>, onProgress?: (msg: 
   if (unknownTiers.size > 0) onProgress?.(`unknown tiers seen (kept): ${[...unknownTiers].join(', ')}`)
   if (unknownSizes.size > 0) onProgress?.(`unknown sizes seen (kept): ${[...unknownSizes].join(', ')}`)
   if (events.length > 0) onProgress?.(`parsed ${events.length} event encounters`)
+  if (artCards.length > 0 && artMisses / artCards.length > ART_MISS_RATIO_THRESHOLD) {
+    const names = artMissSamples.join(', ') + (artMisses > artMissSamples.length ? ` (+${artMisses - artMissSamples.length} more)` : '')
+    onProgress?.(`ALERT: art coverage low — ${artMisses}/${artCards.length} cards missing ArtKey: ${names}`)
+  } else if (artMisses > 0) {
+    onProgress?.(`${artMisses}/${artCards.length} cards missing art (below alert threshold)`)
+  }
 
-  // events is carried as a bonus field on the cache object; integrator must add
-  // events?: BazaarCard[] to CardCache in packages/shared/src/types.ts to access it typed
   return {
-    cache: { items, skills, monsters, events, fetchedAt: new Date().toISOString() } as CardCache,
-    stats: { unknownTiers: [...unknownTiers], unknownSizes: [...unknownSizes], skipped, total },
+    cache: { items, skills, monsters, events, fetchedAt: new Date().toISOString() },
+    stats: { unknownTiers: [...unknownTiers], unknownSizes: [...unknownSizes], skipped, total, artMisses, artMissSamples },
   }
 }
 
@@ -269,17 +289,39 @@ async function fetchCooldowns(onProgress?: (msg: string) => void): Promise<Map<s
   return map
 }
 
-function applyCooldowns(cache: CardCache, cooldowns: Map<string, CooldownValue>): number {
+// onlyMissing=true skips items that already have a Cooldown (used for the carry-forward
+// pass, so freshly-fetched cooldowns always win over stale ones).
+function applyCooldowns(cache: CardCache, cooldowns: Map<string, CooldownValue>, onlyMissing = false): number {
   let matched = 0
   for (const item of cache.items) {
+    if (onlyMissing && item.Cooldown != null) continue
     const cd = cooldowns.get(item.Title)
     if (cd != null) { item.Cooldown = cd; matched++ }
   }
   return matched
 }
 
+// repo-root cache/items.json — the same file the bot's store.ts loads. read directly here
+// (rather than threaded through ScrapeOptions) so a cooldown-source outage can self-heal
+// without every caller having to pass the previous cache through.
+const PREV_CACHE_PATH = resolve(import.meta.dir, '../../../cache/items.json')
+
+// pull Title -> Cooldown out of a previously-scraped cache, for carrying cooldowns forward
+// when the live cooldown source is down or matched too few items. fail-soft: a missing
+// file, bad JSON, or no cooldowns in the old cache just means nothing to carry forward.
+async function loadPrevCooldowns(path: string = PREV_CACHE_PATH): Promise<Map<string, CooldownValue>> {
+  const map = new Map<string, CooldownValue>()
+  try {
+    const cache = await Bun.file(path).json() as CardCache
+    for (const item of cache.items ?? []) {
+      if (item.Cooldown != null) map.set(item.Title, item.Cooldown)
+    }
+  } catch {}
+  return map
+}
+
 // exported for testing
-export { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, fetchCooldowns, applyCooldowns, extractCooldown }
+export { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, fetchCooldowns, applyCooldowns, extractCooldown, loadPrevCooldowns }
 export type { DumpEntry, ScrapeStats, ParseResult as ScrapeResult }
 
 interface PrevCounts { items: number; skills: number; monsters: number }
@@ -349,7 +391,16 @@ export async function scrapeDump(onProgress?: (msg: string) => void, opts?: Scra
       // flapping on minor title drift; the per-item fail-soft in fetchCooldowns still applies.
       const cooldownsMatched = applyCooldowns(cache, cooldowns)
       if (cooldownsMatched < 100) {
-        throw new Error(`cooldown enrichment matched only ${cooldownsMatched} items — refusing to ship a cooldown-less cache`)
+        // enrichment source is down or has drifted hard — carry forward cooldowns from the
+        // previous cache rather than aborting a perfectly good dump scrape (which would
+        // otherwise re-download the full 50MB dump on retry for no reason). only a genuine
+        // first run — no previous cache to carry from — still hard-fails here.
+        const prevCooldowns = await loadPrevCooldowns()
+        if (prevCooldowns.size === 0) {
+          throw new Error(`cooldown enrichment matched only ${cooldownsMatched} items and no previous cache available to carry forward — refusing to ship a cooldown-less cache`)
+        }
+        const carried = applyCooldowns(cache, prevCooldowns, true)
+        onProgress?.(`ALERT: cooldown enrichment low (${cooldownsMatched} matched) — carried forward ${carried} cooldowns from the previous cache`)
       }
       if (cache.items.length < 50) {
         throw new Error(`suspiciously few items (${cache.items.length}), refusing to use`)

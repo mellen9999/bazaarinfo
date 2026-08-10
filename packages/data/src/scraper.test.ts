@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'bun:test'
-import { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, applyCooldowns, extractCooldown, checkDeltaGuard } from './scraper'
+import { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, applyCooldowns, extractCooldown, checkDeltaGuard, loadPrevCooldowns } from './scraper'
 import type { DumpEntry } from './scraper'
 import type { CardCache } from '@bazaarinfo/shared'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { randomUUID } from 'crypto'
 
 function makeDumpEntry(overrides: Partial<DumpEntry> = {}): DumpEntry {
   return {
@@ -323,5 +326,91 @@ describe('checkDeltaGuard', () => {
   it('is a no-op when prev is not provided', () => {
     const cache = makeEmptyCache({ items: fillArray(1, {} as any) })
     expect(() => checkDeltaGuard(cache, undefined, undefined)).not.toThrow()
+  })
+})
+
+describe('applyCooldowns — onlyMissing (carry-forward pass)', () => {
+  it('fills only items without a Cooldown, leaving freshly-matched ones alone', () => {
+    const cache = parseDump({
+      a: makeDumpEntry({ Title: 'Boomerang' }),
+      b: makeDumpEntry({ Title: 'Slingshot' }),
+    })
+    applyCooldowns(cache, new Map([['Boomerang', 4]])) // fresh match
+    const carried = applyCooldowns(cache, new Map([['Boomerang', 99], ['Slingshot', 2]]), true)
+    expect(cache.items.find((i) => i.Title === 'Boomerang')!.Cooldown).toBe(4) // untouched
+    expect(cache.items.find((i) => i.Title === 'Slingshot')!.Cooldown).toBe(2) // filled
+    expect(carried).toBe(1)
+  })
+})
+
+describe('loadPrevCooldowns', () => {
+  function tmpCachePath(): string {
+    return join(tmpdir(), `bazaarinfo-scraper-test-${randomUUID()}.json`)
+  }
+
+  it('extracts Title -> Cooldown from a real previous cache file', async () => {
+    const path = tmpCachePath()
+    const cache: CardCache = makeEmptyCache({
+      items: [
+        { ...toCard(makeDumpEntry({ Title: 'Boomerang' })), Cooldown: 4 },
+        { ...toCard(makeDumpEntry({ Title: 'No Cooldown Sword' })) }, // never had one
+      ],
+    })
+    await Bun.write(path, JSON.stringify(cache))
+    try {
+      const map = await loadPrevCooldowns(path)
+      expect(map.get('Boomerang')).toBe(4)
+      expect(map.has('No Cooldown Sword')).toBe(false)
+    } finally {
+      await Bun.file(path).delete()
+    }
+  })
+
+  it('fails soft (empty map) when the file does not exist', async () => {
+    const map = await loadPrevCooldowns(join(tmpdir(), `bazaarinfo-scraper-test-missing-${randomUUID()}.json`))
+    expect(map.size).toBe(0)
+  })
+
+  it('fails soft (empty map) on malformed JSON', async () => {
+    const path = tmpCachePath()
+    await Bun.write(path, 'not valid json{{{')
+    try {
+      const map = await loadPrevCooldowns(path)
+      expect(map.size).toBe(0)
+    } finally {
+      await Bun.file(path).delete()
+    }
+  })
+})
+
+describe('parseDumpWithStats — art coverage', () => {
+  it('counts cards missing ArtKey and alerts past the ratio threshold', () => {
+    const dump: Record<string, any> = {}
+    for (let i = 0; i < 10; i++) {
+      dump[`item${i}`] = makeDumpEntry({ Title: `No Art Card ${i}` }) // no ArtKey, not in ART_MAP
+    }
+    const msgs: string[] = []
+    const { stats } = parseDumpWithStats(dump, (m) => msgs.push(m))
+    expect(stats.artMisses).toBe(10)
+    expect(stats.artMissSamples.length).toBe(5)
+    expect(msgs.some((m) => m.startsWith('ALERT: art coverage low'))).toBe(true)
+  })
+
+  it('does not alert when misses are under the ratio threshold', () => {
+    const dump: Record<string, any> = {}
+    for (let i = 0; i < 9; i++) {
+      dump[`item${i}`] = makeDumpEntry({ Title: `Art Card ${i}`, ArtKey: `key${i}` })
+    }
+    dump.miss = makeDumpEntry({ Title: 'One Miss' }) // 1/10 = 10%, at (not over) the threshold
+    const msgs: string[] = []
+    const { stats } = parseDumpWithStats(dump, (m) => msgs.push(m))
+    expect(stats.artMisses).toBe(1)
+    expect(msgs.some((m) => m.startsWith('ALERT:'))).toBe(false)
+  })
+
+  it('counts zero misses when every card carries an explicit ArtKey', () => {
+    const dump: Record<string, any> = { a: makeDumpEntry({ Title: 'Sword', ArtKey: 'sword-key' }) }
+    const { stats } = parseDumpWithStats(dump)
+    expect(stats.artMisses).toBe(0)
   })
 })
