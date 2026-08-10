@@ -17,6 +17,11 @@ jobs:
       - name: install deps
         run: bun install --frozen-lockfile
 
+      # card-cache-dependent tests (real-store e2e) need cache/items.json, which is
+      # gitignored on dev machines — restore the committed snapshot on ci runners
+      - name: restore card cache fixture
+        run: mkdir -p cache && gunzip -c packages/bot/test/fixtures/items.json.gz > cache/items.json
+
       - name: typecheck
         run: bun run typecheck
 
