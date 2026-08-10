@@ -966,12 +966,38 @@ def build_initial_state(log_path: Path, card_db: dict) -> dict:
     return state
 
 
-def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, debug: bool):
-    """Tail the log file and track game state."""
-    ebs_url = config["ebs"]["url"]
+def resolve_ebs_config(config: configparser.ConfigParser) -> "tuple[str, str, str]":
+    """Resolve (url, channel_id, secret) from config ONCE, so every caller agrees.
+
+    EBS_SECRET env wins over config.ini — checked first so an env-only setup (secret
+    never written to disk, allowed by validate_config) never touches config["ebs"]["secret"],
+    which would KeyError when that key was never in the file. url is stripped of a
+    trailing slash here so a streamer's "https://ebs.example.com/" doesn't turn every
+    request into a double-slash "//detect".
+    """
+    url = config["ebs"]["url"].rstrip("/")
     channel_id = config["ebs"]["channel_id"]
     secret = os.environ.get("EBS_SECRET") or config["ebs"]["secret"]
+    return url, channel_id, secret
 
+
+# Backoff after consecutive failed sends: 1s, 2s, 4s... capped at 60s. Without this,
+# an unreachable EBS meant flush() retried a blocking 5s POST on every idle tick
+# (every ~0.1s) forever — hammering a server that's already down. Reset to 0 on the
+# next successful send.
+BACKOFF_BASE_S = 1.0
+BACKOFF_CAP_S = 60.0
+
+
+def backoff_delay(failures: int) -> float:
+    """Seconds to wait before the next send attempt, given consecutive failure count."""
+    if failures <= 0:
+        return 0.0
+    return min(BACKOFF_CAP_S, BACKOFF_BASE_S * (2 ** (failures - 1)))
+
+
+def tail_log(log_path: Path, card_db: dict, ebs_url: str, channel_id: str, secret: str, debug: bool):
+    """Tail the log file and track game state."""
     logger.info("Building initial state from log...")
     state = build_initial_state(log_path, card_db)
 
@@ -989,20 +1015,31 @@ def tail_log(log_path: Path, card_db: dict, config: configparser.ConfigParser, d
     last_inode = log_path.stat().st_ino
     dirty = False
     last_change = 0.0
+    fail_count = 0
+    next_retry_ok = 0.0
 
     def flush() -> None:
         """Send pending changes once the log has gone quiet, or once they're overdue.
 
         A failed send leaves the state dirty so the next tick retries it — dropping a
         change here would leave the overlay showing a board the player has moved on
-        from until the next heartbeat.
+        from until the next heartbeat. But an unreachable EBS must not turn that retry
+        into a blocking 5s POST on every single tick — back off between attempts and
+        reset the moment a send succeeds.
         """
-        nonlocal dirty, last_send
+        nonlocal dirty, last_send, fail_count, next_retry_ok
         if not should_flush(dirty, time.monotonic(), last_change, last_send):
+            return
+        now = time.monotonic()
+        if now < next_retry_ok:
             return
         if send_state(ebs_url, channel_id, secret, state):
             dirty = False
-            last_send = time.monotonic()
+            last_send = now
+            fail_count = 0
+        else:
+            fail_count += 1
+            next_retry_ok = now + backoff_delay(fail_count)
 
     f = open(log_path, encoding="utf-8", errors="replace")
     f.seek(0, 2)
@@ -1098,6 +1135,20 @@ def validate_config(config: configparser.ConfigParser) -> bool:
             logger.error("ebs.url must use https:// (got: %s)", url)
             ok = False
     return ok
+
+
+def load_config(config_path: Path) -> configparser.ConfigParser:
+    """Parse config.ini, turning a corrupt file into a clear, actionable error instead
+    of a raw configparser traceback (duplicate key, missing section, stray BOM — anything
+    a hand-edited ini can produce).
+    """
+    config = configparser.ConfigParser()
+    try:
+        config.read(config_path)
+    except configparser.Error as e:
+        logger.error("%s is corrupt (%s) — fix or delete config.ini, or run with --setup", config_path, e)
+        raise SystemExit(1)
+    return config
 
 
 def setup_config(config_path: Path):
@@ -1255,8 +1306,7 @@ def main():
         logger.info("Using settings from %s", args.config)
 
     # Load and validate config
-    config = configparser.ConfigParser()
-    config.read(args.config)
+    config = load_config(args.config)
     if not validate_config(config):
         logger.error("Fix config.ini or run with --setup to reconfigure")
         raise SystemExit(1)
@@ -1270,12 +1320,12 @@ def main():
         except OSError:
             pass  # no-op on Windows; best-effort on POSIX
 
+    # Resolve once — EBS_SECRET env (if set) wins over config.ini here and in tail_log,
+    # and the url is normalized here so both paths hit the same "/detect" every time.
+    ebs_url, channel_id, secret = resolve_ebs_config(config)
+
     # fail on a bad secret here, not halfway through a live run
-    if not verify_credentials(
-        config["ebs"]["url"].rstrip("/"),
-        config["ebs"]["channel_id"],
-        config["ebs"]["secret"],
-    ):
+    if not verify_credentials(ebs_url, channel_id, secret):
         raise SystemExit(1)
 
     # Find cards.json (wait if game not installed yet)
@@ -1303,7 +1353,7 @@ def main():
     log_path = args.log
     wait_for_file(log_path, "Player.log")
 
-    tail_log(log_path, card_db, config, args.debug)
+    tail_log(log_path, card_db, ebs_url, channel_id, secret, args.debug)
 
 
 if __name__ == "__main__":

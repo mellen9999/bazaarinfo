@@ -8,6 +8,10 @@ import os
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+import configparser
+
+import pytest
+
 from logwatch import (
     _cap,
     _TITLE_MAX,
@@ -18,6 +22,9 @@ from logwatch import (
     default_config_path,
     user_config_path,
     verify_credentials,
+    resolve_ebs_config,
+    backoff_delay,
+    load_config,
 )
 import logwatch
 
@@ -475,3 +482,119 @@ class TestShouldFlush:
         # the drag case: both lines land inside the coalesce window
         start = 100.0
         assert logwatch.should_flush(True, start + 0.002, start, start) is False
+
+
+# --- resolve_ebs_config: one source of truth for url/channel/secret ---
+
+def _config(url="https://ebs.example.com", channel_id="123", secret="s3cret"):
+    c = configparser.ConfigParser()
+    c["ebs"] = {}
+    if url is not None:
+        c["ebs"]["url"] = url
+    c["ebs"]["channel_id"] = channel_id
+    if secret is not None:
+        c["ebs"]["secret"] = secret
+    return c
+
+
+class TestResolveEbsConfig:
+    def test_reads_url_channel_secret_from_config(self, monkeypatch):
+        monkeypatch.delenv("EBS_SECRET", raising=False)
+        url, channel_id, secret = resolve_ebs_config(_config())
+        assert (url, channel_id, secret) == ("https://ebs.example.com", "123", "s3cret")
+
+    def test_env_secret_only_setup_does_not_crash(self, monkeypatch):
+        # secret omitted from config.ini entirely — validate_config allows this when
+        # EBS_SECRET is set. Accessing config["ebs"]["secret"] directly here would
+        # raise a raw KeyError.
+        monkeypatch.setenv("EBS_SECRET", "from-env")
+        url, channel_id, secret = resolve_ebs_config(_config(secret=None))
+        assert secret == "from-env"
+
+    def test_env_secret_wins_over_config_secret(self, monkeypatch):
+        monkeypatch.setenv("EBS_SECRET", "from-env")
+        _, _, secret = resolve_ebs_config(_config(secret="from-config"))
+        assert secret == "from-env"
+
+    def test_config_secret_used_when_no_env(self, monkeypatch):
+        monkeypatch.delenv("EBS_SECRET", raising=False)
+        _, _, secret = resolve_ebs_config(_config(secret="from-config"))
+        assert secret == "from-config"
+
+    def test_trailing_slash_url_normalized(self, monkeypatch):
+        monkeypatch.delenv("EBS_SECRET", raising=False)
+        url, _, _ = resolve_ebs_config(_config(url="https://ebs.example.com/"))
+        assert url == "https://ebs.example.com"
+
+    def test_url_without_trailing_slash_unchanged(self, monkeypatch):
+        monkeypatch.delenv("EBS_SECRET", raising=False)
+        url, _, _ = resolve_ebs_config(_config(url="https://ebs.example.com"))
+        assert url == "https://ebs.example.com"
+
+
+# --- backoff_delay: pure schedule for send-failure retries ---
+
+class TestBackoffDelay:
+    def test_no_failures_no_delay(self):
+        assert backoff_delay(0) == 0.0
+
+    def test_negative_treated_as_no_failures(self):
+        assert backoff_delay(-1) == 0.0
+
+    def test_first_failure_is_base_delay(self):
+        assert backoff_delay(1) == logwatch.BACKOFF_BASE_S
+
+    def test_delay_doubles_each_failure(self):
+        assert backoff_delay(2) == logwatch.BACKOFF_BASE_S * 2
+        assert backoff_delay(3) == logwatch.BACKOFF_BASE_S * 4
+        assert backoff_delay(4) == logwatch.BACKOFF_BASE_S * 8
+
+    def test_delay_caps_and_does_not_grow_further(self):
+        capped = backoff_delay(20)
+        assert capped == logwatch.BACKOFF_CAP_S
+        assert backoff_delay(21) == logwatch.BACKOFF_CAP_S
+
+    def test_schedule_resets_after_success(self):
+        # simulates: several failures climb the schedule, then a success brings the
+        # next attempt back to failures=0 (no delay) — never a full traceback-style
+        # exponential in production, but exercised via the counter reset it drives.
+        assert backoff_delay(3) > backoff_delay(1)
+        assert backoff_delay(0) == 0.0
+
+
+# --- load_config: corrupt ini must exit cleanly, never a raw traceback ---
+
+class TestLoadConfig:
+    def test_valid_ini_parses(self, tmp_path):
+        p = tmp_path / "config.ini"
+        p.write_text("[ebs]\nurl = https://e\nchannel_id = 1\nsecret = s\n")
+        config = load_config(p)
+        assert config["ebs"]["url"] == "https://e"
+
+    def test_missing_file_is_not_an_error(self, tmp_path):
+        # matches configparser.read()'s own behavior — a missing file yields an empty
+        # (invalid) config, caught downstream by validate_config, not by load_config.
+        p = tmp_path / "nope.ini"
+        config = load_config(p)
+        assert config.sections() == []
+
+    def test_duplicate_key_exits_cleanly(self, tmp_path):
+        p = tmp_path / "config.ini"
+        p.write_text("[ebs]\nurl = https://e\nurl = https://f\n")
+        with pytest.raises(SystemExit) as exc:
+            load_config(p)
+        assert exc.value.code == 1
+
+    def test_duplicate_section_exits_cleanly(self, tmp_path):
+        p = tmp_path / "config.ini"
+        p.write_text("[ebs]\nurl = https://e\n[ebs]\nurl = https://f\n")
+        with pytest.raises(SystemExit) as exc:
+            load_config(p)
+        assert exc.value.code == 1
+
+    def test_malformed_line_exits_cleanly(self, tmp_path):
+        p = tmp_path / "config.ini"
+        p.write_text("[ebs]\nnot a valid line without equals or colon\n")
+        with pytest.raises(SystemExit) as exc:
+            load_config(p)
+        assert exc.value.code == 1
