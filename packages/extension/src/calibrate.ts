@@ -103,6 +103,14 @@ export function initCalibrator() {
     ensureConfigured()
     setStatus('', '')
   })
+  // onChanged is not guaranteed to fire for a never-configured extension, which
+  // would leave ensureConfigured above unreached and the extension unactivatable.
+  // onAuthorized always fires, so use it as a backstop: wait long enough for any
+  // real config to have arrived via onChanged (which would set content and make
+  // ensureConfigured a no-op), then register the default if still empty.
+  twitch?.onAuthorized?.(() => {
+    setTimeout(ensureConfigured, 3000)
+  })
 
   // ── drag to move ──
   const norm = (clientX: number, clientY: number) => {
