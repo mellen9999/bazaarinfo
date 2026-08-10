@@ -6,11 +6,38 @@ import { initCalibrator } from './calibrate'
 
 const EBS_URL = 'https://ebs.bazaarinfo.com'
 
+function selectContents(el: HTMLElement) {
+  const sel = window.getSelection()
+  if (!sel) return
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  sel.removeAllRanges()
+  sel.addRange(range)
+}
+
+function flashCopied(el: HTMLElement) {
+  el.classList.add('copied')
+  setTimeout(() => el.classList.remove('copied'), 1500)
+}
+
+// Twitch serves this view inside a sandboxed cross-origin iframe that usually
+// withholds the async Clipboard API (no clipboard-write permission). So: select
+// the field first — that alone makes a manual ctrl/⌘+c work and gives the user
+// visible feedback — then try the async API, falling back to execCommand('copy'),
+// which acts on the live selection and is permitted in the sandbox where the
+// async API is not. If every path is blocked, the text stays selected to copy by hand.
 function copy(text: string, el: HTMLElement) {
-  navigator.clipboard.writeText(text).then(() => {
-    el.classList.add('copied')
-    setTimeout(() => el.classList.remove('copied'), 1500)
-  }).catch(() => {})
+  selectContents(el)
+  const viaAsync = navigator.clipboard?.writeText?.(text)
+  if (viaAsync) {
+    viaAsync.then(() => flashCopied(el)).catch(() => { if (execCopy()) flashCopied(el) })
+  } else if (execCopy()) {
+    flashCopied(el)
+  }
+}
+
+function execCopy(): boolean {
+  try { return document.execCommand('copy') } catch { return false }
 }
 
 function setupCopyHandlers() {

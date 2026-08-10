@@ -62,6 +62,10 @@ code {
   color: var(--text);
   word-break: break-all;
   cursor: pointer;
+  /* one click selects the whole token, so manual ctrl/⌘+c always works even if
+     the iframe sandbox blocks every programmatic copy path (see config.ts). */
+  -webkit-user-select: all;
+  user-select: all;
   transition: border-color 120ms ease;
 }
 
