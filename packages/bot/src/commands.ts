@@ -4,7 +4,7 @@ import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
 import { snapshotSchedule } from './schedule-query'
-import { formatSchedule, isScheduleQuery } from './schedule'
+import { formatSchedule, formatLastStream, isScheduleQuery, isPastStreamQuery } from './schedule'
 import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, recentAnswerList, isRecentAnswer, startKrippTrivia, startFallbackTrivia, startQuizCultureTrivia } from './trivia'
 import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, generateGameTrivia, type CustomTrivia } from './ai-trivia'
 import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
@@ -984,11 +984,15 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // Helix start times (schedule.ts). NEVER routed through AI — a schedule is statistics,
   // and an AI guess would fabricate a time. answers honestly ("still learning", "too
   // irregular") rather than inventing one when the data can't support a call.
+  // past-tense asks ("when did kripp start yesterday") get the last logged start instead.
   if (ctx.channel && isScheduleQuery(cleanArgs) && !store.exact(cleanArgs)) {
     const sfx = mentions.length ? ` ${mentions.join(' ')}` : ''
     const now = Date.now()
-    const { pred, live } = snapshotSchedule(ctx.channel, now)
-    return withSuffix(formatSchedule(ctx.channel, pred, now, live), sfx)
+    const { pred, live, sessions } = snapshotSchedule(ctx.channel, now)
+    const body = isPastStreamQuery(cleanArgs)
+      ? formatLastStream(ctx.channel, sessions, now, live)
+      : formatSchedule(ctx.channel, pred, now, live)
+    return withSuffix(body, sfx)
   }
 
   // proxy ! and / commands — before dedup so cooldown messages always show

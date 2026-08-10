@@ -167,6 +167,7 @@ function dayLabel(at: number, now: number): string {
   const d1 = Math.floor(at / DAY)
   if (d1 === d0) return 'today'
   if (d1 === d0 + 1) return 'tomorrow'
+  if (d1 === d0 - 1) return 'yesterday'
   return days[new Date(at).getUTCDay()]
 }
 
@@ -217,6 +218,14 @@ export function isScheduleQuery(q: string): boolean {
   return STREAM_WORD_RE.test(q) && WHEN_WORD_RE.test(q)
 }
 
+// past-tense schedule ask ("when did kripp start yesterday") — answered from logged
+// sessions, never the predictor. `last` alone is too loose ("how long do streams last"
+// is the verb), so it only counts glued to a noun/`live`.
+const PAST_WORD_RE = /\b(?:did|was|were|yesterday|earlier|ago|last\s+(?:stream|night|time|live))\b/i
+export function isPastStreamQuery(q: string): boolean {
+  return isScheduleQuery(q) && PAST_WORD_RE.test(q)
+}
+
 // terse block for AI-context injection: gives the model real numbers to relay, never invent.
 export function scheduleContext(channel: string, pred: Prediction, now: number, live: LiveInfo): string {
   if (live.isLive) return `Stream schedule for ${channel}: LIVE right now${live.liveSince ? ` (up ${humanizeDelta(now - live.liveSince)})` : ''}.`
@@ -229,4 +238,39 @@ export function scheduleContext(channel: string, pred: Prediction, now: number, 
     case 'gap':
       return `Stream schedule for ${channel}: next likely ${dayLabel(pred.at, now)} in ${humanizeDelta(pred.at - now)} (±${humanizeDelta(pred.confidenceMs)}), ~${utcClock(pred.at)}, from ${pred.samples} logged starts. Currently offline. This is a statistical estimate, not confirmed.`
   }
+}
+
+// the latest logged session, with a duration only when the poller actually observed one.
+function latestSession(raw: StreamSession[]): { startedAt: number; durMs: number | null } | null {
+  const s = tidy(raw)
+  const last = s.at(-1)
+  if (!last) return null
+  const dur = last.lastSeenAt - last.startedAt
+  return { startedAt: last.startedAt, durMs: dur > 5 * MIN ? dur : null }
+}
+
+// past-tense chat reply: what actually happened, straight from logged Helix starts.
+// says "yesterday"/"sat" from the data, so an off-by-a-day ask stays honest by construction.
+export function formatLastStream(channel: string, sessions: StreamSession[], now: number, live: LiveInfo): string {
+  const last = latestSession(sessions)
+  if (live.isLive) {
+    const since = live.liveSince ?? last?.startedAt
+    const up = since ? ` — started ${utcClock(since)}, up ${humanizeDelta(now - since)}` : ''
+    return `${channel} is live right now${up}.`
+  }
+  if (!last) return `haven't logged any ${channel} streams yet — i only see starts from when i'm watching.`
+  const ran = last.durMs ? `, ran ${humanizeDelta(last.durMs)}` : ''
+  return `last ${channel} stream started ${dayLabel(last.startedAt, now)} around ${utcClock(last.startedAt)} (${humanizeDelta(now - last.startedAt)} ago${ran}).`
+}
+
+// AI-context twin of formatLastStream, for the mention-path backstop.
+export function lastStreamContext(channel: string, sessions: StreamSession[], now: number, live: LiveInfo): string {
+  const last = latestSession(sessions)
+  if (live.isLive) {
+    const since = live.liveSince ?? last?.startedAt
+    return `Last stream for ${channel}: LIVE right now${since ? ` (started ${utcClock(since)}, up ${humanizeDelta(now - since)})` : ''}.`
+  }
+  if (!last) return `Last stream for ${channel}: no logged sessions. Do not guess a time.`
+  const ran = last.durMs ? `, ran ${humanizeDelta(last.durMs)}` : ''
+  return `Last stream for ${channel}: started ${dayLabel(last.startedAt, now)} ~${utcClock(last.startedAt)} (${humanizeDelta(now - last.startedAt)} ago${ran}). Relay these numbers, do not guess others.`
 }

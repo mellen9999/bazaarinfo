@@ -5,6 +5,9 @@ import {
   formatSchedule,
   scheduleContext,
   isScheduleQuery,
+  isPastStreamQuery,
+  formatLastStream,
+  lastStreamContext,
   humanizeDelta,
   type StreamSession,
 } from './schedule'
@@ -152,6 +155,65 @@ describe('isScheduleQuery', () => {
     'ignores item/other: %s',
     (q) => expect(isScheduleQuery(q)).toBe(false),
   )
+})
+
+describe('isPastStreamQuery — tense routing', () => {
+  test.each([
+    'when did kripp start streaming yesterday',
+    'what time did kripp start his stream yesterday',
+    'when did kripps stream start',
+    'when was the last stream',
+    'when was kripp last live',
+    'how long was the stream yesterday',
+    'when did the stream end',
+  ])('past: %s', (q) => expect(isPastStreamQuery(q)).toBe(true))
+
+  test.each([
+    'when is the next stream',
+    "when's the next stream",
+    'when will kripp stream again',
+    'how long do streams usually last',
+    'is there stream tonight',
+    'stream schedule',
+  ])('future stays future: %s', (q) => expect(isPastStreamQuery(q)).toBe(false))
+})
+
+describe('formatLastStream / lastStreamContext — real data, never a forward guess', () => {
+  const now = BASE + 30 * DAY + 15 * HOUR
+  const sessions = [sess(20, 21), sess(22, 21, 10), sess(29, 21, 7, 6)] // latest: yesterday 21:07, ran 6h
+
+  test('reports the latest logged start, not a prediction', () => {
+    const out = formatLastStream('nl_kripp', sessions, now, { isLive: false })
+    expect(out).toContain('yesterday')
+    expect(out).toContain('21:07 UTC')
+    expect(out).toContain('~6h')
+    expect(out).not.toContain('likely')
+    expect(out).not.toContain('next')
+  })
+
+  test('live now → current stream start, real signal', () => {
+    const live = [...sessions, { startedAt: now - 2 * HOUR, lastSeenAt: now - 60_000 }]
+    const out = formatLastStream('nl_kripp', live, now, { isLive: true, liveSince: now - 2 * HOUR })
+    expect(out).toContain('live right now')
+    expect(out).toContain('~2h')
+  })
+
+  test('no sessions → honest no-data, no fabrication', () => {
+    const out = formatLastStream('nl_kripp', [], now, { isLive: false })
+    expect(out.toLowerCase()).toContain("haven't")
+    expect(out).not.toMatch(/\d{2}:\d{2} UTC/)
+  })
+
+  test('lastStreamContext grounds the model and forbids guessing', () => {
+    const ctx = lastStreamContext('nl_kripp', sessions, now, { isLive: false })
+    expect(ctx).toContain('21:07')
+    expect(ctx.toLowerCase()).toContain('do not guess')
+  })
+
+  test('lastStreamContext with no data says so', () => {
+    const ctx = lastStreamContext('nl_kripp', [], now, { isLive: false })
+    expect(ctx.toLowerCase()).toContain('no logged')
+  })
 })
 
 describe('humanizeDelta', () => {

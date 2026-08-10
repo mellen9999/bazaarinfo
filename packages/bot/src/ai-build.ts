@@ -18,7 +18,7 @@ import { getDescriptions } from './emote-describe'
 import { getChannelStyle, getUserProfile, getChannelVoiceContext } from './style'
 import { formatAge, getHotExchanges, getChannelRecentResponses, getRecentEmotes } from './ai-cache'
 import { snapshotSchedule } from './schedule-query'
-import { isScheduleQuery, scheduleContext } from './schedule'
+import { isScheduleQuery, isPastStreamQuery, scheduleContext, lastStreamContext } from './schedule'
 import { maybeFetchTwitchInfo } from './ai-background'
 import type { AiContext } from './ai'
 import {
@@ -733,7 +733,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // real prediction so the model relays actual numbers (or "not enough data"), never invents a
   // time. scheduleContext itself carries the "do not guess" instruction. fail-soft: '' otherwise.
   const sched = isScheduleQuery(query) ? snapshotSchedule(ctx.channel, Date.now()) : null
-  const scheduleLine = sched ? `\n${scheduleContext(ctx.channel, sched.pred, Date.now(), sched.live)}` : ''
+  const scheduleLine = sched
+    ? `\n${isPastStreamQuery(query) ? lastStreamContext(ctx.channel, sched.sessions, Date.now(), sched.live) : scheduleContext(ctx.channel, sched.pred, Date.now(), sched.live)}`
+    : ''
 
   // live world cup scores — real ESPN data, injected only on world-cup-shaped queries
   // (fail-soft: '' on missing/stale cache or off-topic query, so nothing to hallucinate
