@@ -82,9 +82,25 @@ export function initCalibrator() {
     crop = stored
     render()
   }
+
+  // Twitch refuses to activate an extension that "requires configuration" until a
+  // broadcaster segment exists. A fullscreen streamer never edits the crop (identity
+  // already fits) and so never triggers a save — leaving the extension permanently
+  // unactivatable. So the first time we see an empty config, register the identity
+  // default. It only runs inside onChanged, which carries the *loaded* config, so an
+  // existing crop is never clobbered by a not-yet-loaded read. Harmless (identity is a
+  // no-op crop) and idempotent: serializeCrop(IDENTITY) is a truthy string, so the
+  // next onChanged sees content and skips this.
+  const ensureConfigured = () => {
+    const setFn = twitch?.configuration?.set
+    if (!setFn || twitch?.configuration?.broadcaster?.content) return
+    try { setFn('broadcaster', CONFIG_VERSION, serializeCrop(IDENTITY_CROP)) } catch { /* config service unavailable — non-fatal */ }
+  }
+
   readStored()
   twitch?.configuration?.onChanged?.(() => {
     readStored()
+    ensureConfigured()
     setStatus('', '')
   })
 
