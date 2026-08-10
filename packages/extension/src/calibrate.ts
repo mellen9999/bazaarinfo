@@ -193,7 +193,7 @@ export function initCalibrator() {
       setFn('broadcaster', CONFIG_VERSION, serializeCrop(crop))
       stored = crop
       render()
-      setStatus('saved — viewers pick it up on their next load', 'ok')
+      setStatus('saved — live for viewers now', 'ok')
     } catch {
       setStatus('save failed — try again', '')
     }

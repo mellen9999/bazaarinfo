@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'preact/hooks'
 import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
 import { buildIndex, searchCards, type ScoredCard } from '@bazaarinfo/shared/src/search'
 import { CardTooltip } from './components/CardTooltip'
-import { fetchCards } from './twitch'
+import { fetchCards, CARD_FETCH_BACKOFF } from './twitch'
 import { tierColor } from './tiers'
 import './style.css'
 
@@ -16,13 +16,17 @@ function Panel() {
   const [results, setResults] = useState<ScoredCard[]>([])
   const [cursor, setCursor] = useState(0)
   const [selected, setSelected] = useState<{ card: BazaarCard; tier: TierName } | null>(null)
-  const [error, setError] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Built on the first keystroke, not on load. Indexing ~1800 cards is work the
   // viewer has not asked for yet, and doing it during startup is the difference
   // between a panel that opens instantly and one that hitches on a phone.
   const indexRef = useRef<ReturnType<typeof buildIndex> | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  // onAuthorized re-fires on token refresh (~hourly); this guards the dump fetch
+  // against re-running then, independent of `cards`/`indexRef` which effect deps
+  // can't see (the effect below has deps []).
+  const cardsLoaded = useRef(false)
 
   // Focus on open so the panel is usable without touching the mouse — but only
   // where there is a mouse. On a phone an autofocused field throws up the soft
@@ -34,10 +38,18 @@ function Panel() {
   useEffect(() => {
     let mounted = true
     const twitch = window.Twitch?.ext
-    if (!twitch) return
+    if (!twitch) {
+      console.error('bazaarinfo panel: twitch extension helper unavailable')
+      setError('twitch extension helper unavailable')
+      return
+    }
     twitch.onAuthorized(async (auth) => {
-      if (indexRef.current || cards) return
-      for (let i = 0; i < 2; i++) {
+      if (cardsLoaded.current) return
+      for (let i = 0; i < CARD_FETCH_BACKOFF.length; i++) {
+        if (CARD_FETCH_BACKOFF[i] > 0) {
+          await new Promise((r) => setTimeout(r, CARD_FETCH_BACKOFF[i]))
+          if (!mounted || cardsLoaded.current) return
+        }
         try {
           const all = await fetchCards(auth.token)
           if (!mounted) return
@@ -45,9 +57,10 @@ function Panel() {
           // rather than sitting on "loading…" forever.
           if (all.length === 0) throw new Error('empty')
           setCards(all)
+          cardsLoaded.current = true
           return
         } catch {
-          if (i === 1 && mounted) setError(true)
+          if (i === CARD_FETCH_BACKOFF.length - 1 && mounted) setError('card data unavailable')
         }
       }
     })
@@ -134,7 +147,7 @@ function Panel() {
     }
   }, [results, cursor, selected, pick, clear, stepTier])
 
-  const placeholder = cards ? 'search cards…' : error ? 'card data unavailable' : 'loading card data…'
+  const placeholder = cards ? 'search cards…' : error ?? 'loading card data…'
   const trimmed = query.trim()
   const noMatch = Boolean(cards) && !selected && results.length === 0 && trimmed.length >= MIN_QUERY
 
@@ -155,7 +168,7 @@ function Panel() {
         onInput={handleInput}
         onKeyDown={handleKey}
         placeholder={placeholder}
-        disabled={!cards && error}
+        disabled={!cards && Boolean(error)}
         ref={inputRef}
         autocomplete="off"
         spellcheck={false}

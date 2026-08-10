@@ -5,7 +5,7 @@ import type { DetectedSlot } from './HoverZone'
 import { CardTooltip } from './CardTooltip'
 import type { MissingReason } from './CardTooltip'
 import { TooltipBoundary } from './TooltipBoundary'
-import { fetchCards } from '../twitch'
+import { fetchCards, CARD_FETCH_BACKOFF } from '../twitch'
 import { deriveValidTiers, isPlausibleTierString } from '../tiers'
 import { parseCrop, applyCrop, IDENTITY_CROP } from '../viewport'
 import type { Crop } from '../viewport'
@@ -17,10 +17,6 @@ const MAX_SLOTS = 50
 // The tooltip's own 1px frame, top and bottom. scrollHeight measures content, so
 // the border has to be added back before comparing against the room available.
 const TOOLTIP_BORDER = 2
-// Card data is fetched once per viewer and the overlay is dead without it, so a
-// blip on a viewer's connection must not cost them the whole stream. Backoff in
-// ms per attempt; the first is immediate.
-const CARD_FETCH_BACKOFF = [0, 1_000, 5_000]
 // Clear the overlay if no frame arrives for this long. The companion heartbeats
 // every 30s while a board is shown, so a live stream refreshes well within this
 // window; only a dead companion (crash, closed app, network drop) goes silent
@@ -40,7 +36,7 @@ interface Rect { left: number; top: number; width: number; height: number }
 // iframe already matches the video aspect (the standard desktop case) this
 // returns the full iframe — a pure no-op. Measured from the real iframe
 // (innerWidth/innerHeight), since Twitch's displayResolution is unreliable.
-function computeOverlayRect(aspect: number): Rect {
+export function computeOverlayRect(aspect: number): Rect {
   const iw = window.innerWidth
   const ih = window.innerHeight
   if (!iw || !ih || !Number.isFinite(aspect) || aspect <= 0) return { left: 0, top: 0, width: iw, height: ih }
@@ -53,7 +49,7 @@ function computeOverlayRect(aspect: number): Rect {
   return { left: 0, top: (ih - height) / 2, width: iw, height }
 }
 
-function parseAspect(res: string | undefined): number | null {
+export function parseAspect(res: string | undefined): number | null {
   if (!res) return null
   const m = /^(\d+)\s*x\s*(\d+)$/.exec(res.trim())
   if (!m) return null
@@ -61,7 +57,7 @@ function parseAspect(res: string | undefined): number | null {
   return w > 0 && h > 0 ? w / h : null
 }
 
-function makeSlotValidator(validTiers: Set<string>) {
+export function makeSlotValidator(validTiers: Set<string>) {
   return function isValidSlot(s: unknown): s is DetectedSlot {
     if (!s || typeof s !== 'object') return false
     const o = s as Record<string, unknown>
@@ -92,7 +88,7 @@ function slotKey(s: DetectedSlot): string {
   return [s.title, s.tier, s.owner ?? '', s.type ?? '', s.enchantment ?? '', s.x, s.y, s.w, s.h].join('\u0000')
 }
 
-function slotsEqual(a: DetectedSlot[], b: DetectedSlot[]): boolean {
+export function slotsEqual(a: DetectedSlot[], b: DetectedSlot[]): boolean {
   if (a.length !== b.length) return false
   for (let i = 0; i < a.length; i++) {
     if (a[i].title !== b[i].title || a[i].x !== b[i].x || a[i].y !== b[i].y || a[i].w !== b[i].w || a[i].h !== b[i].h || a[i].tier !== b[i].tier || a[i].enchantment !== b[i].enchantment || a[i].owner !== b[i].owner || a[i].type !== b[i].type || a[i].tierKnown !== b[i].tierKnown) return false
@@ -121,11 +117,17 @@ export function App() {
   const lastSlotRef = useRef<DetectedSlot | null>(null)
   const validatorRef = useRef<(s: unknown) => s is DetectedSlot>(makeSlotValidator(new Set<string>()))
   const staleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Real wall-clock time of the last accepted frame, so visibility-on can re-judge
+  // staleness against how much time actually passed — not just re-arm a fresh window.
+  const lastFrameAtRef = useRef(0)
 
   useEffect(() => {
     let mounted = true
     const twitch = window.Twitch?.ext
-    if (!twitch) return
+    // An overlay sits on top of gameplay, so it stays visually silent even when
+    // broken — no banner belongs on someone's stream — but a console line means
+    // this isn't a silent, undiagnosable dead end.
+    if (!twitch) { console.error('bazaarinfo overlay: twitch extension helper unavailable'); return }
 
     // Read the broadcaster's calibrated game-area crop from the Twitch config
     // service, and re-read whenever they change it. parseCrop fails safe to
@@ -174,12 +176,12 @@ export function App() {
     // frames) proves the sender is alive, so arm a fresh expiry each time. If
     // the timer ever fires, the companion has gone silent past the heartbeat —
     // wipe the board so viewers never hover a stale detection.
-    const armStaleTimer = () => {
+    const armStaleTimer = (delay = STALE_TTL_MS) => {
       if (staleTimerRef.current) clearTimeout(staleTimerRef.current)
       staleTimerRef.current = setTimeout(() => {
         setDetected([])
         setHovered(null)
-      }, STALE_TTL_MS)
+      }, delay)
     }
 
     const onBroadcast = (_target: string, _contentType: string, message: string) => {
@@ -197,6 +199,7 @@ export function App() {
         if (Array.isArray(raw)) {
           const next = raw.slice(0, MAX_SLOTS).filter(validatorRef.current)
           setDetected(prev => slotsEqual(prev, next) ? prev : next)
+          lastFrameAtRef.current = Date.now()
           armStaleTimer()
         }
       } catch {}
@@ -205,9 +208,21 @@ export function App() {
 
     twitch.onVisibilityChanged?.((isVisible) => {
       if (!isVisible) {
+        // Stop counting down while hidden — a viewer toggling the overlay off
+        // doesn't mean the companion went dark — but keep `detected` so the
+        // board is still there the instant they toggle back on.
         if (staleTimerRef.current) clearTimeout(staleTimerRef.current)
-        setDetected([])
         setHovered(null)
+        return
+      }
+      // Re-prime against the frame's real age, not a fresh STALE_TTL_MS: a
+      // companion that had already gone quiet before we hid must still hide the
+      // board on return, not linger up to another full TTL past reappearing.
+      const age = Date.now() - lastFrameAtRef.current
+      if (lastFrameAtRef.current === 0 || age >= STALE_TTL_MS) {
+        setDetected([])
+      } else {
+        armStaleTimer(STALE_TTL_MS - age)
       }
     })
 
