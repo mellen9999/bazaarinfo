@@ -44,6 +44,6 @@ REVIEW ENVIRONMENT
 
 Channel: mellen
 
-Twitch allows this extension only one active slot on a channel at a time, so the panel and the video overlay cannot both be live at once. It is currently activated in the video-overlay slot. The panel needs no live stream and no companion app - ask and I will move it to a panel slot right away.
+Twitch allows this extension only one active slot on a channel at a time, so the panel and the video overlay cannot both be live at once. When you begin the review, tell me which you want to see and I will activate that slot on the channel right away - the panel needs no live stream and no companion app, the video overlay needs both (see below).
 
 The video overlay requires the broadcaster's companion app to be running alongside the game, so it can only be shown on a live stream. This channel is not live continuously, so please reach out and I will schedule a time to go live with the companion running so the overlay can be reviewed.
