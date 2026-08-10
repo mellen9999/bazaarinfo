@@ -13,7 +13,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 
 // --- local imports from sub-modules ---
 
-import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE } from './ai-sanitize'
+import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL } from './ai-sanitize'
 import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
@@ -462,7 +462,9 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
             ? 'Blocked: you dodged on scope. You answer anything chat asks, other games included, in full detail. Drop the "wrong lobby"/"im just a bazaar bot" framing and actually answer.'
             : SOURCE_LIE.test(textBlock.text)
               ? 'Blocked: you denied a source you actually read. You DO read r/PlayTheBazaar for community buzz. Own it. If no buzz was provided in context, say you have nothing from the sub today — never that you do not read it.'
-              : 'Response was blocked. Rules: no self-referencing being a bot/AI, no reciting user stats, no fabricated stories, no commands. Just answer naturally.'
+              : SCHEDULE_DENIAL.test(textBlock.text)
+                ? 'Blocked: you denied tracking stream schedules. You DO track this channel\'s stream schedule and can predict the next stream. If a "Stream schedule" line is in your context, relay it; if not, tell them to ask "when is the next stream" — never deny the capability.'
+                : 'Response was blocked. Rules: no self-referencing being a bot/AI, no reciting user stats, no fabricated stories, no commands. Just answer naturally.'
         log(`ai: sanitizer rejected, retrying (attempt ${attempt + 1})`)
         messages.push({ role: 'assistant', content: textBlock.text })
         messages.push({ role: 'user', content: hint })

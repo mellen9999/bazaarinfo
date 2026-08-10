@@ -732,7 +732,11 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // deterministically, but a conversationally-phrased one can slip through to AI. inject the
   // real prediction so the model relays actual numbers (or "not enough data"), never invents a
   // time. scheduleContext itself carries the "do not guess" instruction. fail-soft: '' otherwise.
-  const sched = isScheduleQuery(query) ? snapshotSchedule(ctx.channel, Date.now()) : null
+  // also fires when a RECENT CHAT line is schedule-shaped and the query merely relays it
+  // ("do you have an answer for @X?") — the model can see the question in chat context, so
+  // it needs the real numbers there too, or it deflects with "i don't track schedules".
+  const schedShaped = isScheduleQuery(query) || getRecent(ctx.channel, 6).some((m) => isScheduleQuery(m.text))
+  const sched = schedShaped ? snapshotSchedule(ctx.channel, Date.now()) : null
   const scheduleLine = sched
     ? `\n${isPastStreamQuery(query) ? lastStreamContext(ctx.channel, sched.sessions, Date.now(), sched.live) : scheduleContext(ctx.channel, sched.pred, Date.now(), sched.live)}`
     : ''

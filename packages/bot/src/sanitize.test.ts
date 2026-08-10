@@ -1126,3 +1126,18 @@ describe('directive-storm fallout (live log)', () => {
     expect(hasHallucinatedStats('he went 3/7 on guesses today', false, false)).toBe(false)
   })
 })
+
+// live log 2026-08-10: "!b do you have an answer for @scyousef?" → "kripp's schedule isn't
+// something i track, check his twitter" — capability lie; the bot HAS a schedule predictor.
+describe('schedule capability denial (SCHEDULE_DENIAL, live log)', () => {
+  it('rejects denying the schedule predictor, verbatim live phrasing included', () => {
+    expect(sanitize("kripp's schedule isn't something i track, check his twitter/twitch panel").text).toBe('')
+    expect(sanitize("i can't predict when he streams, sorry").text).toBe('')
+    expect(sanitize("i don't track stream times").text).toBe('')
+  })
+
+  it('leaves non-schedule capability talk alone', () => {
+    expect(sanitize("i don't know his streaming setup").text).toBe("i don't know his streaming setup")
+    expect(sanitize('next stream likely wed, not a promise').text).toBe('next stream likely wed, not a promise')
+  })
+})
