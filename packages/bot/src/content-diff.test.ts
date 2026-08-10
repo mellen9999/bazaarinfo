@@ -89,7 +89,7 @@ describe('diffContent', () => {
     expect(alert!.body).toContain('scraper')
   })
 
-  it('count-only change: diff non-null but alert null', () => {
+  it('count-only change: alert is just the patch-absorbed nudge, nothing manual', () => {
     const prev = baseCache()
     const nextItem = makeItem({ Title: 'Another Item' }) // same hero/tier/size, has art
     const next = baseCache({ items: [...prev.items, nextItem] })
@@ -101,7 +101,12 @@ describe('diffContent', () => {
     expect(d!.newEnchants).toEqual([])
     expect(d!.missingArtCount).toBe(0)
 
-    expect(renderDiffAlert(d!)).toBeNull()
+    // new items alert since the patch-notes auto-parse work: the nudge points at
+    // the "patch absorbed" alert for unresolved names — but nothing manual beyond it
+    const alert = renderDiffAlert(d!)
+    expect(alert).not.toBeNull()
+    expect(alert!.body).toContain('patch content moved')
+    expect(alert!.body.split('\n')).toHaveLength(1)
     const chat = renderDiffChat(d!)
     expect(chat).toContain('+1 items')
   })
