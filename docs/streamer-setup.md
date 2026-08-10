@@ -44,6 +44,8 @@ Real-time card tooltips on your stream. Viewers in fullscreen hover a card to se
 
 Your secret is unique to your channel. Don't share it; it's the only thing that lets the overlay accept card data as yours.
 
+**shown it on stream by accident?** Open the extension's Configure view and press **rotate** — it issues a new secret and the old one stops working immediately. Copy the new one into `config.ini` (or your `EBS_SECRET` env var) and restart the companion.
+
 ### 3. run the companion
 
 **Windows**
@@ -81,16 +83,23 @@ python logwatch.py          # first run prompts for Channel ID + Secret
 
 Leave the companion open — it waits patiently if the game isn't running yet.
 
-> **capture the game 16:9, filling the frame.** Card positions are mapped to a standard 16:9 layout, so the overlay lines up perfectly when the game fills your whole stream. If you play ultrawide/4:3, or box the game inside borders or a webcam-heavy scene, the hover-zones will drift out of alignment. This scales to any viewer resolution (720p → 4K, desktop or mobile) — the only requirement is on your capture.
+> **capture the game 16:9, filling the frame** for the best out-of-the-box fit. Card positions are mapped to a standard 16:9 layout, so this lines up perfectly with no extra setup. If you play ultrawide/4:3, or box the game inside borders or a webcam-heavy scene, use the alignment tool in the extension's Configure view to calibrate your layout once — it corrects the overlay to match. This scales to any viewer resolution (720p → 4K, desktop or mobile).
 
 ### companion flags
 
 ```
---setup      re-run first-time setup (overwrites config.ini)
---debug      verbose logging
---log PATH   override the Player.log location
---version    show version
+--setup       re-run first-time setup (overwrites config.ini)
+--config PATH use this config file instead of the default location
+--debug       verbose logging
+--log PATH    override the Player.log location
+--version     show version
 ```
+
+`--config` matters when the exe's own folder is read-only — settings fall back to `%APPDATA%\bazaarinfo` in that case (see step 3), and `--config` points the companion at that file directly instead of relying on the fallback search.
+
+### keeping your secret off disk
+
+Set the `EBS_SECRET` environment variable instead of putting it in `config.ini` — the companion uses it automatically and never writes it to a file. Leave `secret` out of `config.ini` entirely when doing this.
 
 ---
 
@@ -136,7 +145,7 @@ Only the `!b` prefix — nothing else is hijacked from your chat.
 | companion says "waiting for Player.log" | launch The Bazaar once — the log is created on first game start |
 | companion says "cards.json not found" | launch The Bazaar into a run once — cards.json is written on first play |
 | overlay not visible | confirm the extension is **activated**, not just installed. viewers must click the overlay icon on the video player, in fullscreen |
-| hover-zones don't line up with the cards | capture the game **16:9, filling the frame** — no ultrawide/4:3, no borders or webcam boxing the board |
+| hover-zones don't line up with the cards | run the alignment tool in the extension's Configure view to calibrate for your capture (ultrawide, 4:3, borders, webcam boxing — all fixable) |
 | opponent cards or skills have no tooltip | expected — the game doesn't expose opponent/skill names to your client, so those aren't shown (only your named items are) |
 | cards linger after they leave your board | the overlay self-clears if the companion goes quiet; if it persists, the companion likely crashed — restart it |
 | "the server rejected your Channel ID or Secret" | re-run with `--setup` and re-paste both from the extension's Configure page — the companion checks them at startup, so this never surprises you mid-stream |
