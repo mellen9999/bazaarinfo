@@ -1,6 +1,8 @@
 // Twitch Extension JWT verification (HS256)
 // See: https://dev.twitch.tv/docs/extensions/reference/#jwt-schema
 
+import { getVersion } from './rotation'
+
 const EXTENSION_SECRET = process.env.TWITCH_EXTENSION_SECRET ?? ''
 const COMPANION_SECRET = process.env.COMPANION_SECRET ?? ''
 
@@ -86,10 +88,14 @@ export function verifyCompanionSecret(secret: string, channelId: string): boolea
   return diff === 0
 }
 
-export function deriveChannelSecret(channelId: string): string {
-  // HMAC-SHA256(master, channelId) -> hex
+export function deriveChannelSecret(channelId: string, version = getVersion(channelId)): string {
+  // HMAC-SHA256(master, channelId[:version]) -> hex. Version 0 hashes the bare
+  // channelId — bit-identical to the pre-rotation derivation, so unrotated
+  // channels keep their existing secret. Channel ids are numeric, so ":" can
+  // never collide a v0 input with a versioned one. Verification only ever
+  // derives the current version: bumping it kills the old secret instantly.
   const hasher = new Bun.CryptoHasher("sha256", COMPANION_SECRET)
-  hasher.update(channelId)
+  hasher.update(version === 0 ? channelId : `${channelId}:${version}`)
   return hasher.digest("hex")
 }
 

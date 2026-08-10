@@ -3,8 +3,15 @@
 import { verifyCompanionSecret } from '../auth'
 import { broadcastState } from '../pubsub'
 import { parsePayload } from './detect-validate'
+import { rateOk } from '../ratelimit'
 
 const MAX_BODY = 100_000
+
+// Per-channel ceiling on authenticated detections. The per-IP limit doesn't bound
+// a leaked secret used from many IPs, and every accepted frame spends that
+// channel's Helix PubSub budget. Checked AFTER secret verification so an attacker
+// without the secret can't exhaust the bucket and lock out the real companion.
+const MAX_CHANNEL_RATE = 600
 
 export async function handleDetect(req: Request): Promise<Response> {
   const len = Number(req.headers.get('Content-Length') ?? 0)
@@ -24,6 +31,10 @@ export async function handleDetect(req: Request): Promise<Response> {
 
   if (!verifyCompanionSecret(payload.secret, payload.channelId)) {
     return new Response('unauthorized', { status: 401 })
+  }
+
+  if (!rateOk(`det:${payload.channelId}`, MAX_CHANNEL_RATE)) {
+    return new Response('rate limited', { status: 429 })
   }
 
   const accepted = broadcastState(payload.channelId, {

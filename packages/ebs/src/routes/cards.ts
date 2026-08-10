@@ -16,7 +16,7 @@ import type { CardCache } from '@bazaarinfo/shared'
 const BROTLI_QUALITY = 5
 
 interface Encoded {
-  body: Uint8Array
+  body: Uint8Array<ArrayBuffer>
   encoding: string
 }
 
@@ -32,11 +32,13 @@ export function setCardCache(data: CardCache) {
   // Content-addressed, so an unchanged dump keeps its tag across a restart and
   // viewers keep their cached copy instead of re-downloading on every deploy.
   cachedEtag = `"${Bun.hash(cachedJson).toString(36)}"`
-  cachedGzip = { body: gzipSync(cachedJson), encoding: 'gzip' }
+  // copy out of the zlib Buffers: detaches from any pooled slab and gives the
+  // plain-ArrayBuffer view Response wants — runs only on cache swaps, not requests
+  cachedGzip = { body: new Uint8Array(gzipSync(cachedJson)), encoding: 'gzip' }
   cachedBrotli = {
-    body: brotliCompressSync(cachedJson, {
+    body: new Uint8Array(brotliCompressSync(cachedJson, {
       params: { [zlibConstants.BROTLI_PARAM_QUALITY]: BROTLI_QUALITY },
-    }),
+    })),
     encoding: 'br',
   }
 }

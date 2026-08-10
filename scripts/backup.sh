@@ -28,7 +28,15 @@ if [[ -f "$CACHE_PATH" ]]; then
   echo "[backup] cache -> ${out} ($(du -h "$out" | cut -f1))"
 fi
 
-# 3) prune older than RETENTION days
+# 3) secret-rotation state — tiny but authoritative: losing it silently reverts
+# rotated channels to their old (leaked) secrets
+ROTATIONS_PATH="${ROTATIONS_PATH:-$HOME/.bazaarinfo-rotations.json}"
+if [[ -f "$ROTATIONS_PATH" ]]; then
+  cp "$ROTATIONS_PATH" "$BACKUP_DIR/rotations.json"
+  echo "[backup] rotations -> $BACKUP_DIR/rotations.json"
+fi
+
+# 4) prune older than RETENTION days
 find "$BACKUP_DIR/db" -name 'bazaarinfo-*.db.gz' -mtime "+${RETENTION}" -delete -print | sed 's/^/[backup] pruned /'
 find "$BACKUP_DIR/cache" -name 'items-*.json.gz' -mtime "+${RETENTION}" -delete -print | sed 's/^/[backup] pruned /'
 

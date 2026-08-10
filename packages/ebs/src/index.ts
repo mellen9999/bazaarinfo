@@ -5,6 +5,7 @@ import { readFileSync, watch } from 'fs'
 import { resolve, dirname, basename } from 'path'
 import type { CardCache } from '@bazaarinfo/shared'
 import { verifyTwitchJwt, deriveChannelSecret } from './auth'
+import { loadRotations, bumpVersion, rotationCount } from './rotation'
 import { handleCards, setCardCache, getCardCache } from './routes/cards'
 import { handleImage } from './routes/images'
 import { handleDetect } from './routes/detect'
@@ -40,7 +41,10 @@ function cors(res: Response, origin: string | null): Response {
   return res
 }
 
-function getIp(req: Request): string {
+// null = no proxy header. The server is loopback-bound behind cloudflared, which
+// always sets CF-Connecting-IP, so a null here is either a direct localhost curl
+// (ops) or a proxy misconfiguration — never a distinguishable viewer.
+function getIp(req: Request): string | null {
   const cf = req.headers.get('CF-Connecting-IP')
   if (cf) return cf
   const xff = req.headers.get('X-Forwarded-For')
@@ -48,13 +52,16 @@ function getIp(req: Request): string {
     const comma = xff.indexOf(',')
     return comma === -1 ? xff.trim() : xff.slice(0, comma).trim()
   }
-  return 'unknown'
+  return null
 }
 
-async function handleRequest(req: Request): Promise<Response> {
+let warnedNoIp = false
+
+export async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url)
   const path = url.pathname
   const origin = allowedOrigin(req)
+  const ip = getIp(req)
 
   // CORS preflight
   if (req.method === 'OPTIONS') {
@@ -65,9 +72,23 @@ async function handleRequest(req: Request): Promise<Response> {
   // the viewer default: it posts a frame on every board change (a busy shop can burst
   // well past 1/s) and is secret-authenticated, so the tight viewer cap would silently
   // drop live detections. 600/min still bounds a runaway/compromised companion.
-  const rateMax = path === '/detect' ? 600 : 60
-  if (!rateOk(getIp(req), rateMax)) {
-    return cors(new Response('rate limited', { status: 429 }), origin)
+  // Images get their own bucket: a board+panel session bursts dozens of art fetches
+  // and CGNAT viewers share an IP, so sharing the 60/min viewer budget would 429
+  // legitimate tooltips.
+  if (ip === null) {
+    // No proxy header: rate-limiting one shared 'unknown' bucket would collapse every
+    // viewer into it and 429 the whole extension. Fail open for service, loudly for ops.
+    if (!warnedNoIp) {
+      warnedNoIp = true
+      console.error('[ebs] request with no client-ip header — proxy misconfigured? rate limiting skipped for such requests')
+    }
+  } else {
+    const image = IMAGE_PATH_RE.test(path)
+    const rateMax = path === '/detect' ? 600 : image ? 300 : 60
+    const bucket = image ? `img:${ip}` : ip
+    if (!rateOk(bucket, rateMax)) {
+      return cors(new Response('rate limited', { status: 429 }), origin)
+    }
   }
 
   // Public redirects for the stable URLs baked into the extension (privacy/terms/
@@ -112,6 +133,26 @@ async function handleRequest(req: Request): Promise<Response> {
     return cors(Response.json({ channelId, secret }), origin)
   }
 
+  // POST /api/companion-rotate — broadcaster invalidates their companion secret.
+  // Bearer-token API with CORS locked to *.ext-twitch.tv: no ambient credential,
+  // so the JWT is the intent proof (classic CSRF does not apply).
+  if (req.method === 'POST' && path === '/api/companion-rotate' && twitchAuth) {
+    if (twitchAuth.role !== 'broadcaster') {
+      return cors(new Response('broadcaster only', { status: 403 }), origin)
+    }
+    const channelId = twitchAuth.channel_id
+    try {
+      const v = bumpVersion(channelId)
+      console.log(`[ebs] rotated companion secret for channel ${channelId} (v${v})`)
+    } catch (e) {
+      // failed persist is a clean no-op: memory unchanged, old secret still works,
+      // and the broadcaster is told the rotation did NOT happen
+      console.error('[ebs] secret rotation failed to persist:', e)
+      return cors(new Response('rotation failed', { status: 500 }), origin)
+    }
+    return cors(Response.json({ channelId, secret: deriveChannelSecret(channelId) }), origin)
+  }
+
   // GET /api/cards
   if (req.method === 'GET' && path === '/api/cards') {
     return cors(handleCards(req), origin)
@@ -122,22 +163,29 @@ async function handleRequest(req: Request): Promise<Response> {
     return cors(new Response('ok'), origin)
   }
 
-  // GET /health/ready — card cache loaded + ready to serve
+  // GET /health/ready — card cache loaded + ready to serve. The public (proxied)
+  // response is status-only: uptime, channel counts and queue depth are adoption
+  // data nobody outside needs. A direct localhost curl (no proxy header) gets the
+  // full stats for ops. `rotations` stays public — it's the lost-rotations-file
+  // tripwire and must be checkable remotely (>=1 forever once any channel rotates).
   if (req.method === 'GET' && path === '/health/ready') {
     const cache = getCardCache()
     if (!cache) return cors(new Response('not ready', { status: 503 }), origin)
     const { cacheAgeHours, stale } = readyStatus(cache)
-    const stats = pubsubStats()
-    return cors(Response.json({
+    const body = ip === null ? {
       status: stale ? 'stale' : 'ready',
+      rotations: rotationCount(),
       uptime: Math.floor((Date.now() - STARTED_AT) / 1000),
       cards: cache.items.length,
       skills: cache.skills.length,
       monsters: cache.monsters.length,
-      pubsub: stats,
+      pubsub: pubsubStats(),
       cacheAgeHours,
-      ...(stale ? { stale: true } : {}),
-    }, { status: stale ? 503 : 200 }), origin)
+    } : {
+      status: stale ? 'stale' : 'ready',
+      rotations: rotationCount(),
+    }
+    return cors(Response.json(body, { status: stale ? 503 : 200 }), origin)
   }
 
   // GET /health (back-compat alias of /health/live)
@@ -169,6 +217,15 @@ function loadCache(initial = false): boolean {
 
 // Load card cache from local file (written by the bot's scraper)
 function init() {
+  // fail closed on corrupt rotation state — starting with an empty map would
+  // silently resurrect rotated-away (leaked) secrets
+  try {
+    console.log(`[ebs] loaded ${loadRotations()} secret rotation(s)`)
+  } catch (e) {
+    console.error('[ebs] rotations file is corrupt — refusing to start:', e)
+    process.exit(1)
+  }
+
   console.log(`[ebs] loading card cache from ${CACHE_PATH}...`)
   if (!loadCache(true)) process.exit(1)
 
@@ -211,4 +268,5 @@ function init() {
   console.log(`[ebs] listening on :${server.port}`)
 }
 
-init()
+// import.meta.main guard so tests can import handleRequest without binding the port
+if (import.meta.main) init()

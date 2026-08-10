@@ -15,13 +15,23 @@ export async function handleImage(hash: string): Promise<Response> {
     return new Response('invalid hash', { status: 400 })
   }
 
+  // DNS failure / timeout must be a clean 502, not a throw into the generic
+  // 500 handler — an upstream outage is not an internal error
   const url = `${CDN_BASE}/${hash}@256.webp`
-  const upstream = await fetch(url, {
-    signal: AbortSignal.timeout(10_000),
-  })
+  let upstream: Response
+  try {
+    upstream = await fetch(url, {
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch {
+    return new Response('upstream unavailable', { status: 502 })
+  }
 
   if (!upstream.ok) {
     return new Response('not found', { status: upstream.status })
+  }
+  if (!upstream.body) {
+    return new Response('upstream unavailable', { status: 502 })
   }
 
   const contentLength = parseInt(upstream.headers.get('Content-Length') ?? '0')
@@ -43,7 +53,7 @@ export async function handleImage(hash: string): Promise<Response> {
   // to bound the allocation; cap as we read.
   const chunks: Uint8Array[] = []
   let totalBytes = 0
-  const reader = upstream.body!.getReader()
+  const reader = upstream.body.getReader()
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
