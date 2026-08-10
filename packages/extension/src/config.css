@@ -242,6 +242,14 @@ li { font-size: 14px; line-height: 1.8; color: var(--text-muted) }
   font-weight: 600;
 }
 
+.cal-btn--danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.secret-btns { display: flex; gap: 6px; margin-top: 6px }
+#secret-status { font-size: 13px; margin-top: 4px; min-height: 1.2em }
+
 .muted { color: var(--text-muted) }
 #cal-status { font-size: 13px; margin-top: 6px; min-height: 1.2em }
 #cal-status.ok { color: var(--success) }
