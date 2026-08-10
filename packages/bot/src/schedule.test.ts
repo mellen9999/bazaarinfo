@@ -124,6 +124,26 @@ describe('predictNextStream — streak model (recent run beats stale weeks)', ()
   })
 })
 
+describe('tidy — near-duplicate starts merge into one session', () => {
+  test('crash-restart 20min later is one evening, and its gap never poisons the streak median', () => {
+    const s = Array.from({ length: 12 }, (_, d) => sess(d, 18))
+    // day 11's stream crashes and restarts at 18:20 — same evening, second Helix started_at
+    s.push({ startedAt: BASE + 11 * DAY + 18 * HOUR + 20 * 60_000, lastSeenAt: BASE + 11 * DAY + 23 * HOUR })
+    const now = BASE + 12 * DAY + 12 * HOUR // midday, before today's slot
+    const p = predictNextStream(s, now)
+    expect(p.kind).toBe('streak')
+    if (p.kind !== 'streak') return
+    // merged: prediction is today's 18:00, the restart row never skews the clock
+    expect(Math.abs(p.at - (BASE + 12 * DAY + 18 * HOUR))).toBeLessThan(45 * 60_000)
+  })
+
+  test('merged session keeps the longest observed end for duration stats', () => {
+    const a = { startedAt: BASE, lastSeenAt: BASE + HOUR }
+    const b = { startedAt: BASE + 10 * 60_000, lastSeenAt: BASE + 7 * HOUR }
+    expect(typicalDurationMs([a, b, sess(2, 18, 0, 6), sess(4, 18, 0, 6)])).toBe(6 * HOUR)
+  })
+})
+
 describe('predictNextStream — gap fallback', () => {
   test('consistent every-3-day cadence (weekday drifts) → gap model', () => {
     const s = Array.from({ length: 12 }, (_, i) => sess(i * 3, 19))

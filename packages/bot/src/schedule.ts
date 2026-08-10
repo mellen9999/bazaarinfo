@@ -67,17 +67,24 @@ function median(a: number[]): number {
   return quantile([...a].sort((x, y) => x - y), 0.5)
 }
 
-// clean input: drop garbage, dedupe by start instant, sort ascending.
+// clean input: drop garbage, sort ascending, and merge starts <30min apart — a
+// crash-restart (or a backfilled VOD beside its polled twin) is one evening of
+// streaming, not two sessions; near-zero gaps would poison the gap/streak medians.
+const MERGE_MS = 30 * MIN
 function tidy(raw: StreamSession[]): StreamSession[] {
-  const seen = new Set<number>()
-  return raw
+  const sorted = raw
     .filter((x) => Number.isFinite(x.startedAt) && x.startedAt > 0)
-    .filter((x) => {
-      if (seen.has(x.startedAt)) return false
-      seen.add(x.startedAt)
-      return true
-    })
     .sort((a, b) => a.startedAt - b.startedAt)
+  const out: StreamSession[] = []
+  for (const x of sorted) {
+    const prev = out[out.length - 1]
+    if (prev && x.startedAt - prev.startedAt < MERGE_MS) {
+      prev.lastSeenAt = Math.max(prev.lastSeenAt, x.lastSeenAt)
+      continue
+    }
+    out.push({ ...x })
+  }
+  return out
 }
 
 // predict the next stream start. pure: no clock reads, no i/o — `now` is passed in.

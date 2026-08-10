@@ -31,6 +31,7 @@ import { diffContent, renderDiffChat, renderDiffAlert } from './content-diff'
 import { readJson } from './http'
 import * as raid from './raid'
 import * as dungeon from './dungeon'
+import { backfillVods } from './vod-backfill'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
 const CLIENT_ID = process.env.TWITCH_CLIENT_ID
@@ -238,6 +239,7 @@ setJoinHandler(async (target, requester) => {
     await client.joinChannel(info)
     setChannelInfos(client.getChannels())
     await channelStore.add(target)
+    void backfillVods(target, targetId, getAccessToken(), CLIENT_ID)
     refreshChannelEmotes(target, targetId).then(() => {
       const setId = getEmoteSetId(target)
       if (setId) emoteEvents.subscribeChannel(target, setId)
@@ -400,6 +402,7 @@ const client = new TwitchClient(
             setChannelInfos(client.getChannels())
             await channelStore.add(target)
             enableAiForChannel(target)
+            void backfillVods(target, targetId, getAccessToken(), CLIENT_ID)
             refreshChannelEmotes(target, targetId).then(() => {
               const setId = getEmoteSetId(target)
               if (setId) emoteEvents.subscribeChannel(target, setId)
@@ -545,6 +548,14 @@ async function pollStreams(initial = false) {
 }
 await pollStreams(true)
 setInterval(() => pollStreams(), 60_000)
+
+// one-shot VOD backfill per channel — seeds the predictor with weeks of real starts
+// instead of waiting for the poller to observe them. after the initial poll on purpose:
+// a currently-live session's exact start is then already logged, so its in-progress VOD
+// dedupes against it. sequential + fire-and-forget; failures only cost rows.
+;(async () => {
+  for (const c of client.getChannels()) await backfillVods(c.name, c.userId, getAccessToken(), CLIENT_ID)
+})()
 
 // world cup announcements — kripp's chat only, and only while he's offline. a live
 // stream never gets soccer spam; other channels never get it at all.
