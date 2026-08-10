@@ -107,6 +107,17 @@ describe('predictNextStream — streak model (recent run beats stale weeks)', ()
     expect(p.at - now).toBeLessThan(DAY) // tonight-ish, never "wed in ~2d"
   })
 
+  test('slot only slightly past its mean stays today, inside the ± window', () => {
+    const now = BASE + 31 * DAY + 22 * HOUR // ~1h past the ~21:00 typical clock, σ ~2h
+    const p = predictNextStream(kripp, now)
+    expect(p.kind).toBe('streak')
+    if (p.kind !== 'streak') return
+    expect(p.at - now).toBeLessThan(0) // still tonight's slot, reported "any moment now"
+    expect(now - p.at).toBeLessThan(p.confidenceMs)
+    const out = formatSchedule('nl_kripp', p, now, { isLive: false })
+    expect(out).toContain('any moment now')
+  })
+
   test('run gone quiet for 4 days → streak stands down, long models take over', () => {
     const now = BASE + 34 * DAY + 21 * HOUR
     const p = predictNextStream(kripp, now)

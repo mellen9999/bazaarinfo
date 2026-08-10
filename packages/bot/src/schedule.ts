@@ -110,16 +110,13 @@ export function predictNextStream(raw: StreamSession[], now: number): Prediction
     const lastStart = recent[recent.length - 1].startedAt
     if (medR > 0 && medR <= STREAK_MAX_GAP && now - lastStart <= STREAK_BROKEN * medR) {
       const st = circStats(recent.map((x) => utcFrac(x.startedAt)))
-      // next start: the typical recent clock, on the first day still meaningfully ahead
+      const conf = Math.max(MIN_CONFIDENCE, Math.min(st.stdFrac * DAY, MAX_CONFIDENCE))
+      // next start: the typical recent clock, on the first day still meaningfully ahead.
+      // a slot stays "today" while within its own ± window — the model shouldn't skip to
+      // tomorrow one hour past a mean it only claims to know within two.
       let at = Math.floor(lastStart / DAY) * DAY + st.mean * DAY
-      while (at <= lastStart + medR / 2 || at <= now - GRACE) at += DAY
-      const raw = st.stdFrac * DAY
-      return {
-        kind: 'streak',
-        at,
-        confidenceMs: Math.max(MIN_CONFIDENCE, Math.min(raw, MAX_CONFIDENCE)),
-        samples: recent.length,
-      }
+      while (at <= lastStart + medR / 2 || at <= now - Math.max(GRACE, conf)) at += DAY
+      return { kind: 'streak', at, confidenceMs: conf, samples: recent.length }
     }
   }
 
