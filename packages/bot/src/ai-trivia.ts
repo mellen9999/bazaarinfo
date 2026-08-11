@@ -193,8 +193,14 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
   const soft = [...r1.soft]
   // round 2 only if round 1 produced nothing usable — a single play-it-safe broaden pass on
   // the raw topic (naming allowed). cap re-checked so a spree can't dodge the backstop.
+  // round 1's verify-rejected q/a pairs feed the prompt: the happy-gilmore failure was the
+  // broaden pass re-serving the exact fabrication ("pro golfer Shooter McGavin") the panel
+  // had just binned — without the feedback the retry learns nothing and the topic dies.
   if (passed.length === 0 && !isOverDailyCap(channel)) {
-    const r2 = await generateAndVerify(channel, [{ subject: clean, instruction: BROADEN }], clean, avoidBlock, true)
+    const rejectedBlock = r1.rejected.length
+      ? `\n\nThese candidates were FACT-CHECKED AND REJECTED as wrong — their claims are false; do not repeat them or their answers:\n${r1.rejected.slice(-4).map((q) => `- ${q.question} (claimed: ${q.answer})`).join('\n')}`
+      : ''
+    const r2 = await generateAndVerify(channel, [{ subject: clean, instruction: BROADEN }], clean, avoidBlock + rejectedBlock, true)
     passed = r2.passed
     soft.push(...r2.soft)
   }
@@ -248,7 +254,7 @@ async function generateAndVerify(
   topic: string,
   avoidBlock: string,
   guessTheSubject: boolean,
-): Promise<{ passed: Scored[]; soft: Scored[] }> {
+): Promise<{ passed: Scored[]; soft: Scored[]; rejected: CustomTrivia[] }> {
   const gens = await Promise.all(
     items.map(async (it) => {
       const content = `SUBJECT: ${it.subject}\nGUESS_THE_SUBJECT: ${guessTheSubject}\n\n${it.instruction}${avoidBlock}`
@@ -278,19 +284,23 @@ async function generateAndVerify(
     }),
   )
   const cands = dedupeCandidates(gens.filter((q): q is CustomTrivia => q !== null))
-  if (cands.length === 0) return { passed: [], soft: [] }
+  if (cands.length === 0) return { passed: [], soft: [], rejected: [] }
   const verdicts = await Promise.all(cands.map((q) => verifyPanel(q, channel, topic)))
   const passed: Scored[] = []
   const soft: Scored[] = []
+  const rejected: CustomTrivia[] = []
   cands.forEach((q, i) => {
     const v = verdicts[i]
     if (v.ok) passed.push({ q, quality: v.quality })
     else if (v.reason === 'easy') {
       soft.push({ q, quality: v.quality })
       log(`ai-trivia: held as too-easy "${q.question.slice(0, 50)}" (ans: ${q.answer})`)
-    } else log(`ai-trivia: verify rejected "${q.question.slice(0, 50)}" (ans: ${q.answer}) — defect`)
+    } else {
+      rejected.push(q)
+      log(`ai-trivia: verify rejected "${q.question.slice(0, 50)}" (ans: ${q.answer}) — defect`)
+    }
   })
-  return { passed, soft }
+  return { passed, soft, rejected }
 }
 
 // deterministic giveaway check: true if any distinctive accepted answer appears as a
