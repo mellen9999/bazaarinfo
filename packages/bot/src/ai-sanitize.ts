@@ -60,7 +60,7 @@ export const ASK_COUNT_LEAK = new RegExp(
 // "i can't predict when he streams") — the bot HAS a deterministic predictor, so this is
 // a capability lie, same class as SOURCE_LIE. narrow on purpose: requires schedule/stream-
 // time wording, so "i don't know his streaming setup" stays legal.
-export const SCHEDULE_DENIAL = /\b(?:schedule|stream\s+times?)\s+(?:isn'?t|is not|ain'?t)\s+something\s+i\s+(?:track|do|know|predict)\b|\bi\s+(?:don'?t|do not|can'?t|cannot|won'?t)\s+(?:track|predict|know)\s+(?:[\w'’]+\s+){0,3}?(?:schedules?|stream\s+times?|when\s+[\w'’]+\s+streams?)\b/i
+export const SCHEDULE_DENIAL = /\b(?:schedule|stream\s+times?)\s+(?:isn'?t|is not|ain'?t)\s+something\s+i\s+(?:track|do|know|predict)\b|\bi\s+(?:don'?t|do not|can'?t|cannot|won'?t)\s+(?:track|predict|know)\s+(?:[\w'’]+\s+){0,3}?(?:schedules?|stream\s+times?|when\s+[\w'’]+\s+streams?)\b|\bschedule\s+access\b|\b(?:no|zero|without)\s+access\s+to\s+(?:[\w'’]+\s+){0,3}?schedules?\b|\bcalendar\s+app\b/i
 export const SCOPE_DODGE =/\b(?:wrong (?:lobby|game|channel|chat)|not my (?:lane|department|wheelhouse|area|thing)|i(?:'m| am)?\s+(?:strictly|only|just)\s+(?:a\s+|the\s+)?bazaar|only\s+(?:do|know|cover|answer|handle)\s+bazaar|(?:this|i)\s+(?:is|am)\s+a\s+bazaar\s+bot,?\s+not|ask me\s+(?:something\s+)?about\s+bazaar\s+(?:instead|then)|stick to bazaar|bazaar (?:questions|stuff) only)\b/i
 export const GARBLED = /\b(?:i|you|we|they|he|she)\s+to\s+(?!(?:some|any|every|no)(?:thing|one|where|body)\b)(?!(?:be|get|keep|start|stop|go|come|try)\s)\w+ing\b/i
 // prompt section headers — single source of truth, used in BOTH directions: ai-build strips

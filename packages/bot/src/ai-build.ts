@@ -17,8 +17,9 @@ import { formatEmotesForAI, getEmotesForChannel } from './emotes'
 import { getDescriptions } from './emote-describe'
 import { getChannelStyle, getUserProfile, getChannelVoiceContext } from './style'
 import { formatAge, getHotExchanges, getChannelRecentResponses, getRecentEmotes } from './ai-cache'
-import { snapshotSchedule } from './schedule-query'
-import { isScheduleQuery, isPastStreamQuery, scheduleContext, lastStreamContext } from './schedule'
+import { snapshotSchedule, resolveScheduleChannel } from './schedule-query'
+import { isScheduleQuery, isPastStreamQuery, scheduleContext, lastStreamContext, TITLE_SCHEDULE_RE } from './schedule'
+import { getCachedChannelTitle } from './channel-title'
 import { isBoardQuery, getBoardLine } from './board'
 import { maybeFetchTwitchInfo } from './ai-background'
 import type { AiContext } from './ai'
@@ -745,9 +746,17 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // ("do you have an answer for @X?") — the model can see the question in chat context, so
   // it needs the real numbers there too, or it deflects with "i don't track schedules".
   const schedShaped = isScheduleQuery(query) || getRecent(ctx.channel, 6).some((m) => isScheduleQuery(m.text))
-  const sched = schedShaped ? snapshotSchedule(ctx.channel, Date.now()) : null
+  // the ask may name another tracked channel ("when kripp getting on" in #mellen)
+  const schedTarget = schedShaped ? resolveScheduleChannel(query, ctx.channel) : ctx.channel
+  const sched = schedShaped ? snapshotSchedule(schedTarget, Date.now()) : null
+  // streamer-stated schedule in the title outranks the stats — surface it when it
+  // looks schedule-shaped (title prefetched by ai.ts; cached getter is sync-safe here)
+  const schedTitle = sched && !sched.live.isLive ? getCachedChannelTitle(schedTarget) : null
+  const titleLine = schedTitle && TITLE_SCHEDULE_RE.test(schedTitle)
+    ? ` ${schedTarget}'s CURRENT TITLE: "${schedTitle}" — if the title states when the stream returns, that OVERRIDES the prediction; relay the title's plan.`
+    : ''
   const scheduleLine = sched
-    ? `\n${isPastStreamQuery(query) ? lastStreamContext(ctx.channel, sched.sessions, Date.now(), sched.live) : scheduleContext(ctx.channel, sched.pred, Date.now(), sched.live)}`
+    ? `\n${isPastStreamQuery(query) ? lastStreamContext(schedTarget, sched.sessions, Date.now(), sched.live) : scheduleContext(schedTarget, sched.pred, Date.now(), sched.live)}${titleLine}`
     : ''
 
   // live world cup scores — real ESPN data, injected only on world-cup-shaped queries

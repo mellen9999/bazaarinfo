@@ -80,17 +80,21 @@ export function sweepVocabulary(): SweepResult {
   return tally(terms, terms.filter((t) => !resolves(t.term)))
 }
 
-// non-blocking variant for the live bot: same sweep, but yields the event loop
-// between small slices — the fuzzy path costs real CPU on passive hardware, and a
-// dump-refresh background check must never freeze chat handling.
-export async function sweepVocabularyChunked(chunkSize = 40): Promise<SweepResult> {
+// non-blocking variant for the live bot: same sweep, but TIME-boxed slices with an
+// event-loop yield between them. term cost varies ~60x between dev hardware and
+// mele's passive CPU, so a fixed term count per slice would freeze chat there —
+// boxing by elapsed ms self-adapts: each slice blocks ≤~sliceMs regardless of host.
+export async function sweepVocabularyChunked(sliceMs = 100, restMs = 50): Promise<SweepResult> {
   const terms = collectTerms()
   const gaps: SweepResult['gaps'] = []
-  for (let i = 0; i < terms.length; i += chunkSize) {
-    for (const t of terms.slice(i, i + chunkSize)) {
+  let i = 0
+  while (i < terms.length) {
+    const t0 = performance.now()
+    while (i < terms.length && performance.now() - t0 < sliceMs) {
+      const t = terms[i++]
       if (!resolves(t.term)) gaps.push(t)
     }
-    await new Promise((r) => setTimeout(r, 25))
+    await new Promise((r) => setTimeout(r, restMs))
   }
   return tally(terms, gaps)
 }

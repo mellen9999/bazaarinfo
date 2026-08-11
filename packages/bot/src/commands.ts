@@ -3,8 +3,9 @@ import type { TierName, Monster, SkillDetail, BazaarCard } from '@bazaarinfo/sha
 import * as store from './store'
 import * as db from './db'
 import type { CmdType } from './db'
-import { snapshotSchedule } from './schedule-query'
-import { formatSchedule, formatLastStream, isScheduleQuery, isPastStreamQuery } from './schedule'
+import { snapshotSchedule, resolveScheduleChannel } from './schedule-query'
+import { formatSchedule, formatLastStream, isScheduleQuery, isPastStreamQuery, withTitleOverride } from './schedule'
+import { getChannelTitle } from './channel-title'
 import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, recentAnswerList, isRecentAnswer, startKrippTrivia, startFallbackTrivia, startQuizCultureTrivia } from './trivia'
 import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, generateGameTrivia, type CustomTrivia } from './ai-trivia'
 import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
@@ -988,10 +989,15 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   if (ctx.channel && isScheduleQuery(cleanArgs) && !store.exact(cleanArgs)) {
     const sfx = mentions.length ? ` ${mentions.join(' ')}` : ''
     const now = Date.now()
-    const { pred, live, sessions } = snapshotSchedule(ctx.channel, now)
-    const body = isPastStreamQuery(cleanArgs)
-      ? formatLastStream(ctx.channel, sessions, now, live)
-      : formatSchedule(ctx.channel, pred, now, live)
+    // the ask may name another tracked channel ("when kripp getting on" in #mellen)
+    const target = resolveScheduleChannel(cleanArgs, ctx.channel)
+    const { pred, live, sessions } = snapshotSchedule(target, now)
+    let body = isPastStreamQuery(cleanArgs)
+      ? formatLastStream(target, sessions, now, live)
+      : formatSchedule(target, pred, now, live)
+    // streamer-stated schedule in the title outranks the stats ("kripps title says
+    // next stream wednesday" must never get the same canned prediction again)
+    if (!live.isLive) body = withTitleOverride(body, target, await getChannelTitle(target), live)
     return withSuffix(body, sfx)
   }
 

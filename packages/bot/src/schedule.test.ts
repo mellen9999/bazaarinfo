@@ -9,8 +9,11 @@ import {
   formatLastStream,
   lastStreamContext,
   humanizeDelta,
+  withTitleOverride,
+  TITLE_SCHEDULE_RE,
   type StreamSession,
 } from './schedule'
+import { resolveScheduleChannel } from './schedule-query'
 
 const HOUR = 3_600_000
 const DAY = 86_400_000
@@ -320,4 +323,51 @@ describe('humanizeDelta', () => {
     [3 * HOUR, '~3h'],
     [3 * DAY, '~3d'],
   ])('%p → %p', (ms, want) => expect(humanizeDelta(ms as number)).toBe(want))
+})
+
+describe('broadened schedule phrasings', () => {
+  test('"getting on" family counts as a stream word', () => {
+    expect(isScheduleQuery('when kripp getting on')).toBe(true)
+    expect(isScheduleQuery("when's he coming on")).toBe(true)
+    expect(isScheduleQuery('when will kripp be on')).toBe(true)
+    expect(isScheduleQuery('when is kripp online')).toBe(true)
+  })
+  test('idioms stay excluded', () => {
+    expect(isScheduleQuery("what's going on")).toBe(false)
+    expect(isScheduleQuery('how long is this going on')).toBe(false)
+    expect(isScheduleQuery('put your shoes on')).toBe(false)
+  })
+})
+
+describe('resolveScheduleChannel', () => {
+  const CHANNELS = ['nl_kripp', 'rogue', 'mellen']
+  test('names another tracked channel, tolerating prefix and possessive', () => {
+    expect(resolveScheduleChannel('when kripp getting on', 'mellen', CHANNELS)).toBe('nl_kripp')
+    expect(resolveScheduleChannel("kripps title says next stream wednesday", 'mellen', CHANNELS)).toBe('nl_kripp')
+    expect(resolveScheduleChannel('when does rogue stream', 'mellen', CHANNELS)).toBe('rogue')
+  })
+  test('defaults to the current channel', () => {
+    expect(resolveScheduleChannel('when is the next stream', 'nl_kripp', CHANNELS)).toBe('nl_kripp')
+    expect(resolveScheduleChannel('when is kripp live', 'nl_kripp', CHANNELS)).toBe('nl_kripp')
+  })
+})
+
+describe('title override', () => {
+  const offline = { isLive: false }
+  test('a schedule-stating title leads the reply', () => {
+    const out = withTitleOverride('base prediction.', 'nl_kripp', 'NEXT STREAM WEDNESDAY ~5PM EST', offline)
+    expect(out.startsWith('nl_kripp\'s title says: "NEXT STREAM WEDNESDAY ~5PM EST"')).toBe(true)
+    expect(out).toContain('base prediction.')
+  })
+  test('non-schedule titles and live channels leave the reply alone', () => {
+    expect(withTitleOverride('base.', 'x', 'chill bazaar grind', offline)).toBe('base.')
+    expect(withTitleOverride('base.', 'x', 'back WEDNESDAY', { isLive: true })).toBe('base.')
+    expect(withTitleOverride('base.', 'x', null, offline)).toBe('base.')
+  })
+  test('TITLE_SCHEDULE_RE catches the real shapes', () => {
+    expect(TITLE_SCHEDULE_RE.test('NEXT STREAM WEDNESDAY')).toBe(true)
+    expect(TITLE_SCHEDULE_RE.test('back tomorrow 5pm')).toBe(true)
+    expect(TITLE_SCHEDULE_RE.test('no stream today')).toBe(true)
+    expect(TITLE_SCHEDULE_RE.test('bazaar ranked grind w/ chat')).toBe(false)
+  })
 })

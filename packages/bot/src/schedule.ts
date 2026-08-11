@@ -249,6 +249,19 @@ export interface LiveInfo {
   durationMs?: number | null
 }
 
+// does a channel title state schedule info? streamer-stated plans ("NEXT STREAM
+// WEDNESDAY") beat any statistical guess, so a matching title is surfaced first.
+// short weekday forms risk idiom hits ("sat down") but titles are short and surfacing
+// one is honest info either way.
+export const TITLE_SCHEDULE_RE = /\b(?:next\s+stream|back|returns?|no\s+stream|off\s+(?:today|tonight|this)|tomorrow|tonight|mon(?:day)?|tues?(?:day)?|wed(?:nesday)?|thur?s?(?:day)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|\d{1,2}\s*(?:am|pm)\b|\d{1,2}[:.]\d{2})\b/i
+
+// prepend a schedule-stating title to the reply — the streamer's own word outranks
+// the model. offline only: a live channel's title is about the current stream.
+export function withTitleOverride(base: string, channel: string, title: string | null | undefined, live: LiveInfo): string {
+  if (!title || live.isLive || !TITLE_SCHEDULE_RE.test(title)) return base
+  return `${channel}'s title says: "${title}" — streamer's word beats my stats. ${base}`
+}
+
 // full chat reply. `channel` is the display name (no #). honest by construction.
 export function formatSchedule(channel: string, pred: Prediction, now: number, live: LiveInfo): string {
   if (live.isLive) {
@@ -282,7 +295,10 @@ export function formatSchedule(channel: string, pred: Prediction, now: number, l
 
 // does this message ask when the channel next streams? drives both the deterministic
 // command answer and the AI-context injection. narrow enough not to catch item lookups.
-const STREAM_WORD_RE = /\b(?:stream(?:ing|s|ed)?|live|broadcast(?:ing)?)\b/i
+// "getting/coming/hopping on" and "online" count as stream words — "when kripp getting
+// on" was a real ask that fell through to an AI dodge. "going on" stays excluded
+// ("what's going on" is idiom, not a schedule ask).
+const STREAM_WORD_RE = /\b(?:stream(?:ing|s|ed)?|live|broadcast(?:ing)?|online|(?:get(?:ting|s)?|com(?:ing|es)?|hop(?:ping|s)?|be|back)\s+on)\b/i
 const WHEN_WORD_RE = /\b(?:when|next|what\s*time|how\s*long|schedule|soon|again|tonight|today|tomorrow|eta|back|going\s+live|predict\w*)\b/i
 export function isScheduleQuery(q: string): boolean {
   if (/\b(?:next\s+stream|stream\s+schedule|stream\s+predict\w*)\b/i.test(q)) return true

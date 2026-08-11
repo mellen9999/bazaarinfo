@@ -777,6 +777,11 @@ export function getStreamSessions(channel: string, sinceMs = 0): { startedAt: nu
     .all(channel.toLowerCase(), sinceMs) as { startedAt: number; lastSeenAt: number }[]
 }
 
+// channels with any logged stream history — the set a schedule ask can name
+export function getScheduleChannels(): string[] {
+  return (db.query('SELECT DISTINCT channel FROM stream_sessions').all() as { channel: string }[]).map((r) => r.channel)
+}
+
 export function pruneOldChats(days = 30) {
   try {
     const result = db.run(

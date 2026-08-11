@@ -23,6 +23,9 @@ import { matchingDirectives } from './directives'
 import { isWorldCupQuery, refreshWorldCupIfNeeded } from './worldcup'
 import { isWeatherQuery, refreshWeatherIfNeeded } from './weather'
 import { refreshBoardIfNeeded } from './board'
+import { isScheduleQuery } from './schedule'
+import { resolveScheduleChannel } from './schedule-query'
+import { refreshChannelTitle } from './channel-title'
 
 // strip orphan UTF-16 surrogate halves — twitch chat / 7TV emote names occasionally
 // inject lone D800-DBFF or DC00-DFFF code units. anthropic's JSON parser rejects them
@@ -183,6 +186,13 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // weather queries: geocode + fetch live conditions BEFORE building context, same
   // contract as world cup — TTL-gated no-op when fresh; fail-soft, never throws.
   if (isWeatherQuery(query)) await refreshWeatherIfNeeded(query)
+
+  // schedule asks: prefetch the target channel's title BEFORE building context — a
+  // streamer-stated plan in the title ("NEXT STREAM WEDNESDAY") overrides the stats.
+  // TTL-cached, fail-soft, never throws.
+  if (isScheduleQuery(query)) {
+    await refreshChannelTitle(resolveScheduleChannel(query, ctx.channel)).catch(() => {})
+  }
 
   // live board: pull the latest companion frame from the EBS BEFORE building context —
   // unconditional, because the board is ambient context for ANY message (a joke about
