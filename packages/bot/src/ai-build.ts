@@ -19,6 +19,7 @@ import { getChannelStyle, getUserProfile, getChannelVoiceContext } from './style
 import { formatAge, getHotExchanges, getChannelRecentResponses, getRecentEmotes } from './ai-cache'
 import { snapshotSchedule } from './schedule-query'
 import { isScheduleQuery, isPastStreamQuery, scheduleContext, lastStreamContext } from './schedule'
+import { isBoardQuery, getBoardLine } from './board'
 import { maybeFetchTwitchInfo } from './ai-background'
 import type { AiContext } from './ai'
 import {
@@ -619,13 +620,18 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     } catch {}
   }
 
+  // live board (companion frame via EBS) rides inside the Game data section: it's
+  // real detected data, so it licenses the game token budget + stat guards the same
+  // way a dump lookup does. injection even when no item entity matched — "what's on
+  // his board" names nothing the entity extractor could resolve.
+  const boardLine = isBoardQuery(query) ? getBoardLine(ctx.channel) : ''
   let gameBlock = ''
   let hasGameData = false
-  if (entities.isGame) {
+  if (entities.isGame || boardLine) {
     const knowledge = entities.knowledge.length > 0
       ? `\nContext:\n${entities.knowledge.join('\n')}`
       : ''
-    const gameData = buildGameContext(entities, ctx.channel)
+    const gameData = [buildGameContext(entities, ctx.channel), boardLine].filter(Boolean).join('\n')
     hasGameData = !!(gameData || knowledge)
     gameBlock = [
       knowledge,

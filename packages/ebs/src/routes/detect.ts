@@ -4,6 +4,7 @@ import { verifyCompanionSecret } from '../auth'
 import { broadcastState } from '../pubsub'
 import { parsePayload } from './detect-validate'
 import { rateOk } from '../ratelimit'
+import { storeBoard } from './board'
 
 const MAX_BODY = 100_000
 
@@ -36,6 +37,10 @@ export async function handleDetect(req: Request): Promise<Response> {
   if (!rateOk(`det:${payload.channelId}`, MAX_CHANNEL_RATE)) {
     return new Response('rate limited', { status: 429 })
   }
+
+  // retain for the bot's /board reads regardless of PubSub outcome — a Helix outage
+  // shouldn't also blind chat answers about the live board
+  storeBoard(payload.channelId, payload.cards)
 
   const accepted = broadcastState(payload.channelId, {
     cards: payload.cards,

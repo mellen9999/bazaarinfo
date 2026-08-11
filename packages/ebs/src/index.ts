@@ -9,6 +9,7 @@ import { loadRotations, bumpVersion, rotationCount } from './rotation'
 import { handleCards, setCardCache, getCardCache } from './routes/cards'
 import { handleImage } from './routes/images'
 import { handleDetect } from './routes/detect'
+import { handleBoard } from './routes/board'
 import { redirectTarget } from './routes/redirects'
 import { readyStatus } from './routes/health'
 import { pubsubStats } from './pubsub'
@@ -101,6 +102,12 @@ export async function handleRequest(req: Request): Promise<Response> {
   // POST /detect — companion → PubSub (uses companion secret, not JWT)
   if (req.method === 'POST' && path === '/detect') {
     return cors(await handleDetect(req), origin)
+  }
+
+  // GET /board — bot-internal read of the latest companion frame (internal secret,
+  // not JWT; fail-closed 404 without it)
+  if (req.method === 'GET' && path === '/board') {
+    return cors(handleBoard(req, url), origin)
   }
 
   // GET /api/images/:hash — public. Card art is loaded by <img src> in the overlay,

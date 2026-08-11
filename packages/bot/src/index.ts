@@ -16,6 +16,7 @@ import { isMuted } from './directives'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
 import { enableAiForChannel, disableAiForChannel } from './ai-cache'
 import { refreshRedditDigest } from './reddit'
+import { setChannelIdResolver } from './board'
 import { refreshTopicalDigest } from './topical'
 import { refreshActivity } from './activity'
 import * as chatbuf from './chatbuf'
@@ -475,6 +476,7 @@ const client = new TwitchClient(
 
 client.setAuthRefresh(doRefresh)
 client.setIrcOnly(['nl_kripp'])
+setChannelIdResolver((ch) => client.getChannels().find((c) => c.name.toLowerCase() === ch)?.userId ?? null)
 setSay((ch, msg) => client.say(ch, msg))
 announceToLobby = (msg) => {
   try { client.say(BOT_USERNAME.toLowerCase(), msg) } catch (e) { log(`lobby announce failed: ${e}`) }

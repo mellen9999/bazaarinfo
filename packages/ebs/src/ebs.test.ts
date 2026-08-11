@@ -416,3 +416,53 @@ describe('/api/cards', () => {
     expect(get().headers.get('Vary')).toBe('Accept-Encoding')
   })
 })
+
+import { handleBoard, storeBoard, __clearBoardsForTest } from './routes/board'
+
+describe('/board (bot-internal latest frame)', () => {
+  const SECRET = 'test-internal-secret'
+  const CARD = { title: 'Bubble Gum', tier: 'Bronze', x: 0.1, y: 0.1, w: 0.1, h: 0.1, owner: 'player', type: 'Item' }
+
+  const get = (secret?: string, channelId = '123') =>
+    handleBoard(
+      new Request(`https://ebs.test/board?channel_id=${channelId}`, {
+        headers: secret ? { 'x-internal-secret': secret } : {},
+      }),
+      new URL(`https://ebs.test/board?channel_id=${channelId}`),
+    )
+
+  beforeEach(() => {
+    process.env.INTERNAL_SECRET = SECRET
+    __clearBoardsForTest()
+  })
+
+  it('fails closed when INTERNAL_SECRET is unset', () => {
+    storeBoard('123', [CARD])
+    delete process.env.INTERNAL_SECRET
+    expect(get(SECRET).status).toBe(404)
+  })
+
+  it('rejects a wrong or missing secret without confirming channel existence', () => {
+    storeBoard('123', [CARD])
+    expect(get('nope').status).toBe(404)
+    expect(get(undefined).status).toBe(404)
+  })
+
+  it('404s an unknown channel, serves a stored one with its age', async () => {
+    expect(get(SECRET, '999').status).toBe(404)
+    storeBoard('123', [CARD])
+    const res = get(SECRET)
+    expect(res.status).toBe(200)
+    const body = await res.json() as { cards: unknown[]; ageMs: number }
+    expect(body.cards).toEqual([CARD])
+    expect(body.ageMs).toBeGreaterThanOrEqual(0)
+    expect(body.ageMs).toBeLessThan(5_000)
+  })
+
+  it('a new frame replaces the old one', async () => {
+    storeBoard('123', [CARD])
+    storeBoard('123', [])
+    const body = await get(SECRET).json() as { cards: unknown[] }
+    expect(body.cards).toEqual([])
+  })
+})
