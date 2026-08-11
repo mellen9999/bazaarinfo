@@ -89,7 +89,10 @@ function nameList(cards: BoardCard[]): string {
 
 // sync read for the prompt builder — refreshBoardIfNeeded must have run first.
 // empty string on anything less than fresh, real data: nothing to hallucinate from.
-export function getBoardLine(channel: string): string {
+// two framings, one data path: a board-shaped ask gets the direct-answer wording
+// (inside Game data), everything else gets the ambient wording — the model may
+// weave the board into a joke or aside when it fits, and must never force it.
+export function getBoardLine(channel: string, ambient = false): string {
   const entry = cache.get(channel.toLowerCase())
   if (!entry?.snap) return ''
   const age = entry.snap.ageMs + (Date.now() - entry.at)
@@ -101,7 +104,11 @@ export function getBoardLine(channel: string): string {
   const opp = entry.snap.cards.filter((c) => c.owner === 'opponent')
   // cap the lists, never the trailing honesty instruction
   const cap = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
-  let line = `Live board for ${channel} (real, seen by the overlay ${humanizeDelta(age)} ago): ${cap(nameList(items), 220) || 'no items visible'}${skills.length ? `; skills: ${cap(nameList(skills), 110)}` : ''}.`
+  // ambient framing starts exactly "Live board (" so CONTEXT_ECHO catches a verbatim echo
+  const head = ambient
+    ? `Live board (${channel}, background — reference ONLY when it genuinely fits the message, e.g. a sharp aside or joke; never force a board mention into an unrelated answer)`
+    : `Live board for ${channel} (real, seen by the overlay ${humanizeDelta(age)} ago)`
+  let line = `${head}: ${cap(nameList(items), 220) || 'no items visible'}${skills.length ? `; skills: ${cap(nameList(skills), 110)}` : ''}.`
   if (opp.length > 0) line += ` Opponent this fight: ${cap(nameList(opp), 110)}.`
   line += ' Card names are real detections; live tiers/enchantments are NOT known — never state or guess them.'
   return line

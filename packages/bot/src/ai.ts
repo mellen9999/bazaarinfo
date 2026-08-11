@@ -22,7 +22,7 @@ import { detectFancyStyle, toFancy } from './fancy'
 import { matchingDirectives } from './directives'
 import { isWorldCupQuery, refreshWorldCupIfNeeded } from './worldcup'
 import { isWeatherQuery, refreshWeatherIfNeeded } from './weather'
-import { isBoardQuery, refreshBoardIfNeeded } from './board'
+import { refreshBoardIfNeeded } from './board'
 
 // strip orphan UTF-16 surrogate halves — twitch chat / 7TV emote names occasionally
 // inject lone D800-DBFF or DC00-DFFF code units. anthropic's JSON parser rejects them
@@ -184,9 +184,11 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // contract as world cup — TTL-gated no-op when fresh; fail-soft, never throws.
   if (isWeatherQuery(query)) await refreshWeatherIfNeeded(query)
 
-  // board queries: pull the latest companion frame from the EBS BEFORE building
-  // context, same contract — TTL-gated no-op when fresh; fail-soft, never throws.
-  if (isBoardQuery(query)) await refreshBoardIfNeeded(ctx.channel)
+  // live board: pull the latest companion frame from the EBS BEFORE building context —
+  // unconditional, because the board is ambient context for ANY message (a joke about
+  // the streamer's Bubble Gum stack needs the data even when nobody asked about the
+  // board). localhost hop, 10s cache, fail-soft, never throws.
+  await refreshBoardIfNeeded(ctx.channel)
 
   const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq, hasStats } = buildUserMessage(query, ctx)
   const systemPrompt = buildSystemPrompt()

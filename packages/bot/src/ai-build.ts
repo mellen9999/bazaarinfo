@@ -620,11 +620,14 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     } catch {}
   }
 
-  // live board (companion frame via EBS) rides inside the Game data section: it's
-  // real detected data, so it licenses the game token budget + stat guards the same
-  // way a dump lookup does. injection even when no item entity matched — "what's on
-  // his board" names nothing the entity extractor could resolve.
-  const boardLine = isBoardQuery(query) ? getBoardLine(ctx.channel) : ''
+  // live board (companion frame via EBS), two lanes: a board-shaped ask rides inside
+  // Game data — it's the direct answer, licensing the game token budget + stat guards
+  // like a dump lookup. any OTHER query gets it as a separate ambient section below,
+  // which deliberately does NOT set hasGameData: the board carries no numbers, so the
+  // fabricated-stats guard must stay armed while the model banters over it.
+  const boardShaped = isBoardQuery(query)
+  const boardLine = boardShaped ? getBoardLine(ctx.channel) : ''
+  const ambientBoardLine = !boardShaped ? getBoardLine(ctx.channel, true) : ''
   let gameBlock = ''
   let hasGameData = false
   if (entities.isGame || boardLine) {
@@ -969,6 +972,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     ...primaryPair,
     { name: 'reddit', text: redditLine, base: 190, boost: redditRelevant ? 185 : 0 },
     { name: 'hotConvo', text: hotLine, base: 10 },
+    // ambient live board — unique, current, and short; sits with the flavor tier so a
+    // tight budget can still evict it (a board-shaped ask rides gameBlock instead)
+    { name: 'liveBoard', text: ambientBoardLine ? `\n${ambientBoardLine}` : '', base: 15 },
     { name: 'chatters', text: chattersLine ? `\n${chattersLine}` : '', base: 20 },
     { name: 'recentResponses', text: recentLine, base: 30, trunc: true },
     { name: 'pastaBlock', text: pastaBlock, base: 40 },

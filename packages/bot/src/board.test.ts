@@ -44,6 +44,14 @@ describe('getBoardLine', () => {
     expect(getBoardLine('stale')).toBe('')
   })
 
+  it('ambient framing carries the dont-force instruction and the echo-catchable head', () => {
+    __setBoardCacheForTest('kripp', { cards: [card('Toaster')], ageMs: 5_000 })
+    const line = getBoardLine('kripp', true)
+    expect(line.startsWith('Live board (')).toBe(true)
+    expect(line).toContain('never force a board mention')
+    expect(line).toContain('Toaster')
+  })
+
   it('caps runaway card lists without cutting the instruction', () => {
     __setBoardCacheForTest('big', {
       cards: Array.from({ length: 50 }, (_, i) => card(`Extremely Long Card Name Number ${i}`)),

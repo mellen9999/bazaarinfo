@@ -73,7 +73,7 @@ export const SECTION_HEADERS = [
   'Your prior exchanges', 'Chat culture', 'Bot stats', 'Chatters', 'Context', 'Activity',
   'Community buzz', 'Prior exchanges', 'Chat history', 'BURNED references',
   'Your recent convo with', 'Your recent responses', 'Active convos', 'Memory', 'Facts',
-  'All channel emotes', 'Chat voice', 'Voice', 'Pasta examples',
+  'All channel emotes', 'Chat voice', 'Voice', 'Pasta examples', 'Live board',
 ] as const
 // a reply BEGINNING with a section header followed by ':' or an annotation '(' is an
 // echo. the ':'/'(' requirement keeps single-word headers from false-positiving on

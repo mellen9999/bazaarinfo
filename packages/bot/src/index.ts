@@ -27,6 +27,7 @@ import { preloadStyles } from './style'
 import { writeAtomic } from './fs-util'
 import { log } from './log'
 import { notify } from './notify'
+import { sweepVocabularyChunked } from './grounding-sweep'
 import { fetchPatchInfo } from './patch'
 import { diffContent, renderDiffChat, renderDiffAlert } from './content-diff'
 import { readJson } from './http'
@@ -118,6 +119,28 @@ async function doRefreshData(opts: RefreshOpts) {
 // wired to the lobby channel once the twitch client exists — content-news only, never failures
 let announceToLobby: (msg: string) => void = () => {}
 
+// grounding coverage: after every dump refresh, prove the whole new vocabulary still
+// resolves through the entity extractor — a gap means a patch shipped words the bot
+// would answer from vibes. background + chunked (never blocks chat), ntfy on gaps,
+// single-flight so overlapping refresh triggers can't stack sweeps.
+let sweepRunning = false
+function runGroundingSweep(): void {
+  if (sweepRunning) return
+  sweepRunning = true
+  sweepVocabularyChunked()
+    .then((r) => {
+      if (r.gaps.length > 0) {
+        const list = r.gaps.slice(0, 12).map((g) => `[${g.kind}] ${g.term}`).join(', ')
+        notify('grounding-gap', 'grounding gaps after dump refresh', `${r.gaps.length} term(s) resolve to nothing: ${list}`, 'high')
+        log(`grounding sweep: ${r.gaps.length} gaps — ${list}`)
+      } else {
+        log(`grounding sweep clean (${r.checked} terms)`)
+      }
+    })
+    .catch((e) => log(`grounding sweep error: ${e}`))
+    .finally(() => { sweepRunning = false })
+}
+
 // full refresh pipeline: scrape → reload → rebuild → patch info → content diff.
 // every refresh trigger goes through here. returns the chat-ready diff line, null if no change.
 async function refreshAll(opts: { force?: boolean } = {}): Promise<string | null> {
@@ -128,6 +151,7 @@ async function refreshAll(opts: { force?: boolean } = {}): Promise<string | null
   await reloadStore()
   rebuildTriviaMaps()
   invalidatePromptCache()
+  runGroundingSweep()
   // patch pages ship alongside dump changes — refetch now, not just at 4am (fail-soft inside)
   fetchPatchInfo()
 
