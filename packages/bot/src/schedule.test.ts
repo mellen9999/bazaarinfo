@@ -57,6 +57,32 @@ describe('predictNextStream — weekday model', () => {
     expect(p.confidenceMs).toBeLessThan(2 * HOUR) // tight — all starts identical
   })
 
+  test('one outlier start cannot blow up the ± window', () => {
+    // punctual daily 16:00 ±10m, except one 19:00 late night — the window must
+    // stay tight (a std here reported ±hours; the coverage quantile drops it)
+    const s = Array.from({ length: 20 }, (_, d) => (d === 15 ? sess(d, 19) : sess(d, 16, d % 3 ? 10 : 0)))
+    const now = BASE + 20 * DAY + 12 * HOUR
+    const p = predictNextStream(s, now)
+    expect(p.kind).toBe('streak')
+    if (p.kind !== 'streak') return
+    expect(Math.abs(p.at - (BASE + 20 * DAY + 16 * HOUR))).toBeLessThan(30 * 60_000) // outlier can't drag the time either
+    expect(p.confidenceMs).toBeLessThan(45 * 60_000)
+  })
+
+  test('recency-weighted clock follows a schedule shift', () => {
+    // a month at 22:00, then five recent streams at 16:00 — prediction must follow
+    // the new slot, not average the two into ~19:00
+    const s = [
+      ...Array.from({ length: 25 }, (_, d) => sess(d, 22)),
+      ...Array.from({ length: 5 }, (_, i) => sess(25 + i, 16)),
+    ]
+    const now = BASE + 30 * DAY + 10 * HOUR
+    const p = predictNextStream(s, now)
+    expect(p.kind).toBe('streak')
+    if (p.kind !== 'streak') return
+    expect(Math.abs(p.at - (BASE + 30 * DAY + 16 * HOUR))).toBeLessThan(30 * 60_000)
+  })
+
   test('midnight-straddling starts (23:30 UTC daily) stay coherent', () => {
     const s = Array.from({ length: 28 }, (_, d) => sess(d, 23, 30))
     const now = BASE + 28 * DAY + 12 * HOUR // midday, before tonight's 23:30

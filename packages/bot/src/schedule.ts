@@ -19,6 +19,8 @@ const MAX_CONFIDENCE = 6 * HOUR // hard cap on the reported ± window
 const LOOKAHEAD_DAYS = 16 // how far forward to search for the next stream day
 const GRACE = 15 * MIN // a start this-soon-past still counts as "upcoming"
 const STREAK_RUN = 5 // most recent starts examined for an active near-daily run
+const STREAK_CLOCK = 15 // starts feeding the typical-clock estimate (cadence stays on STREAK_RUN)
+const STREAK_DECAY = 0.85 // per-start recency decay on the clock estimate
 const STREAK_MAX_GAP = 40 * HOUR // median recent gap at/below this = actively streaming ~daily
 const STREAK_BROKEN = 3 // silent for this × the recent gap ⇒ the run ended, use the long models
 
@@ -34,25 +36,45 @@ export type Prediction =
   | { kind: 'weekday'; at: number; confidenceMs: number; loose: boolean; samples: number }
   | { kind: 'gap'; at: number; confidenceMs: number; samples: number }
 
-// circular statistics over fraction-of-day values in [0,1) — handles midnight wrap.
-// returns the mean instant (as a day fraction) and a spread (std, also a day fraction).
-function circStats(fracs: number[]): { mean: number; stdFrac: number } {
-  if (fracs.length === 0) return { mean: 0, stdFrac: 0.5 }
-  let sc = 0
-  let ss = 0
-  for (const f of fracs) {
-    const a = f * 2 * Math.PI
-    sc += Math.cos(a)
-    ss += Math.sin(a)
+// signed circular distance between two day fractions, in [-0.5, 0.5) — handles midnight wrap.
+function circDelta(f: number, center: number): number {
+  return ((((f - center + 0.5) % 1) + 1) % 1) - 0.5
+}
+
+// robust circular center: the sample minimizing total circular distance to the rest.
+// a circular mean gets dragged toward an outlier, which then inflates every deviation
+// the spread quantile sees; the medoid stays inside the punctual cluster. weights (if
+// given, parallel to fracs) let recent starts count more than a stale cluster.
+function circCenter(fracs: number[], w?: number[]): number {
+  let best = fracs[0] ?? 0
+  let bestCost = Infinity
+  for (const c of fracs) {
+    let cost = 0
+    for (let i = 0; i < fracs.length; i++) cost += Math.abs(circDelta(fracs[i], c)) * (w?.[i] ?? 1)
+    if (cost < bestCost) {
+      bestCost = cost
+      best = c
+    }
   }
-  const n = fracs.length
-  const mc = sc / n
-  const ms = ss / n
-  let mean = Math.atan2(ms, mc) / (2 * Math.PI)
-  if (mean < 0) mean += 1
-  const R = Math.min(Math.hypot(mc, ms), 1) // concentration, 0 (spread) .. 1 (tight)
-  const stdFrac = R > 1e-9 ? Math.sqrt(-2 * Math.log(R)) / (2 * Math.PI) : 0.5
-  return { mean, stdFrac }
+  return best
+}
+
+// robust ± window: the half-width around the center that covers COVERAGE of the
+// observed (weighted) starts. the old circular std was what viewers felt as "±4h" —
+// a single odd late-night start inflates a std for weeks; a quantile just drops it.
+const COVERAGE = 0.8
+function circSpread(fracs: number[], center: number, w?: number[]): number {
+  if (fracs.length === 0) return 0.5
+  const devs = fracs
+    .map((f, i) => ({ d: Math.abs(circDelta(f, center)), w: w?.[i] ?? 1 }))
+    .sort((a, b) => a.d - b.d)
+  const total = devs.reduce((acc, x) => acc + x.w, 0)
+  let cum = 0
+  for (const x of devs) {
+    cum += x.w
+    if (cum >= COVERAGE * total) return x.d
+  }
+  return devs[devs.length - 1].d
 }
 
 function quantile(sorted: number[], q: number): number {
@@ -109,19 +131,25 @@ export function predictNextStream(raw: StreamSession[], now: number): Prediction
     const medR = median(rGaps)
     const lastStart = recent[recent.length - 1].startedAt
     if (medR > 0 && medR <= STREAK_MAX_GAP && now - lastStart <= STREAK_BROKEN * medR) {
-      const st = circStats(recent.map((x) => utcFrac(x.startedAt)))
-      const conf = Math.max(MIN_CONFIDENCE, Math.min(st.stdFrac * DAY, MAX_CONFIDENCE))
+      // cadence comes from the last few gaps, but the typical clock deserves more
+      // history — five starts make any spread estimate a coin flip; fifteen let the
+      // quantile actually forget the one late night. recency-weighted so a schedule
+      // shift stops poisoning the estimate within a few streams.
+      const clock = s.slice(-STREAK_CLOCK).map((x) => utcFrac(x.startedAt))
+      const w = clock.map((_, i) => STREAK_DECAY ** (clock.length - 1 - i))
+      const center = circCenter(clock, w)
+      const conf = Math.max(MIN_CONFIDENCE, Math.min(circSpread(clock, center, w) * DAY, MAX_CONFIDENCE))
       // next start: the typical recent clock, on the first day still meaningfully ahead.
       // a slot stays "today" while within its own ± window — the model shouldn't skip to
       // tomorrow one hour past a mean it only claims to know within two.
-      let at = Math.floor(lastStart / DAY) * DAY + st.mean * DAY
+      let at = Math.floor(lastStart / DAY) * DAY + center * DAY
       while (at <= lastStart + medR / 2 || at <= now - Math.max(GRACE, conf)) at += DAY
-      return { kind: 'streak', at, confidenceMs: conf, samples: recent.length }
+      return { kind: 'streak', at, confidenceMs: conf, samples: clock.length }
     }
   }
 
-  const globalUtc = circStats(s.map((x) => utcFrac(x.startedAt)))
-  const shift = ((((0.5 - globalUtc.mean) % 1) + 1) % 1) * DAY
+  const globalUtcCenter = circCenter(s.map((x) => utcFrac(x.startedAt)))
+  const shift = ((((0.5 - globalUtcCenter) % 1) + 1) % 1) * DAY
   const L = (ts: number) => ts + shift // shifted-local epoch; a day's starts cluster near noon
   const localFrac = (ts: number) => (((L(ts) % DAY) + DAY) % DAY) / DAY
 
@@ -139,8 +167,12 @@ export function predictNextStream(raw: StreamSession[], now: number): Prediction
   }
   const weeks = Math.max(allWeeks.size, 1)
   const streamDay = byWd.map((_, wd) => wdWeeks[wd].size / weeks >= STREAM_DAY_PROB)
-  const globalLocal = circStats(s.map((x) => localFrac(x.startedAt)))
-  const wdStart = byWd.map((fracs) => (fracs.length >= 3 ? circStats(fracs) : globalLocal))
+  const model = (fracs: number[]) => {
+    const mean = circCenter(fracs)
+    return { mean, spreadFrac: circSpread(fracs, mean) }
+  }
+  const globalLocal = model(s.map((x) => localFrac(x.startedAt)))
+  const wdStart = byWd.map((fracs) => (fracs.length >= 3 ? model(fracs) : globalLocal))
 
   // primary model: next upcoming weekday that's a stream day, at its typical start time.
   if (streamDay.some(Boolean)) {
@@ -152,7 +184,7 @@ export function predictNextStream(raw: StreamSession[], now: number): Prediction
       const st = wdStart[wd]
       const at = dayL * DAY + st.mean * DAY - shift // shifted-local midnight + tod, back to real epoch
       if (at > now - GRACE) {
-        const raw = st.stdFrac * DAY
+        const raw = st.spreadFrac * DAY
         return {
           kind: 'weekday',
           at,
