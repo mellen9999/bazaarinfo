@@ -14,7 +14,7 @@ import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, carriesLiveQuestion } from './trivia'
 import { isMuted } from './directives'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
-import { enableAiForChannel, disableAiForChannel } from './ai-cache'
+import { enableAiForChannel, disableAiForChannel, markLiveStateKnown } from './ai-cache'
 import { refreshRedditDigest } from './reddit'
 import { setChannelIdResolver } from './board'
 import { refreshTopicalDigest } from './topical'
@@ -569,6 +569,8 @@ async function pollStreams(initial = false) {
       liveState.delete(ch)
       offlineMisses.delete(ch)
     }
+    // a poll completed, so "not in liveChannels" now genuinely means offline
+    markLiveStateKnown()
     if (initial) log(`live channels: ${data.data.map((s) => `${s.user_login}[${s.game_name}]`).join(', ') || 'none'}`)
   } catch (e) { log(`stream poll failed: ${e}`) }
 }

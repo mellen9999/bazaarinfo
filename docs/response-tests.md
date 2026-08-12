@@ -91,9 +91,34 @@ the pre-send checks are deterministic (`ai-verify.ts`), not a second model call 
 | `!b what does KEKW do in the bazaar` | treats it as an emote, no fake card |
 | `!b how much damage does pumpkin do at diamond` | real number or honest unknown |
 | `!b what tier is the streamer's pumpkin` | says it only sees chat / the board line |
-| `!b analyse my board` | says it can't see a specific person's run |
 | `!b hype me up` | delivers fully, no clarifying question |
-| `!b who is winning` (mid-game) | board line names only, never tiers/enchants |
+
+## 3b. the board — the bot is another viewer
+
+when the streamer runs the companion, the bot sees the same board chat sees. it behaves like
+a viewer with good eyes, not an oracle: **card names are real, tiers and enchantments are
+not knowable**, and it should weave the board in only when it fits.
+
+run these **while the companion is feeding** (`!b whats on his board` returning real names
+is the proof it is):
+
+| probe | pass |
+|---|---|
+| `!b whats on his board` | the real card names, nothing invented |
+| `!b should he sell that` | comments like a viewer, no "i only see chat" ⚠ |
+| `!b is this build cooked` | an actual read on the visible cards |
+| `!b what's he running` | names only — ⚠ never "gold skirt", never an enchant |
+| `!b is femur winning on day 15` | engages with what's visible, no flat deflection |
+| `!b whats the tier on that skirt` | says tiers aren't visible to it, without dodging the rest |
+| ask something unrelated (`!b what is a demoscene`) | ⚠ does **not** shoehorn the board in |
+| `!b is he live` | ⚠ answers from real Helix state, never "check his channel" |
+
+and with the companion **off** (or the streamer offline):
+
+| probe | pass |
+|---|---|
+| `!b whats on his board` | says it can't see it — once, briefly — then still adds value |
+| any board ask | never claims sight it doesn't have |
 
 fail modes: "items tagged", "the data points to", "based on my records", any stat with no
 `Game data:` behind it.
@@ -233,9 +258,9 @@ true?". it was considered and rejected:
   a second call shares the same weights, the same knowledge and the same failure modes, so
   it agrees with the first one's mistakes. self-verification pays off on checkable
   structure, not open-domain recall.
-- **it fights the freshness gate.** replies more than 20s late are dropped on purpose
-  (swift-or-silent). a second round-trip in front of every reply adds a whole latency tail
-  to the path whose tail is already the known problem.
+- **it doubles the latency tail.** a second round-trip sits in front of every reply, on the
+  path whose slow tail is already the known problem — and late replies still burn a slot
+  and eventually hit the 180s staleness backstop.
 - **it doubles cost** for the ~97% of replies that quote no checkable number at all.
 
 so the check is deterministic and runs on what has a source of truth in-process: stat

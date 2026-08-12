@@ -46,6 +46,59 @@ export function findUngroundedStats(reply: string, context: string): string[] {
   return [...bad]
 }
 
+// denying it can see the board. same doctrine as SCHEDULE_DENIAL: only a lie when the
+// capability is actually present, so the caller checks this ONLY when a live board was
+// injected. with no board in context "i only see chat" is the honest answer and must ship.
+export const BOARD_DENIAL = /\b(?:i\s+(?:can'?t|cannot|don'?t)\s+(?:actually\s+)?see\s+(?:your|his|her|their|the|any)\s+(?:board|screen|build|run|stream|game)|(?:i\s+)?only\s+see\s+(?:the\s+)?chat|(?:i\s+)?just\s+see\s+chat|no\s+(?:eyes|view|read)\s+on\s+(?:the|his|her|their|your)\s+(?:board|screen|run|stream)|not\s+connected\s+(?:enough\s+)?to\s+see|someone\s+with\s+eyes\s+on\s+the\s+stream)\b/i
+
+export function deniesBoardSight(reply: string): boolean {
+  return BOARD_DENIAL.test(reply)
+}
+
+/**
+ * the live-board line as the model actually received it, or '' when it didn't.
+ *
+ * read back out of the assembled context rather than trusted from the builder: the ambient
+ * section is evictable, and a board the budget dropped is a board the model never saw. both
+ * framings (direct and ambient) start the line with "Live board".
+ */
+export function extractBoardLine(context: string): string {
+  return /^Live board[^\n]*$/m.exec(context)?.[0] ?? ''
+}
+
+const TIER = 'bronze|silver|gold|diamond|legendary'
+
+/**
+ * a tier or enchantment pinned to a card that is on the live board.
+ *
+ * the companion's frames carry card NAMES and nothing else — the game log has never
+ * exposed live tiers or enchantments. so any "his skirt is gold by now" is invention
+ * dressed as observation, which is the most credible kind of wrong the bot can produce.
+ *
+ * only meaningful when no card data was injected: a chatter asking "what does diamond
+ * pumpkin do" gets a real card block, and answering from it is correct even mid-run.
+ */
+export function findLiveTierClaims(reply: string, boardLine: string): string[] {
+  if (!boardLine) return []
+  // card names off the injected line: everything before the trailing honesty sentence,
+  // minus the "Live board (...)" header and the "xN" duplicate markers.
+  const body = boardLine.split('. Card names are real')[0].replace(/^[^:]*:/, '')
+  const names = body
+    .split(/[,;.]/)
+    .map((n) => n.replace(/\bx\d+\b/g, '').replace(/^\s*(?:skills|opponent this fight)\s*:?/i, '').trim())
+    .filter((n) => n.length > 3)
+  const hits = new Set<string>()
+  for (const name of names) {
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    // tier within a short window either side of the card name — "gold skirt", "skirt is gold".
+    // the window cannot cross a comma or clause break: "LICK the tour bus, LICK diamond" is
+    // two separate targets, and reading it as a tier claim cost a retry on a real reply.
+    const near = new RegExp(`(?:\\b(?:${TIER})\\b[^.!?,;—]{0,20}${esc}|${esc}[^.!?,;—]{0,20}\\b(?:${TIER})\\b)`, 'i')
+    if (near.test(reply)) hits.add(name)
+  }
+  return [...hits]
+}
+
 const WEEKDAYS = 'sunday|monday|tuesday|wednesday|thursday|friday|saturday'
 // only an assertion about TODAY. "next stream is wednesday" is a different sentence and
 // must stay legal — the schedule line is allowed to name any day it likes.

@@ -14,7 +14,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 // --- local imports from sub-modules ---
 
 import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL } from './ai-sanitize'
-import { findUngroundedStats, correctClockClaim } from './ai-verify'
+import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims } from './ai-verify'
 import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
@@ -403,6 +403,33 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
             continue
           }
           log('ai: ungrounded stat retries exhausted — returning null for clean fallback')
+          return null
+        }
+      }
+      // the bot can see the live board whenever the overlay companion is feeding frames, and
+      // chat treats it as another viewer. two failures to catch, both only possible when a
+      // board actually reached the model: telling chat it's blind while holding the board,
+      // and pinning a tier/enchant to a board card — the frames carry names and nothing else,
+      // so a confident "his skirt is gold" is invention wearing the costume of observation.
+      const seenBoard = extractBoardLine(userMessage)
+      if (seenBoard) {
+        if (deniesBoardSight(result.text)) {
+          log(`ai: denied board sight while holding a live board, retrying (attempt ${attempt + 1})`)
+          if (attempt < MAX_RETRIES - 1) {
+            messages.push({ role: 'assistant', content: textBlock.text })
+            messages.push({ role: 'user', content: 'You DO have the live board this time — the "Live board" section lists what is on it right now. Answer from it like any viewer watching the stream. Card names only; you still do not know tiers or enchantments.' })
+            continue
+          }
+          return null
+        }
+        const tierClaims = findLiveTierClaims(result.text, seenBoard)
+        if (tierClaims.length > 0 && !hasGameData) {
+          log(`ai: tier claim on live board card ${tierClaims.join('/')}, retrying (attempt ${attempt + 1})`)
+          if (attempt < MAX_RETRIES - 1) {
+            messages.push({ role: 'assistant', content: textBlock.text })
+            messages.push({ role: 'user', content: `You gave ${tierClaims.join(' and ')} a tier or enchantment. The board only reports card names — nobody told you the tier. Say it without one.` })
+            continue
+          }
           return null
         }
       }

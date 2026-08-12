@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test'
-import { fitToBudget, nowLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE } from './ai-build'
+import { fitToBudget, nowLine, streamLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE } from './ai-build'
+import { markLiveStateKnown, setChannelLive, setChannelOffline } from './ai-cache'
 import { META_QUERY_RE } from './intents'
 
 describe('nowLine — the bot can state the weekday instead of deriving it', () => {
@@ -16,6 +17,22 @@ describe('nowLine — the bot can state the weekday instead of deriving it', () 
 
   it('stays small enough to never lose its slot in the context budget', () => {
     expect(nowLine().length).toBeLessThan(220)
+  })
+})
+
+describe('streamLine — the bot knows whether the stream is live, like everyone else in chat', () => {
+  it('says nothing until the first Helix poll lands', () => {
+    // a fresh process has an empty live set; that is "not asked yet", not "offline"
+    expect(streamLine('nl_kripp')).toBe('')
+  })
+
+  it('reports live with the game, and offline plainly, once state is known', () => {
+    markLiveStateKnown()
+    expect(streamLine('nl_kripp')).toContain('offline')
+    setChannelLive('nl_kripp', 'The Bazaar')
+    expect(streamLine('nl_kripp')).toContain('LIVE')
+    expect(streamLine('nl_kripp')).toContain('The Bazaar')
+    setChannelOffline('nl_kripp')
   })
 })
 

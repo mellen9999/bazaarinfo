@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { findUngroundedStats, correctClockClaim } from './ai-verify'
+import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims } from './ai-verify'
 
 const CARD = 'Game data:\nPumpkin (Vanessa, Medium) — Heal 30/45/60. Cooldown 7 seconds.\n---\n[USER]: what does pumpkin do'
 
@@ -38,6 +38,43 @@ describe('findUngroundedStats — numbers checked against the injected card', ()
   it('grounds against the whole context, not only the card block', () => {
     const ctx = `${CARD}\nTrivia standings: bob 42 points`
     expect(findUngroundedStats('bob is on 42 damage worth of points', ctx)).toEqual([])
+  })
+})
+
+const BOARD = 'Live board (nl_kripp, background — reference ONLY when it genuinely fits): Flame Skirt, Pyro x2, Bar of Gold; skills: Ignition. Card names are real detections; live tiers/enchantments are NOT known — never state or guess them.'
+
+describe('board sight — the bot is a viewer with the overlay, not a blind one', () => {
+  it('pulls the board line back out of an assembled context', () => {
+    expect(extractBoardLine(`Recent chat:\nbob: hi\n${BOARD}\nStream: nl_kripp is LIVE right now.`)).toBe(BOARD)
+    expect(extractBoardLine('no board here')).toBe('')
+  })
+
+  it('catches every way the model says it is blind', () => {
+    expect(deniesBoardSight('i only see chat, not his board')).toBe(true)
+    expect(deniesBoardSight("i can't actually see your board, just chat")).toBe(true)
+    expect(deniesBoardSight('no eyes on the board, someone else will have to call it')).toBe(true)
+    expect(deniesBoardSight('someone with eyes on the stream will have to make that call')).toBe(true)
+    expect(deniesBoardSight('not connected enough to see whatever that overlay is')).toBe(true)
+  })
+
+  it('leaves an ordinary board comment alone', () => {
+    expect(deniesBoardSight('that skirt is doing a lot of work on the left')).toBe(false)
+    expect(deniesBoardSight('i see what he is going for there')).toBe(false)
+  })
+
+  it('catches a tier pinned to a card that is only known by name', () => {
+    expect(findLiveTierClaims('that gold Flame Skirt is carrying the run', BOARD)).toEqual(['Flame Skirt'])
+    expect(findLiveTierClaims('Bar of Gold is probably diamond by now', BOARD)).toEqual(['Bar of Gold'])
+  })
+
+  it('does not flag board talk that stays on names', () => {
+    expect(findLiveTierClaims('Flame Skirt plus double Pyro is a lot of burn', BOARD)).toEqual([])
+    // "Bar of Gold" contains a tier word in its own name — that must not count as a claim
+    expect(findLiveTierClaims('Bar of Gold is on the board', BOARD)).toEqual([])
+  })
+
+  it('does nothing without a board in context', () => {
+    expect(findLiveTierClaims('that gold Flame Skirt is carrying', '')).toEqual([])
   })
 })
 

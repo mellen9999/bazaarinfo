@@ -16,7 +16,7 @@ import type { ChatEntry } from './chatbuf'
 import { formatEmotesForAI, getEmotesForChannel } from './emotes'
 import { getDescriptions } from './emote-describe'
 import { getChannelStyle, getUserProfile, getChannelVoiceContext } from './style'
-import { formatAge, getHotExchanges, getChannelRecentResponses, getRecentEmotes } from './ai-cache'
+import { formatAge, getHotExchanges, getChannelRecentResponses, getRecentEmotes, isChannelLive, isLiveStateKnown, getChannelGame } from './ai-cache'
 import { snapshotSchedule, resolveScheduleChannel } from './schedule-query'
 import { isScheduleQuery, isPastStreamQuery, scheduleContext, lastStreamContext, TITLE_SCHEDULE_RE } from './schedule'
 import { getCachedChannelTitle } from './channel-title'
@@ -47,6 +47,18 @@ export function nowLine(at: Date = new Date()): string {
   const mm = String(at.getUTCMinutes()).padStart(2, '0')
   const stamp = `${WEEKDAYS[at.getUTCDay()]} ${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]} ${at.getUTCFullYear()}, ${hh}:${mm} UTC`
   return `\nRight now: ${stamp}. day/date/time/"what day is it" asks: answer straight from this line — never guess a weekday, never dodge to a schedule or a calendar app. viewer timezones vary, so say UTC.\n`
+}
+
+// whether the channel is live, which every other viewer in chat can see at a glance. the
+// bot polls Helix for it once a minute and still told chat "i only see this chat, not his
+// — check nl_kripp directly". silent until the first poll lands: an empty live set at boot
+// means "not asked yet", and a confident "he's offline" over a live stream is worse than
+// saying nothing.
+export function streamLine(channel: string): string {
+  if (!isLiveStateKnown()) return ''
+  if (!isChannelLive(channel)) return `\nStream: ${channel} is offline right now.\n`
+  const game = getChannelGame(channel)
+  return `\nStream: ${channel} is LIVE right now${game ? `, playing ${game}` : ''}.\n`
 }
 
 // prompt section headers a chatter might type — stripped wherever raw chat text is injected
@@ -943,6 +955,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // today?" on a wednesday and got a stream-schedule dodge, and a reply called that
     // same day "tuesday". weekday+time come from here now, not from arithmetic.
     nowLine(),
+    streamLine(ctx.channel),
     isContinuationLike ? `\n⚠️ SCENE CONTINUATION — [USER] asked for more. OVERRIDES one-and-done. This is turn ${hot.length + 1}. Each turn SHIFT AXIS — change at least one: setting, POV, format (action/dialogue/montage/letter/news/court transcript), stakes, genre (noir/sci-fi/horror/romance/heist), tempo. NEVER rehash. NEVER recycle the same beat with new words. Compound escalation: fistfight → duel → war → reckoning. ${hot.length >= 3 ? 'TURN 4+: linear escalation is exhausted — HARD CUT. timejump (years pass / future), dimension shift (alt reality / dream), genre flip, or new generation of the same characters. reset the stakes ladder. ' : ''}Pull from real-world (2025-2026 news, pop culture, history, science, internet). 400 chars.` : '',
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq),
     ctx.mention

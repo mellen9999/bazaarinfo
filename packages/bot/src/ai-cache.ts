@@ -135,6 +135,13 @@ export function setChannelOffline(channel: string) {
   recentEmotesByChannel.delete(ch)
 }
 
+// the Helix poll seeds this on its first pass. until then an empty liveChannels set is
+// "not asked yet", not "everyone is offline" — telling chat a live streamer is offline
+// during the boot window would be a confident lie, so the caller stays quiet instead.
+let liveStateKnown = false
+export function markLiveStateKnown(): void { liveStateKnown = true }
+export function isLiveStateKnown(): boolean { return liveStateKnown }
+
 export function isChannelLive(channel: string): boolean { return liveChannels.has(channel.toLowerCase()) }
 export function getLiveChannels(): string[] { return [...liveChannels] }
 export function getChannelGame(channel: string): string | undefined { return channelGames.get(channel.toLowerCase()) }
