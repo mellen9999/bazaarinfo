@@ -9,6 +9,10 @@
 //   bun scripts/quality-report.ts                    # live db, last 2500 replies
 //   bun scripts/quality-report.ts --limit 500
 //   bun scripts/quality-report.ts --json dump.json   # exported rows, for running off-box
+//   bun scripts/quality-report.ts --since '2026-08-12 19:00'   # only replies after a deploy
+//
+// --since is what makes this answer "did the change work?". without it the window is
+// whatever traffic happens to be newest, which on a quiet day is entirely pre-deploy.
 //
 // exit code is 1 if any tracked rate regressed past its baseline, so it can gate a push.
 
@@ -32,6 +36,7 @@ const args = process.argv.slice(2)
 const arg = (name: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined }
 const limit = Number(arg('--limit') ?? 2500)
 const jsonPath = arg('--json')
+const since = arg('--since')
 
 let rows: Row[]
 if (jsonPath) {
@@ -42,13 +47,14 @@ if (jsonPath) {
   rows = db.query(
     `SELECT query, response, latency_ms FROM ask_queries
      WHERE response IS NOT NULL AND length(response) > 0
+       AND (? IS NULL OR created_at >= ?)
      ORDER BY created_at DESC LIMIT ?`,
-  ).all(limit) as Row[]
+  ).all(since ?? null, since ?? null, limit) as Row[]
   db.close()
 }
 
 if (rows.length === 0) {
-  console.log('no replies logged yet — nothing to measure')
+  console.log(since ? `no replies logged since ${since} yet — nothing to measure` : 'no replies logged yet — nothing to measure')
   process.exit(0)
 }
 
@@ -130,7 +136,7 @@ const p = (q: number) => lat.length ? lat[Math.min(lat.length - 1, Math.floor(la
 const worse = (now: number, base: number) => now > base + 2 // 2pt slack for sample noise
 const mark = (now: number, base: number) => worse(now, base) ? ' REGRESSED' : ''
 
-console.log(`\nbazaarinfo quality — ${n} replies\n`)
+console.log(`\nbazaarinfo quality — ${n} replies${since ? ` since ${since}` : ''}\n`)
 console.log('rhythm            now      baseline')
 console.log(`  clause — clause  ${fmt(rate(dashClause)).padStart(6)}   ${fmt(BASELINE.dashClause)}${mark(rate(dashClause), BASELINE.dashClause)}`)
 console.log(`  in a run of 3+   ${fmt(rate(inRunOf3)).padStart(6)}   ${fmt(BASELINE.inRunOf3)}${mark(rate(inRunOf3), BASELINE.inRunOf3)}`)
