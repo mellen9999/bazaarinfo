@@ -14,8 +14,8 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 // --- local imports from sub-modules ---
 
 import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL } from './ai-sanitize'
-import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims } from './ai-verify'
-import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse } from './ai-cache'
+import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak } from './ai-verify'
+import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, getChannelRecentResponses } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
@@ -307,6 +307,9 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       fallback: { status: 0 },
     })
 
+  // the style backstop below is allowed exactly one call, ever — correctness retries must
+  // never lose a budget slot to punctuation.
+  let styleRetried = false
   try {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       // deadline hit = upstream is slow/stuck. count it toward the circuit breaker
@@ -432,6 +435,18 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           }
           return null
         }
+      }
+      // punctuation-streak backstop. the SHAPE nudge in the context handles most of this for
+      // free; this catches the times the model writes its fourth identical clause—clause in a
+      // row anyway. style is not correctness: it costs ONE extra call and never rejects the
+      // answer, because a repetitive true reply still beats no reply.
+      if (!styleRetried && attempt < MAX_RETRIES - 1 && isDashClause(result.text)
+        && monotonyStreak(getChannelRecentResponses(ctx.channel)) >= 2) {
+        styleRetried = true
+        log('ai: third clause—clause in a row, asking for a different shape')
+        messages.push({ role: 'assistant', content: textBlock.text })
+        messages.push({ role: 'user', content: 'Same content, different shape: your last few replies all used "<clause> — <clause>". Rewrite this one without an em-dash — a plain sentence, a fragment, or a question. Keep the voice.' })
+        continue
       }
       // a weekday claim is checkable against the clock line in context, so never ship a
       // wrong one — correct it in place rather than spending a retry on it.

@@ -175,6 +175,32 @@ fail modes: "items tagged", "the data points to", "based on my records", any sta
 fail modes: pet names (chief/champ/buddy), exclamation marks, mid-sentence CAPS, a quip
 stapled after the answer, the same punchline twice in a session.
 
+## 7b. sounding human
+
+the voice is settled (dry, deadpan, warm). what breaks the illusion is not word choice, it's
+**rhythm**. measured over 2500 shipped replies:
+
+| tell | rate |
+|---|---|
+| contains an em-dash | 46.6% |
+| exactly `<clause> — <clause>` | 43.0% |
+| sat inside a run of 3+ identical shapes | 24.5% |
+| longest unbroken run of that one shape | **17 replies** |
+| replies under 45 chars | 8.7% |
+
+no regular in a twitch chat writes seventeen messages in a row with identical punctuation.
+the em-dash itself is fine; the metronome is the defect. a `SHAPE:` context line now counts
+the streak back at the model after two in a row, with a one-call backstop behind it.
+
+| probe | pass |
+|---|---|
+| ask 6 unrelated questions in a row | ⚠ not all six are `<clause> — <clause>` |
+| ask 3 questions with the same shape of answer | the 3rd breaks the pattern |
+| `!b thanks` / `!b gg` | short — a fragment, not a two-clause construction |
+| read 10 replies back to back | they don't scan as one template with the nouns swapped |
+
+re-measure any time with the harness in §13 — the rates above are the baseline to beat.
+
 ## 8. emotes + spam
 
 | probe | pass |
@@ -248,6 +274,10 @@ two harnesses worth re-running against a fresh dump before changing any guard:
   last run: 500 replies, 136 with game data, 0 flagged.
 - **mutation** — corrupt each stat number in a real reply to a value absent from the
   context and confirm the guard catches it. last run: 4/4 caught, 0 missed.
+- **voice** — sentence-shape rates, opener distribution, repeated 5-grams, punch-at-asker
+  and brush-off rates over the whole dump. this is what found the 43% / run-of-17 monotony;
+  tone was already fine at 0.8% each, which is why no tone guard was added. re-run it before
+  touching voice, and don't fix what the numbers say isn't broken.
 
 ## why not an LLM verifier
 

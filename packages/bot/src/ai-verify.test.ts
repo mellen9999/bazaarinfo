@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims } from './ai-verify'
+import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak } from './ai-verify'
 
 const CARD = 'Game data:\nPumpkin (Vanessa, Medium) — Heal 30/45/60. Cooldown 7 seconds.\n---\n[USER]: what does pumpkin do'
 
@@ -75,6 +75,25 @@ describe('board sight — the bot is a viewer with the overlay, not a blind one'
 
   it('does nothing without a board in context', () => {
     expect(findLiveTierClaims('that gold Flame Skirt is carrying', '')).toEqual([])
+  })
+})
+
+describe('monotonyStreak — the metronome is the tell, not the em-dash', () => {
+  const dash = (s: string) => `${s} is doing real work here — that is the whole build in one card`
+  const plain = 'stack shield and let the fountain math grind them out'
+
+  it('recognises the shape', () => {
+    expect(isDashClause(dash('flame skirt'))).toBe(true)
+    expect(isDashClause(plain)).toBe(false)
+    // a dash with nothing substantial on one side is a different sentence, not the pattern
+    expect(isDashClause('nope — no')).toBe(false)
+  })
+
+  it('counts only the unbroken run at the newest end', () => {
+    expect(monotonyStreak([])).toBe(0)
+    expect(monotonyStreak([plain, dash('a'), dash('b')])).toBe(2)
+    expect(monotonyStreak([dash('a'), dash('b'), plain])).toBe(0)
+    expect(monotonyStreak([dash('a'), dash('b'), dash('c')])).toBe(3)
   })
 })
 

@@ -1163,8 +1163,13 @@ describe('difficultyBase (scoring currency)', () => {
 })
 
 describe('hero alias acceptance (type 1)', () => {
+  const HERO_FROM_ITEM_IDX = 0 // genHeroFromItemQuestion (type 1)
   it('a hero-from-item question accepts documented aliases', () => {
-    // force type 1 (hero-from-item); fixtures include Pygmalien items, mock HERO_ALIASES maps pig/pyg->Pygmalien
+    // force type 1 (hero-from-item); fixtures include Pygmalien items, mock HERO_ALIASES maps pig/pyg->Pygmalien.
+    // the generator index is pinned rather than gambled on: looping over random TYPE selection
+    // flaked roughly one full-suite run in four, and a red suite that isn't a real failure is
+    // worse than no test — it hides the ones that are. only the card pick stays random.
+    __forceGenIdxForTest(HERO_FROM_ITEM_IDX)
     let found = false
     for (let i = 0; i < 80 && !found; i++) {
       resetForTest()
@@ -1176,6 +1181,7 @@ describe('hero alias acceptance (type 1)', () => {
         expect(g.acceptedAnswers).toContain('pig')
       }
     }
+    __forceGenIdxForTest(null)
     expect(found).toBe(true)
   })
 })

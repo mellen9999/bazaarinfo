@@ -99,6 +99,33 @@ export function findLiveTierClaims(reply: string, boardLine: string): string[] {
   return [...hits]
 }
 
+// --- sounding human ---
+//
+// measured over 2500 shipped replies: 46.6% contained an em-dash and 43% were the exact
+// same sentence shape — a clause, an em-dash, a second clause. a quarter of all replies sat
+// inside a run of three or more in a row, and the longest run was SEVENTEEN. no regular in a
+// twitch chat writes seventeen messages with identical punctuation; the metronome is the
+// tell, far more than any individual word choice.
+//
+// the em-dash itself is fine — deadpan understatement leans on it. the STREAK is the defect,
+// so that is what's measured, and the model is asked to vary before the call rather than
+// after (a nudge costs nothing, a retry costs a round-trip).
+const DASH_CLAUSE = /^[^—]{10,},?\s*—\s*.{10,}$/
+
+export function isDashClause(text: string): boolean {
+  return DASH_CLAUSE.test(text.trim())
+}
+
+/** how many of the most recent replies in a row share that one shape. `recent` is oldest-first. */
+export function monotonyStreak(recent: string[]): number {
+  let n = 0
+  for (let i = recent.length - 1; i >= 0; i--) {
+    if (!isDashClause(recent[i])) break
+    n++
+  }
+  return n
+}
+
 const WEEKDAYS = 'sunday|monday|tuesday|wednesday|thursday|friday|saturday'
 // only an assertion about TODAY. "next stream is wednesday" is a different sentence and
 // must stay legal — the schedule line is allowed to name any day it likes.

@@ -35,6 +35,7 @@ import { randomPastaExamples } from './ai-prompt'
 import { directiveHint } from './directives'
 import { DEFINITIONAL_INTENT } from './glossary'
 import { recordGap } from './gap-watch'
+import { monotonyStreak } from './ai-verify'
 
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
@@ -59,6 +60,17 @@ export function streamLine(channel: string): string {
   if (!isChannelLive(channel)) return `\nStream: ${channel} is offline right now.\n`
   const game = getChannelGame(channel)
   return `\nStream: ${channel} is LIVE right now${game ? `, playing ${game}` : ''}.\n`
+}
+
+// break a punctuation streak before it happens. the standing "vary structure every response"
+// rule in the system prompt demonstrably does not hold — 43% of shipped replies were the same
+// clause—clause shape and one run went seventeen deep — because the model has no way to notice
+// its own rhythm. handing it the count is what makes the instruction actionable, and it costs
+// nothing: this is context, not a second call.
+export function shapeLine(recent: string[]): string {
+  const streak = monotonyStreak(recent)
+  if (streak < 2) return ''
+  return `\n⚠ SHAPE: your last ${streak} replies were all "<clause> — <clause>". Break the pattern here — no em-dash this time. A plain sentence, a short fragment, or a question all work. Same voice, different rhythm.\n`
 }
 
 // prompt section headers a chatter might type — stripped wherever raw chat text is injected
@@ -956,6 +968,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // same day "tuesday". weekday+time come from here now, not from arithmetic.
     nowLine(),
     streamLine(ctx.channel),
+    shapeLine(getChannelRecentResponses(ctx.channel)),
     isContinuationLike ? `\n⚠️ SCENE CONTINUATION — [USER] asked for more. OVERRIDES one-and-done. This is turn ${hot.length + 1}. Each turn SHIFT AXIS — change at least one: setting, POV, format (action/dialogue/montage/letter/news/court transcript), stakes, genre (noir/sci-fi/horror/romance/heist), tempo. NEVER rehash. NEVER recycle the same beat with new words. Compound escalation: fistfight → duel → war → reckoning. ${hot.length >= 3 ? 'TURN 4+: linear escalation is exhausted — HARD CUT. timejump (years pass / future), dimension shift (alt reality / dream), genre flip, or new generation of the same characters. reset the stakes ladder. ' : ''}Pull from real-world (2025-2026 news, pop culture, history, science, internet). 400 chars.` : '',
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq),
     ctx.mention

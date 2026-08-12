@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { fitToBudget, nowLine, streamLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE } from './ai-build'
+import { fitToBudget, nowLine, streamLine, shapeLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE } from './ai-build'
 import { markLiveStateKnown, setChannelLive, setChannelOffline } from './ai-cache'
 import { META_QUERY_RE } from './intents'
 
@@ -33,6 +33,22 @@ describe('streamLine — the bot knows whether the stream is live, like everyone
     expect(streamLine('nl_kripp')).toContain('LIVE')
     expect(streamLine('nl_kripp')).toContain('The Bazaar')
     setChannelOffline('nl_kripp')
+  })
+})
+
+describe('shapeLine — the streak breaker costs a context line, not a second call', () => {
+  const dash = (s) => `${s} carries the run — that is the whole build in one card`
+
+  it('stays quiet until the pattern is actually a pattern', () => {
+    expect(shapeLine([])).toBe('')
+    expect(shapeLine(['plain sentence with no dash at all in it'])).toBe('')
+    expect(shapeLine([dash('a')])).toBe('')
+  })
+
+  it('names the streak so the instruction is actionable', () => {
+    expect(shapeLine([dash('a'), dash('b')])).toContain('last 2 replies')
+    expect(shapeLine([dash('a'), dash('b'), dash('c')])).toContain('last 3 replies')
+    expect(shapeLine([dash('a'), dash('b')])).toContain('no em-dash')
   })
 })
 
