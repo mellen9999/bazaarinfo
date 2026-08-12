@@ -14,6 +14,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 // --- local imports from sub-modules ---
 
 import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL } from './ai-sanitize'
+import { findUngroundedStats, correctClockClaim } from './ai-verify'
 import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
@@ -386,6 +387,31 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         }
         log('ai: fabricated data ref retries exhausted — returning null for clean fallback')
         return null
+      }
+      // the inverse of the guard above: game data IS present, so every stat number in the
+      // reply has a source of truth to be checked against. a number that appears nowhere in
+      // the context was invented on top of real data, which is the most convincing kind of
+      // wrong. exhausting the retries drops to the deterministic card formatter, which is
+      // never wrong — a correct card beats a confident sentence.
+      if (hasGameData) {
+        const ungrounded = findUngroundedStats(result.text, userMessage)
+        if (ungrounded.length > 0) {
+          log(`ai: ungrounded stat ${ungrounded.join('/')} against injected data, retrying (attempt ${attempt + 1})`)
+          if (attempt < MAX_RETRIES - 1) {
+            messages.push({ role: 'assistant', content: textBlock.text })
+            messages.push({ role: 'user', content: `You wrote ${ungrounded.join(' and ')}, which is not in the Game data section. Use only numbers that appear there, or drop the number and answer in words.` })
+            continue
+          }
+          log('ai: ungrounded stat retries exhausted — returning null for clean fallback')
+          return null
+        }
+      }
+      // a weekday claim is checkable against the clock line in context, so never ship a
+      // wrong one — correct it in place rather than spending a retry on it.
+      const dayFix = correctClockClaim(result.text, userMessage)
+      if (dayFix) {
+        log(`ai: corrected a wrong weekday claim to ${dayFix.day}`)
+        result.text = dayFix.text
       }
       // enforce length caps in code
       const isShort = isShortResponse(query)

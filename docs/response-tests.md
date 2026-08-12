@@ -73,6 +73,17 @@ shape, and must never contradict the schedule line in the same reply.
 
 ## 3. grounding + anti-hallucination
 
+the pre-send checks are deterministic (`ai-verify.ts`), not a second model call — see
+"why not an LLM verifier" at the bottom. probes that exercise them:
+
+| probe | pass |
+|---|---|
+| `!b how much does pumpkin heal at diamond` | the number matches the card exactly |
+| `!b what's pumpkin's cooldown` | a number from the card, or words with no number |
+| ask a stat question repeatedly | never a different number for the same card |
+| `!b is today friday` (when it isn't) | corrected to the real day, not agreed with |
+
+
 | probe | pass |
 |---|---|
 | `!b what does <real card> synergize with` | only cards that exist |
@@ -204,3 +215,30 @@ ssh mele "sqlite3 -separator '|' ~/.bazaarinfo.db \
 
 scan for: replies ending on a function word, a dodge phrase, a weekday claim, a stat with no
 source, a repeated punchline. anything you find here belongs in this file as a new ⚠ row.
+
+two harnesses worth re-running against a fresh dump before changing any guard:
+
+- **false positives** — replay every logged reply through the guards with its context
+  rebuilt. any flag on a reply that actually shipped fine is a regression in the guard.
+  last run: 500 replies, 136 with game data, 0 flagged.
+- **mutation** — corrupt each stat number in a real reply to a value absent from the
+  context and confirm the guard catches it. last run: 4/4 caught, 0 missed.
+
+## why not an LLM verifier
+
+the tempting version of this is a second model call that reads the draft and asks "is this
+true?". it was considered and rejected:
+
+- **it can't verify the hard part.** the bot answers art history, chemistry, amiga prices.
+  a second call shares the same weights, the same knowledge and the same failure modes, so
+  it agrees with the first one's mistakes. self-verification pays off on checkable
+  structure, not open-domain recall.
+- **it fights the freshness gate.** replies more than 20s late are dropped on purpose
+  (swift-or-silent). a second round-trip in front of every reply adds a whole latency tail
+  to the path whose tail is already the known problem.
+- **it doubles cost** for the ~97% of replies that quote no checkable number at all.
+
+so the check is deterministic and runs on what has a source of truth in-process: stat
+numbers against the injected card, weekday claims against the clock line, usernames against
+the DB, and the existing shape guards for everything the prompt forbids. trivia is the one
+place a model verifies a model — because a trivia answer has a right answer.
