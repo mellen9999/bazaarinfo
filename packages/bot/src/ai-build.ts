@@ -16,7 +16,7 @@ import type { ChatEntry } from './chatbuf'
 import { formatEmotesForAI, getEmotesForChannel } from './emotes'
 import { getDescriptions } from './emote-describe'
 import { getChannelStyle, getUserProfile, getChannelVoiceContext } from './style'
-import { formatAge, getHotExchanges, getChannelRecentResponses, getRecentEmotes, isChannelLive, isLiveStateKnown, getChannelGame } from './ai-cache'
+import { formatAge, getHotExchanges, getChannelRecentResponses, getRecentEmotes, isChannelLive, isLiveStateKnown, getChannelGame, getStreamInfo } from './ai-cache'
 import { snapshotSchedule, resolveScheduleChannel } from './schedule-query'
 import { isScheduleQuery, isPastStreamQuery, scheduleContext, lastStreamContext, TITLE_SCHEDULE_RE } from './schedule'
 import { getCachedChannelTitle } from './channel-title'
@@ -47,7 +47,7 @@ export function nowLine(at: Date = new Date()): string {
   const hh = String(at.getUTCHours()).padStart(2, '0')
   const mm = String(at.getUTCMinutes()).padStart(2, '0')
   const stamp = `${WEEKDAYS[at.getUTCDay()]} ${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]} ${at.getUTCFullYear()}, ${hh}:${mm} UTC`
-  return `\nRight now: ${stamp}. day/date/time/"what day is it" asks: answer straight from this line — never guess a weekday, never dodge to a schedule or a calendar app. viewer timezones vary, so say UTC.\n`
+  return `\nRight now: ${stamp}. day/date/time/"what day is it" asks: answer straight from this line. never guess a weekday, never dodge to a schedule or a calendar app. viewer timezones vary, so say UTC.\n`
 }
 
 // whether the channel is live, which every other viewer in chat can see at a glance. the
@@ -55,11 +55,36 @@ export function nowLine(at: Date = new Date()): string {
 // — check nl_kripp directly". silent until the first poll lands: an empty live set at boot
 // means "not asked yet", and a confident "he's offline" over a live stream is worse than
 // saying nothing.
-export function streamLine(channel: string): string {
+export function streamLine(channel: string, at = Date.now()): string {
   if (!isLiveStateKnown()) return ''
-  if (!isChannelLive(channel)) return `\nStream: ${channel} is offline right now.\n`
+  const title = getCachedChannelTitle(channel)
+  // offline: the title is still worth carrying. streamers park the plan in it
+  // ("NEXT STREAM WEDNESDAY"), which is why channel-title.ts fetches it at all.
+  if (!isChannelLive(channel)) {
+    return `\nStream: ${channel} is offline right now.${title ? ` Channel title still reads "${title}".` : ''}\n`
+  }
+  const info = getStreamInfo(channel)
+  const bits = [`${channel} is LIVE right now`]
   const game = getChannelGame(channel)
-  return `\nStream: ${channel} is LIVE right now${game ? `, playing ${game}` : ''}.\n`
+  if (game) bits.push(`playing ${game}`)
+  if (info?.title || title) bits.push(`stream title "${info?.title ?? title}"`)
+  if (info?.startedAt) bits.push(`live for ${uptime(at - info.startedAt)}`)
+  if (typeof info?.viewers === 'number') bits.push(`${formatViewers(info.viewers)} watching`)
+  // the viewer count is the one field that can be turned into a weapon ("only 4k today").
+  // it is public and chat can see it, so refusing to state it would be a lie; commenting on
+  // which way it is moving is what the punch-at-nobody rule forbids.
+  return `\nStream: ${bits.join(', ')}. Every viewer can see all of this, so state any of it plainly when asked. Never editorialise the viewer count or compare it to another day.\n`
+}
+
+function uptime(ms: number): string {
+  if (ms < 0) return 'a moment'
+  const mins = Math.floor(ms / 60_000)
+  const h = Math.floor(mins / 60)
+  return h > 0 ? `${h}h${String(mins % 60).padStart(2, '0')}m` : `${mins}m`
+}
+
+function formatViewers(v: number): string {
+  return v >= 10_000 ? `${(v / 1000).toFixed(0)}k` : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v)
 }
 
 // break a punctuation streak before it happens. the standing "vary structure every response"
@@ -70,7 +95,7 @@ export function streamLine(channel: string): string {
 export function shapeLine(recent: string[]): string {
   const streak = monotonyStreak(recent)
   if (streak < 2) return ''
-  return `\n⚠ SHAPE: your last ${streak} replies were all "<clause> — <clause>". Break the pattern here — no em-dash this time. A plain sentence, a short fragment, or a question all work. Same voice, different rhythm.\n`
+  return `\n⚠ SHAPE: your last ${streak} replies were all "<clause> — <clause>". Break the pattern here. No em-dash this time. A plain sentence, a short fragment, or a question all work. Same voice, different rhythm.\n`
 }
 
 // prompt section headers a chatter might type — stripped wherever raw chat text is injected

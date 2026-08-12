@@ -142,6 +142,19 @@ let liveStateKnown = false
 export function markLiveStateKnown(): void { liveStateKnown = true }
 export function isLiveStateKnown(): boolean { return liveStateKnown }
 
+// the rest of what /helix/streams returns on every poll. title and viewer_count were being
+// parsed away and thrown out, so the bot answered "what's the title?" with "i see chat not
+// the stream" while the title sat in the same response it used for the game name. no extra
+// API call buys any of this.
+export interface StreamInfo { title?: string; viewers?: number; startedAt?: number }
+const streamInfo = new Map<string, StreamInfo>()
+export function setStreamInfo(channel: string, info: StreamInfo): void {
+  streamInfo.set(channel.toLowerCase(), info)
+}
+export function getStreamInfo(channel: string): StreamInfo | undefined {
+  return streamInfo.get(channel.toLowerCase())
+}
+
 export function isChannelLive(channel: string): boolean { return liveChannels.has(channel.toLowerCase()) }
 export function getLiveChannels(): string[] { return [...liveChannels] }
 export function getChannelGame(channel: string): string | undefined { return channelGames.get(channel.toLowerCase()) }

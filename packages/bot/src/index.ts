@@ -14,7 +14,7 @@ import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, carriesLiveQuestion } from './trivia'
 import { isMuted } from './directives'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
-import { enableAiForChannel, disableAiForChannel, markLiveStateKnown } from './ai-cache'
+import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamInfo } from './ai-cache'
 import { refreshRedditDigest } from './reddit'
 import { setChannelIdResolver } from './board'
 import { refreshTopicalDigest } from './topical'
@@ -530,7 +530,7 @@ async function pollStreams(initial = false) {
       headers: { Authorization: `Bearer ${getAccessToken()}`, 'Client-Id': CLIENT_ID! },
       signal: AbortSignal.timeout(10_000),
     })
-    const parsed = await readJson<{ data: { user_login: string; game_name: string; started_at: string }[] }>(res)
+    const parsed = await readJson<{ data: { user_login: string; game_name: string; started_at: string; title?: string; viewer_count?: number }[] }>(res)
     if (!parsed.ok || !parsed.data) return
     const data = parsed.data
     const now = Date.now()
@@ -542,6 +542,9 @@ async function pollStreams(initial = false) {
       // idempotent per (channel, started_at) — a whole live session collapses to one row.
       const startedMs = Date.parse(s.started_at)
       if (Number.isFinite(startedMs)) db.recordStreamSession(ch, startedMs, now)
+      // title/viewers ride along in the same payload as the game name — keep them, so the
+      // bot knows what every other viewer can see on the channel page
+      setStreamInfo(ch, { title: s.title, viewers: s.viewer_count, startedAt: Number.isFinite(startedMs) ? startedMs : undefined })
       offlineMisses.delete(ch) // present again -> reset any pending offline countdown
       const prev = liveState.get(ch)
       if (prev === undefined) {

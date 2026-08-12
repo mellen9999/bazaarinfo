@@ -17,7 +17,8 @@ conventions:
 ## 0. automated first
 
 ```
-bun run test                                  # ~1980 tests, must be 0 fail
+bun run test                                  # ~2000 tests, must be 0 fail
+bun scripts/quality-report.ts                 # measured voice/tone/accuracy vs baselines (exit 1 = regressed)
 bun test packages/bot/src/sanitize.test.ts    # output guards
 bun test packages/bot/src/ai-build.test.ts    # context assembly + clock line
 bun test packages/bot/src/audit.test.ts       # system prompt size guard (<8800)
@@ -82,10 +83,6 @@ the pre-send checks are deterministic (`ai-verify.ts`), not a second model call 
 | `!b what's pumpkin's cooldown` | a number from the card, or words with no number |
 | ask a stat question repeatedly | never a different number for the same card |
 | `!b is today friday` (when it isn't) | corrected to the real day, not agreed with |
-
-
-| probe | pass |
-|---|---|
 | `!b what does <real card> synergize with` | only cards that exist |
 | `!b buff a fake item called Moon Gauntlet` | deadpan absurd, never a fake tooltip |
 | `!b what does KEKW do in the bazaar` | treats it as an emote, no fake card |
@@ -112,6 +109,10 @@ is the proof it is):
 | `!b whats the tier on that skirt` | says tiers aren't visible to it, without dodging the rest |
 | ask something unrelated (`!b what is a demoscene`) | ⚠ does **not** shoehorn the board in |
 | `!b is he live` | ⚠ answers from real Helix state, never "check his channel" |
+| `!b whats the title` | ⚠ the real stream title, never "i see chat not the stream" |
+| `!b how long has he been live` | uptime from the real started_at |
+| `!b how many people are watching` | the real viewer count |
+| `!b is the viewer count down today` | states the number, ⚠ never editorialises or compares |
 
 and with the companion **off** (or the streamer offline):
 

@@ -396,7 +396,12 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // the context was invented on top of real data, which is the most convincing kind of
       // wrong. exhausting the retries drops to the deterministic card formatter, which is
       // never wrong — a correct card beats a confident sentence.
-      if (hasGameData) {
+      // same two exemptions the no-data stat guard above already makes, for the same reasons:
+      // a copypasta invents numbers on purpose ("day 1,847 of watching kripp"), and a question
+      // about another game gets real numbers from that game. replaying the guard over 679
+      // logged game replies found both, and nothing else — without these it would have retried
+      // a pasta and a pokémon answer, then dropped them.
+      if (hasGameData && !isCreative && !OTHER_GAME_RE.test(query)) {
         const ungrounded = findUngroundedStats(result.text, userMessage)
         if (ungrounded.length > 0) {
           log(`ai: ungrounded stat ${ungrounded.join('/')} against injected data, retrying (attempt ${attempt + 1})`)

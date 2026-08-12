@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { fitToBudget, nowLine, streamLine, shapeLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE } from './ai-build'
-import { markLiveStateKnown, setChannelLive, setChannelOffline } from './ai-cache'
+import { markLiveStateKnown, setChannelLive, setChannelOffline, setStreamInfo } from './ai-cache'
 import { META_QUERY_RE } from './intents'
 
 describe('nowLine — the bot can state the weekday instead of deriving it', () => {
@@ -34,6 +34,39 @@ describe('streamLine — the bot knows whether the stream is live, like everyone
     expect(streamLine('nl_kripp')).toContain('The Bazaar')
     setChannelOffline('nl_kripp')
   })
+
+  it('carries everything the channel page shows: title, uptime, viewers', () => {
+    markLiveStateKnown()
+    setChannelLive('nl_kripp', 'The Bazaar')
+    const start = Date.UTC(2026, 7, 12, 14, 0)
+    setStreamInfo('nl_kripp', { title: 'dragons or bust', viewers: 8234, startedAt: start })
+    const l = streamLine('nl_kripp', start + (3 * 60 + 12) * 60_000)
+    expect(l).toContain('"dragons or bust"')
+    expect(l).toContain('live for 3h12m')
+    expect(l).toContain('8.2k watching')
+    // the count is public, but moving it into a jab is not
+    expect(l).toContain('Never editorialise the viewer count')
+    setChannelOffline('nl_kripp')
+  })
+
+  it('rounds viewers and uptime the way a viewer reads them', () => {
+    markLiveStateKnown()
+    setChannelLive('nl_kripp')
+    const t = Date.UTC(2026, 7, 12, 14, 0)
+    setStreamInfo('nl_kripp', { viewers: 47, startedAt: t })
+    expect(streamLine('nl_kripp', t + 25 * 60_000)).toContain('live for 25m, 47 watching')
+    setStreamInfo('nl_kripp', { viewers: 124_000, startedAt: t })
+    expect(streamLine('nl_kripp', t)).toContain('124k watching')
+    setChannelOffline('nl_kripp')
+  })
+
+  it('never invents a clock: no started_at means no uptime claim', () => {
+    markLiveStateKnown()
+    setChannelLive('nl_kripp')
+    setStreamInfo('nl_kripp', { title: 'no timestamp here' })
+    expect(streamLine('nl_kripp')).not.toContain('live for')
+    setChannelOffline('nl_kripp')
+  })
 })
 
 describe('shapeLine — the streak breaker costs a context line, not a second call', () => {
@@ -48,7 +81,7 @@ describe('shapeLine — the streak breaker costs a context line, not a second ca
   it('names the streak so the instruction is actionable', () => {
     expect(shapeLine([dash('a'), dash('b')])).toContain('last 2 replies')
     expect(shapeLine([dash('a'), dash('b'), dash('c')])).toContain('last 3 replies')
-    expect(shapeLine([dash('a'), dash('b')])).toContain('no em-dash')
+    expect(shapeLine([dash('a'), dash('b')])).toContain('No em-dash')
   })
 })
 
