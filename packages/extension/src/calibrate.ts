@@ -15,6 +15,25 @@ const NUDGE = 0.005 // arrow-key step; Shift multiplies
 const NUDGE_BIG = 0.05
 const MIN_SCALE = 0.05
 const CONFIG_VERSION = '1'
+const MAX_SHOT_BYTES = 25 * 1024 * 1024 // a stream screenshot is ~1-5MB; anything bigger is a mistake
+
+// Text pasted or dropped onto the stage may be an image link. Only https survives:
+// data:/javascript:/file: pasted as text are rejected outright, and the URL parser
+// throwing on garbage is the validation. Exported for tests.
+export function pastedImageUrl(text: string | undefined | null): string | null {
+  const t = (text ?? '').trim()
+  if (!t || t.length > 2048 || /\s/.test(t)) return null
+  let u: URL
+  try { u = new URL(t) } catch { return null }
+  return u.protocol === 'https:' ? u.href : null
+}
+
+// A link dragged from another tab arrives as text/uri-list (line-based, # comments),
+// with text/plain as the fallback. Exported for tests.
+export function droppedImageUrl(uriList: string, plain: string): string | null {
+  const first = uriList.split('\n').map((s) => s.trim()).find((s) => s && !s.startsWith('#'))
+  return pastedImageUrl(first ?? plain)
+}
 
 interface Els {
   stage: HTMLElement
@@ -168,18 +187,19 @@ export function initCalibrator() {
   els.stage.addEventListener('pointerup', endDrag)
   els.stage.addEventListener('pointercancel', endDrag)
 
-  // ── keyboard (keyboard-first fine-tuning) ──
+  // ── keyboard (keyboard-first fine-tuning; vim keys mirror the arrows) ──
   els.box.addEventListener('keydown', (e) => {
     const step = e.shiftKey ? NUDGE_BIG : NUDGE
     switch (e.key) {
-      case 'ArrowLeft': set({ x: crop.x - step }); break
-      case 'ArrowRight': set({ x: crop.x + step }); break
-      case 'ArrowUp': set({ y: crop.y - step }); break
-      case 'ArrowDown': set({ y: crop.y + step }); break
+      case 'ArrowLeft': case 'h': case 'H': set({ x: crop.x - step }); break
+      case 'ArrowRight': case 'l': case 'L': set({ x: crop.x + step }); break
+      case 'ArrowUp': case 'k': case 'K': set({ y: crop.y - step }); break
+      case 'ArrowDown': case 'j': case 'J': set({ y: crop.y + step }); break
       case '+': case '=': set({ scale: crop.scale + step }); break
       case '-': case '_': set({ scale: crop.scale - step }); break
       case 'Enter': if (!els.save.disabled) els.save.click(); break
       case 'r': case 'R': els.reset.click(); break
+      case 'x': case 'X': case 'Escape': if (!hasShot) return; clearShot(); break
       default: return
     }
     e.preventDefault()
@@ -206,23 +226,53 @@ export function initCalibrator() {
   })
 
   // ── screenshot backdrop ──
-  // The broadcaster drops a frame of their own stream so they align the box to
-  // the real game, not a guess. The image is read locally into a data: URL and
+  // The broadcaster pastes or drops a frame of their own stream so they align the
+  // box to the real game, not a guess. A file is read locally into a data: URL and
   // painted as the stage background — never uploaded, never leaves the browser.
+  // An https link paints directly (the browser fetches only to render it).
+  let hasShot = false
+
+  const paintShot = (url: string) => {
+    // 100% 100% because a stream screenshot IS the full 16:9 frame the stage
+    // represents; stretch-fit maps it 1:1 so the box lines up with the video.
+    els.stage.style.backgroundImage = `url("${url.replace(/"/g, '%22')}")`
+    els.stage.classList.add('cal-stage--shot')
+    hasShot = true
+    els.box.focus()
+    setStatus('aligned to your screenshot — box the game, then save · x clears it', 'muted')
+  }
+
+  const clearShot = () => {
+    els.stage.style.backgroundImage = ''
+    els.stage.classList.remove('cal-stage--shot')
+    hasShot = false
+    setStatus('screenshot cleared', 'muted')
+  }
+
+  // Decode before painting: a corrupt file or dead link fails loud here instead of
+  // silently leaving the stage blank.
+  const verifyAndPaint = (url: string, failMsg: string) => {
+    const probe = new Image()
+    probe.onload = () => paintShot(url)
+    probe.onerror = () => setStatus(failMsg, '')
+    probe.src = url
+  }
+
   const loadImage = (file: File | undefined | null) => {
     if (!file || !file.type.startsWith('image/')) { setStatus('not an image file', ''); return }
+    if (file.size > MAX_SHOT_BYTES) { setStatus('image too large (25mb max)', ''); return }
     const reader = new FileReader()
     reader.onload = () => {
       const url = typeof reader.result === 'string' ? reader.result : ''
-      if (!url) return
-      // 100% 100% because a stream screenshot IS the full 16:9 frame the stage
-      // represents; stretch-fit maps it 1:1 so the box lines up with the video.
-      els.stage.style.backgroundImage = `url("${url.replace(/"/g, '%22')}")`
-      els.stage.classList.add('cal-stage--shot')
-      setStatus('aligned to your screenshot — box the game, then save', 'muted')
+      if (url) verifyAndPaint(url, 'could not read that image')
     }
     reader.onerror = () => setStatus('could not read that image', '')
     reader.readAsDataURL(file)
+  }
+
+  const loadImageUrl = (url: string) => {
+    setStatus('loading image…', 'muted')
+    verifyAndPaint(url, 'could not load that link')
   }
 
   els.shot.addEventListener('click', () => els.file.click())
@@ -235,8 +285,33 @@ export function initCalibrator() {
   els.stage.addEventListener('drop', (e) => {
     stopDrag(e)
     els.stage.classList.remove('cal-stage--drop')
-    loadImage(e.dataTransfer?.files?.[0])
+    const dt = e.dataTransfer
+    const file = dt?.files?.[0]
+    if (file) { loadImage(file); return }
+    const url = dt ? droppedImageUrl(dt.getData('text/uri-list'), dt.getData('text/plain')) : null
+    if (url) loadImageUrl(url)
+    else setStatus('drop an image file or an https image link', '')
   })
+
+  // Paste-anywhere: ctrl/⌘+v with a screenshot (or an image link) on the clipboard
+  // just works — no save-to-file detour. Real text fields keep their pastes.
+  const isEditable = (t: EventTarget | null) =>
+    t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement ||
+    (t instanceof HTMLElement && t.isContentEditable)
+
+  document.addEventListener('paste', (e) => {
+    if (isEditable(e.target)) return
+    const dt = e.clipboardData
+    if (!dt) return
+    const img = Array.from(dt.files).find((f) => f.type.startsWith('image/'))
+    if (img) { e.preventDefault(); loadImage(img); return }
+    const url = pastedImageUrl(dt.getData('text/plain'))
+    if (url) { e.preventDefault(); loadImageUrl(url); return }
+    setStatus('clipboard had no image — screenshot your stream, then paste again', '')
+  })
+
+  // Clicking anywhere on the stage arms the keyboard — no hunting for the box.
+  els.stage.addEventListener('pointerdown', () => els.box.focus())
 
   // faint item-row hint so the broadcaster can orient the box to their board
   buildBoardHint(els.box)
