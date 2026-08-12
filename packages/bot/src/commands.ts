@@ -22,6 +22,7 @@ import { glossaryAnswer, isBareKeyword } from './glossary'
 import { enchantAnswer } from './enchants'
 import { getThread, getRecent } from './chatbuf'
 import { log } from './log'
+import { RESERVED_SUBS } from './self'
 import * as raidCmds from './raid/commands'
 import * as dungeon from './dungeon'
 import { BLOCKED_BANG_CMDS, isModAliasCommand, ALLOWED_SLASH_CMDS } from './text-safety'
@@ -484,13 +485,6 @@ function resolveSkills(monster: Monster): Map<string, SkillDetail> {
 
 type SubHandler = (query: string, ctx: CommandContext, suffix: string) => string | null | Promise<string | null>
 
-const RESERVED_SUBS = new Set([
-  'mob', 'monster', 'hero', 'tag', 'skill', 'day', 'enchants', 'enchantments', 'event', 'encounter',
-  'trivia', 'skip', 'score', 'stats', 'top', 'alias', 'help', 'info',
-  'refresh', 'update', 'emotes', 'status', 'join', 'part',
-  'leave', 'pick', 'vote', 'party', 'shop', 'history', 'resolve', 'game',
-  'overlay',
-])
 
 const subcommands: [RegExp, SubHandler][] = [
   [/^alias$/i, (_q, ctx) => {

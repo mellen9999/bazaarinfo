@@ -202,6 +202,23 @@ the streak back at the model after two in a row, with a one-call backstop behind
 
 re-measure any time with the harness in §13 — the rates above are the baseline to beat.
 
+## 7c. questions about the bot itself
+
+grounded from `self.ts`: the capability list is generated from the real subcommand table and
+"what's new" comes from the actual git log of the running checkout, so neither can go stale.
+injected only when asked — the bot never volunteers a feature list.
+
+| probe | pass |
+|---|---|
+| `!b what can you do` | 2-3 real capabilities in its own words, ⚠ never a recited list |
+| `!b how do you work` | plain explanation, offers the public prompt link |
+| `!b whats new with you` | real recent changes, readable, ⚠ no "feat(bot):" prefixes |
+| `!b did you get an update` | same, or an honest nothing-lately |
+| `!b what commands do you have` | real subcommands only, ⚠ never an invented one |
+| `!b can you do <invented feature>` | ⚠ says no — never promises something not in the list |
+| `!b whats new` (no "with you") | the GAME patch line, not the bot changelog |
+| `!b who made you` | mellen, and nothing further about him |
+
 ## 8. emotes + spam
 
 | probe | pass |

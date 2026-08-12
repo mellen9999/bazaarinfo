@@ -36,6 +36,7 @@ import { directiveHint } from './directives'
 import { DEFINITIONAL_INTENT } from './glossary'
 import { recordGap } from './gap-watch'
 import { monotonyStreak } from './ai-verify'
+import { selfContext } from './self'
 
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
@@ -688,6 +689,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // like a dump lookup. any OTHER query gets it as a separate ambient section below,
   // which deliberately does NOT set hasGameData: the board carries no numbers, so the
   // fabricated-stats guard must stay armed while the model banters over it.
+  // questions about the bot itself. costs nothing on every other message: empty unless asked.
+  const selfLine = selfContext(query)
+
   const boardShaped = isBoardQuery(query)
   const boardLine = boardShaped ? getBoardLine(ctx.channel) : ''
   const ambientBoardLine = !boardShaped ? getBoardLine(ctx.channel, true) : ''
@@ -1086,6 +1090,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'schedule', text: scheduleLine, base: -106 },
     // live weather is the direct answer when it fires — same never-evict tier
     { name: 'weather', text: weatherLine, base: -105 },
+    // "what can you do" / "what's new with you" — the only grounding that exists for
+    // questions about the bot itself, so it can never be the section that gets evicted
+    { name: 'self', text: selfLine, base: -104 },
   ]
     .filter((s) => s.text)
     .map((s) => ({ ...s, prio: s.base - (s.boost ?? 0) }))
