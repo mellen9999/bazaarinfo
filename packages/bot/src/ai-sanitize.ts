@@ -188,6 +188,20 @@ export const SECRET_PATTERN = /\b(sk-ant-\S+|sk-[a-zA-Z0-9-]{20,}|oauth:[a-zA-Z0
 // --- cached per-asker regex for name stripping ---
 
 const askerReCache = new Map<string, RegExp>()
+const STRANDABLE = 'to|of|with|for|at|about|toward|towards|by|from|on|in|like|than'
+const strandedPrepCache = new Map<string, RegExp>()
+function strandedPrepRe(asker: string): RegExp {
+  let re = strandedPrepCache.get(asker)
+  if (!re) {
+    const escaped = asker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    re = new RegExp(`[\\s,]+(?:${STRANDABLE})\\s+@?${escaped}\\b('s)?`, 'gi')
+    strandedPrepCache.set(asker, re)
+    if (strandedPrepCache.size > 500) strandedPrepCache.delete(strandedPrepCache.keys().next().value!)
+  }
+  re.lastIndex = 0
+  return re
+}
+
 function askerNameRe(asker: string): RegExp {
   let re = askerReCache.get(asker)
   if (!re) {
@@ -251,6 +265,13 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   // "the direct answer is Vanessa" / "theres no direct answer, it depends" must survive.
   s = s.replace(/^(?:[^.]*?(?:off-topic|banter|not game[- ]related)[^.]*\.\s*)?direct answer:\s*/i, '')
   s = s.replace(/^(?:off-topic|not game[- ]related|not relevant)\b[^.]*\.\s*/i, '')
+  // soft scope-dodge preamble the hard SCOPE_DODGE guard can't blank, because a real answer
+  // follows it ("art history isn't in my item database, so I can't pull it from bazaardb.gg
+  // — but the short answer is…"). the disclaimer is the banned part, not the answer: peel the
+  // clause and keep what it was apologising for. anchored + requires the pivot, so a response
+  // that IS just the disclaimer still falls to the guards below.
+  // ("bazaardb.gg" puts a dot inside the clause, so this can't be bounded on [^.!?])
+  s = s.replace(/^.{0,120}?\b(?:is|are)n[o']?t\s+(?:in|part of)\s+(?:my|the)\s+\S*\s?(?:database|data|dataset|item list)\b.{0,140}?[,—–-]\s*(?:but|though|however|still)[,]?\s+/i, '')
   s = s.replace(BANNED_FILLER, '')
   // strip verbal tics haiku loves
   s = s.replace(VERBAL_TICS, '').replace(/\s{2,}/g, ' ')
@@ -276,10 +297,16 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
   // strip asker's name from body — they get auto-tagged by reply threading
   if (asker) {
     const beforeStrip = s
+    // the name is often the object of a preposition ("solid tuesday for @asker."). removing
+    // just the name strands the preposition and ships "solid tuesday for." — take the
+    // preposition with it. anchored on the name, so ordinary "waiting for?" is untouched.
+    s = s.replace(strandedPrepRe(asker), '')
     s = s.replace(new RegExp(`@${asker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'gi'), '')
     s = s.replace(askerNameRe(asker), '')
     // fix orphan punctuation left by name removal (e.g. "you, . you" → "you. you")
     s = s.replace(/,\s*\./g, '.').replace(/\s{2,}/g, ' ')
+    // a name lifted from just before the punctuation leaves the space behind ("thanks .")
+    if (s !== beforeStrip) s = s.replace(/\s+([.,!?])/g, '$1')
     // a name at the START takes its separator with it — "@asker, text" and "asker: text"
     // were shipping as ", text" / ": text". only repaired when a name actually came out,
     // so a deliberate em-dash opener ("— stop, actually stop") is left alone.
@@ -324,7 +351,12 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
 
   // trim incomplete trailing sentence from token cutoff — but only for longer responses
   // short one-liners without punctuation are fine as-is (e.g. "she's mid")
-  if (s.length > 40 && !/[.!?)"']$/.test(s.trim())) {
+  //
+  // gated on an ACTUAL max_tokens stop: a missing full stop is not evidence of a cutoff.
+  // the model finishes plenty of answers without one, and ungated this amputated the last
+  // clause of complete replies ("…broke new ground, not the subject matter" → "…broke new
+  // ground"). when the generation ended on its own, there is nothing incomplete to trim.
+  if (truncated && s.length > 40 && !/[.!?)"']$/.test(s.trim())) {
     const lastEnd = Math.max(s.lastIndexOf('. '), s.lastIndexOf('! '), s.lastIndexOf('? '))
     if (lastEnd > s.length * 0.4) {
       s = s.slice(0, lastEnd + 1)

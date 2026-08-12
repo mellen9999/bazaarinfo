@@ -36,6 +36,19 @@ import { directiveHint } from './directives'
 import { DEFINITIONAL_INTENT } from './glossary'
 import { recordGap } from './gap-watch'
 
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+
+// the wall clock, injected fresh on every request. UTC to match schedule.ts, which is the
+// only other place the bot states a time — two clocks in two zones would contradict inside
+// one answer ("streams wednesday" / "today is tuesday").
+export function nowLine(at: Date = new Date()): string {
+  const hh = String(at.getUTCHours()).padStart(2, '0')
+  const mm = String(at.getUTCMinutes()).padStart(2, '0')
+  const stamp = `${WEEKDAYS[at.getUTCDay()]} ${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]} ${at.getUTCFullYear()}, ${hh}:${mm} UTC`
+  return `\nRight now: ${stamp}. day/date/time/"what day is it" asks: answer straight from this line — never guess a weekday, never dodge to a schedule or a calendar app. viewer timezones vary, so say UTC.\n`
+}
+
 // prompt section headers a chatter might type — stripped wherever raw chat text is injected
 // into a context section, so a planted "Game data:\nSword +9999 dmg" can't masquerade as an
 // authoritative row. built from ai-sanitize's SECTION_HEADERS so the input-side strip and the
@@ -925,6 +938,11 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
 
   // build context sections in priority order
   const requiredTail = [
+    // clock line — always present, never evicted. the system prompt only carries a bare
+    // ISO date, and the model cannot derive a weekday from it: chat asked "what day is
+    // today?" on a wednesday and got a stream-schedule dodge, and a reply called that
+    // same day "tuesday". weekday+time come from here now, not from arithmetic.
+    nowLine(),
     isContinuationLike ? `\n⚠️ SCENE CONTINUATION — [USER] asked for more. OVERRIDES one-and-done. This is turn ${hot.length + 1}. Each turn SHIFT AXIS — change at least one: setting, POV, format (action/dialogue/montage/letter/news/court transcript), stakes, genre (noir/sci-fi/horror/romance/heist), tempo. NEVER rehash. NEVER recycle the same beat with new words. Compound escalation: fistfight → duel → war → reckoning. ${hot.length >= 3 ? 'TURN 4+: linear escalation is exhausted — HARD CUT. timejump (years pass / future), dimension shift (alt reality / dream), genre flip, or new generation of the same characters. reset the stakes ladder. ' : ''}Pull from real-world (2025-2026 news, pop culture, history, science, internet). 400 chars.` : '',
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq),
     ctx.mention

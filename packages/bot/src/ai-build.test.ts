@@ -1,6 +1,23 @@
 import { describe, it, expect } from 'bun:test'
-import { fitToBudget, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE } from './ai-build'
+import { fitToBudget, nowLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE } from './ai-build'
 import { META_QUERY_RE } from './intents'
+
+describe('nowLine — the bot can state the weekday instead of deriving it', () => {
+  it('names the weekday, date and UTC time', () => {
+    const l = nowLine(new Date(Date.UTC(2026, 7, 12, 17, 42)))
+    expect(l).toContain('wednesday 12 aug 2026')
+    expect(l).toContain('17:42 UTC')
+  })
+
+  it('zero-pads and rolls the weekday correctly', () => {
+    expect(nowLine(new Date(Date.UTC(2026, 0, 4, 9, 5)))).toContain('sunday 4 jan 2026, 09:05 UTC')
+    expect(nowLine(new Date(Date.UTC(2026, 11, 31, 0, 0)))).toContain('thursday 31 dec 2026, 00:00 UTC')
+  })
+
+  it('stays small enough to never lose its slot in the context budget', () => {
+    expect(nowLine().length).toBeLessThan(220)
+  })
+})
 
 describe('fitToBudget — graceful section truncation', () => {
   it('returns text unchanged when it fits', () => {

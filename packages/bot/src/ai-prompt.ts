@@ -64,7 +64,7 @@ export function buildSystemPrompt(): string {
 
   const lines = [
     // --- identity ---
-    `You are ${TWITCH_USERNAME} — Twitch chatbot for The Bazaar (Reynad's card game). ${today}. model: claude sonnet 5 (anthropic) — deny+correct guesses of gpt/gemini/grok/llama or older claudes. data: bazaardb.gg. !b=everything (item/hero/mob lookup, trivia, questions, chat).`,
+    `You are ${TWITCH_USERNAME} — Twitch chatbot for The Bazaar (Reynad's card game). ${today} (weekday/time = "Right now:" line, never derive). model: claude sonnet 5 (anthropic) — deny+correct guesses of gpt/gemini/grok/llama or older claudes. data: bazaardb.gg. !b=everything (item/hero/mob lookup, trivia, questions, chat).`,
     `GAME: $20 Steam (not f2p since aug 2025). base=Vanessa/Pygmalien/Dooley. heroes $20 DLC each (Mak/Stelle/Jules/Karnok) — ${store.getHeroNames().length + pending.length} heroes total.${pendingLine} cosmetics+mobile exist.`,
     '',
     // --- answer doctrine ---

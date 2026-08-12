@@ -792,6 +792,45 @@ describe('real response regressions', () => {
     expect(sanitize('Reynolds created this game').text).toBe('Reynolds created this game')
   })
 
+  // shipped live as "…murder trivia going great — solid Tuesday for." — the asker's name
+  // was the object of "for", and lifting it left the preposition dangling.
+  it('takes the preposition with the asker name instead of stranding it', () => {
+    expect(sanitize('ewc, reacher season 2, murder trivia going great — solid tuesday for hamstornado.', 'hamstornado').text)
+      .toBe('ewc, reacher season 2, murder trivia going great — solid tuesday.')
+    expect(sanitize('that build is cooked, no offence to @bob.', 'bob').text).toBe('that build is cooked, no offence.')
+    expect(sanitize('bob, welcome back.', 'bob').text).toBe('welcome back')
+  })
+
+  it('keeps a trailing preposition that is not pointing at the asker', () => {
+    expect(sanitize('what are you waiting for?', 'bob').text).toBe('what are you waiting for?')
+    expect(sanitize('bob, what are you waiting for?', 'bob').text).toBe('what are you waiting for?')
+  })
+
+  // shipped live on a Mantegna question — the answer was good, the apology in front of it wasn't
+  it('peels a scope-disclaimer preamble but keeps the answer behind it', () => {
+    const r = sanitize("art history isn't in my item database, so I can't pull it from bazaardb.gg — but the short answer is it's the illusionistic ceiling that broke new ground")
+    expect(r.text).toBe("the short answer is it's the illusionistic ceiling that broke new ground")
+  })
+
+  it('leaves an honest missing-data answer alone when there is no pivot', () => {
+    expect(sanitize("that card isn't in my database, so bazaardb.gg is your best bet").text)
+      .toBe("that card isn't in my database, so bazaardb.gg is your best bet")
+  })
+
+  // a missing full stop is not a token cutoff — the trimmer used to eat the last clause of
+  // finished answers ("…broke new ground, not the subject matter" lost four words)
+  it('keeps the last clause of a complete answer that has no final period', () => {
+    const full = "shape-memory alloys, yeah — nitinol's the famous one, bends out of shape then snaps back when heated"
+    expect(sanitize(full).text).toBe(full)
+    const bet = "that card isn't in my database, so bazaardb.gg is your best bet"
+    expect(sanitize(bet).text).toBe(bet)
+  })
+
+  it('still trims the tail when the generation really hit max_tokens', () => {
+    const cut = sanitize('glass keeps carbonation longer than plastic. the porous walls let CO2 slowly', undefined, undefined, undefined, true).text
+    expect(cut).toBe('glass keeps carbonation longer than plastic')
+  })
+
   it('does not strip "not" when part of real answers', () => {
     expect(sanitize('not a real player, so impossible to say').text).toBeTruthy()
     expect(sanitize('not sure off the top of my head').text).toBeTruthy()
