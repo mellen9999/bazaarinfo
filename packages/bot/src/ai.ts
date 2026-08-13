@@ -234,7 +234,14 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   type ApiData = {
     content: { type: string; text?: string }[]
     stop_reason: string
-    usage?: { input_tokens: number; output_tokens: number }
+    // input_tokens is the UNCACHED remainder only — the cached span is reported
+    // separately. total prompt = input + cache_creation + cache_read.
+    usage?: {
+      input_tokens: number
+      output_tokens: number
+      cache_creation_input_tokens?: number
+      cache_read_input_tokens?: number
+    }
   }
 
   type ApiResult = { status: number; data?: ApiData }
@@ -279,6 +286,12 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       try {
         const u = parsed.data.usage
         if (u) db.recordAiSpend(ctx.channel, u.input_tokens ?? 0, u.output_tokens ?? 0)
+        // cache accounting, per dispatched request (hedge losers included — two
+        // concurrent calls can't read each other's write, so a hedge shows as two
+        // creations). read>0 = the system prompt hit; creation>0 = cold write.
+        const cw = u?.cache_creation_input_tokens ?? 0
+        const cr = u?.cache_read_input_tokens ?? 0
+        if (cw || cr) log(`ai: cache read=${cr} write=${cw} uncached=${u?.input_tokens ?? 0}`)
       } catch {}
       return { status: 200, data: parsed.data }
     } catch (e) {
