@@ -15,6 +15,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 
 import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL } from './ai-sanitize'
 import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak } from './ai-verify'
+import { repairTruncation, isStub } from './ai-truncate'
 import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, getChannelRecentResponses } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
@@ -23,6 +24,7 @@ import { detectFancyStyle, toFancy } from './fancy'
 import { matchingDirectives } from './directives'
 import { isWorldCupQuery, refreshWorldCupIfNeeded } from './worldcup'
 import { isWeatherQuery, refreshWeatherIfNeeded } from './weather'
+import { isHsRatingQuery, refreshHsIfNeeded } from './hs'
 import { refreshBoardIfNeeded } from './board'
 import { isScheduleQuery } from './schedule'
 import { resolveScheduleChannel } from './schedule-query'
@@ -188,6 +190,11 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // contract as world cup — TTL-gated no-op when fresh; fail-soft, never throws.
   if (isWeatherQuery(query)) await refreshWeatherIfNeeded(query)
 
+  // BG leaderboard: deliberately NOT awaited — a full sweep is ~70 requests, so this turn
+  // answers from the cached board (refreshed at most every 6h) while a stale one reloads
+  // in the background. a rating hours old is right; a reply seconds late is not.
+  if (isHsRatingQuery(query)) refreshHsIfNeeded()
+
   // schedule asks: prefetch the target channel's title BEFORE building context — a
   // streamer-stated plan in the title ("NEXT STREAM WEDNESDAY") overrides the stats.
   // TTL-cached, fail-soft, never throws.
@@ -214,7 +221,11 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // an active steer twist ("say dude after every word") inflates tokens-per-word; on the
   // 80-token chat budget that meant generations cut to 1-3 words. headroom, not a new tier.
   const steerActive = ctx.channel && ctx.user ? matchingDirectives(ctx.channel, query, ctx.user).length > 0 : false
-  const effectiveMaxTokens = baseMaxTokens + (steerActive && !isCreative ? 40 : 0)
+  // a per-word steer roughly doubles tokens-per-idea, and the flat +40 still left 61% of
+  // steered replies cut mid-word in production. scale the ceiling instead of nudging it —
+  // max_tokens is a ceiling, not a charge, so an ordinary-length reply costs exactly the
+  // same. capped at the pasta budget so a steer can't buy itself a wall of text.
+  const effectiveMaxTokens = steerActive && !isCreative ? Math.min(baseMaxTokens * 2, MAX_TOKENS_PASTA) : baseMaxTokens
 
   // when a fancy font is requested, force ascii output so transcoding has clean
   // input — otherwise the model emits its own (expensive, inconsistent) glyphs.
@@ -476,46 +487,17 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // enforce length caps in code
       const isShort = isShortResponse(query)
       const hardCap = isCreative ? 400 : hasGameData ? 250 : isRememberReq ? 120 : isShort ? 60 : 150
-      if (result.text.length > hardCap) {
-        const cut = result.text.slice(0, hardCap)
-        // prefer sentence-ending breaks; only fall back to comma/clause if none exist
-        const sentenceBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '))
-        if (sentenceBreak > hardCap * 0.4) {
-          result.text = cut.slice(0, sentenceBreak + 1).trim()
-        } else {
-          const clauseBreak = Math.max(cut.lastIndexOf(' — '), cut.lastIndexOf(', '))
-          if (clauseBreak > hardCap * 0.5) {
-            result.text = cut.slice(0, clauseBreak).trim()
-          } else if (data.stop_reason === 'max_tokens' || result.text.length > 480) {
-            // only amputate mid-thought when the model was actually cut off, or we're over
-            // the hard 480-char Twitch limit. a COMPLETE slightly-over-cap one-liner ("she's
-            // the best take here") keeps its last words instead of being clipped to a fragment.
-            result.text = cut.replace(/\s+\S*$/, '').trim()
-          }
-        }
-      }
-      // fix orphan quotes created by truncation
-      if ((result.text.match(/"/g) || []).length % 2 !== 0) {
-        const last = result.text.lastIndexOf('"')
-        const before = result.text.slice(0, last).trim()
-        if (before.length > 10) result.text = before
-      }
-      // fix unclosed parens created by truncation
-      const openParens = (result.text.match(/\(/g) || []).length
-      const closeParens = (result.text.match(/\)/g) || []).length
-      if (openParens > closeParens) {
-        const lastOpen = result.text.lastIndexOf('(')
-        const before = result.text.slice(0, lastOpen).trim()
-        if (before.length > 10) {
-          result.text = before
-        } else {
-          result.text = result.text.replace(/[,\s]*$/, '') + ')'
-        }
-      }
-      // truncation can leave a dangling list label ("...2. foo 3") — drop the orphan
-      // ordinal, but only when an earlier numbered item proves it was a real list.
-      if (/\b\d+[.)]\s+\S/.test(result.text) && /(?:\n|\s)\d+[.):]?\s*$/.test(result.text)) {
-        result.text = result.text.replace(/(?:\n|\s)+\d+[.):]?\s*$/, '').trim()
+      // repair a reply the model didn't finish. the max_tokens case is the one that used to
+      // slip: a fragment landing UNDER the cap skipped every branch and shipped verbatim.
+      const cutShort = data.stop_reason === 'max_tokens'
+      result.text = repairTruncation(result.text, hardCap, cutShort)
+      // repair can only trim, never invent — if a hard cut left a one-word stub there is
+      // nothing to salvage, so spend a retry rather than ship "for".
+      if (cutShort && isStub(result.text) && attempt < MAX_RETRIES - 1) {
+        log(`ai: reply cut to a stub "${result.text}", retrying (attempt ${attempt + 1})`)
+        messages.push({ role: 'assistant', content: textBlock.text })
+        messages.push({ role: 'user', content: 'Your reply was cut off to a fragment. Say the whole thing in fewer words — one complete sentence that finishes its thought.' })
+        continue
       }
       if (result.text) {
         // terse refusal detection. the soft "everyone is special" dodge only counts when the
