@@ -31,7 +31,7 @@ import {
 } from './schedule'
 import { getCachedChannelTitle } from './channel-title'
 import { isBoardQuery, getBoardLine } from './board'
-import { isHsBoardQuery, getHsBoardLine } from './hs-board'
+import { isHsBoardQuery, getHsBoardLine, HS_NO_BOARD } from './hs-board'
 import { maybeFetchTwitchInfo } from './ai-background'
 import type { AiContext } from './ai'
 import {
@@ -870,9 +870,20 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // two ways in: the question names hearthstone/BG, or the channel is literally streaming
   // Hearthstone right now — during a BG stream a bare card name is a BG card, not a coincidence.
   // deliberately NOT fired on a Bazaar-entity query: this bot's home game wins name collisions.
-  const hsShaped = isHsCardQuery(query) || (isHearthstoneCategory(getChannelGame(ctx.channel)) && !entities.isGame)
+  // a NAMED Bazaar entity wins the collision, not merely a game-shaped query: "what's on
+  // his board" is game-shaped, and during a Hearthstone stream it is unambiguously about
+  // the Hearthstone board. gating on entities.isGame sent it to the Bazaar dump instead.
+  const bazaarEntity = entities.cards.length > 0 || entities.monsters.length > 0 || !!entities.hero
+  const hsLive = isHearthstoneCategory(getChannelGame(ctx.channel))
+  // during a Hearthstone stream a board question is a Hearthstone board question, full
+  // stop — that one beats even a named Bazaar entity, because nobody asks about a Bazaar
+  // board while watching Battlegrounds.
+  const hsShaped = isHsCardQuery(query) || (hsLive && (isHsBoardQuery(query) || !bazaarEntity))
+  // the don't-answer-from-memory line needs the chatter to have actually asked about
+  // hearthstone. keyed off the live category alone it fired on "yo whats good" — the
+  // word "good" is card-intent, a greeting is not a card question.
   const hsCard = hsShaped
-    ? hsCardContext(query, isHsCardIntent(query) && !isHsRatingQuery(query))
+    ? hsCardContext(query, isHsCardQuery(query) && isHsCardIntent(query) && !isHsRatingQuery(query))
     : { text: '', grounded: false }
   const hsCardLine = hsCard.text ? `\n${hsCard.text}` : ''
   // real card numbers in the prompt are what license the stat guards to relax — the miss
@@ -884,10 +895,15 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // other message gets it as background the model may use if it fits. only ever present
   // when the companion is actually feeding frames, so there is nothing to invent from.
   const hsBoardShaped = hsShaped && isHsBoardQuery(query)
-  const hsBoardLine = hsShaped ? getHsBoardLine(ctx.channel, query, !hsBoardShaped) : ''
-  // unlike the Bazaar board, this one carries real numbers — tier, stats, health — so it
-  // is genuine game data and the ungrounded-stat check should measure the reply against it
-  if (hsBoardLine && hsBoardShaped) hasGameData = true
+  const hsBoard = hsShaped ? getHsBoardLine(ctx.channel, query, !hsBoardShaped) : ''
+  // asked about the board with nothing coming through, say so. an unanswered board
+  // question is exactly where the model invents one, and this is the only thing in
+  // context that stops it — see HS_NO_BOARD.
+  const hsBoardLine = hsBoard ? `\n${hsBoard}` : (hsBoardShaped ? `\n${HS_NO_BOARD}` : '')
+  // unlike the Bazaar board, a REAL one carries numbers — tier, stats, health — so it is
+  // genuine game data and the ungrounded-stat check should measure the reply against it.
+  // the no-board line carries none, and must leave the invented-stat guards armed.
+  if (hsBoard && hsBoardShaped) hasGameData = true
 
   // skip reddit digest + emotes when we have specific game data or short queries
   const digest = getRedditDigest()

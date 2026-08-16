@@ -219,6 +219,18 @@ function render(channel: string, hs: HsState, age: number, ambient: boolean, wit
   return line
 }
 
+/**
+ * What to say when a board question arrives and no board is coming through.
+ *
+ * Silence is not safe here: asked "what's he got" during a Hearthstone stream with
+ * nothing injected, the model fills the gap from imagination and states a board that
+ * does not exist. Saying plainly that we cannot see it is both true and the only thing
+ * that reliably stops that — the same reason the Bazaar side ships an honest
+ * "i only see chat" rather than nothing.
+ */
+export const HS_NO_BOARD =
+  "No live Battlegrounds board is reaching you right now — the companion that reads the game log isn't running, or the game is closed. Say plainly you can't see the board this time. Do NOT describe, guess or invent any minion, tier, health or opponent."
+
 export function __setHsBoardCacheForTest(channel: string, snap: Snap | null): void {
   if (snap === null) cache.delete(channel.toLowerCase())
   else cache.set(channel.toLowerCase(), { at: Date.now(), snap })

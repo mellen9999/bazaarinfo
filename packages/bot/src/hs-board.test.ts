@@ -1,7 +1,7 @@
 import { test, expect, describe, beforeEach } from 'bun:test'
 import {
   isHsBoardQuery, isHsLobbyQuery, describeMinion, describeHero, describeHeroShort,
-  getHsBoardLine, __setHsBoardCacheForTest,
+  getHsBoardLine, HS_NO_BOARD, __setHsBoardCacheForTest,
 } from './hs-board'
 import { __setHsCards } from './hs-cards'
 import type { HsState } from '@bazaarinfo/shared'
@@ -207,5 +207,16 @@ describe('getHsBoardLine', () => {
   test('an empty board is reported as empty, not as missing', () => {
     __setHsBoardCacheForTest('nl_kripp', { hs: { ...STATE, board: [] }, ageMs: 1_000 })
     expect(getHsBoardLine('nl_kripp')).toContain('board: empty')
+  })
+})
+
+describe('HS_NO_BOARD — the honest answer when nothing is coming through', () => {
+  test('tells the model to say it cannot see, and to invent nothing', () => {
+    expect(HS_NO_BOARD).toContain("can't see the board")
+    expect(HS_NO_BOARD).toContain('Do NOT describe, guess or invent')
+  })
+
+  test('is short enough to never be the section that gets evicted', () => {
+    expect(HS_NO_BOARD.length).toBeLessThan(300)
   })
 })

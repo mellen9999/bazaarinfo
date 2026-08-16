@@ -72,6 +72,10 @@ export const ENTITY_SKIP = new Set([
   'ever', 'after', 'before', 'about', 'think', 'know', 'take',
   'come', 'keep', 'give', 'tell', 'find', 'here', 'there',
   'card', 'cards', 'spell', 'use', 'item', 'items',
+  // 'board' fuzzy-matched the monster Boarrior, so "what's on his board" resolved to a
+  // random monster card. board questions are answered by the live-board path, and the
+  // real Boarrior still matches on its own name.
+  'board', 'boards',
   // creative/meta keywords that collide with card titles ("Pasta", etc.) in chat context
   'pasta', 'copypasta', 'story', 'scene', 'bit', 'rant', 'lore', 'saga',
   'poem', 'meme', 'joke', 'fanfic', 'narrative', 'monologue',

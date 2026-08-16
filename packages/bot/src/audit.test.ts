@@ -127,6 +127,17 @@ describe('GAME_TERMS s3 vocabulary', () => {
     const results = store.searchByEffect('chilled', undefined, 5)
     expect(results.length).toBeGreaterThan(0)
   })
+
+  it('the bare word "board" is not a card — it fuzzy-matched the monster Boarrior', () => {
+    // "what's on his board" resolved to a random monster card, which also blocked the
+    // live-board path from firing. board questions are answered by the board pipeline.
+    expect(extractEntities("whats on his board").monsters).toEqual([])
+    expect(extractEntities('what is on the board').monsters).toEqual([])
+  })
+
+  it('...but Boarrior still resolves under its own name', () => {
+    expect(extractEntities('what does boarrior do').monsters.map((m) => m.Title)).toEqual(['Boarrior'])
+  })
 })
 
 // ============================================================
