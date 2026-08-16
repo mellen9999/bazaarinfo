@@ -274,20 +274,20 @@ export function formatSchedule(channel: string, pred: Prediction, now: number, l
   if (live.isLive) {
     const up = live.liveSince ? ` — up ${humanizeDelta(now - live.liveSince)}` : ''
     const usual = live.durationMs ? `, usually runs ~${Math.round(live.durationMs / HOUR)}h` : ''
-    return `${channel} is live right now${up}${usual}. that's a real signal, not a guess.`
+    return `${channel} is live right now${up}${usual}.`
   }
   switch (pred.kind) {
     case 'insufficient':
-      return `still learning ${channel}'s schedule — only ${pred.sessions}/${pred.needed} stream starts logged so far. ask again in a few days once i've watched more.`
+      return `still learning ${channel}'s schedule — ${pred.sessions}/${pred.needed} starts logged.`
     case 'irregular':
       return pred.medianGapMs
-        ? `${channel}'s schedule is too irregular to call a time — roughly one stream every ${humanizeDelta(pred.medianGapMs)}, but no reliable pattern.`
-        : `not enough of a pattern in ${channel}'s streams to predict a next one yet.`
+        ? `${channel}'s too irregular to call — roughly one stream every ${humanizeDelta(pred.medianGapMs)}, no reliable pattern.`
+        : `no pattern in ${channel}'s streams yet.`
     case 'streak': {
       const when = dayLabel(pred.at, now)
       const inMs = pred.at - now
       const soon = inMs <= GRACE ? 'any moment now' : `in ${humanizeDelta(inMs)}`
-      return `${channel}'s been streaming near-daily lately — next likely ${when} ${soon} (±${humanizeDelta(pred.confidenceMs)}), around ${utcClock(pred.at)}. from ${pred.samples} logged starts, recent ones weighted heaviest. not a promise.`
+      return `${channel} streams near-daily — next likely ${when} ${soon} (±${humanizeDelta(pred.confidenceMs)}), ~${utcClock(pred.at)}.`
     }
     case 'weekday':
     case 'gap': {
@@ -295,7 +295,7 @@ export function formatSchedule(channel: string, pred: Prediction, now: number, l
       const inMs = pred.at - now
       const soon = inMs <= GRACE ? 'any moment now' : `in ${humanizeDelta(inMs)}`
       const rough = pred.kind === 'weekday' && pred.loose ? ', rough' : ''
-      return `next ${channel} stream likely ${when} ${soon} (±${humanizeDelta(pred.confidenceMs)}${rough}) — around ${utcClock(pred.at)}. best guess from ${pred.samples} past starts, not a promise.`
+      return `next ${channel} stream likely ${when} ${soon} (±${humanizeDelta(pred.confidenceMs)}${rough}) — ~${utcClock(pred.at)}.`
     }
   }
 }
@@ -307,9 +307,18 @@ export function formatSchedule(channel: string, pred: Prediction, now: number, l
 // ("what's going on" is idiom, not a schedule ask).
 const STREAM_WORD_RE = /\b(?:stream(?:ing|s|ed)?|live|broadcast(?:ing)?|online|(?:get(?:ting|s)?|com(?:ing|es)?|hop(?:ping|s)?|be|back)\s+on)\b/i
 const WHEN_WORD_RE = /\b(?:when|next|what\s*time|how\s*long|schedule|soon|again|tonight|today|tomorrow|eta|back|going\s+live|predict\w*)\b/i
+// "how long until kripp starts" names no stream word at all — a real ask that fell straight
+// through to an AI brush-off ("no start time to give"). `start` is only a stream word when
+// nothing else in the line owns the verb: trivia/dungeon/raid rounds start too, and so does
+// "start being funny". recall is worth more than precision here — a false positive costs one
+// extra context line, a false negative costs a viewer a real answer.
+const START_WORD_RE = /\b(?:start(?:s|ing|ed)?|kick(?:s|ing)?\s*off)\b/i
+const NON_STREAM_SUBJ_RE = /\b(?:trivia|round|question|dungeon|descent|raid|match|tournament|episode|movie|video|patch|season|sale)\b/i
+const START_VERBAL_RE = /\bstart(?:s|ing|ed)?\s+(?:being|doing|to|talking|posting)\b/i
 export function isScheduleQuery(q: string): boolean {
   if (/\b(?:next\s+stream|stream\s+schedule|stream\s+predict\w*)\b/i.test(q)) return true
-  return STREAM_WORD_RE.test(q) && WHEN_WORD_RE.test(q)
+  if (STREAM_WORD_RE.test(q) && WHEN_WORD_RE.test(q)) return true
+  return START_WORD_RE.test(q) && WHEN_WORD_RE.test(q) && !NON_STREAM_SUBJ_RE.test(q) && !START_VERBAL_RE.test(q)
 }
 
 // past-tense schedule ask ("when did kripp start yesterday") — answered from logged

@@ -160,7 +160,9 @@ describe('predictNextStream — streak model (recent run beats stale weeks)', ()
     const now = BASE + 31 * DAY + 18 * HOUR
     const out = formatSchedule('nl_kripp', { kind: 'streak', at: now + 3 * HOUR, confidenceMs: 2 * HOUR, samples: 5 }, now, { isLive: false })
     expect(out).toContain('near-daily')
-    expect(out).toContain('not a promise')
+    // the hedge is "likely" + the ± window — provenance/disclaimer tails were cut as noise
+    expect(out).toContain('likely')
+    expect(out).toContain('±')
     const ctx = scheduleContext('nl_kripp', { kind: 'streak', at: now + 3 * HOUR, confidenceMs: 2 * HOUR, samples: 5 }, now, { isLive: false })
     expect(ctx).toContain('near-daily')
     expect(ctx.toLowerCase()).toContain('not confirmed')
@@ -175,13 +177,9 @@ describe('predictNextStream — streak model (recent run beats stale weeks)', ()
     expect(p.kind).toBe('streak')
     if (p.kind !== 'streak') return
     expect(p.samples).toBe(40)
-    for (const text of [
-      formatSchedule('nl_kripp', p, BASE + 39 * DAY + 22 * HOUR, { isLive: false }),
-      scheduleContext('nl_kripp', p, BASE + 39 * DAY + 22 * HOUR, { isLive: false }),
-    ]) {
-      expect(text).toContain('40')
-      expect(text).not.toMatch(/last 15 starts/i)
-    }
+    const ctx = scheduleContext('nl_kripp', p, BASE + 39 * DAY + 22 * HOUR, { isLive: false })
+    expect(ctx).toContain('40 logged starts')
+    expect(ctx).not.toMatch(/last 15 starts/i)
   })
 })
 
@@ -280,8 +278,18 @@ describe('formatSchedule / scheduleContext — never fabricate', () => {
   test('prediction line hedges honestly', () => {
     const out = formatSchedule('nl_kripp', { kind: 'weekday', at: now + 18 * HOUR, confidenceMs: 40 * 60_000, loose: false, samples: 23 }, now, { isLive: false })
     expect(out).toContain('likely')
-    expect(out).toContain('not a promise')
-    expect(out).toContain('23 past starts')
+    expect(out).toContain('±')
+  })
+
+  // chat copy stays tight — the provenance ("from N logged starts") is grounding for the
+  // model, not something a viewer asked for. it lives in scheduleContext only.
+  test('chat copy is short and drops the provenance tail', () => {
+    const p = { kind: 'weekday', at: now + 18 * HOUR, confidenceMs: 40 * 60_000, loose: false, samples: 23 } as const
+    const out = formatSchedule('nl_kripp', p, now, { isLive: false })
+    expect(out.length).toBeLessThan(110)
+    expect(out).not.toContain('23')
+    expect(out).not.toMatch(/not a promise|best guess/i)
+    expect(scheduleContext('nl_kripp', p, now, { isLive: false })).toContain('23 logged starts')
   })
 })
 
