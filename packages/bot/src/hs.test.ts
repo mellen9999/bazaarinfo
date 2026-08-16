@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test'
-import { isHsRatingQuery, extractSubject, matchPlayer, type HsEntry } from './hs'
+import { isHsRatingQuery, extractSubject, matchPlayer, resolveAlias, type HsEntry } from './hs'
 
 // a small stand-in for the real board. shapes taken from live blizzard data so the
 // matching rules are exercised against realistic battletags.
@@ -55,6 +55,23 @@ describe('extractSubject — who is being asked about', () => {
     expect(extractSubject('who is number 1 in battlegrounds')).toBe(null)
     expect(extractSubject('whats the top hearthstone BG rating')).toBe(null)
     expect(extractSubject('current bg leaderboard standings')).toBe(null)
+  })
+})
+
+describe('resolveAlias — chat names a streamer, blizzard indexes battletags', () => {
+  test('maps a known streamer to their stated battletag', () => {
+    expect(resolveAlias('kripp')).toBe('LettuceKing')
+    expect(resolveAlias('KRIPP')).toBe('LettuceKing')
+    expect(resolveAlias('nl_kripp')).toBe('LettuceKing')
+  })
+
+  test('handles the apostrophe-less possessive chat actually types', () => {
+    expect(resolveAlias('kripps')).toBe('LettuceKing')
+  })
+
+  test('an unknown name passes through untouched — never guessed at', () => {
+    expect(resolveAlias('dog')).toBe('dog')
+    expect(resolveAlias('somerandomviewer')).toBe('somerandomviewer')
   })
 })
 

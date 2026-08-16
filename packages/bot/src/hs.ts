@@ -144,6 +144,24 @@ function norm(s: string): string {
   return s.trim().toLowerCase()
 }
 
+// chat asks by stream name; blizzard indexes by battletag, and there is no public
+// twitch→battletag lookup. so this is a small hand-kept map — guessing one would pin a
+// stranger's rating on someone, which is the one mistake this module must never make.
+// add an entry only when the streamer has stated the tag themselves.
+const ALIASES: Record<string, string> = {
+  kripp: 'LettuceKing',
+  nl_kripp: 'LettuceKing',
+  kripparrian: 'LettuceKing',
+}
+
+// resolve a chat-name to a battletag. tolerates the apostrophe-less possessive chat types.
+export function resolveAlias(name: string): string {
+  const n = norm(name)
+  if (ALIASES[n]) return ALIASES[n]
+  if (n.length > 3 && n.endsWith('s') && ALIASES[n.slice(0, -1)]) return ALIASES[n.slice(0, -1)]
+  return name
+}
+
 // pure matcher — kept separate from the cache so every matching rule is testable without
 // touching blizzard or the disk. a player can hold entries in several regions at once.
 export function matchPlayer(entries: HsEntry[], name: string): HsEntry[] {
@@ -205,17 +223,21 @@ export function hsContext(query: string, subject: string | null): string {
   const season = cache.seasons.battlegrounds
   const head = `Hearthstone Battlegrounds leaderboard (official Blizzard data${season ? `, season ${season}` : ''}${ageNote()}):`
 
-  const found = subject ? lookupPlayer(subject) : []
+  const tag = subject ? resolveAlias(subject) : null
+  const found = tag ? lookupPlayer(tag) : []
   if (found.length) {
     return `${head} ${found.slice(0, 3).map(describe).join('; ')}. Relay these numbers, do not guess others.`
   }
+  // naming the battletag we actually checked keeps the "no rating" answer specific rather
+  // than sounding like we simply failed to look
+  const asked = tag && norm(tag) !== norm(subject ?? '') ? `${subject} (battletag ${tag})` : subject
 
   const counts = REGIONS.map((r) => `${r} ${cache!.entries.filter((e) => e.mode === 'battlegrounds' && e.region === r).length}`).join(', ')
   const top = topPlayers('battlegrounds', null, 3).map(describe).join('; ')
   if (subject) {
     // the important case: say WHY there's no number, so the model doesn't invent one or
     // imply the player is bad. an unranked player has no public rating anywhere.
-    return `${head} no ranked entry for "${subject}" — the leaderboard lists only the top ranked players per region (currently ${counts}). Blizzard publishes no rating for anyone outside it, so no rating for them exists publicly — say that plainly, do not guess a number, do not imply it means they are bad, and do not refuse the question. Current top: ${top}.`
+    return `${head} no ranked entry for ${asked} — the leaderboard lists only the top ranked players per region (currently ${counts}). Blizzard publishes no rating for anyone outside it, so no rating for them exists publicly — say that plainly, do not guess a number, do not imply it means they are bad, and do not refuse the question. Current top: ${top}.`
   }
   return `${head} current top — ${top}. Ranked players per region: ${counts}. Relay these numbers, do not guess others.`
 }
