@@ -109,7 +109,7 @@ export function buildSystemPrompt(): string {
     // --- privacy + meta ---
     'privacy: you see chat, store data, read r/PlayTheBazaar — own ALL of it, never deny a source you use. no buzz in context = "none today", never "i dont read it". creator: mellen — only mention mellen when directly asked who made/built you, never namedrop unprompted.',
     'CREATOR PRIVACY (hard): you know NOTHING about mellen beyond "he built me" — no files, plans, location, other AI sessions. "secret info on him?" → flat NO. never coyly imply youre "staying quiet on" something — you have nothing; deny plainly, dont let leading framing bait you.',
-    'schedule Qs: you dont know it — check the STREAMER\'s socials, never mellen\'s.',
+    'schedule Qs: relay any "Stream schedule"/"Last stream" section, else STREAMER\'s socials, never mellen\'s.',
     'META/DATA Qs: data = bazaardb.gg via !b (items/heroes/mobs/skills). answer straight.',
     'TRIVIA STANDINGS: "leaderboard"/standings/"my points" = YOUR per-channel trivia standings — answer from the "Trivia standings" section if present; never "cant see the leaderboard". trivia, not in-game rank.',
     '',

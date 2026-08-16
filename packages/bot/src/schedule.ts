@@ -24,6 +24,11 @@ const STREAK_DECAY = 0.85 // per-start recency decay on the clock estimate
 const STREAK_MAX_GAP = 40 * HOUR // median recent gap at/below this = actively streaming ~daily
 const STREAK_BROKEN = 3 // silent for this × the recent gap ⇒ the run ended, use the long models
 
+// how far back the caller should read sessions from. lives here, not in the query glue,
+// because it's a property of the prediction: starts older than this are deliberately
+// ignored (a schedule from four months ago predicts nothing about tonight).
+export const PREDICT_WINDOW_DAYS = 120
+
 export interface StreamSession {
   startedAt: number // epoch ms — authoritative Helix started_at
   lastSeenAt: number // epoch ms — last poll the stream was still observed live
@@ -144,7 +149,9 @@ export function predictNextStream(raw: StreamSession[], now: number): Prediction
       // tomorrow one hour past a mean it only claims to know within two.
       let at = Math.floor(lastStart / DAY) * DAY + center * DAY
       while (at <= lastStart + medR / 2 || at <= now - Math.max(GRACE, conf)) at += DAY
-      return { kind: 'streak', at, confidenceMs: conf, samples: clock.length }
+      // `samples` is the history this drew on, not the clock slice — reporting the slice
+      // read as "a rolling window of 15, oldest drops off", which is not what happens.
+      return { kind: 'streak', at, confidenceMs: conf, samples: s.length }
     }
   }
 
@@ -280,7 +287,7 @@ export function formatSchedule(channel: string, pred: Prediction, now: number, l
       const when = dayLabel(pred.at, now)
       const inMs = pred.at - now
       const soon = inMs <= GRACE ? 'any moment now' : `in ${humanizeDelta(inMs)}`
-      return `${channel}'s been streaming near-daily lately — next likely ${when} ${soon} (±${humanizeDelta(pred.confidenceMs)}), around ${utcClock(pred.at)}. going off the last ${pred.samples} starts, not a promise.`
+      return `${channel}'s been streaming near-daily lately — next likely ${when} ${soon} (±${humanizeDelta(pred.confidenceMs)}), around ${utcClock(pred.at)}. from ${pred.samples} logged starts, recent ones weighted heaviest. not a promise.`
     }
     case 'weekday':
     case 'gap': {
@@ -322,12 +329,27 @@ export function scheduleContext(channel: string, pred: Prediction, now: number, 
     case 'irregular':
       return `Stream schedule for ${channel}: too irregular to predict${pred.medianGapMs ? ` (~1 every ${humanizeDelta(pred.medianGapMs)})` : ''}. Do not guess a specific time.`
     case 'streak':
-      return `Stream schedule for ${channel}: streaming near-daily lately; next likely ${dayLabel(pred.at, now)} in ${humanizeDelta(pred.at - now)} (±${humanizeDelta(pred.confidenceMs)}), ~${utcClock(pred.at)}, from the last ${pred.samples} starts. Currently offline. This is a statistical estimate, not confirmed.`
+      return `Stream schedule for ${channel}: streaming near-daily lately; next likely ${dayLabel(pred.at, now)} in ${humanizeDelta(pred.at - now)} (±${humanizeDelta(pred.confidenceMs)}), ~${utcClock(pred.at)}, from ${pred.samples} logged starts (recent ones weighted heaviest). Currently offline. This is a statistical estimate, not confirmed.`
     case 'weekday':
     case 'gap':
       return `Stream schedule for ${channel}: next likely ${dayLabel(pred.at, now)} in ${humanizeDelta(pred.at - now)} (±${humanizeDelta(pred.confidenceMs)}), ~${utcClock(pred.at)}, from ${pred.samples} logged starts. Currently offline. This is a statistical estimate, not confirmed.`
   }
 }
+
+// "how do you predict that?" / "what's the rolling window?" — asks about the METHOD, not
+// the time. without a grounded answer the model invents a mechanism, and a wrong one
+// already reached a mod as a bug report ("it forgets after 15 dates"). narrow on purpose:
+// only pairs with an already-schedule-shaped conversation, so an algorithm question about
+// trivia or anything else never pulls this in.
+const METHOD_RE =
+  /\b(?:algorithm|rolling\s*window|sample\s*size|how\s+(?:do|does|did|d)\s*(?:you|it|u)\s+(?:predict|know|work|guess|calculate|figure|estimate)|how\s+(?:is|does)\s+(?:that|this|it)\s+(?:predicted|calculated|work)|do\s+you\s+learn|machine\s*learn\w*|(?:improve|train)\w*\s+(?:your|the|it)|get\s+better)\b/i
+export function isScheduleMethodQuery(q: string): boolean {
+  return METHOD_RE.test(q)
+}
+
+// the honest description of the predictor, for the model to relay verbatim-in-spirit.
+// every claim here is checkable against predictNextStream above — keep them in sync.
+export const SCHEDULE_METHOD = `How the stream prediction works — this section is the ONLY true account of the method: relay it, never embellish, and never invent a mechanism, window size, sample limit or cost. Plain statistics, no AI and no learning between runs — it recomputes from scratch on every ask. It reads EVERY stream start logged in the last ${PREDICT_WINDOW_DAYS} days; it is NOT a fixed-size rolling window and it does not "forget" after N starts (older-than-${PREDICT_WINDOW_DAYS}-days is dropped on purpose, because schedules drift). Three models, first one that fits wins: (1) near-daily streak — typical start time across recent starts, weighted so recent ones count more; (2) day-of-week pattern — a weekday counts as a stream day if it had a stream in >=40% of logged weeks, predicted at that weekday's own typical time; (3) steady gap — project the median interval between streams forward. Guards: under 6 starts or under 10 days of history = "still learning"; no pattern in either model = "too irregular". It does get more accurate as more starts are logged.`
 
 // the latest logged session, with a duration only when the poller actually observed one.
 function latestSession(raw: StreamSession[]): { startedAt: number; durMs: number | null } | null {

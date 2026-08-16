@@ -18,7 +18,15 @@ import { getDescriptions } from './emote-describe'
 import { getChannelStyle, getUserProfile, getChannelVoiceContext } from './style'
 import { formatAge, getHotExchanges, getChannelRecentResponses, getRecentEmotes, isChannelLive, isLiveStateKnown, getChannelGame, getStreamInfo } from './ai-cache'
 import { snapshotSchedule, resolveScheduleChannel } from './schedule-query'
-import { isScheduleQuery, isPastStreamQuery, scheduleContext, lastStreamContext, TITLE_SCHEDULE_RE } from './schedule'
+import {
+  isScheduleQuery,
+  isPastStreamQuery,
+  isScheduleMethodQuery,
+  scheduleContext,
+  lastStreamContext,
+  SCHEDULE_METHOD,
+  TITLE_SCHEDULE_RE,
+} from './schedule'
 import { getCachedChannelTitle } from './channel-title'
 import { isBoardQuery, getBoardLine } from './board'
 import { maybeFetchTwitchInfo } from './ai-background'
@@ -821,8 +829,12 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const titleLine = schedTitle && TITLE_SCHEDULE_RE.test(schedTitle)
     ? ` ${schedTarget}'s CURRENT TITLE: "${schedTitle}" — if the title states when the stream returns, that OVERRIDES the prediction; relay the title's plan.`
     : ''
+  // asked HOW the prediction is made, not when — ground the method too. a bare sample
+  // count once read to the model as "a rolling window of 15 starts, oldest drops off",
+  // which it then explained to a mod as fact. costs nothing on a normal schedule ask.
+  const methodLine = sched && isScheduleMethodQuery(query) ? `\n${SCHEDULE_METHOD}` : ''
   const scheduleLine = sched
-    ? `\n${isPastStreamQuery(query) ? lastStreamContext(schedTarget, sched.sessions, Date.now(), sched.live) : scheduleContext(schedTarget, sched.pred, Date.now(), sched.live)}${titleLine}`
+    ? `\n${isPastStreamQuery(query) ? lastStreamContext(schedTarget, sched.sessions, Date.now(), sched.live) : scheduleContext(schedTarget, sched.pred, Date.now(), sched.live)}${titleLine}${methodLine}`
     : ''
 
   // live world cup scores — real ESPN data, injected only on world-cup-shaped queries

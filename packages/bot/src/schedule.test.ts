@@ -10,6 +10,9 @@ import {
   lastStreamContext,
   humanizeDelta,
   withTitleOverride,
+  isScheduleMethodQuery,
+  SCHEDULE_METHOD,
+  PREDICT_WINDOW_DAYS,
   TITLE_SCHEDULE_RE,
   type StreamSession,
 } from './schedule'
@@ -161,6 +164,50 @@ describe('predictNextStream — streak model (recent run beats stale weeks)', ()
     const ctx = scheduleContext('nl_kripp', { kind: 'streak', at: now + 3 * HOUR, confidenceMs: 2 * HOUR, samples: 5 }, now, { isLive: false })
     expect(ctx).toContain('near-daily')
     expect(ctx.toLowerCase()).toContain('not confirmed')
+  })
+
+  // a mod was told "rolling window = only the last 15 stream starts count, oldest drops
+  // off" — the model read that straight off our own "from the last 15 starts" copy, where
+  // 15 was the clock slice, not the history. the reported count must be the history.
+  test('streak reports the full history it read, not the clock slice', () => {
+    const s = Array.from({ length: 40 }, (_, d) => sess(d, 18))
+    const p = predictNextStream(s, BASE + 39 * DAY + 22 * HOUR)
+    expect(p.kind).toBe('streak')
+    if (p.kind !== 'streak') return
+    expect(p.samples).toBe(40)
+    for (const text of [
+      formatSchedule('nl_kripp', p, BASE + 39 * DAY + 22 * HOUR, { isLive: false }),
+      scheduleContext('nl_kripp', p, BASE + 39 * DAY + 22 * HOUR, { isLive: false }),
+    ]) {
+      expect(text).toContain('40')
+      expect(text).not.toMatch(/last 15 starts/i)
+    }
+  })
+})
+
+describe('prediction method — grounded, so the bot cant invent its own internals', () => {
+  test('method asks are recognised, plain time asks are not', () => {
+    for (const q of [
+      'what does the rolling window mean',
+      'how do you predict that',
+      'how does it work',
+      'do you learn between streams',
+      'how can you improve your algorithm',
+      'do you improve your algorithm each stream',
+    ]) {
+      expect(isScheduleMethodQuery(q)).toBe(true)
+    }
+    for (const q of ['when is kripp streaming', 'is he live', 'translate that to eastern time']) {
+      expect(isScheduleMethodQuery(q)).toBe(false)
+    }
+  })
+
+  test('the method blurb states the real window and denies the invented one', () => {
+    expect(SCHEDULE_METHOD).toContain(String(PREDICT_WINDOW_DAYS))
+    expect(SCHEDULE_METHOD).toMatch(/NOT a fixed-size rolling window/i)
+    expect(SCHEDULE_METHOD).toMatch(/no learning between runs/i)
+    // it must not claim an AI is involved — the predictor is deliberately deterministic
+    expect(SCHEDULE_METHOD).toMatch(/no AI/i)
   })
 })
 

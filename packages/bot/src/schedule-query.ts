@@ -8,7 +8,14 @@
 // ~60s while a channel is live, so a fresh last_seen IS the live signal.
 
 import * as db from './db'
-import { predictNextStream, typicalDurationMs, type LiveInfo, type Prediction, type StreamSession } from './schedule'
+import {
+  PREDICT_WINDOW_DAYS,
+  predictNextStream,
+  typicalDurationMs,
+  type LiveInfo,
+  type Prediction,
+  type StreamSession,
+} from './schedule'
 
 // a schedule ask can name ANOTHER tracked channel ("when kripp getting on" typed in
 // #mellen) — resolve it so the answer is about the channel asked about, not the room.
@@ -30,7 +37,7 @@ export function resolveScheduleChannel(query: string, current: string, channels?
 }
 
 const DAY = 86_400_000
-const WINDOW_MS = 120 * DAY // only predict from the last ~4 months — schedules drift
+const WINDOW_MS = PREDICT_WINDOW_DAYS * DAY // only predict from the last ~4 months — schedules drift
 const LIVE_FRESH_MS = 3 * 60_000 // last_seen newer than this ⇒ live (poll cadence is ~60s)
 
 export function snapshotSchedule(channel: string, now: number): { pred: Prediction; live: LiveInfo; sessions: StreamSession[] } {
