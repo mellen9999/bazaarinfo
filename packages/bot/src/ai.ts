@@ -490,7 +490,13 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // repair a reply the model didn't finish. the max_tokens case is the one that used to
       // slip: a fragment landing UNDER the cap skipped every branch and shipped verbatim.
       const cutShort = data.stop_reason === 'max_tokens'
+      const beforeRepair = result.text
       result.text = repairTruncation(result.text, hardCap, cutShort)
+      // this repair is the one thing in the pipeline that DELETES words from a good reply
+      // if it misfires, so every trim it makes is greppable. "trim:" tagged, only on change.
+      if (result.text !== beforeRepair) {
+        log(`trim: ${cutShort ? 'max_tokens' : 'over_cap'} ${beforeRepair.length}->${result.text.length} tail=${JSON.stringify(beforeRepair.slice(result.text.length).slice(0, 24))}`)
+      }
       // repair can only trim, never invent — if a hard cut left a one-word stub there is
       // nothing to salvage, so spend a retry rather than ship "for".
       if (cutShort && isStub(result.text) && attempt < MAX_RETRIES - 1) {
