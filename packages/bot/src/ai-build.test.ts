@@ -227,6 +227,18 @@ describe('META_QUERY_RE — live patch/event questions route to the bazaardb pat
     ]) expect(META_QUERY_RE.test(q)).toBe(true)
   })
 
+  // real miss: no qualifier (current/latest/new/this) before "patch" and not "patch notes"
+  // either — a release-timing ask, which getPatchInfo() actually has an answer for
+  it('fires on release-timing patch phrasings with no qualifier', () => {
+    for (const q of [
+      'do u know when the patch drops for bazaar?',
+      "when's the patch dropping",
+      'when does the next patch release',
+      'when is the patch coming out',
+      'when does the patch land',
+    ]) expect(META_QUERY_RE.test(q)).toBe(true)
+  })
+
   it('does not fire on ordinary item/card queries', () => {
     for (const q of [
       'eyepatch', 'patchwork', 'vanessa', 'fiery boomerang', 'diamond heart', 'whats subscraper',

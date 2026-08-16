@@ -1041,9 +1041,20 @@ describe('live-log regressions', () => {
     it('blocks "this is a bazaar bot, not..."', () => {
       expect(blocked('this is a bazaar bot, not the National Ignition Facility hotline')).toBe(true)
     })
+    // the real live miss: no article, "chat" not "bot", no comma
+    it('blocks "no BG rating on the board, THIS is bazaar chat not hearthstone\'s..."', () => {
+      expect(blocked("no BG rating on the board, THIS is bazaar chat not hearthstone's — bazaardb.gg won't have that either, you'll have to check his own stats page")).toBe(true)
+    })
+    it('blocks other article/noun combos', () => {
+      expect(blocked('this is a bazaar channel not hearthstone')).toBe(true)
+      expect(blocked('i am bazaar stream, not a hearthstone one')).toBe(true)
+    })
     // naming the other game while actually answering is the CORRECT reply, not a dodge
     it('keeps a real off-topic answer that names the game', () => {
       expect(blocked("mill druid is hearthstone — you fatigue them out with Naturalize into Dead Man's Hand")).toBe(false)
+    })
+    it('keeps an unrelated sentence about bazaar chat', () => {
+      expect(blocked('bazaar chat has been on fire tonight')).toBe(false)
     })
   })
 

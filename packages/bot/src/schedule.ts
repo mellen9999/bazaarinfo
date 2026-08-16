@@ -306,7 +306,11 @@ export function formatSchedule(channel: string, pred: Prediction, now: number, l
 // "getting/coming/hopping on" and "online" count as stream words — "when kripp getting
 // on" was a real ask that fell through to an AI dodge. "going on" stays excluded
 // ("what's going on" is idiom, not a schedule ask).
-const STREAM_WORD_RE = /\b(?:stream(?:ing|s|ed)?|live|broadcast(?:ing)?|online|(?:get(?:ting|s)?|com(?:ing|es)?|hop(?:ping|s)?|be|back)\s+on)\b/i
+// bare "back" (not glued to "on") is also a stream word — "when is kripp back from his
+// holiday" was a real ask that fell through (STREAM_WORD_RE required "back on"). guarded both
+// directions against the "back to X" idiom ("go back to 4 damage", "back to back procs") so a
+// lone "back" only counts when it isn't part of that phrase.
+const STREAM_WORD_RE = /\b(?:stream(?:ing|s|ed)?|live|broadcast(?:ing)?|online|(?:get(?:ting|s)?|com(?:ing|es)?|hop(?:ping|s)?|be)\s+on|(?<!to\s)back(?!\s+to\b))\b/i
 const WHEN_WORD_RE = /\b(?:when|next|what\s*time|how\s*long|schedule|soon|again|tonight|today|tomorrow|eta|back|going\s+live|predict\w*)\b/i
 // "how long until kripp starts" names no stream word at all — a real ask that fell straight
 // through to an AI brush-off ("no start time to give"). `start` is only a stream word when
@@ -314,11 +318,21 @@ const WHEN_WORD_RE = /\b(?:when|next|what\s*time|how\s*long|schedule|soon|again|
 // "start being funny". recall is worth more than precision here — a false positive costs one
 // extra context line, a false negative costs a viewer a real answer.
 const START_WORD_RE = /\b(?:start(?:s|ing|ed)?|kick(?:s|ing)?\s*off)\b/i
-const NON_STREAM_SUBJ_RE = /\b(?:trivia|round|question|dungeon|descent|raid|match|tournament|episode|movie|video|patch|season|sale)\b/i
+const NON_STREAM_SUBJ_RE = /\b(?:trivia|round|question|dungeon|descent|raid|match|tournament|episode|movie|video|patch|season|sale|item|build|event)\b/i
 const START_VERBAL_RE = /\bstart(?:s|ing|ed)?\s+(?:being|doing|to|talking|posting)\b/i
+// present-tense LIVE-STATUS ask ("is he live", "is he streaming right now", "is his channel
+// dark") needs no temporal word at all, but WHEN_WORD_RE requires one — a real ask fell
+// through to a false capability denial ("Is nl_kripp currently broadcasting his gameplay or
+// is his channel dark?" → "check him directly", though the bot tracks live status). narrow to
+// an is/are/'s frame near an unambiguous stream-status word (bare "on"/"up" stay out of the
+// general list — too generic, e.g. "is the shop up" — except the tight he/she/they/it + "on"
+// shape), and still gated by NON_STREAM_SUBJ_RE below so "is the new patch live" / "is the
+// item live" stay off this branch.
+const STATUS_ASK_RE = /\b(?:is|are|'s)\b(?:\s+\S+){0,4}\s+(?:currently|right\s+now|still|live|streaming|broadcasting|online)\b|\b(?:is|are)\s+(?:he|she|they|it)\s+on\b|\bchannel\s+dark\b/i
 export function isScheduleQuery(q: string): boolean {
   if (/\b(?:next\s+stream|stream\s+schedule|stream\s+predict\w*)\b/i.test(q)) return true
   if (STREAM_WORD_RE.test(q) && WHEN_WORD_RE.test(q)) return true
+  if (STATUS_ASK_RE.test(q) && !NON_STREAM_SUBJ_RE.test(q)) return true
   return START_WORD_RE.test(q) && WHEN_WORD_RE.test(q) && !NON_STREAM_SUBJ_RE.test(q) && !START_VERBAL_RE.test(q)
 }
 

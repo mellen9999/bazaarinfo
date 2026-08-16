@@ -313,6 +313,37 @@ describe('isScheduleQuery', () => {
   )
 })
 
+describe('isScheduleQuery — present-tense live-status ask (no temporal word needed)', () => {
+  test.each([
+    // the real failure: bot claimed it can't see nl_kripp's stream at all
+    'Is nl_kripp currently broadcasting his gameplay or is his channel dark?',
+    'is he live',
+    'is he streaming right now',
+    'is he on',
+    'is kripp online right now',
+  ])('matches: %s', (q) => expect(isScheduleQuery(q)).toBe(true))
+
+  test.each([
+    'is the new patch live', // patch/item status, not stream status
+    'is the item live',
+    'is this build live right now',
+    'is the sale still up',
+  ])('does not swallow unrelated status asks: %s', (q) => expect(isScheduleQuery(q)).toBe(false))
+})
+
+describe('isScheduleQuery — bare "back" (not glued to "on")', () => {
+  test.each([
+    'when is kripp back from his holiday', // the real failure
+    "when's he back from vacation",
+    'is he back yet',
+  ])('matches: %s', (q) => expect(isScheduleQuery(q)).toBe(true))
+
+  test.each([
+    'go back to 4 damage', // "back to X" idiom, not a stream ask
+    'back to back procs',
+  ])('does not false-positive on the "back to X" idiom: %s', (q) => expect(isScheduleQuery(q)).toBe(false))
+})
+
 describe('isPastStreamQuery — tense routing', () => {
   test.each([
     'when did kripp start streaming yesterday',
