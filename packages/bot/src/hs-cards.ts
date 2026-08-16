@@ -495,6 +495,18 @@ export function hsCardContext(query: string, cardIntent: boolean): { text: strin
   }
 }
 
+/** every minion the current pool actually offers — the only safe source for a quiz answer. */
+export function hsPoolMinions(): HsCard[] {
+  loadDisk()
+  return (cache?.cards ?? []).filter((c) => c.k === 'minion' && c.p)
+}
+
+/** every hero in the pool, with its hero power resolved. */
+export function hsHeroes(): HsCard[] {
+  loadDisk()
+  return (cache?.cards ?? []).filter((c) => c.k === 'hero' && c.p)
+}
+
 /**
  * Name for a card id straight off the game log, or null when the dump doesn't know it.
  *

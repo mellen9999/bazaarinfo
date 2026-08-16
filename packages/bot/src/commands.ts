@@ -1286,7 +1286,11 @@ async function aiOrQuip(query: string, ctx: CommandContext, suffix: string): Pro
   return withSuffix(noMatchMsg(query), suffix)
 }
 
-const TRIVIA_CATEGORIES = new Set(['items', 'heroes', 'monsters', 'kripp'])
+// 'bg' / 'battlegrounds' / 'hearthstone' all mean the same round — chat types all three
+const TRIVIA_CATEGORIES = new Set(['items', 'heroes', 'monsters', 'kripp', 'bg', 'bgs', 'battlegrounds', 'hearthstone', 'hs'])
+const TRIVIA_CATEGORY_ALIASES: Record<string, string> = {
+  bgs: 'bg', battlegrounds: 'bg', hearthstone: 'bg', hs: 'bg',
+}
 
 // custom-topic generation is async + costs an API call — guard against concurrent
 // builds (one per channel) and a fast-fire loop that would burn calls without ever
@@ -1754,7 +1758,8 @@ async function runTrivia(ctx: CommandContext, rawArg: string, suffix: string): P
     return withSuffix(formatStats(target, ctx.channel), suffix)
   }
   if (TRIVIA_CATEGORIES.has(lower)) {
-    return withSuffix(startTrivia(ctx.channel, lower as 'items' | 'heroes' | 'monsters' | 'kripp'), suffix)
+    const cat = (TRIVIA_CATEGORY_ALIASES[lower] ?? lower) as 'items' | 'heroes' | 'monsters' | 'kripp' | 'bg'
+    return withSuffix(startTrivia(ctx.channel, cat), suffix)
   }
   return await handleCustomTrivia(ctx, arg, suffix)
 }

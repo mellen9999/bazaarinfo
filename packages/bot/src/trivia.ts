@@ -5,6 +5,16 @@ import { log } from './log'
 import { resolveTooltip } from '@bazaarinfo/shared'
 import type { Monster } from '@bazaarinfo/shared'
 import { pickEmoteByMood, isEmote } from './emotes'
+import { HS_GENERATORS, hsTriviaReady } from './hs-trivia'
+
+// what the channel is streaming, injected rather than imported: reaching into ai-cache
+// from here drags the whole AI graph into every consumer of trivia (and broke a mocked
+// module in the command tests). defaults to "unknown", which simply means no BG rounds.
+let liveGameFor: (channel: string) => string | null = () => null
+export function setLiveGameResolver(fn: (channel: string) => string | null): void {
+  liveGameFor = fn
+}
+const HS_CATEGORY_RE = /hearthstone/i
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
@@ -643,18 +653,45 @@ const generators: QuestionGen[] = [
 
 const KRIPP_GEN_INDEX = generators.length - 1
 
-type TriviaCategory = 'items' | 'heroes' | 'monsters' | 'kripp'
+// Battlegrounds generators, appended after the Bazaar set. Deterministic like the rest —
+// read straight off the card cache, so they need no fact-check. Type numbers start at 22
+// (21 is the AI custom-topic round) so the db can tell them apart forever.
+const HS_GEN_START = generators.length
+const HS_TYPE_BASE = 22
+for (const [i, gen] of HS_GENERATORS.entries()) {
+  generators.push(() => {
+    const q = gen()
+    return q ? { ...q, type: HS_TYPE_BASE + i } : null
+  })
+}
+const HS_GEN_INDICES = HS_GENERATORS.map((_, i) => HS_GEN_START + i)
+
+// how much of an UNCATEGORIZED round is Battlegrounds while the channel is streaming it.
+// high on purpose: chat is looking at the game, and a Bazaar monster's HP is the question
+// that made twenty-four people answer with battlegrounds-sized numbers. not 100% — this is
+// still the Bazaar's bot, and the occasional home question is the point of it being here.
+const HS_MIX = 0.8
+
+type TriviaCategory = 'items' | 'heroes' | 'monsters' | 'kripp' | 'bg'
 
 const CATEGORY_GENERATORS: Record<TriviaCategory, number[]> = {
   items: [1, 2, 4, 5, 7, 11, 12, 13, 15, 17],  // tag, tooltip, hero+size, hero+tag, mechanic, size, tier, enchant, fill-blank, legendary
   heroes: [0, 8],                              // hero-from-item, hero-from-skill
   monsters: [3, 6, 9, 10, 14, 16, 18],         // board, day, monster-skill, health, hp-compare, monster-by-day, item-carrier
   kripp: [KRIPP_GEN_INDEX],                    // channel-scoped streamer pack
+  bg: HS_GEN_INDICES,                          // hearthstone battlegrounds, from the card set
+}
+
+/** BG rounds are only meaningful when the card set actually loaded. */
+function hsAvailable(): boolean {
+  return hsTriviaReady()
 }
 
 // the default (un-categorized) Bazaar pool — NEVER includes the channel-scoped kripp
 // generator; that is mixed in only for kripp channels via pickQuestionType.
-const BAZAAR_INDICES = generators.map((_, i) => i).filter((i) => i !== KRIPP_GEN_INDEX)
+const BAZAAR_INDICES = generators
+  .map((_, i) => i)
+  .filter((i) => i !== KRIPP_GEN_INDEX && !HS_GEN_INDICES.includes(i))
 
 // disabled generators (array indices) — coin-flip questions a guesser wins on luck, not
 // knowledge: 11 = "what size is X?" (1-of-3), 14 = "which has more HP, A or B?" (50/50).
@@ -785,6 +822,18 @@ export function __forceGenIdxForTest(idx: number | null): void { forcedGenIdxFor
 function pickQuestionType(channel: string, category?: TriviaCategory): number {
   if (forcedGenIdxForTest !== null) return forcedGenIdxForTest
   const recent = recentTypes.get(channel) ?? []
+  // follow what is on screen. asking a Bazaar question to a room watching Battlegrounds
+  // is how "How much health does Surly Mechanic have?" got twenty-four answers between
+  // 3 and 11 against a real answer of 1925.
+  const hsLive = HS_CATEGORY_RE.test(liveGameFor(channel) ?? '') && hsAvailable()
+  if (category === 'bg') {
+    if (hsAvailable()) return weightedPick(HS_GEN_INDICES, typeWeights(channel, HS_GEN_INDICES))
+    category = undefined // no card data → fall back rather than dead-end
+  } else if (!category && hsLive && Math.random() < HS_MIX) {
+    const fresh = HS_GEN_INDICES.filter((i) => recent.filter((t) => t === i).length < 2)
+    const pool = fresh.length > 0 ? fresh : HS_GEN_INDICES
+    return weightedPick(pool, typeWeights(channel, pool))
+  }
   // kripp pack is channel-scoped and only when the vetted pack is non-empty.
   if (isKrippChannel(channel) && krippPack.length > 0) {
     if (category === 'kripp') return KRIPP_GEN_INDEX

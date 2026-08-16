@@ -11,7 +11,7 @@ import { startGoalWatch } from './worldcup-goals'
 import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
-import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, carriesLiveQuestion } from './trivia'
+import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, carriesLiveQuestion, setLiveGameResolver} from './trivia'
 import { isMuted } from './directives'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
 import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamInfo } from './ai-cache'
@@ -509,6 +509,9 @@ client.setAuthRefresh(doRefresh)
 client.setIrcOnly(['nl_kripp'])
 const channelIdFor = (ch: string) => client.getChannels().find((c) => c.name.toLowerCase() === ch)?.userId ?? null
 setChannelIdResolver(channelIdFor)
+// trivia follows what's on screen — a Bazaar question to a room watching Battlegrounds is
+// how "how much health does Surly Mechanic have" got answers between 3 and 11
+setLiveGameResolver((ch) => getChannelGame(ch) ?? null)
 setHsChannelIdResolver(channelIdFor)
 setSay((ch, msg) => client.say(ch, msg))
 announceToLobby = (msg) => {
