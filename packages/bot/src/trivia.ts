@@ -1132,6 +1132,34 @@ export function startCustomTrivia(
   })
 }
 
+// --- round-end hook ---
+//
+// "a trivia round is already running — wait for it" was a promise nothing kept: the topic
+// was never recorded, so the round that followed was whoever typed next. Chat noticed
+// ("where is wow trivia"). The hook lets the command layer serve a queued topic the moment
+// a round ends, which is what that message has always claimed happens.
+type RoundEndHook = (channel: string) => Promise<string | null>
+let roundEndHook: RoundEndHook | null = null
+export function setRoundEndHook(fn: RoundEndHook | null): void {
+  roundEndHook = fn
+}
+
+// let the reveal land before the next question — back to back reads as one wall of text
+const QUEUE_DRAIN_DELAY = 2_500
+
+/** every path that ends a round funnels through here, so the hook can never be missed. */
+function finishRound(channel: string): void {
+  activeGames.delete(channel)
+  lastGameEnd.set(channel, Date.now())
+  const hook = roundEndHook
+  if (!hook) return
+  setTimeout(() => {
+    hook(channel)
+      .then((msg) => { if (msg) globalSay(channel, msg) })
+      .catch((e) => log(`trivia: queued-topic drain failed: ${e}`))
+  }, QUEUE_DRAIN_DELAY).unref?.()
+}
+
 function endTrivia(channel: string, expectedGameId?: number): string | null {
   const game = activeGames.get(channel)
   if (!game) return null
@@ -1140,8 +1168,7 @@ function endTrivia(channel: string, expectedGameId?: number): string | null {
 
   clearTimeout(game.timeout)
   clearHints(game)
-  activeGames.delete(channel)
-  lastGameEnd.set(channel, Date.now())
+  finishRound(channel)
   log(`trivia: ended #${channel} game ${game.gameId} (${game.participants.size} players, timeout)`)
 
   // ALWAYS reveal the answer when a round ends — a posted question must get a posted
@@ -1228,8 +1255,7 @@ export function checkAnswer(
     db.recordTriviaWin(game.gameId, userId, answerTimeMs, game.participants.size, points)
     clearTimeout(game.timeout)
     clearHints(game)
-    activeGames.delete(channel)
-    lastGameEnd.set(channel, Date.now())
+    finishRound(channel)
 
     const timeStr = secs.toFixed(1)
     const speedTag = secs < 3 ? ' LEGENDARY' : secs < 5 ? ' FAST' : secs < 10 ? ' NICE' : ''
@@ -1260,8 +1286,7 @@ export function skipTrivia(channel: string, username?: string): string | null {
   if (!game) return null
   clearTimeout(game.timeout)
   clearHints(game)
-  activeGames.delete(channel)
-  lastGameEnd.set(channel, Date.now())
+  finishRound(channel)
   const emote = pickEmoteByMood(channel, 'sad', 'thinking')
   const who = username ? `${username} skipped` : 'Skipped'
   return `${who}. Answer: ${revealAnswer(game)}${emote ? ` ${emote}` : ''}`

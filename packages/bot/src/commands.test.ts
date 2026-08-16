@@ -146,6 +146,7 @@ mock.module('./trivia', () => ({
   startKrippTrivia: mockStartKrippTrivia,
   startFallbackTrivia: mockStartFallbackTrivia,
   startQuizCultureTrivia: mockStartQuizCultureTrivia,
+  setRoundEndHook: mock(() => {}),
 }))
 
 // custom-topic trivia generator — mocked so tests never hit the API. default returns
@@ -209,7 +210,7 @@ mock.module('./emotes', () => ({
   pickEmoteByMood: mock(() => undefined),
 }))
 
-const { handleCommand, parseArgs, salvageQuery, resetDedup, resetProxyCooldowns, resetTriviaTopicBans, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES, stripTopicConnector, DIRECTIVE_INTENT } = await import('./commands')
+const { handleCommand, parseArgs, salvageQuery, resetDedup, resetProxyCooldowns, resetTriviaTopicBans, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES, stripTopicConnector, DIRECTIVE_INTENT, __queueDepthForTest, __clearTopicQueueForTest } = await import('./commands')
 const chatbuf = await import('./chatbuf')
 const directives = await import('./directives')
 
@@ -3626,5 +3627,55 @@ describe('scaffolding is never logged as the user ask', () => {
     mockAiRespond.mockResolvedValueOnce({ text: 'ok', mentions: [] })
     await handleCommand('!b whats the meta', { user: 'u', channel: 'c' })
     expect(lastCtx().displayQuery).toBe('whats the meta')
+  })
+})
+
+describe('queued trivia topics — "wait for it" has to mean something', () => {
+  beforeEach(() => {
+    mockIsGameActive.mockReset()
+    mockIsGameActive.mockImplementation(() => true)  // a round is running
+    __clearTopicQueueForTest()
+  })
+
+  afterEach(() => {
+    mockIsGameActive.mockImplementation(() => false)
+    __clearTopicQueueForTest()
+  })
+
+  it('holds a topic asked during a live round instead of dropping it', async () => {
+    const res = await handleCommand('!b trivia World of Warcraft', { user: 'taibe', channel: 'qtest1' })
+    expect(res).toContain('up next')
+    expect(res).toContain('World of Warcraft')
+    expect(__queueDepthForTest('qtest1')).toBe(1)
+  })
+
+  it('never queues the same topic twice', async () => {
+    await handleCommand('!b trivia granblue', { user: 'tavi', channel: 'qtest2' })
+    const again = await handleCommand('!b trivia GRANBLUE', { user: 'other', channel: 'qtest2' })
+    expect(again).toContain('already queued')
+    expect(__queueDepthForTest('qtest2')).toBe(1)
+  })
+
+  it('is bounded — a spree cannot build a backlog that replays for ten minutes', async () => {
+    for (const t of ['aaa', 'bbb', 'ccc', 'ddd', 'eee']) {
+      await handleCommand(`!b trivia ${t}`, { user: 'spam', channel: 'qtest3' })
+    }
+    expect(__queueDepthForTest('qtest3')).toBeLessThanOrEqual(2)
+    const full = await handleCommand('!b trivia fff', { user: 'spam', channel: 'qtest3' })
+    expect(full).toContain('spoken for')
+  })
+
+  it('tells the asker their topic is queued, not that it was ignored', async () => {
+    const res = await handleCommand('!b trivia Fire Emblem', { user: 'specs', channel: 'qtest4' })
+    // the old wording promised something nothing delivered; the new one has to be true
+    expect(res).not.toContain('wait for it')
+    expect(res).toMatch(/up next|queued/)
+  })
+
+  it('queues per channel, never bleeding one channel\'s topic into another', async () => {
+    await handleCommand('!b trivia alpha', { user: 'a', channel: 'qtestA' })
+    await handleCommand('!b trivia beta', { user: 'b', channel: 'qtestB' })
+    expect(__queueDepthForTest('qtestA')).toBe(1)
+    expect(__queueDepthForTest('qtestB')).toBe(1)
   })
 })

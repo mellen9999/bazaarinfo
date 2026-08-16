@@ -6,7 +6,7 @@ import type { CmdType } from './db'
 import { snapshotSchedule, resolveScheduleChannel } from './schedule-query'
 import { formatSchedule, formatLastStream, isScheduleQuery, isPastStreamQuery, withTitleOverride } from './schedule'
 import { getChannelTitle } from './channel-title'
-import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, recentAnswerList, isRecentAnswer, startKrippTrivia, startFallbackTrivia, startQuizCultureTrivia } from './trivia'
+import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, recentAnswerList, isRecentAnswer, startKrippTrivia, startFallbackTrivia, startQuizCultureTrivia, setRoundEndHook} from './trivia'
 import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, generateGameTrivia, type CustomTrivia } from './ai-trivia'
 import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
 import { parseDirective } from './ai-directive'
@@ -1441,6 +1441,76 @@ function buildPersonDossier(username: string, channel: string): string | null {
   return text.length >= 20 ? text : null
 }
 
+// --- queued topics ---
+//
+// "a trivia round is already running — wait for it" promised something nothing delivered:
+// the topic was dropped on the floor and the next round was whoever typed first after the
+// reveal. Chat called it out ("where is wow trivia"). Now the topic is held and served the
+// moment the round ends, which is what the message always said.
+//
+// Bounded hard on purpose. This channel gets a dozen !trivia a minute during a spree; a
+// deep queue would spend the next ten minutes replaying topics nobody remembers asking
+// about. Two deep, three minutes to live, first-come.
+const QUEUE_MAX = 2
+const QUEUE_TTL = 3 * 60_000
+interface QueuedTopic { topic: string; user: string; at: number }
+const topicQueue = new Map<string, QueuedTopic[]>()
+
+function liveQueue(channel: string): QueuedTopic[] {
+  const now = Date.now()
+  const q = (topicQueue.get(channel) ?? []).filter((e) => now - e.at < QUEUE_TTL)
+  if (q.length) topicQueue.set(channel, q)
+  else topicQueue.delete(channel)
+  return q
+}
+
+/** hold a topic for the next round. returns the honest line to say back, never null. */
+function queueTopic(channel: string, topic: string, user: string): string {
+  const q = liveQueue(channel)
+  const norm = topic.trim().toLowerCase()
+  if (q.some((e) => e.topic.trim().toLowerCase() === norm)) {
+    return `"${topic.slice(0, 30)}" is already queued — it's up after this round`
+  }
+  if (q.length >= QUEUE_MAX) {
+    return `a round is already running and the next ${q.length} are spoken for — try again after`
+  }
+  q.push({ topic, user, at: Date.now() })
+  topicQueue.set(channel, q)
+  return q.length === 1
+    ? `a round is already running — "${topic.slice(0, 30)}" is up next`
+    : `a round is already running — "${topic.slice(0, 30)}" is queued (#${q.length})`
+}
+
+export function __queueDepthForTest(channel: string): number {
+  return liveQueue(channel).length
+}
+export function __clearTopicQueueForTest(): void {
+  topicQueue.clear()
+}
+
+/**
+ * Run the next queued topic. Wired to trivia's round-end hook, so it fires once per round.
+ *
+ * Everything a typed request goes through, a queued one goes through too — mod bans can
+ * land mid-round, and a banned topic must not sneak in through the queue.
+ */
+async function drainTopicQueue(channel: string): Promise<string | null> {
+  const q = liveQueue(channel)
+  const next = q.shift()
+  if (!next) return null
+  if (q.length) topicQueue.set(channel, q)
+  else topicQueue.delete(channel)
+  const ctx: CommandContext = { user: next.user, channel }
+  try {
+    const out = await handleCustomTrivia(ctx, next.topic, '')
+    return out ? `@${next.user} ${out}` : null
+  } catch {
+    return null // a failed drain must never take the round-end path down with it
+  }
+}
+
+setRoundEndHook(drainTopicQueue)
+
 async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: string): Promise<string | null> {
   const channel = ctx.channel
   if (!channel) return null
@@ -1456,7 +1526,9 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
     t = 'trivia and quiz culture — game shows, jeopardy, quiz history, famous trivia facts'
   }
   if (isGameActive(channel)) {
-    return withSuffix(`a trivia round is already running — wait for it`, suffix)
+    // hold it rather than dropping it — the reply below is a promise, and drainTopicQueue
+    // is what makes it true
+    return withSuffix(queueTopic(channel, t, ctx.user ?? 'chat'), suffix)
   }
   // mod topic bans — enforced here so every entry path (about-form, topic-first,
   // NL-verb form) hits the same wall.
