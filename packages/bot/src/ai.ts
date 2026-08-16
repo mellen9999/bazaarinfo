@@ -8,7 +8,7 @@ import { readJson } from './http'
 
 export { sanitize, isModelRefusal, stripInputEcho, fixEmoteCase, fixEmotePunctuation, dedupeEmote, dedupeUserEmote, dedupeMention, capEmoteTotal, capRepeatedSpam, hasHallucinatedStats, EMOTE_CAP_PER_MSG } from './ai-sanitize'
 export { cacheExchange, getChannelRecentResponses, getHotExchanges, getAiCooldown, getGlobalAiCooldown, recordUsage, setChannelLive, setChannelOffline, isChannelLive, getLiveChannels, getChannelGame, setChannelGame, setChannelInfos, cbRecordSuccess, cbRecordFailure, cbIsOpen, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, getRecentEmotes } from './ai-cache'
-export { buildSystemPrompt, invalidatePromptCache, buildFTSQuery, buildFTSQueryLoose, GREETINGS, isLowValue, isShortResponse, STOP_WORDS, REMEMBER_RE, extractEntities, buildUserMessage, buildGameContext, buildUserContext, buildTimeline, buildRecallContext, buildChatRecall, buildChattersContext, isNoise, parseChatTimeWindow, isAboutOtherUser } from './ai-context'
+export { buildSystemPrompt, invalidatePromptCache, buildFTSQuery, buildFTSQueryLoose, GREETINGS, isLowValue, isShortResponse, STOP_WORDS, REMEMBER_RE, extractEntities, buildUserMessage, buildGameContext, buildUserContext, buildTimeline, buildRecallContext, buildChatRecall, buildChattersContext, isNoise, parseChatTimeWindow, isAboutOtherUser, formatContextSummary } from './ai-context'
 export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, maybeExtractFacts } from './ai-background'
 
 // --- local imports from sub-modules ---
@@ -17,7 +17,7 @@ import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucina
 import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak } from './ai-verify'
 import { repairTruncation, isStub } from './ai-truncate'
 import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, getChannelRecentResponses } from './ai-cache'
-import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE } from './ai-context'
+import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE, formatContextSummary } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
 import { detectFancyStyle, toFancy } from './fancy'
@@ -139,6 +139,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   const isContinue = CONTINUE_RE.test(query.trim())
   if (!isVip && !isContinue && isRepeatAbuse(ctx.user, query)) {
     log(`ai: repeat abuse from ${ctx.user}, dropping`)
+    try { db.logAskMiss(ctx, ctx.displayQuery ?? query, 'repeat_abuse') } catch {}
     return null
   }
 
@@ -148,6 +149,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 
   if (aiQueueDepth >= AI_MAX_QUEUE && !isVip) {
     log('ai: queue full, dropping')
+    try { db.logAskMiss(ctx, ctx.displayQuery ?? query, 'queue_full') } catch {}
     return null
   }
   incrementQueue()
@@ -179,6 +181,12 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
   // never let scaffolding we wrote get recorded as something the user said
   const loggedQuery = ctx.displayQuery ?? query
+  // every non-success exit from here on is a genuine ask that got NO reply — record why,
+  // so `SELECT COUNT(*) FROM ask_misses WHERE reason = ...` replaces silence with a signal.
+  const miss = (reason: string): null => {
+    try { db.logAskMiss(ctx, loggedQuery, reason) } catch {}
+    return null
+  }
   // fire-and-forget voice refresh (background, non-blocking)
   refreshVoice(ctx.channel).catch(() => {})
 
@@ -208,7 +216,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // board). localhost hop, 10s cache, fail-soft, never throws.
   await refreshBoardIfNeeded(ctx.channel)
 
-  const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq, hasStats } = buildUserMessage(query, ctx)
+  const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq, hasStats, contextSections } = buildUserMessage(query, ctx)
+  // compact "section:chars,section:chars" record of what the model actually saw —
+  // names and sizes only, never content (see formatContextSummary in ai-build.ts).
+  const contextSummary = formatContextSummary(contextSections)
   const systemPrompt = buildSystemPrompt()
   const baseMaxTokens = isCreative ? MAX_TOKENS_PASTA : hasGameData ? MAX_TOKENS_GAME : MAX_TOKENS_CHAT
   // extended thinking + best-of-2 dropped — added ~2-3s of latency for marginal quality gain.
@@ -342,7 +353,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // can't overrun it (previously only checked at attempt start → 7s attempts started
       // near the line ran to ~18s; now the whole request stays within REQUEST_DEADLINE).
       const remaining = REQUEST_DEADLINE - (Date.now() - start)
-      if (remaining < MIN_ATTEMPT_BUDGET) { log('ai: request deadline exceeded'); cbRecordFailure(); break }
+      if (remaining < MIN_ATTEMPT_BUDGET) { log('ai: request deadline exceeded'); cbRecordFailure(); return miss('deadline') }
       const model = CHAT_MODEL
       // sonnet 5 rejects non-default temperature; thinking off keeps chat replies snappy
       // (omitting it would run adaptive thinking by default). variety comes from the default
@@ -363,12 +374,16 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         await new Promise((r) => setTimeout(r, delay))
         continue
       }
-      if (single.status !== 200 || !single.data) { cbRecordFailure(); return null }
+      if (single.status !== 200 || !single.data) {
+        cbRecordFailure()
+        const reason = single.status === 429 ? 'rate_limited' : single.status === 503 ? 'upstream_unavailable' : single.status === 0 ? 'no_response' : 'api_error'
+        return miss(reason)
+      }
       const data: ApiData = single.data
       const latency = Date.now() - start
 
       const textBlock = data.content?.find((b) => b.type === 'text')
-      if (!textBlock?.text) return null
+      if (!textBlock?.text) return miss('empty_response')
 
       // build known-user set for fake @mention stripping
       const knownUsers = new Set<string>()
@@ -402,7 +417,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           continue
         }
         log('ai: hallucinated stats retries exhausted — returning null for clean fallback')
-        return null
+        return miss('hallucination_blocked')
       }
       // reject fabricated data references ("the data has", "tagged as" etc) when no game data present
       if (hasFabricatedDataRef(result.text, hasGameData)) {
@@ -413,7 +428,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           continue
         }
         log('ai: fabricated data ref retries exhausted — returning null for clean fallback')
-        return null
+        return miss('fabricated_data_blocked')
       }
       // the inverse of the guard above: game data IS present, so every stat number in the
       // reply has a source of truth to be checked against. a number that appears nowhere in
@@ -435,7 +450,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
             continue
           }
           log('ai: ungrounded stat retries exhausted — returning null for clean fallback')
-          return null
+          return miss('ungrounded_stat_blocked')
         }
       }
       // the bot can see the live board whenever the overlay companion is feeding frames, and
@@ -452,7 +467,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
             messages.push({ role: 'user', content: 'You DO have the live board this time — the "Live board" section lists what is on it right now. Answer from it like any viewer watching the stream. Card names only; you still do not know tiers or enchantments.' })
             continue
           }
-          return null
+          return miss('board_sight_denial_blocked')
         }
         const tierClaims = findLiveTierClaims(result.text, seenBoard)
         if (tierClaims.length > 0 && !hasGameData) {
@@ -462,7 +477,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
             messages.push({ role: 'user', content: `You gave ${tierClaims.join(' and ')} a tier or enchantment. The board only reports card names — nobody told you the tier. Say it without one.` })
             continue
           }
-          return null
+          return miss('tier_claim_blocked')
         }
       }
       // punctuation-streak backstop. the SHAPE nudge in the context handles most of this for
@@ -522,7 +537,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         try {
           const inT = data.usage?.input_tokens ?? 0
           const outT = data.usage?.output_tokens ?? 0
-          db.logAsk(ctx, loggedQuery, result.text, inT + outT, latency)
+          db.logAsk(ctx, loggedQuery, result.text, inT + outT, latency, contextSummary)
           // recordAiSpend is called in fetchOnce at the 200-parse point so every
           // dispatched request (retries + hedge loser) is counted; not here.
         } catch {}
@@ -562,12 +577,16 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       }
     }
 
-    return null
+    // loop exhausted every attempt without a return above — every other exit (429/503,
+    // deadline, content guards) already returns its own reason, so reaching here means the
+    // sanitizer rejected the reply again on the final attempt with no retry left to spend.
+    return miss('sanitizer_blocked')
   } catch (e: unknown) {
     const err = e as Error
-    if (err.name === 'AbortError') log('ai: timeout')
+    const isTimeout = err.name === 'AbortError'
+    if (isTimeout) log('ai: timeout')
     else log(`ai: error: ${err.message}`)
     cbRecordFailure()
-    return null
+    return miss(isTimeout ? 'timeout' : 'error')
   }
 }

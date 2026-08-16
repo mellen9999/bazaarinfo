@@ -16,6 +16,6 @@ export {
 export {
   buildGameContext, buildUserContext, buildTimeline,
   buildRecallContext, buildChatRecall, buildChattersContext,
-  buildUserMessage,
+  buildUserMessage, formatContextSummary,
 } from './ai-build'
 export type { UserMessageResult } from './ai-build'

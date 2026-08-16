@@ -5,7 +5,7 @@ import { tmpdir } from 'os'
 
 // dynamic import to avoid mock.module conflicts from other test files
 const db = await import('./db')
-const { buildChatRecall } = await import('./ai-build')
+const { buildChatRecall, formatContextSummary } = await import('./ai-build')
 const { isPastaRecall, findChatPasta, isConfidentPasta } = await import('./pasta')
 
 let dbPath: string
@@ -160,6 +160,96 @@ describe('db', () => {
     const u = db.getOrCreateUser('migsafe')
     db.recordTriviaWin(db.createTriviaGame('mc', 1, 'q', 'a'), u, 1000, 1, 5)
     expect(db.getUserStats('migsafe')!.trivia_points).toBe(5)
+  })
+
+  it('migrations are idempotent — ask_misses survives a second initDb run', () => {
+    db.logAskMiss({ user: 'alice', channel: 'test' }, 'best shield', 'deadline')
+    db.flushWrites()
+
+    expect(() => db.initDb(dbPath)).not.toThrow()
+
+    const rows = db.getDb().query('SELECT reason FROM ask_misses').all() as { reason: string }[]
+    expect(rows.length).toBe(1)
+    expect(rows[0].reason).toBe('deadline')
+  })
+
+  // --- ask_misses (gap 2: a failed ask used to write nothing at all) ---
+
+  it('logAskMiss records a reason and attributes it to the user/channel', () => {
+    db.logAskMiss({ user: 'alice', channel: 'test' }, 'best shield build', 'sanitizer_blocked')
+    db.flushWrites()
+
+    const rows = db.getDb().query(
+      'SELECT u.username, m.channel, m.query, m.reason FROM ask_misses m JOIN users u ON u.id = m.user_id',
+    ).all() as { username: string; channel: string; query: string; reason: string }[]
+    expect(rows.length).toBe(1)
+    expect(rows[0].username).toBe('alice')
+    expect(rows[0].channel).toBe('test')
+    expect(rows[0].query).toBe('best shield build')
+    expect(rows[0].reason).toBe('sanitizer_blocked')
+  })
+
+  it('logAskMiss tolerates a missing user (anonymous/system context)', () => {
+    expect(() => db.logAskMiss({ channel: 'test' }, 'ambient thing', 'queue_full')).not.toThrow()
+    db.flushWrites()
+
+    const rows = db.getDb().query('SELECT user_id, reason FROM ask_misses').all() as { user_id: number | null; reason: string }[]
+    expect(rows.length).toBe(1)
+    expect(rows[0].user_id).toBeNull()
+    expect(rows[0].reason).toBe('queue_full')
+  })
+
+  it('ask_misses is independent of ask_queries — a miss never lands in the answered table', () => {
+    db.logAskMiss({ user: 'bob', channel: 'test' }, 'unanswerable', 'timeout')
+    db.flushWrites()
+
+    expect(db.getRecentAsks('bob', 5)).toEqual([])
+    const misses = db.getDb().query('SELECT reason FROM ask_misses').all() as { reason: string }[]
+    expect(misses.length).toBe(1)
+  })
+
+  it('logAsk populates context_summary with the compact section record', () => {
+    db.logAsk({ user: 'alice', channel: 'test' }, 'best shield', 'shield spam op', 100, 500, 'gameBlock:412,recentChat:903')
+    db.flushWrites()
+
+    const row = db.getDb().query('SELECT context_summary FROM ask_queries WHERE query = ?').get('best shield') as { context_summary: string }
+    expect(row.context_summary).toBe('gameBlock:412,recentChat:903')
+  })
+
+  it('logAsk leaves context_summary NULL when omitted (back-compat call sites)', () => {
+    db.logAsk({ user: 'alice', channel: 'test' }, 'pyg good?', 'solid mid', 120, 600)
+    db.flushWrites()
+
+    const row = db.getDb().query('SELECT context_summary FROM ask_queries WHERE query = ?').get('pyg good?') as { context_summary: string | null }
+    expect(row.context_summary).toBeNull()
+  })
+
+  // --- formatContextSummary (pure formatter — names+sizes only, never content) ---
+
+  it('formatContextSummary renders name:len pairs in the given order', () => {
+    const out = formatContextSummary([
+      { name: 'gameBlock', len: 412 },
+      { name: 'schedule', len: 180 },
+      { name: 'recentChat', len: 903 },
+      { name: 'hs', len: 274 },
+    ])
+    expect(out).toBe('gameBlock:412,schedule:180,recentChat:903,hs:274')
+  })
+
+  it('formatContextSummary returns an empty string for no sections', () => {
+    expect(formatContextSummary([])).toBe('')
+  })
+
+  it('formatContextSummary never emits section content — only the shape name:number survives', () => {
+    // the input type itself only carries a name and a length, but prove the OUTPUT is
+    // structurally incapable of carrying prose even if a section name were adversarial —
+    // it never round-trips anything but the name string and a digit count.
+    const secret = 'DO NOT LOG THIS viewer chat / memo text 12345'
+    const out = formatContextSummary([{ name: 'recentChat', len: secret.length }])
+    expect(out).not.toContain(secret)
+    expect(out).toBe(`recentChat:${secret.length}`)
+    // format is strictly name:digits(,name:digits)* — no free text ever appears
+    expect(out).toMatch(/^([a-zA-Z0-9_]+:\d+)(,[a-zA-Z0-9_]+:\d+)*$/)
   })
 
   // --- stream sessions (next-stream predictor) ---

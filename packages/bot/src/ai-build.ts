@@ -589,7 +589,16 @@ export function buildChattersContext(chatEntries: ChatEntry[], asker: string, ch
 
 // --- user message builder ---
 
-export interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean; isCreative: boolean; isContinuation: boolean; isRememberReq: boolean; hasStats: boolean }
+export interface UserMessageResult { text: string; hasGameData: boolean; isPasta: boolean; isCreative: boolean; isContinuation: boolean; isRememberReq: boolean; hasStats: boolean; contextSections: { name: string; len: number }[] }
+
+// compact, privacy-safe summary of which context sections survived into the final
+// prompt and how large each was — NAMES AND SIZES ONLY, never section content. this
+// is what ask_queries.context_summary stores: it lets a triage pass tell "the model
+// never saw game data" apart from "the model hallucinated over real data" without
+// ever persisting viewer chat / per-user memos / profile text to the DB.
+export function formatContextSummary(sections: { name: string; len: number }[]): string {
+  return sections.map((s) => `${s.name}:${s.len}`).join(',')
+}
 
 // Hard cap so Recent chat always fits the section budget — trim oldest first.
 // Without this, a flood of long copypastas can blow past the section budget,
@@ -1127,14 +1136,19 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const included: string[] = []
   const trimmed: string[] = []
   const dropped: string[] = []
+  // name+ACTUAL-included-length only (never content) — the source for context_summary.
+  // built from what really landed in the prompt, so a truncated section records its
+  // trimmed size, not its candidate size, and a dropped section records nothing at all.
+  const sectionSizes: { name: string; len: number }[] = []
   for (const s of sections) {
     if (budget <= 0) { dropped.push(s.name); continue }
     if (s.text.length <= budget) {
       included.push(s.text)
       budget -= s.text.length
+      sectionSizes.push({ name: s.name, len: s.text.length })
     } else if (s.trunc) {
       const fit = fitToBudget(s.text, budget)
-      if (fit) { included.push(fit); budget -= fit.length; trimmed.push(s.name) }
+      if (fit) { included.push(fit); budget -= fit.length; trimmed.push(s.name); sectionSizes.push({ name: s.name, len: fit.length }) }
       else dropped.push(s.name)
     } else {
       dropped.push(s.name)
@@ -1144,5 +1158,5 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // hasStats waives the STAT_LEAK output guard — scope it to standingsLine only (the
   // asker's own injected standings). aggregate bot stats (statsLine) say nothing about
   // the asker, so they must not license "you have 47 lookups today"-style leaks.
-  return { text, hasGameData, isPasta, isCreative, isContinuation: isContinuationLike, isRememberReq, hasStats: !!standingsLine }
+  return { text, hasGameData, isPasta, isCreative, isContinuation: isContinuationLike, isRememberReq, hasStats: !!standingsLine, contextSections: sectionSizes }
 }

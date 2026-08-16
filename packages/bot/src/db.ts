@@ -21,6 +21,7 @@ let stmts: {
   hasChatted: Statement
   chattedSince: Statement
   insertAsk: Statement
+  insertAskMiss: Statement
   incrUserAsks: Statement
   selectUser: Statement
   selectUserFav: Statement
@@ -95,7 +96,10 @@ function prepareStatements() {
        AND created_at >= datetime('now', ?) LIMIT 1`,
     ),
     insertAsk: db.prepare(
-      'INSERT INTO ask_queries (user_id, channel, query, response, tokens_used, latency_ms) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO ask_queries (user_id, channel, query, context_summary, response, tokens_used, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ),
+    insertAskMiss: db.prepare(
+      'INSERT INTO ask_misses (user_id, channel, query, reason) VALUES (?, ?, ?, ?)',
     ),
     incrUserAsks: db.prepare('UPDATE users SET ask_count = ask_count + 1 WHERE id = ?'),
     selectUser: db.prepare('SELECT * FROM users WHERE username = ?'),
@@ -303,7 +307,8 @@ const USER_CACHE_MAX = 10_000
 type WriteOp =
   | { type: 'chat'; channel: string; username: string; message: string }
   | { type: 'command'; userId: number | null; channel: string | null; cmdType: string; query: string | null; matchName: string | null; tier: string | null }
-  | { type: 'ask'; userId: number | null; channel: string | null; query: string; response: string | null; tokens: number | null; latency: number | null }
+  | { type: 'ask'; userId: number | null; channel: string | null; query: string; contextSummary: string | null; response: string | null; tokens: number | null; latency: number | null }
+  | { type: 'ask_miss'; userId: number | null; channel: string | null; query: string; reason: string }
   | { type: 'incr_commands'; userId: number }
   | { type: 'incr_asks'; userId: number }
   | { type: 'summary'; channel: string; sessionId: number; summary: string; msgCount: number }
@@ -339,7 +344,10 @@ export function flushWrites() {
             stmts.insertCommand.run(op.userId, op.channel, op.cmdType, op.query, op.matchName, op.tier)
             break
           case 'ask':
-            stmts.insertAsk.run(op.userId, op.channel, op.query, op.response, op.tokens, op.latency)
+            stmts.insertAsk.run(op.userId, op.channel, op.query, op.contextSummary, op.response, op.tokens, op.latency)
+            break
+          case 'ask_miss':
+            stmts.insertAskMiss.run(op.userId, op.channel, op.query, op.reason)
             break
           case 'incr_commands':
             stmts.incrUserCommands.run(op.userId)
@@ -364,7 +372,8 @@ export function flushWrites() {
         switch (op.type) {
           case 'chat': stmts.insertChat.run(op.channel, op.username, op.message); break
           case 'command': stmts.insertCommand.run(op.userId, op.channel, op.cmdType, op.query, op.matchName, op.tier); break
-          case 'ask': stmts.insertAsk.run(op.userId, op.channel, op.query, op.response, op.tokens, op.latency); break
+          case 'ask': stmts.insertAsk.run(op.userId, op.channel, op.query, op.contextSummary, op.response, op.tokens, op.latency); break
+          case 'ask_miss': stmts.insertAskMiss.run(op.userId, op.channel, op.query, op.reason); break
           case 'incr_commands': stmts.incrUserCommands.run(op.userId); break
           case 'incr_asks': stmts.incrUserAsks.run(op.userId); break
           case 'summary': stmts.insertSummary.run(op.channel, op.sessionId, op.summary, op.msgCount); break
@@ -725,6 +734,25 @@ const migrations: (() => void)[] = [
   () => {
     db.run(`DROP INDEX IF EXISTS idx_commands_hits`)
     db.run(`CREATE INDEX idx_commands_hits ON commands(match_name) WHERE cmd_type NOT IN ('miss', 'ai')`)
+  },
+  // migration 22: ask_misses — a failed ask (retries exhausted, sanitizer blocked every
+  // attempt, deadline, circuit breaker open, exception, ...) used to return null and log
+  // NOTHING, so `SELECT COUNT(*) FROM ask_queries WHERE response IS NULL` always read 0 —
+  // "no failures" when it actually meant "failures are unobservable". this table is the
+  // miss-side counterpart to ask_queries: every genuinely-attempted ask that got no reply
+  // lands here with a short machine-readable reason, so a viewer asking into the void is
+  // finally visible.
+  () => {
+    db.run(`CREATE TABLE ask_misses (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id),
+      channel TEXT,
+      query TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+    db.run(`CREATE INDEX idx_ask_misses_channel_time ON ask_misses(channel, created_at DESC)`)
+    db.run(`CREATE INDEX idx_ask_misses_reason ON ask_misses(reason)`)
   },
 ]
 
@@ -1160,6 +1188,7 @@ export function logAsk(
   response: string | null,
   tokensUsed?: number,
   latencyMs?: number,
+  contextSummary?: string,
 ) {
   const userId = ctx.user ? getOrCreateUser(ctx.user) : null
   writeQueue.push({
@@ -1167,11 +1196,34 @@ export function logAsk(
     userId,
     channel: ctx.channel ?? null,
     query,
+    contextSummary: contextSummary ?? null,
     response,
     tokens: tokensUsed ?? null,
     latency: latencyMs ?? null,
   })
   if (userId) writeQueue.push({ type: 'incr_asks', userId })
+  scheduleFlush()
+}
+
+// a real ask that was attempted and got NO reply — retries exhausted, sanitizer blocked
+// every attempt, deadline hit, circuit breaker open, an exception, etc. `reason` is a
+// short machine-readable tag (e.g. 'sanitizer_blocked', 'deadline', 'timeout') so a triage
+// pass can group and count failure modes instead of finding out about them from a viewer.
+// deliberately NOT called for no-op paths (low-value message content, AI disabled/not
+// opted into this channel, ambient/passive chatter) — see ai.ts call sites for the cutline.
+export function logAskMiss(
+  ctx: { user?: string; channel?: string },
+  query: string,
+  reason: string,
+) {
+  const userId = ctx.user ? getOrCreateUser(ctx.user) : null
+  writeQueue.push({
+    type: 'ask_miss',
+    userId,
+    channel: ctx.channel ?? null,
+    query,
+    reason,
+  })
   scheduleFlush()
 }
 
