@@ -16,7 +16,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL } from './ai-sanitize'
 import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak } from './ai-verify'
 import { repairTruncation, isStub } from './ai-truncate'
-import { getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, getChannelRecentResponses } from './ai-cache'
+import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, getChannelRecentResponses } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE, formatContextSummary } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
@@ -25,8 +25,9 @@ import { matchingDirectives } from './directives'
 import { isWorldCupQuery, refreshWorldCupIfNeeded } from './worldcup'
 import { isWeatherQuery, refreshWeatherIfNeeded } from './weather'
 import { isHsRatingQuery, refreshHsIfNeeded } from './hs'
-import { isHsCardQuery, refreshHsCardsIfNeeded } from './hs-cards'
+import { isHsCardQuery, isHearthstoneCategory, refreshHsCardsIfNeeded } from './hs-cards'
 import { refreshBoardIfNeeded } from './board'
+import { refreshHsBoardIfNeeded } from './hs-board'
 import { isScheduleQuery } from './schedule'
 import { resolveScheduleChannel } from './schedule-query'
 import { refreshChannelTitle } from './channel-title'
@@ -220,6 +221,13 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // the streamer's Bubble Gum stack needs the data even when nobody asked about the
   // board). localhost hop, 10s cache, fail-soft, never throws.
   await refreshBoardIfNeeded(ctx.channel)
+
+  // the battlegrounds equivalent, gated on the channel actually being on Hearthstone:
+  // there is no board to fetch during a Bazaar stream, and this is a round-trip per
+  // message. same localhost hop, same 10s cache, same fail-soft contract.
+  if (isHearthstoneCategory(getChannelGame(ctx.channel)) || isHsCardQuery(query)) {
+    await refreshHsBoardIfNeeded(ctx.channel)
+  }
 
   const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq, hasStats, contextSections } = buildUserMessage(query, ctx)
   // compact "section:chars,section:chars" record of what the model actually saw —

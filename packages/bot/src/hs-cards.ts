@@ -52,6 +52,10 @@ export interface HsCard {
 interface HsCardCache {
   fetchedAt: number
   cards: HsCard[]
+  /** card id -> name, for resolving what the companion reads out of Hearthstone's log.
+   *  broader than `cards`: the log names tokens, golden copies and hero skins that are
+   *  never worth a lookup of their own but must still be nameable on a live board. */
+  ids?: Record<string, string>
 }
 
 let cache: HsCardCache | null = null
@@ -91,6 +95,25 @@ function tribesOf(entry: any): string | undefined {
 function patchOf(entry: any): number {
   const m = typeof entry?.id === 'string' ? entry.id.match(/^BG(\d+)/) : null
   return m ? Number(m[1]) : 0
+}
+
+/**
+ * Every Battlegrounds-reachable card id mapped to its name.
+ *
+ * The companion sends raw card ids off the game log rather than names, so the mapping
+ * lives here where it is refreshed daily — a rotation, a new token or a new hero skin
+ * then needs no new companion build on anyone's machine.
+ */
+export function extractIdNames(dump: unknown[]): Record<string, string> {
+  if (!Array.isArray(dump)) return {}
+  const out: Record<string, string> = {}
+  for (const raw of dump as any[]) {
+    if (!raw || typeof raw.id !== 'string' || typeof raw.name !== 'string') continue
+    if (raw.type !== 'MINION' && raw.type !== 'HERO') continue
+    if (!/^(?:BG|TB_Bacon)/.test(raw.id) && raw.set !== 'BATTLEGROUNDS') continue
+    out[raw.id] = raw.name
+  }
+  return out
 }
 
 /**
@@ -178,12 +201,15 @@ function loadDisk(): void {
 
 async function refresh(): Promise<void> {
   let cards: HsCard[] = []
+  let ids: Record<string, string> = {}
   try {
     const res = await fetch(DUMP_URL, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const len = Number(res.headers.get('content-length'))
     if (Number.isFinite(len) && len > MAX_BYTES) throw new Error(`dump too large (${len} bytes)`)
-    cards = extractBgCards(await res.json() as unknown[])
+    const dump = await res.json() as unknown[]
+    cards = extractBgCards(dump)
+    ids = extractIdNames(dump)
   } catch (e) {
     log(`hs-cards: refresh failed: ${e}`)
     return
@@ -194,7 +220,7 @@ async function refresh(): Promise<void> {
     log('hs-cards: extract produced no cards, keeping previous cache')
     return
   }
-  cache = { fetchedAt: Date.now(), cards }
+  cache = { fetchedAt: Date.now(), cards, ids }
   buildIndex()
   try {
     writeFileSync(CACHE_PATH, JSON.stringify(cache))
@@ -202,7 +228,7 @@ async function refresh(): Promise<void> {
     // memory cache still works; disk is only a warm-start optimisation
   }
   const pool = cards.filter((c) => c.p).length
-  log(`hs-cards: ${cards.length} battlegrounds cards (${pool} flagged in the current pool)`)
+  log(`hs-cards: ${cards.length} battlegrounds cards (${pool} flagged in the current pool), ${Object.keys(ids).length} ids`)
 }
 
 /** non-blocking, same contract as refreshHsIfNeeded — this turn answers from what we have. */
@@ -454,8 +480,19 @@ export function hsCardContext(query: string, cardIntent: boolean): { text: strin
   }
 }
 
+/**
+ * Name for a card id straight off the game log, or null when the dump doesn't know it.
+ *
+ * null rather than the raw id: "BG29_843" in a chat reply is worse than saying nothing,
+ * and a card the dump has never heard of is one this patch removed.
+ */
+export function hsCardName(id: string): string | null {
+  loadDisk()
+  return cache?.ids?.[id] ?? null
+}
+
 /** test seam — load a card set without touching the network or disk */
-export function __setHsCards(cards: HsCard[]): void {
-  cache = { fetchedAt: Date.now(), cards }
+export function __setHsCards(cards: HsCard[], ids: Record<string, string> = {}): void {
+  cache = { fetchedAt: Date.now(), cards, ids }
   buildIndex()
 }

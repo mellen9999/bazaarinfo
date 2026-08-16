@@ -31,6 +31,7 @@ import {
 } from './schedule'
 import { getCachedChannelTitle } from './channel-title'
 import { isBoardQuery, getBoardLine } from './board'
+import { isHsBoardQuery, getHsBoardLine } from './hs-board'
 import { maybeFetchTwitchInfo } from './ai-background'
 import type { AiContext } from './ai'
 import {
@@ -878,6 +879,16 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // line has none, and must leave them armed.
   if (hsCard.grounded) hasGameData = true
 
+  // the LIVE battlegrounds board, read out of the game's own log by the companion. two
+  // lanes exactly like the Bazaar board: a board-shaped ask gets the direct answer, any
+  // other message gets it as background the model may use if it fits. only ever present
+  // when the companion is actually feeding frames, so there is nothing to invent from.
+  const hsBoardShaped = hsShaped && isHsBoardQuery(query)
+  const hsBoardLine = hsShaped ? getHsBoardLine(ctx.channel, query, !hsBoardShaped) : ''
+  // unlike the Bazaar board, this one carries real numbers — tier, stats, health — so it
+  // is genuine game data and the ungrounded-stat check should measure the reply against it
+  if (hsBoardLine && hsBoardShaped) hasGameData = true
+
   // skip reddit digest + emotes when we have specific game data or short queries
   const digest = getRedditDigest()
   // community buzz is high-value on meta/sentiment asks — keep it even when a game entity
@@ -1145,6 +1156,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'hs', text: hsLine, base: -104.5 },
     // BG card text likewise: it IS the answer, and losing it means answering from memory
     { name: 'hsCards', text: hsCardLine, base: -104.4 },
+    // the live board outranks even that when it fires — it is what chat can see happening
+    { name: 'hsBoard', text: hsBoardLine, base: -104.45 },
     // "what can you do" / "what's new with you" — the only grounding that exists for
     // questions about the bot itself, so it can never be the section that gets evicted
     { name: 'self', text: selfLine, base: -104 },

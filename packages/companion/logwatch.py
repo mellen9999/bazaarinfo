@@ -12,7 +12,7 @@ Usage:
     python logwatch.py [--config config.ini] [--debug] [--setup]
 """
 
-VERSION = "1.0.7"
+VERSION = "1.1.0"
 
 import argparse
 import configparser
@@ -1328,9 +1328,21 @@ def main():
     if not verify_credentials(ebs_url, channel_id, secret):
         raise SystemExit(1)
 
+    # Battlegrounds watcher — starts on its own thread if Hearthstone is on this machine,
+    # stays silent if it isn't. Started BEFORE the Bazaar assets are required so a
+    # hearthstone-only streamer still gets covered rather than being turned away.
+    import hswatch
+    hs_running = hswatch.start(ebs_url, channel_id, secret)
+    if hs_running:
+        logger.info("Battlegrounds board tracking is on")
+
     # Find cards.json (wait if game not installed yet)
     game_cards = find_cards_json()
     if not game_cards:
+        if hs_running:
+            logger.info("The Bazaar isn't installed — running Battlegrounds only")
+            while True:
+                time.sleep(3600)
         logger.error("cards.json not found — is The Bazaar installed via Steam?")
         logger.info("Install The Bazaar and run it once, then restart the companion")
         raise SystemExit(1)

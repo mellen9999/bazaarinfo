@@ -10,6 +10,7 @@ import { handleCards, setCardCache, getCardCache } from './routes/cards'
 import { handleImage } from './routes/images'
 import { handleDetect } from './routes/detect'
 import { handleBoard } from './routes/board'
+import { handleHsPost, handleHsBoard } from './routes/hsboard'
 import { redirectTarget } from './routes/redirects'
 import { readyStatus } from './routes/health'
 import { pubsubStats } from './pubsub'
@@ -85,7 +86,7 @@ export async function handleRequest(req: Request): Promise<Response> {
     }
   } else {
     const image = IMAGE_PATH_RE.test(path)
-    const rateMax = path === '/detect' ? 600 : image ? 300 : 60
+    const rateMax = (path === '/detect' || path === '/hs') ? 600 : image ? 300 : 60
     const bucket = image ? `img:${ip}` : ip
     if (!rateOk(bucket, rateMax)) {
       return cors(new Response('rate limited', { status: 429 }), origin)
@@ -108,6 +109,18 @@ export async function handleRequest(req: Request): Promise<Response> {
   // not JWT; fail-closed 404 without it)
   if (req.method === 'GET' && path === '/board') {
     return cors(handleBoard(req, url), origin)
+  }
+
+  // POST /hs — companion's battlegrounds board. Same companion-secret auth as /detect,
+  // but never broadcast: HDT already draws a board for viewers, so the bot is the only
+  // consumer and the state is read back through /hsboard.
+  if (req.method === 'POST' && path === '/hs') {
+    return cors(await handleHsPost(req), origin)
+  }
+
+  // GET /hsboard — bot-internal read, same fail-closed contract as /board
+  if (req.method === 'GET' && path === '/hsboard') {
+    return cors(handleHsBoard(req, url), origin)
   }
 
   // GET /api/images/:hash — public. Card art is loaded by <img src> in the overlay,

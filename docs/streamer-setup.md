@@ -85,6 +85,28 @@ Leave the companion open — it waits patiently if the game isn't running yet.
 
 > **capture the game 16:9, filling the frame** for the best out-of-the-box fit. Card positions are mapped to a standard 16:9 layout, so this lines up perfectly with no extra setup. If you play ultrawide/4:3, or box the game inside borders or a webcam-heavy scene, use the alignment tool in the extension's Configure view to calibrate your layout once — it corrects the overlay to match. This scales to any viewer resolution (720p → 4K, desktop or mobile).
 
+### 5. battlegrounds (optional, automatic)
+
+If Hearthstone is installed on the same machine, the companion also follows your
+Battlegrounds games — so the chat bot can answer "what's on his board", "what tier is
+he", "who's he fighting" and "what place is he in" with what's actually happening.
+
+Nothing to set up. The companion finds Hearthstone on its own and, if Power logging
+isn't on yet, switches it on (it appends a `[Power]` section to Hearthstone's
+`log.config` and leaves any other tracker's settings alone). Restart Hearthstone once
+after first run and it starts working.
+
+Already running Hearthstone Deck Tracker? Then logging is on already and there is
+nothing to do at all. The two don't conflict — HDT keeps drawing the board for your
+viewers, and this only feeds the chat bot.
+
+What the bot can see: your minions and their stats, your hero, tavern tier, health and
+placement, the lobby's standings, and your opponent during a fight — all of it already
+on screen. What it can't see, and never claims to: your shop and your hand.
+
+Don't want it? It only runs while the companion does. There is no separate switch
+because there is nothing separate running.
+
 ### companion flags
 
 ```
@@ -166,6 +188,15 @@ Overlay backend (ebs.bazaarinfo.com)
     ↓ broadcasts to your viewers via Twitch PubSub
 Extension overlay (viewer's browser)
     ↓ renders card tooltips on hover
+
+Hearthstone (game)
+    ↓ writes Power.log
+Companion (same program, same machine)
+    ↓ parses the battlegrounds board, sends card ids + stats
+Overlay backend
+    ↓ stored for your channel only — never broadcast to viewers
+Chat bot
+    ↓ answers questions about your live board
 ```
 
 Each streamer is fully isolated: your companion secret only unlocks your channel, and your card data only ever reaches your own viewers.
@@ -175,6 +206,7 @@ Each streamer is fully isolated: your companion secret only unlocks your channel
 ## privacy
 
 - what leaves your machine: **card name, tier, and on-screen position — nothing else**
+- from Hearthstone: **your board, hero, tier, health, placement and current opponent — all of it already visible on your own stream.** Not your shop, not your hand, not your battletag (the companion never reads the log lines that carry it)
 - what never leaves: account details, inputs, chat, screenshots, game files
 - the companion is local and opt-in; stop it any time
 - full [privacy policy](../PRIVACY.md) and [terms](../TERMS.md)

@@ -18,6 +18,7 @@ import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamI
 import { refreshRedditDigest, refreshBgRedditDigest } from './reddit'
 import { refreshHsCardsIfNeeded } from './hs-cards'
 import { setChannelIdResolver } from './board'
+import { setHsChannelIdResolver } from './hs-board'
 import { refreshTopicalDigest } from './topical'
 import { refreshActivity } from './activity'
 import * as chatbuf from './chatbuf'
@@ -506,7 +507,9 @@ const client = new TwitchClient(
 
 client.setAuthRefresh(doRefresh)
 client.setIrcOnly(['nl_kripp'])
-setChannelIdResolver((ch) => client.getChannels().find((c) => c.name.toLowerCase() === ch)?.userId ?? null)
+const channelIdFor = (ch: string) => client.getChannels().find((c) => c.name.toLowerCase() === ch)?.userId ?? null
+setChannelIdResolver(channelIdFor)
+setHsChannelIdResolver(channelIdFor)
 setSay((ch, msg) => client.say(ch, msg))
 announceToLobby = (msg) => {
   try { client.say(BOT_USERNAME.toLowerCase(), msg) } catch (e) { log(`lobby announce failed: ${e}`) }
