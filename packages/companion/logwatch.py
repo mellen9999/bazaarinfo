@@ -1243,8 +1243,8 @@ def verify_credentials(ebs_url: str, channel_id: str, secret: str) -> bool:
     return True
 
 
-def check_for_update():
-    """Best-effort update notice — GitHub releases API, 3s cap, fail-silent, no tracking."""
+def latest_release() -> "str | None":
+    """Newest published companion version, or None. Best-effort: 3s cap, fail-silent."""
     try:
         from urllib.request import Request, urlopen
         req = Request(
@@ -1256,14 +1256,53 @@ def check_for_update():
         for rel in releases:
             tag = rel.get("tag_name", "")
             if tag.startswith("companion-v"):
-                latest = tag[len("companion-v"):]
-                if tuple(int(p) for p in latest.split(".")) > tuple(int(p) for p in VERSION.split(".")):
-                    print(f"  update available: v{latest} (you have v{VERSION})")
-                    print("  https://github.com/mellen9999/bazaarinfo/releases")
-                    print()
-                break
+                return tag[len("companion-v"):]
     except Exception:
-        pass  # never block startup on a version check
+        return None  # never block on a version check
+    return None
+
+
+def is_newer(latest: str, current: str = VERSION) -> bool:
+    """Compare dotted versions numerically. A malformed tag is never 'newer'."""
+    try:
+        return tuple(int(p) for p in latest.split(".")) > tuple(int(p) for p in current.split("."))
+    except (ValueError, AttributeError):
+        return False
+
+
+def check_for_update():
+    """Update NOTICE only — this never downloads or replaces anything.
+
+    Deliberate: a self-replacing binary on a streamer's machine turns any compromise of
+    the release pipeline into code execution on their PC. The published checksums and
+    build provenance are the safer trade, and they only work if a human does the swap.
+    """
+    latest = latest_release()
+    if latest and is_newer(latest):
+        print(f"  update available: v{latest} (you have v{VERSION})")
+        print("  https://github.com/mellen9999/bazaarinfo/releases")
+        print()
+
+
+def start_update_watch(interval_s: int = 24 * 3600) -> None:
+    """Re-check daily, because the startup notice is useless to an instance that never restarts.
+
+    A companion left running across a whole stream schedule would never look again — the
+    one case where the streamer most needs telling is the one the startup check misses.
+    """
+    import threading
+
+    def loop():
+        while True:
+            time.sleep(interval_s)
+            latest = latest_release()
+            if latest and is_newer(latest):
+                logger.info(
+                    "companion v%s is available (you have v%s) — https://github.com/mellen9999/bazaarinfo/releases",
+                    latest, VERSION,
+                )
+
+    threading.Thread(target=loop, name="update-watch", daemon=True).start()
 
 
 def print_banner():
@@ -1296,6 +1335,7 @@ def main():
 
     print_banner()
     check_for_update()
+    start_update_watch()
 
     # Setup
     if args.setup or not args.config.exists():

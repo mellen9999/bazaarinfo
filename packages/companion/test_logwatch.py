@@ -598,3 +598,16 @@ class TestLoadConfig:
         with pytest.raises(SystemExit) as exc:
             load_config(p)
         assert exc.value.code == 1
+
+
+def test_is_newer_compares_numerically_not_lexically():
+    assert logwatch.is_newer("1.1.0", "1.0.7")
+    assert logwatch.is_newer("1.10.0", "1.9.0")   # lexical compare gets this wrong
+    assert not logwatch.is_newer("1.0.7", "1.1.0")
+    assert not logwatch.is_newer("1.1.0", "1.1.0")
+
+
+def test_a_malformed_release_tag_is_never_newer():
+    # a stray tag must not nag every streamer forever
+    for bad in ("", "beta", "1.x.0", None):
+        assert not logwatch.is_newer(bad, "1.0.0")
