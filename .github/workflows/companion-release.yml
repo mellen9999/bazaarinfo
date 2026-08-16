@@ -147,7 +147,7 @@ jobs:
               - Linux: `sha256sum -c SHA256SUMS --ignore-missing`
             - **provenance** — prove it was built from this exact tagged source by GitHub's CI, not tampered with or swapped ([GitHub CLI](https://cli.github.com)):
               - `gh attestation verify bazaarinfo-companion-windows.exe --repo mellen9999/bazaarinfo`
-            - **or skip binaries entirely** — the companion is one readable Python file; run it from source: `python packages/companion/logwatch.py`
+            - **or skip binaries entirely** — the companion is two readable Python files; run it from source: `python packages/companion/logwatch.py`
 
             Windows SmartScreen may warn on first run because the exe is unsigned (code-signing certs are a paid identity service, not a security measure) — the attestation above is the stronger, free proof of where this binary came from.
           files: |
