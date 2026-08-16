@@ -11,7 +11,7 @@
 // cannot see is the shop, and it never claims to.
 
 import { humanizeDelta } from './schedule'
-import { hsCardName } from './hs-cards'
+import { hsCardName, hsCardById } from './hs-cards'
 import type { HsState, HsMinion, HsHero } from '@bazaarinfo/shared'
 
 const EBS_URL = process.env.EBS_URL ?? 'http://127.0.0.1:3100'
@@ -86,16 +86,34 @@ export async function refreshHsBoardIfNeeded(channel: string): Promise<void> {
 
 // --- formatting ---
 
-/** a minion as chat would say it. an id the dump no longer knows is dropped, not guessed. */
-export function describeMinion(m: HsMinion): string | null {
-  const name = hsCardName(m.id)
-  if (!name) return null
-  const bits: string[] = []
-  if (m.golden) bits.push('golden')
-  bits.push(name)
-  let out = bits.join(' ')
+/**
+ * A minion as chat would say it. An id the dump no longer knows is dropped, not guessed.
+ *
+ * `withText` attaches what the card actually DOES. Knowing there is a Deflect-o-Bot on
+ * the board is not the same as knowing what is on the board, and the difference is the
+ * whole point of having the card set and the live board in the same process.
+ */
+const MAX_TEXT = 110
+// the block sits in the never-evict tier, so it must bound ITSELF rather than crowd out
+// the rest of the prompt. a full 7v7 of unique minions with rules text runs past 2000
+// chars; past this ceiling the text is dropped and the facts — names, stats, keywords —
+// are kept, because those are the answer and the text is only the enrichment.
+const MAX_LINE = 900
+
+export function describeMinion(m: HsMinion, withText = false): string | null {
+  const card = hsCardById(m.id)
+  if (!card) return null
+  let out = m.golden ? `golden ${card.n}` : card.n
+  const tier = m.tier ?? card.t
+  if (tier) out += ` (t${tier})`
   out += ` ${m.atk}/${m.hp}`
-  if (m.kw?.length) out += ` (${m.kw.join(', ')})`
+  if (m.kw?.length) out += ` ${m.kw.join(', ')}`
+  if (withText && card.x) {
+    const text = card.x.length > MAX_TEXT ? `${card.x.slice(0, MAX_TEXT - 1).replace(/\s+\S*$/, '')}…` : card.x
+    // the stats above are the LIVE ones; the text is the card's own printed effect, and
+    // a golden copy's printed stats would contradict it — so only the effect is quoted
+    out += ` — "${text}"`
+  }
   return out
 }
 
@@ -124,8 +142,24 @@ function ordinal(n: number): string {
   return n + (s[(v - 20) % 10] || s[v] || s[0])
 }
 
-function joinMinions(list: HsMinion[]): string {
-  return list.map(describeMinion).filter(Boolean).join(', ')
+/**
+ * The board as one string. A repeated card states its effect once — two Deflect-o-Bots
+ * are two minions but only one rule, and the second copy of the text buys nothing but
+ * context budget.
+ */
+function joinMinions(list: HsMinion[], withText = false): string {
+  // keyed by NAME, not id: a golden copy is a different card id for the same card, and
+  // its rule is the same rule
+  const explained = new Set<string>()
+  return list
+    .map((m) => {
+      const name = hsCardName(m.id)
+      const first = withText && !!name && !explained.has(name)
+      if (first) explained.add(name!)
+      return describeMinion(m, first)
+    })
+    .filter(Boolean)
+    .join('; ')
 }
 
 /**
@@ -143,9 +177,13 @@ export function getHsBoardLine(channel: string, query = '', ambient = false): st
   if (!entry?.snap) return ''
   const age = entry.snap.ageMs + (Date.now() - entry.at)
   if (age > FRESH_MS) return ''
-  const hs = entry.snap.hs
+  // the card text is the expensive half of this block, and it is what makes the answer
+  // exact rather than a list of names — so it rides the direct lane only
+  return render(channel, entry.snap.hs, age, ambient, !ambient, query)
+}
 
-  const mine = joinMinions(hs.board)
+function render(channel: string, hs: HsState, age: number, ambient: boolean, withText: boolean, query: string): string {
+  const mine = joinMinions(hs.board, withText)
   const hero = hs.hero ? describeHero(hs.hero) : null
   if (!mine && !hero) return ''
 
@@ -161,7 +199,7 @@ export function getHsBoardLine(channel: string, query = '', ambient = false): st
   let line = `${head}: ${parts.join('; ')}.`
   if (hs.phase === 'combat' && hs.opponent) {
     const oh = describeHero(hs.opponent.hero)
-    const ob = hs.opponent.board ? joinMinions(hs.opponent.board) : ''
+    const ob = hs.opponent.board ? joinMinions(hs.opponent.board, withText) : ''
     if (oh) line += ` Fighting ${oh}${ob ? ` with ${ob}` : ''}.`
   } else {
     // saying which phase they're in is what stops "who's he fighting" being answered
@@ -174,7 +212,10 @@ export function getHsBoardLine(channel: string, query = '', ambient = false): st
     const others = alive.map(describeHeroShort).filter(Boolean).slice(0, 7).join(', ')
     if (others) line += ` Rest of the lobby: ${others}${dead ? `; ${dead} already out` : ''}.`
   }
-  line += ' These stats are read from the game log and are real — state them plainly. You do NOT see the shop or their hand, so never describe either.'
+  line += ' Stats and keywords are read live from the game log and are real; the quoted text is the card\'s own. State them plainly. You do NOT see the shop or their hand, so never describe either.'
+  // over budget: rebuild without the card text rather than truncating mid-sentence, which
+  // would leave a half-quoted rule the model could complete from imagination
+  if (line.length > MAX_LINE && withText) return render(channel, hs, age, ambient, false, query)
   return line
 }
 

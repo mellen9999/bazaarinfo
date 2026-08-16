@@ -6,14 +6,18 @@ import {
 import { __setHsCards } from './hs-cards'
 import type { HsState } from '@bazaarinfo/shared'
 
-// the ids and names below are the real ones the parser pulled out of a real game log
-const IDS: Record<string, string> = {
-  BGS_071: 'Deflect-o-Bot',
-  BGS_049: 'Freedealing Gambler',
-  BG23_HERO_305_SKIN_B: 'Sparkhoarder Togwaggle',
-  TB_BaconShop_HERO_62: 'Maiev Shadowsong',
-  TB_BaconShop_HERO_34: 'Patchwerk',
-  BG28_403: 'Phaerix, Wrath of the Sun',
+// the ids, names and text below are the real ones, pulled out of a real game log and
+// the real card dump. Freedealing Gambler and Phaerix are deliberately NOT current-pool
+// cards — a live board is full of rotated-out minions and tokens, and they still have to
+// resolve, which is why the by-id map is broader than the lookup card set.
+const IDS: Record<string, { n: string; x?: string; t?: number }> = {
+  BGS_071: { n: 'Deflect-o-Bot', t: 3, x: 'Divine Shield Whenever you summon a Mech during combat, gain +2 Attack and Divine Shield.' },
+  BGS_071_G: { n: 'Deflect-o-Bot', t: 3, x: 'Divine Shield Whenever you summon a Mech during combat, gain +2 Attack and Divine Shield.' },
+  BGS_049: { n: 'Freedealing Gambler', t: 2, x: 'This minion sells for 3 Gold.' },
+  BG23_HERO_305_SKIN_B: { n: 'Sparkhoarder Togwaggle' },
+  TB_BaconShop_HERO_62: { n: 'Maiev Shadowsong' },
+  TB_BaconShop_HERO_34: { n: 'Patchwerk' },
+  BG28_403: { n: 'Phaerix, Wrath of the Sun', t: 6, x: 'Divine Shield Avenge (4): Give a random friendly minion Divine Shield.' },
 }
 
 const STATE: HsState = {
@@ -52,14 +56,26 @@ describe('isHsBoardQuery', () => {
 })
 
 describe('describeMinion / describeHero', () => {
-  test('names a minion with its real stats and keywords', () => {
-    expect(describeMinion({ id: 'BGS_071', pos: 1, atk: 3, hp: 2, kw: ['divine shield'] }))
-      .toBe('Deflect-o-Bot 3/2 (divine shield)')
+  test('names a minion with its real tier, stats and keywords', () => {
+    expect(describeMinion({ id: 'BGS_071', pos: 1, atk: 3, hp: 2, tier: 3, kw: ['divine shield'] }))
+      .toBe('Deflect-o-Bot (t3) 3/2 divine shield')
   })
 
-  test('marks a golden copy', () => {
-    expect(describeMinion({ id: 'BGS_049', pos: 1, atk: 6, hp: 6, golden: true }))
-      .toBe('golden Freedealing Gambler 6/6')
+  test('attaches what the card actually does when asked', () => {
+    expect(describeMinion({ id: 'BGS_049', pos: 1, atk: 3, hp: 3, tier: 2 }, true))
+      .toBe('Freedealing Gambler (t2) 3/3 — "This minion sells for 3 Gold."')
+  })
+
+  test('marks a golden copy, and quotes the effect not the printed stats', () => {
+    const out = describeMinion({ id: 'BGS_049', pos: 1, atk: 6, hp: 6, tier: 2, golden: true }, true)
+    expect(out).toBe('golden Freedealing Gambler (t2) 6/6 — "This minion sells for 3 Gold."')
+    expect(out).toContain('6/6')  // the LIVE stats, not the base card's
+  })
+
+  test('resolves a minion that is no longer in the current pool', () => {
+    // the lookup card set only carries current-pool cards; a live board does not care
+    expect(describeMinion({ id: 'BG28_403', pos: 1, atk: 5, hp: 5, tier: 6 }, true))
+      .toContain('Phaerix, Wrath of the Sun (t6) 5/5 — "Divine Shield Avenge (4)')
   })
 
   test('a card id this patch no longer has is dropped, never printed raw', () => {
@@ -78,7 +94,8 @@ describe('getHsBoardLine', () => {
     expect(line).toContain('Live Battlegrounds board for nl_kripp')
     expect(line).toContain('playing Sparkhoarder Togwaggle (30+9 armor, tavern tier 3, 2nd)')
     expect(line).toContain('turn 7')
-    expect(line).toContain('board: Deflect-o-Bot 3/2 (divine shield), Freedealing Gambler 3/3')
+    expect(line).toContain('board: Deflect-o-Bot (t3) 3/2 divine shield — "Divine Shield Whenever')
+    expect(line).toContain('Freedealing Gambler (t2) 3/3 — "This minion sells for 3 Gold."')
   })
 
   test('says plainly there is no opponent while in the shop', () => {
@@ -100,7 +117,7 @@ describe('getHsBoardLine', () => {
       ageMs: 1_000,
     })
     const line = getHsBoardLine('nl_kripp')
-    expect(line).toContain('Fighting Maiev Shadowsong (24+3 armor, 1st) with Phaerix, Wrath of the Sun 5/5')
+    expect(line).toContain('Fighting Maiev Shadowsong (24+3 armor, 1st) with Phaerix, Wrath of the Sun (t6) 5/5')
     expect(line).not.toContain('no current opponent')
   })
 
@@ -123,9 +140,48 @@ describe('getHsBoardLine', () => {
       .toBe('1st Maiev Shadowsong 30+12 t2')
   })
 
+  test('a repeated card states its rule once', () => {
+    __setHsBoardCacheForTest('nl_kripp', {
+      hs: {
+        ...STATE,
+        board: [
+          { id: 'BGS_071', pos: 1, atk: 3, hp: 2, tier: 3 },
+          { id: 'BGS_071_G', pos: 2, atk: 6, hp: 4, tier: 3, golden: true },
+        ],
+      },
+      ageMs: 1_000,
+    })
+    const line = getHsBoardLine('nl_kripp', "what's on his board")
+    // both copies are listed with their own live stats...
+    expect(line).toContain('Deflect-o-Bot (t3) 3/2')
+    expect(line).toContain('golden Deflect-o-Bot (t3) 6/4')
+    // ...but the rule is stated once
+    expect(line.match(/Whenever you summon a Mech/g)).toHaveLength(1)
+  })
+
+  test('a board too big for the budget keeps the facts and drops the text', () => {
+    const many = Array.from({ length: 7 }, (_, i) => ({
+      id: i % 2 ? 'BGS_071' : 'BG28_403', pos: i + 1, atk: 40 + i, hp: 40 + i, tier: 6,
+    }))
+    __setHsBoardCacheForTest('nl_kripp', {
+      hs: {
+        ...STATE,
+        board: many,
+        phase: 'combat' as const,
+        opponent: { hero: { id: 'TB_BaconShop_HERO_62', hp: 20 }, board: many },
+      },
+      ageMs: 1_000,
+    })
+    const line = getHsBoardLine('nl_kripp', "what's on his board")
+    expect(line.length).toBeLessThan(1000)
+    expect(line).toContain('Phaerix, Wrath of the Sun (t6)')  // facts survive
+    expect(line).not.toContain('— "')                          // text is what goes
+  })
+
   test('always states what it can and cannot see', () => {
     const line = getHsBoardLine('nl_kripp')
-    expect(line).toContain('read from the game log and are real')
+    expect(line).toContain('read live from the game log and are real')
+    expect(line).toContain("the quoted text is the card's own")
     expect(line).toContain('You do NOT see the shop or their hand')
   })
 

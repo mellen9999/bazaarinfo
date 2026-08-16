@@ -32,6 +32,14 @@ const MAX_CARDS = 4 // context budget: nobody asks about five cards in one twitc
 
 export type HsKind = 'minion' | 'spell' | 'hero' | 'trinket' | 'buddy' | 'anomaly' | 'reward' | 'gift'
 
+/** the by-id record: what a card on a live board is, and what it does. */
+export interface IdCard {
+  n: string // name
+  x?: string // rules text
+  t?: number // tavern tier
+  r?: string // tribe(s)
+}
+
 /** trimmed card record. short keys — the cache is written to disk on every refresh. */
 export interface HsCard {
   n: string // name
@@ -52,10 +60,11 @@ export interface HsCard {
 interface HsCardCache {
   fetchedAt: number
   cards: HsCard[]
-  /** card id -> name, for resolving what the companion reads out of Hearthstone's log.
-   *  broader than `cards`: the log names tokens, golden copies and hero skins that are
-   *  never worth a lookup of their own but must still be nameable on a live board. */
-  ids?: Record<string, string>
+  /** card id -> what it is, for resolving what the companion reads out of Hearthstone's
+   *  log. deliberately broader than `cards`: a live board is full of tokens, golden
+   *  copies, hero skins and minions this patch rotated out, and every one of them still
+   *  has to be nameable and explainable when it is standing on the board. */
+  ids?: Record<string, IdCard | string>
 }
 
 let cache: HsCardCache | null = null
@@ -98,20 +107,26 @@ function patchOf(entry: any): number {
 }
 
 /**
- * Every Battlegrounds-reachable card id mapped to its name.
+ * Every Battlegrounds-reachable card id mapped to what it is and what it does.
  *
  * The companion sends raw card ids off the game log rather than names, so the mapping
  * lives here where it is refreshed daily — a rotation, a new token or a new hero skin
  * then needs no new companion build on anyone's machine.
  */
-export function extractIdNames(dump: unknown[]): Record<string, string> {
+export function extractIdNames(dump: unknown[]): Record<string, IdCard> {
   if (!Array.isArray(dump)) return {}
-  const out: Record<string, string> = {}
+  const out: Record<string, IdCard> = {}
   for (const raw of dump as any[]) {
     if (!raw || typeof raw.id !== 'string' || typeof raw.name !== 'string') continue
     if (raw.type !== 'MINION' && raw.type !== 'HERO') continue
     if (!/^(?:BG|TB_Bacon)/.test(raw.id) && raw.set !== 'BATTLEGROUNDS') continue
-    out[raw.id] = raw.name
+    const rec: IdCard = { n: raw.name }
+    const text = cleanText(raw.text)
+    if (text) rec.x = text
+    if (typeof raw.techLevel === 'number') rec.t = raw.techLevel
+    const tribes = tribesOf(raw)
+    if (tribes) rec.r = tribes
+    out[raw.id] = rec
   }
   return out
 }
@@ -201,7 +216,7 @@ function loadDisk(): void {
 
 async function refresh(): Promise<void> {
   let cards: HsCard[] = []
-  let ids: Record<string, string> = {}
+  let ids: Record<string, IdCard> = {}
   try {
     const res = await fetch(DUMP_URL, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -486,13 +501,46 @@ export function hsCardContext(query: string, cardIntent: boolean): { text: strin
  * null rather than the raw id: "BG29_843" in a chat reply is worse than saying nothing,
  * and a card the dump has never heard of is one this patch removed.
  */
-export function hsCardName(id: string): string | null {
+export function hsCardById(id: string): IdCard | null {
   loadDisk()
-  return cache?.ids?.[id] ?? null
+  const hit = cache?.ids?.[id]
+  if (!hit) return null
+  // an older cache stored bare names; tolerate it rather than going blind until the
+  // next daily refresh lands
+  return typeof hit === 'string' ? { n: hit } : hit
+}
+
+export function hsCardName(id: string): string | null {
+  return hsCardById(id)?.n ?? null
+}
+
+/**
+ * What a card DOES, by name — the rules text, tavern tier and tribe.
+ *
+ * This is what turns "there is a Deflect-o-Bot on the board" into knowing what is
+ * actually on the board. Golden copies and tokens share their base card's name, so a
+ * live board resolves through here even though only the base card is indexed.
+ *
+ * Prefers a current-pool minion when a name is shared (a hero and a minion can both be
+ * called Brann) — on a live board the thing standing there is the minion.
+ */
+export function hsCardByName(name: string): HsCard | null {
+  loadDisk()
+  const hits = byName.get(norm(name))
+  if (!hits?.length) return null
+  const minion = hits.find((c) => c.k === 'minion' && c.p) ?? hits.find((c) => c.k === 'minion')
+  return minion ?? hits[0]
+}
+
+/** just the rules text, trimmed to something a chat answer can carry. */
+export function hsCardText(name: string, max = 110): string | null {
+  const card = hsCardByName(name)
+  if (!card?.x) return null
+  return card.x.length > max ? `${card.x.slice(0, max - 1).replace(/\s+\S*$/, '')}…` : card.x
 }
 
 /** test seam — load a card set without touching the network or disk */
-export function __setHsCards(cards: HsCard[], ids: Record<string, string> = {}): void {
+export function __setHsCards(cards: HsCard[], ids: Record<string, IdCard | string> = {}): void {
   cache = { fetchedAt: Date.now(), cards, ids }
   buildIndex()
 }
