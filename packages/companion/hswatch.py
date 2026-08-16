@@ -561,7 +561,8 @@ def watch(log_path: Path, ebs_url: str, channel_id: str, secret: str) -> None:
         logger.warning("hs: could not read back the log (%s), starting from live lines", e)
 
     last_sent = None
-    last_send = time.monotonic()
+    # start the clock in the past so the first flush below is due immediately
+    last_send = 0.0
     last_change = 0.0
     dirty = False
     fail_count = 0
@@ -589,6 +590,11 @@ def watch(log_path: Path, ebs_url: str, channel_id: str, secret: str) -> None:
         else:
             fail_count += 1
             next_retry_ok = now + backoff_delay(fail_count)
+
+    # send what the catch-up read found straight away. the companion is usually started
+    # mid-session, and waiting for the next log line (or the 30s heartbeat) to report a
+    # board that is already on screen is a needless blind window.
+    flush(force=True)
 
     f = open_log(log_path)
     f.seek(0, 2)

@@ -8,6 +8,7 @@ confirm the shape we already assumed.
 """
 
 import gzip
+import time
 from pathlib import Path
 
 import pytest
@@ -248,3 +249,52 @@ def test_fixture_carries_no_personal_data():
     assert not re.search(r"\w+#\d{3,}", text), "a battletag survived redaction"
     assert "GameAccountId=[hi=0 lo=0]" in text, "account ids must be zeroed, not real"
     assert not re.search(r"hi=[1-9]\d{3,}", text)
+
+
+# --- the tail loop's startup behaviour ---
+
+
+def test_watch_sends_the_board_immediately_on_start(tmp_path, monkeypatch):
+    """
+    The companion is usually started mid-session. Waiting for the next log line — or for
+    the 30s heartbeat — to report a board that is already on screen is a blind window,
+    and it was a real one: the first build of this sent nothing for thirty seconds.
+    """
+    import threading
+
+    log = tmp_path / "Power.log"
+    with hswatch.open_log(FIXTURE) as f:
+        log.write_text(f.read(), encoding="utf-8")
+
+    sent = []
+    monkeypatch.setattr(hswatch, "send_hs_state", lambda url, ch, sec, payload: (sent.append(payload), True)[1])
+    # never let the loop go looking for a real hearthstone install during a test
+    monkeypatch.setattr(hswatch, "find_power_log", lambda *a, **k: log)
+
+    t = threading.Thread(target=hswatch.watch, args=(log, "http://x", "1", "s"), daemon=True)
+    t.start()
+    for _ in range(50):  # up to ~5s, far under the 30s heartbeat
+        if sent:
+            break
+        time.sleep(0.1)
+
+    assert sent, "the board on screen at startup was never sent"
+    assert sent[0]["board"], "sent an empty board when the log had one"
+    assert sent[0]["turn"] == 7
+
+
+def test_watch_survives_a_log_that_vanishes(tmp_path, monkeypatch):
+    """A streamer closing Hearthstone must not take the companion down with it."""
+    import threading
+
+    log = tmp_path / "Power.log"
+    log.write_text("", encoding="utf-8")
+    monkeypatch.setattr(hswatch, "send_hs_state", lambda *a: True)
+    monkeypatch.setattr(hswatch, "find_power_log", lambda *a, **k: None)
+
+    t = threading.Thread(target=hswatch.watch, args=(log, "http://x", "1", "s"), daemon=True)
+    t.start()
+    time.sleep(0.3)
+    log.unlink()
+    time.sleep(0.5)
+    assert t.is_alive()

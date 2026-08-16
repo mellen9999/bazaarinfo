@@ -112,7 +112,9 @@ jobs:
           body: |
             ## BazaarInfo Companion
 
-            Streams your card data to the BazaarInfo Twitch overlay so viewers can see card tooltips.
+            Streams your card data to the BazaarInfo Twitch overlay so viewers can see card tooltips,
+            and — if Hearthstone is on the same machine — follows your Battlegrounds games so the
+            chat bot can answer questions about your live board.
 
             ### setup
             1. Install the [BazaarInfo extension](https://dashboard.twitch.tv/extensions/nlhnk69thm8drl49k4h7v18u3365fu) on your Twitch channel
@@ -120,6 +122,17 @@ jobs:
             3. Download the companion for your platform below
             4. Run it and enter your Channel ID and Secret when prompted
             5. Launch The Bazaar and start a game — the overlay will show card tooltips automatically
+
+            ### battlegrounds (optional, automatic)
+            Nothing to set up. If Hearthstone is installed the companion finds it, switches on Power
+            logging if no tracker already has (it appends a `[Power]` section and leaves other
+            trackers' settings alone), and restarting Hearthstone once turns it on. Already running
+            Hearthstone Deck Tracker? Then logging is on and there is nothing to do — the two don't
+            conflict, HDT keeps drawing the board for viewers and this only feeds the chat bot.
+
+            It reads your board, hero, tavern tier, health, placement, the lobby standings and your
+            current opponent — all of it already on your stream. It does not read your shop or your
+            hand.
 
             ### downloads
             - **Windows**: `bazaarinfo-companion-windows.exe` — double-click to run
