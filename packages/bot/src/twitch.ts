@@ -214,6 +214,9 @@ export class TwitchClient {
   // pacerTimer===null and schedules a SECOND drain → two helix POSTs race / reorder.
   private draining = false
   private lastSendAt = 0
+  // the last line we actually put on the wire per channel, so a twitch drop-notice can name
+  // the message it killed. bounded by channel count, holds one short string each.
+  private lastSentByChannel = new Map<string, { text: string; at: number }>()
   private readonly SEND_GAP = 400
   // twitch chat rate limiting uses TWO account-wide buckets, each refilling over 30s
   // (per https://dev.twitch.tv/docs/chat + pajbot/tmi-rate-limits):
@@ -681,9 +684,21 @@ export class TwitchClient {
             log('irc auth failed — refreshing token and reconnecting')
             this.handleIrcAuthFailure()
             break
-          case 'notice':
+          case 'notice': {
             log('irc notice:', msg.raw ?? line)
+            // twitch explaining that it THREW AWAY a line we sent. the viewer who asked
+            // got silence and nothing else records it, so pair the notice with the line it
+            // killed — otherwise "the bot ignored me" is unfalsifiable after the fact.
+            // (seen live: a 5x-identical emote wall tripping automod's repeat detector.)
+            const drop = (msg.raw ?? '').match(/^\[(msg_automod_held|msg_rejected\w*|msg_duplicate|msg_ratelimit|msg_banned|msg_channel_suspended)\] #(\S+):/)
+            if (drop) {
+              const last = this.lastSentByChannel.get(drop[2])
+              const age = last ? Date.now() - last.at : Infinity
+              if (last && age < 15_000) log(`send dropped by twitch (${drop[1]}) #${drop[2]} after ${age}ms: ${JSON.stringify(last.text.slice(0, 80))}`)
+              else log(`send dropped by twitch (${drop[1]}) #${drop[2]} — no recent line to attribute it to`)
+            }
             break
+          }
           case 'userstate': {
             const was = this.privilegedChannels.has(msg.channel)
             if (msg.privileged) this.privilegedChannels.add(msg.channel)
@@ -795,15 +810,18 @@ export class TwitchClient {
   // on a real send so a dropped+requeued message isn't double-counted.
   private async sendOne(channel: string, text: string, replyTo?: string): Promise<boolean> {
     const prefix = replyTo ? `@reply-parent-msg-id=${replyTo} ` : ''
+    // remember what went out, so a drop-notice arriving moments later can name it
+    const noteSent = () => this.lastSentByChannel.set(channel, { text, at: Date.now() })
     if (this.ircOnlyChannels.has(channel)) {
       const ok = this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
-      if (ok) { this.recordSend(channel); this.lastSendAt = Date.now() }
+      if (ok) { this.recordSend(channel); this.lastSendAt = Date.now(); noteSent() }
       return ok
     }
     const sent = await this.helixSend(channel, text, false, replyTo)
     if (sent) {
       this.recordSend(channel)
       this.lastSendAt = Date.now()
+      noteSent()
       return true
     }
     // helix failed — fall back to IRC, but PROPAGATE the result. if the IRC socket is also
@@ -812,7 +830,7 @@ export class TwitchClient {
     // never went out.
     log(`helix failed for #${channel}, falling back to IRC PRIVMSG${replyTo ? ' (threaded)' : ''}`)
     const fbOk = this.ircSend(`${prefix}PRIVMSG #${channel} :${text}`)
-    if (fbOk) { this.recordSend(channel); this.lastSendAt = Date.now() }
+    if (fbOk) { this.recordSend(channel); this.lastSendAt = Date.now(); noteSent() }
     return fbOk
   }
 

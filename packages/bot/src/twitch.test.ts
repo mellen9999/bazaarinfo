@@ -197,3 +197,24 @@ describe('channel name normalisation (#28)', () => {
     expect(c.isPrivileged('mybot')).toBe(true)
   })
 })
+
+// twitch tells us when it threw a line away. the viewer who asked got silence, so the
+// notice has to survive parsing intact or the drop is unfalsifiable after the fact.
+describe('drop notices', () => {
+  test('a tagged automod notice keeps its msg-id and channel', () => {
+    const line = '@msg-id=msg_automod_held :tmi.twitch.tv NOTICE #nl_kripp :Your message has been held for review by Automod.'
+    const msg = parseIrcLine(line)
+    expect(msg.type).toBe('notice')
+    expect(msg.raw).toContain('[msg_automod_held]')
+    expect(msg.raw).toContain('#nl_kripp')
+  })
+
+  test('the drop-class matcher recognises the ones that eat a reply', () => {
+    const DROP = /^\[(msg_automod_held|msg_rejected\w*|msg_duplicate|msg_ratelimit|msg_banned|msg_channel_suspended)\] #(\S+):/
+    for (const id of ['msg_automod_held', 'msg_duplicate', 'msg_ratelimit', 'msg_rejected_mandatory']) {
+      expect(DROP.test(`[${id}] #chan: reason`)).toBe(true)
+    }
+    // a routine informational notice is not a drop and must not be reported as one
+    expect(DROP.test('[msg_followersonly] #chan: this room is in followers-only mode')).toBe(false)
+  })
+})
