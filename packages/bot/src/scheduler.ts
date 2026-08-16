@@ -1,6 +1,7 @@
 import { log } from './log'
 import { checkPatchStaleness, fetchPatchInfo, getPatchInfo } from './patch'
 import { fetchPatchNotes, loadOverlayCache } from './patch-notes'
+import { refreshHsIfNeeded } from './hs'
 
 const TZ = 'America/Los_Angeles'
 const fmt = new Intl.DateTimeFormat('en-US', {
@@ -57,6 +58,9 @@ export async function schedulePatchRefresh() {
     checkPatchStaleness()
   })
   schedulePatchRetry()
+  // warm the BG leaderboard so the first rating ask after a restart is grounded rather
+  // than silent. non-blocking and fail-soft — a blizzard outage just delays the answer.
+  refreshHsIfNeeded()
 }
 
 // hourly safety net: while getPatchInfo() has no valid fresh cache (startup and/or 4am

@@ -5,6 +5,7 @@ import { getRedditDigest } from './reddit'
 import { getPatchInfo } from './patch'
 import { OVERLAY, isOverlayFresh, resolvePatch, selectNotes, getCardChange, getHeroChanges } from './patch-notes'
 import { getWorldCupLine } from './worldcup'
+import { isHsRatingQuery, extractSubject, hsContext } from './hs'
 import { getWeatherLine } from './weather'
 import { META_QUERY_RE } from './intents'
 import { SECTION_HEADERS } from './ai-sanitize'
@@ -847,6 +848,11 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // failure, '' otherwise — nothing to hallucinate from). refreshed in doAiCall.
   const weatherLine = getWeatherLine(query)
 
+  // hearthstone battlegrounds standings — kripp's chat is a hearthstone chat, and a BG
+  // rating ask used to get "THIS is bazaar chat not hearthstone's". official blizzard data
+  // or nothing: the block states plainly when a player simply isn't on the ranked board.
+  const hsLine = isHsRatingQuery(query) ? `\n${hsContext(query, extractSubject(query))}` : ''
+
   // skip reddit digest + emotes when we have specific game data or short queries
   const digest = getRedditDigest()
   // community buzz is high-value on meta/sentiment asks — keep it even when a game entity
@@ -1102,6 +1108,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'schedule', text: scheduleLine, base: -106 },
     // live weather is the direct answer when it fires — same never-evict tier
     { name: 'weather', text: weatherLine, base: -105 },
+    // BG standings are the direct answer when they fire — same never-evict tier
+    { name: 'hs', text: hsLine, base: -104.5 },
     // "what can you do" / "what's new with you" — the only grounding that exists for
     // questions about the bot itself, so it can never be the section that gets evicted
     { name: 'self', text: selfLine, base: -104 },
