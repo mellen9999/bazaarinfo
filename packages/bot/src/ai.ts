@@ -25,6 +25,7 @@ import { matchingDirectives } from './directives'
 import { isWorldCupQuery, refreshWorldCupIfNeeded } from './worldcup'
 import { isWeatherQuery, refreshWeatherIfNeeded } from './weather'
 import { isHsRatingQuery, refreshHsIfNeeded } from './hs'
+import { isHsCardQuery, refreshHsCardsIfNeeded } from './hs-cards'
 import { refreshBoardIfNeeded } from './board'
 import { isScheduleQuery } from './schedule'
 import { resolveScheduleChannel } from './schedule-query'
@@ -202,6 +203,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // answers from the cached board (refreshed at most every 6h) while a stale one reloads
   // in the background. a rating hours old is right; a reply seconds late is not.
   if (isHsRatingQuery(query)) refreshHsIfNeeded()
+
+  // BG card data: same not-awaited contract, and more so — the dump is ~10MB. this turn
+  // answers from the cached cards (refreshed daily) while a stale set reloads behind it.
+  if (isHsCardQuery(query)) refreshHsCardsIfNeeded()
 
   // schedule asks: prefetch the target channel's title BEFORE building context — a
   // streamer-stated plan in the title ("NEXT STREAM WEDNESDAY") overrides the stats.

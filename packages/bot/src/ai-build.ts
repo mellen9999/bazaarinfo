@@ -1,11 +1,12 @@
 import * as store from './store'
 import * as db from './db'
 import { isGameActive } from './trivia'
-import { getRedditDigest } from './reddit'
+import { getRedditDigest, getBgRedditDigest } from './reddit'
 import { getPatchInfo } from './patch'
 import { OVERLAY, isOverlayFresh, resolvePatch, selectNotes, getCardChange, getHeroChanges } from './patch-notes'
 import { getWorldCupLine } from './worldcup'
 import { isHsRatingQuery, extractSubject, hsContext } from './hs'
+import { isHsCardQuery, isHsCardIntent, isHearthstoneCategory, hsCardContext } from './hs-cards'
 import { getWeatherLine } from './weather'
 import { META_QUERY_RE } from './intents'
 import { SECTION_HEADERS } from './ai-sanitize'
@@ -862,6 +863,21 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // or nothing: the block states plainly when a player simply isn't on the ranked board.
   const hsLine = isHsRatingQuery(query) ? `\n${hsContext(query, extractSubject(query))}` : ''
 
+  // hearthstone battlegrounds CARD data — same reasoning one step further. the leaderboard
+  // block above answers "what's his rating"; this answers "what does brann do", which the
+  // model was otherwise answering from memory with nothing checking it.
+  // two ways in: the question names hearthstone/BG, or the channel is literally streaming
+  // Hearthstone right now — during a BG stream a bare card name is a BG card, not a coincidence.
+  // deliberately NOT fired on a Bazaar-entity query: this bot's home game wins name collisions.
+  const hsShaped = isHsCardQuery(query) || (isHearthstoneCategory(getChannelGame(ctx.channel)) && !entities.isGame)
+  const hsCard = hsShaped
+    ? hsCardContext(query, isHsCardIntent(query) && !isHsRatingQuery(query))
+    : { text: '', grounded: false }
+  const hsCardLine = hsCard.text ? `\n${hsCard.text}` : ''
+  // real card numbers in the prompt are what license the stat guards to relax — the miss
+  // line has none, and must leave them armed.
+  if (hsCard.grounded) hasGameData = true
+
   // skip reddit digest + emotes when we have specific game data or short queries
   const digest = getRedditDigest()
   // community buzz is high-value on meta/sentiment asks — keep it even when a game entity
@@ -872,6 +888,11 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const skipReddit = (hasGameData && !redditMetaIntent) || (query.length < 20 && !META_QUERY_RE.test(query))
   const redditLine = (!skipReddit && digest) ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
   const redditRelevant = !!redditLine && redditMetaIntent
+  // the battlegrounds community's buzz — memes, tier-list arguments, "this hero is broken".
+  // same value the bazaar digest carries, for the half of chat that came for hearthstone.
+  // only on a hearthstone-shaped ask, so it never competes for budget on a Bazaar question.
+  const bgDigest = hsShaped ? getBgRedditDigest() : ''
+  const bgRedditLine = bgDigest ? `\nBattlegrounds community buzz (r/BobsTavern): ${bgDigest}` : ''
   const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getRecentEmotes(ctx.channel))
 
   // hot exchange cache
@@ -1080,6 +1101,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const sections: Sec[] = [
     ...primaryPair,
     { name: 'reddit', text: redditLine, base: 190, boost: redditRelevant ? 185 : 0 },
+    // already gated to hearthstone-shaped asks, so when it exists it is on-topic — same
+    // boost shape as the bazaar digest on a meta/sentiment question
+    { name: 'redditBg', text: bgRedditLine, base: 189, boost: redditMetaIntent ? 185 : 0 },
     { name: 'hotConvo', text: hotLine, base: 10 },
     // ambient live board — unique, current, and short; sits with the flavor tier so a
     // tight budget can still evict it (a board-shaped ask rides gameBlock instead)
@@ -1119,6 +1143,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'weather', text: weatherLine, base: -105 },
     // BG standings are the direct answer when they fire — same never-evict tier
     { name: 'hs', text: hsLine, base: -104.5 },
+    // BG card text likewise: it IS the answer, and losing it means answering from memory
+    { name: 'hsCards', text: hsCardLine, base: -104.4 },
     // "what can you do" / "what's new with you" — the only grounding that exists for
     // questions about the bot itself, so it can never be the section that gets evicted
     { name: 'self', text: selfLine, base: -104 },

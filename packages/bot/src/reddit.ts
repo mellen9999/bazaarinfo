@@ -3,7 +3,6 @@ import { readJson } from './http'
 import { fetchSubreddit, type FeedEntry } from './reddit-feed'
 import * as db from './db'
 
-const SUBREDDIT = 'PlayTheBazaar'
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
 // digest is global, not per-channel — attribute spend to the same sentinel other
@@ -12,10 +11,29 @@ const BACKGROUND_SPEND_CHANNEL = '_background'
 
 const FETCH_TIMEOUT = 30_000
 
-let cachedDigest = ''
+// two communities, because the bot lives in two games. r/BobsTavern is where BG memes,
+// tier-list arguments and "this hero is broken" discourse happen — the same value
+// r/PlayTheBazaar has always carried, for the half of chat that came for hearthstone.
+// kept as separate digests, refreshed on separate slots: they share the reddit transport's
+// serialized queue, and chaining them would put a 90s gap inside `!b refresh`.
+interface Source {
+  sub: string
+  key: string
+  label: string
+  game: string
+}
+const BAZAAR: Source = { sub: 'PlayTheBazaar', key: 'playthebazaar', label: 'r/PlayTheBazaar', game: 'The Bazaar' }
+const BGS: Source = { sub: 'BobsTavern', key: 'bobstavern', label: 'r/BobsTavern', game: 'Hearthstone Battlegrounds' }
+
+const digests = new Map<string, string>()
 
 export function getRedditDigest(): string {
-  return cachedDigest
+  return digests.get(BAZAAR.key) ?? ''
+}
+
+/** community buzz from the battlegrounds subreddit — injected on hearthstone-shaped asks. */
+export function getBgRedditDigest(): string {
+  return digests.get(BGS.key) ?? ''
 }
 
 // the feed arrives in the subreddit's own hot order, so position is the only ranking
@@ -31,7 +49,7 @@ export function buildRedditContext(entries: FeedEntry[]): string {
   return lines.join('\n')
 }
 
-async function summarizeWithHaiku(context: string): Promise<string> {
+async function summarizeWithHaiku(source: Source, context: string): Promise<string> {
   if (!API_KEY) return ''
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -46,7 +64,7 @@ async function summarizeWithHaiku(context: string): Promise<string> {
       max_tokens: 250,
       messages: [{
         role: 'user',
-        content: `Summarize the r/PlayTheBazaar front page in under 600 chars. Cover ALL of these if present:
+        content: `Summarize the ${source.label} front page (${source.game}) in under 600 chars. Cover ALL of these if present:
 - Meta: dominant heroes/builds/items, what's strong/weak
 - Community mood: complaints, praise, frustration, hype
 - Memes/jokes: recurring bits, copypastas, shitposts worth knowing
@@ -69,21 +87,29 @@ Raw posts:\n\n${context}`,
   return text.slice(0, 600)
 }
 
-export async function refreshRedditDigest(): Promise<void> {
+async function refresh(source: Source): Promise<void> {
   try {
-    const entries = await fetchSubreddit(SUBREDDIT, 'playthebazaar')
+    const entries = await fetchSubreddit(source.sub, source.key)
     // transport failed and already logged + alerted — hold the last good digest rather
     // than blanking it, so one bad fetch does not silently strip the bot's context.
     if (entries.length === 0) return
 
-    const digest = await summarizeWithHaiku(buildRedditContext(entries.slice(0, 15)))
+    const digest = await summarizeWithHaiku(source, buildRedditContext(entries.slice(0, 15)))
     if (digest) {
-      cachedDigest = digest.replace(/^#+\s*/gm, '').replace(/\*\*([^*]+)\*\*/g, '$1')
-      log(`reddit: ${entries.length} posts -> digest ${cachedDigest.length} chars`)
+      digests.set(source.key, digest.replace(/^#+\s*/gm, '').replace(/\*\*([^*]+)\*\*/g, '$1'))
+      log(`reddit: ${source.label} ${entries.length} posts -> digest ${digests.get(source.key)!.length} chars`)
     } else {
-      log('reddit: no digest generated (no API key or empty response)')
+      log(`reddit: ${source.label} no digest generated (no API key or empty response)`)
     }
   } catch (e) {
-    log(`reddit: refresh failed: ${e}`)
+    log(`reddit: ${source.label} refresh failed: ${e}`)
   }
+}
+
+export function refreshRedditDigest(): Promise<void> {
+  return refresh(BAZAAR)
+}
+
+export function refreshBgRedditDigest(): Promise<void> {
+  return refresh(BGS)
 }

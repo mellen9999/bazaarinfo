@@ -2,6 +2,7 @@ import { log } from './log'
 import { checkPatchStaleness, fetchPatchInfo, getPatchInfo } from './patch'
 import { fetchPatchNotes, loadOverlayCache } from './patch-notes'
 import { refreshHsIfNeeded } from './hs'
+import { refreshHsCardsIfNeeded } from './hs-cards'
 
 const TZ = 'America/Los_Angeles'
 const fmt = new Intl.DateTimeFormat('en-US', {
@@ -55,12 +56,17 @@ export async function schedulePatchRefresh() {
       log(`patch schedule error: ${e}`)
     }
     await refreshNotes('daily')
+    // hearthstone ships its own patches on its own days — pull the BG card set on the same
+    // 4am slot so a rotation change is grounded within a day of landing
+    refreshHsCardsIfNeeded()
     checkPatchStaleness()
   })
   schedulePatchRetry()
   // warm the BG leaderboard so the first rating ask after a restart is grounded rather
   // than silent. non-blocking and fail-soft — a blizzard outage just delays the answer.
   refreshHsIfNeeded()
+  // and the BG card set — TTL-gated, so this is a no-op when the on-disk cache is fresh
+  refreshHsCardsIfNeeded()
 }
 
 // hourly safety net: while getPatchInfo() has no valid fresh cache (startup and/or 4am

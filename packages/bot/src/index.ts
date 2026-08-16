@@ -15,7 +15,8 @@ import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, c
 import { isMuted } from './directives'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
 import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamInfo } from './ai-cache'
-import { refreshRedditDigest } from './reddit'
+import { refreshRedditDigest, refreshBgRedditDigest } from './reddit'
+import { refreshHsCardsIfNeeded } from './hs-cards'
 import { setChannelIdResolver } from './board'
 import { refreshTopicalDigest } from './topical'
 import { refreshActivity } from './activity'
@@ -225,6 +226,9 @@ setChannelInfos(channels)
 setRefreshHandler(async (force?: boolean) => {
   try {
     const line = await refreshAll({ force })
+    // TTL-gated + not awaited: the BG card dump is ~10MB and its own patch cycle, so it
+    // must never hold up the owner's refresh reply
+    refreshHsCardsIfNeeded()
     await refreshRedditDigest()
     return line ?? `refreshed, no new content (${getCacheInfo().items} items)`
   } catch (e) {
@@ -333,8 +337,10 @@ loadDescriptionCache().then(async () => {
   }
 }).catch((e) => log(`emote startup failed: ${e}`))
 
-// load reddit digest (non-blocking) — daily refresh at 5pm PT scheduled below
+// load reddit digests (non-blocking) — daily refreshes at 5pm/6pm PT scheduled below.
+// separate slots: both ride the shared reddit rate-limit queue, which spaces fetches 90s apart.
 refreshRedditDigest().catch((e) => log(`reddit digest load failed: ${e}`))
+refreshBgRedditDigest().catch((e) => log(`bg reddit digest load failed: ${e}`))
 
 // load topical (HN + r/popular) digest — refresh every 4h for fresh world-knowledge in creative path
 refreshTopicalDigest().catch((e) => log(`topical digest load failed: ${e}`))
@@ -666,6 +672,13 @@ scheduleDaily(17, async () => {
   try {
     await refreshRedditDigest()
   } catch (e) { log(`daily reddit refresh failed: ${e}`) }
+})
+
+// battlegrounds buzz an hour later — its own slot so the two never queue behind each other
+scheduleDaily(18, async () => {
+  try {
+    await refreshBgRedditDigest()
+  } catch (e) { log(`daily bg reddit refresh failed: ${e}`) }
 })
 
 // daily data refresh at 4am PT
