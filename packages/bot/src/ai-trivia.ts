@@ -143,7 +143,16 @@ export function pickDistinctLenses(channel: string, k: number): string[] {
 // debatable topics to zero survivors at 4; two more angles keep them off the curated pool.
 const CANDIDATES = 6
 
-const BROADEN = 'Play it safe: pick the single most well-established, certainly-true fact you know that connects to this topic — zoom out to its broader subject if needed — and ask a clean question whose answer is one crisp nameable thing.'
+// The rescue pass. Round 1 asks for deep cuts, which is exactly what a fact-checking panel
+// refuses to confirm — so when it comes back empty these take the opposite tack and go for
+// facts nobody could dispute. THREE of them, not one: this is the pass standing between the
+// asker and an unrelated question, and it used to get a single shot. "!trivia Fire Emblem"
+// died here and chat was handed a US-states question instead.
+const BROADEN_ANGLES = [
+  'Play it safe: pick the single most well-established, certainly-true fact you know that connects to this topic — zoom out to its broader subject if needed — and ask a clean question whose answer is one crisp nameable thing.',
+  'Go for the most basic, encyclopedic fact about this topic — who made it, when it started, where it comes from, what it belongs to. Textbook-obvious beats clever here. The answer must be one crisp nameable thing that is NOT the topic itself.',
+  'Name the single most famous thing WITHIN this topic — its best-known character, work, entry, figure or moment — and ask a question whose answer is that thing. Only the most widely-known one; nothing a fan would argue about.',
+]
 
 function lensInstruction(lens: string): string {
   return `Favor THIS angle if you have a SOLID, verifiable fact for it; otherwise pick a better angle for this topic (never invent one to fit): ${lens}`
@@ -200,7 +209,13 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
     const rejectedBlock = r1.rejected.length
       ? `\n\nThese candidates were FACT-CHECKED AND REJECTED as wrong — their claims are false; do not repeat them or their answers:\n${r1.rejected.slice(-4).map((q) => `- ${q.question} (claimed: ${q.answer})`).join('\n')}`
       : ''
-    const r2 = await generateAndVerify(channel, [{ subject: clean, instruction: BROADEN }], clean, avoidBlock + rejectedBlock, true)
+    const r2 = await generateAndVerify(
+      channel,
+      BROADEN_ANGLES.map((instruction) => ({ subject: clean, instruction })),
+      clean,
+      avoidBlock + rejectedBlock,
+      true,
+    )
     passed = r2.passed
     soft.push(...r2.soft)
   }
