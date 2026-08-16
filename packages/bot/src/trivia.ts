@@ -900,6 +900,26 @@ function difficultyBase(type: number, acceptedLen: number): number {
   return 5 - Math.min(4, Math.max(0, Math.floor(Math.log2(ansCount))))
 }
 
+/**
+ * Is this guess the accepted answer MISSPELLED, rather than a different answer?
+ *
+ * One edit for any answer 5+ chars. Two edits only for a single long word — and that
+ * narrowness is the whole design. "richtoffen" for Richthofen is two edits, and the
+ * chatter who typed it lost a round nobody else won. But at two edits "kiss" reaches
+ * Kyuss, "oak tree" reaches "cork tree" and "Bowling" reaches "boxing" — every one of
+ * those a real thing someone meant, not a slip. A single 8+ letter token with no space is
+ * where a two-edit neighbour is overwhelmingly a typo and not a rival answer.
+ *
+ * Numbers never qualify at any distance: a digit off is a different number.
+ */
+export function isTypoOf(cleaned: string, accepted: string[]): boolean {
+  if (accepted.some((a) => a.length >= 5 && !/^\d+$/.test(a) && editDistance(cleaned, a) === 1)) return true
+  if (cleaned.includes(' ')) return false
+  return accepted.some(
+    (a) => a.length >= 8 && !a.includes(' ') && !/^\d+$/.test(a) && editDistance(cleaned, a) === 2,
+  )
+}
+
 // answer matching: exact, then startsWith, then includes for long names.
 // fuzzy (startsWith/includes) is ONLY safe for single-title questions — on a
 // multi-answer pool (e.g. "name any Weapon", 60+ titles) a 5-char prefix like
@@ -1217,6 +1237,11 @@ function endTrivia(channel: string, expectedGameId?: number): string | null {
 
   clearTimeout(game.timeout)
   clearHints(game)
+  // record who tried BEFORE the row is forgotten — a round nobody won is exactly the one
+  // worth studying later, and it used to read back as zero players however many guessed
+  try {
+    db.recordTriviaEnd(game.gameId, game.participants.size)
+  } catch {}
   finishRound(channel)
   log(`trivia: ended #${channel} game ${game.gameId} (${game.participants.size} players, timeout)`)
 
@@ -1279,9 +1304,7 @@ export function checkAnswer(
   // (a 1-digit slip is a different number, not a typo). multi-answer pools are excluded by
   // allowFuzzy=false so a pool of 40 items can't be won by a near-miss of any one title.
   if (!isCorrect && (allowFuzzy || game.questionType === CUSTOM_TYPE)) {
-    isCorrect = game.acceptedAnswers.some(
-      (a) => a.length >= 5 && !/^\d+$/.test(a) && editDistance(cleaned, a) === 1,
-    )
+    isCorrect = isTypoOf(cleaned, game.acceptedAnswers)
   }
 
   const answerTimeMs = Date.now() - game.startedAt

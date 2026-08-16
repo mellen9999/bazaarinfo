@@ -1010,6 +1010,19 @@ export function recordTriviaWin(gameId: number, userId: number, answerTimeMs: nu
   })()
 }
 
+/**
+ * Persist how many people tried a round that nobody won.
+ *
+ * participant_count was only ever written by recordTriviaWin, so every unwon round read
+ * back as "0 players" no matter how many had guessed — rounds with ten recorded answers
+ * all showed zero. That makes the losses, which are exactly the rounds worth studying,
+ * unreadable.
+ */
+export function recordTriviaEnd(gameId: number, participantCount: number) {
+  db.query('UPDATE trivia_games SET participant_count = ? WHERE id = ? AND winner_id IS NULL')
+    .run(participantCount, gameId)
+}
+
 export function recordTriviaAttempt(userId: number) {
   stmts.incrTriviaAttempt.run(userId)
 }

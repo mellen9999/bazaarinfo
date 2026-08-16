@@ -183,6 +183,7 @@ const {
   formatTop,
   setSay,
   matchAnswer,
+  isTypoOf,
   looksLikeAnswer,
   resetForTest,
   getActiveGameForTest,
@@ -1580,5 +1581,35 @@ describe('quiz-culture pack integrity', () => {
         expect(norm(q.question)).not.toBe(norm(a))
       }
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// regression corpus mined from real rounds. every case below is a guess a real
+// chatter typed in nl_kripp, with the verdict the round should have reached.
+// ---------------------------------------------------------------------------
+describe('isTypoOf — from real rounds', () => {
+  it('accepts a misspelled long proper noun — they knew it and lost on spelling', () => {
+    // real: answer "Richthofen", typed "richtoffen", and nobody won that round
+    expect(isTypoOf('richtoffen', ['richthofen'])).toBe(true)
+    expect(isTypoOf('metalica', ['metallica'])).toBe(true)
+  })
+
+  it('still refuses a DIFFERENT answer that happens to sit two edits away', () => {
+    // all real guesses. each is its own real thing, not a misspelling of the answer.
+    expect(isTypoOf('kiss', ['kyuss'])).toBe(false)         // two real bands
+    expect(isTypoOf('oak tree', ['cork tree'])).toBe(false) // two real trees
+    expect(isTypoOf('bowling', ['boxing'])).toBe(false)     // two real sports
+    expect(isTypoOf('faroe', ['faro'])).toBe(false)         // two real places
+  })
+
+  it('never lets a near-miss number win — a digit off is a different number', () => {
+    for (const [typed, ans] of [['1400', '1000'], ['1988', '1818'], ['100', '12'], ['10000', '1000']]) {
+      expect(isTypoOf(typed, [ans])).toBe(false)
+    }
+  })
+
+  it('keeps the one-edit grace it always had', () => {
+    expect(isTypoOf('vanesa', ['vanessa'])).toBe(true)
   })
 })
