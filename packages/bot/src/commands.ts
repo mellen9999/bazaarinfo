@@ -1380,6 +1380,22 @@ const PERSON_TOPIC_RE = /^@([a-z0-9_]{2,25})$/i
 // the normal topic path.
 const BARE_NAME_RE = /^[a-z0-9_]{3,25}$/i
 const BARE_NAME_WINDOW = '-6 hours'
+// A bare word is a PERSON only when chat would recognise the name. Two ways to earn that:
+// they just chatted, or they are a regular here. The second half is what makes
+// "!trivia <name>" work for someone watching without typing right now.
+//
+// Kept to REGULARS deliberately. A bare name is also a world topic — "matrix", "jojos",
+// "kripparrian" all came through in one minute of real chat — and a stranger with three
+// messages must never hijack one of those into a quiz about themselves.
+const REGULAR_MSGS = 200
+function isKnownChatter(name: string, channel: string): boolean {
+  try {
+    if (db.userChattedSince(name, channel, BARE_NAME_WINDOW)) return true
+    return (db.getUserStats(name, channel)?.chat_messages ?? 0) >= REGULAR_MSGS
+  } catch {
+    return false
+  }
+}
 
 // on the `!b` path, @mentions are stripped out of the command text before dispatch (they
 // survive only in the suffix tag), so "!b trivia about @x" reaches us as topic "about".
@@ -1464,16 +1480,20 @@ function liveQueue(channel: string): QueuedTopic[] {
   return q
 }
 
-/** hold a topic for the next round. returns the honest line to say back, never null. */
-function queueTopic(channel: string, topic: string, user: string): string {
+/**
+ * Hold a topic for the next round.
+ *
+ * Returns the line to say back, or null to stay quiet. Quiet ONLY when the queue is
+ * already full: during a spree a dozen people ask in one round, and answering all of them
+ * "busy" is worse noise than saying nothing. We speak when we are making a promise.
+ */
+function queueTopic(channel: string, topic: string, user: string): string | null {
   const q = liveQueue(channel)
   const norm = topic.trim().toLowerCase()
   if (q.some((e) => e.topic.trim().toLowerCase() === norm)) {
     return `"${topic.slice(0, 30)}" is already queued — it's up after this round`
   }
-  if (q.length >= QUEUE_MAX) {
-    return `a round is already running and the next ${q.length} are spoken for — try again after`
-  }
+  if (q.length >= QUEUE_MAX) return null
   q.push({ topic, user, at: Date.now() })
   topicQueue.set(channel, q)
   return q.length === 1
@@ -1528,7 +1548,8 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   if (isGameActive(channel)) {
     // hold it rather than dropping it — the reply below is a promise, and drainTopicQueue
     // is what makes it true
-    return withSuffix(queueTopic(channel, t, ctx.user ?? 'chat'), suffix)
+    const held = queueTopic(channel, t, ctx.user ?? 'chat')
+    return held ? withSuffix(held, suffix) : null
   }
   // mod topic bans — enforced here so every entry path (about-form, topic-first,
   // NL-verb form) hits the same wall.
@@ -1549,9 +1570,15 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
     const kr = startKrippTrivia(channel)
     if (kr) return withSuffix(kr, suffix)
   }
-  if (customPending.has(channel)) return null
+  // busy, but not with a round the asker can see: a generation is in flight, or we are
+  // inside the post-generation cooldown. This used to `return null` — total silence — and
+  // it is what ate "!trivia mellen" while a duke-nukem round was still cooking. From the
+  // asker's side it is the same situation as a live round, so it gets the same answer.
   const last = customGenCooldown.get(channel) ?? 0
-  if (Date.now() - last < CUSTOM_GEN_CD) return null
+  if (customPending.has(channel) || Date.now() - last < CUSTOM_GEN_CD) {
+    const held = queueTopic(channel, t, ctx.user ?? 'chat')
+    return held ? withSuffix(held, suffix) : null
+  }
 
   const isChatTrivia = CHAT_TRIVIA_RE.test(t)
   // "trivia about @someone" -> quiz chat on that person, grounded in what we've logged
@@ -1570,7 +1597,7 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
     // a dangling connector with no target ("trivia about" alone) has nothing to quiz on —
     // don't feed the bare word to the topic model (it drifts to a nonsense question).
     else if (PERSON_CONNECTOR_RE.test(t)) return null
-    else if (BARE_NAME_RE.test(t) && !gameTopic && db.userChattedSince(t, channel, BARE_NAME_WINDOW)) {
+    else if (BARE_NAME_RE.test(t) && !gameTopic && isKnownChatter(t, channel)) {
       const d = buildPersonDossier(t, channel)
       if (d) {
         person = t

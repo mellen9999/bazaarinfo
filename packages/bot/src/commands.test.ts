@@ -63,12 +63,13 @@ const mockGetLastTriviaResult = mock<(channel: string) => { question: string; an
 // the name has chatted here recently — off by default so word topics stay word topics.
 const mockUserChattedSince = mock<(user: string, channel: string, since?: string) => boolean>(() => false)
 
+const mockGetUserStats = mock<(u: string, ch?: string) => unknown>(() => null)
 mock.module('./db', () => ({
   logCommand: mockLogCommand,
   getOrCreateUser: mockGetOrCreateUser,
   getRecentAsks: mockGetRecentAsks,
   logChat: mock(() => {}),
-  getUserStats: mock(() => null),
+  getUserStats: mockGetUserStats,
   getLastTriviaResult: mockGetLastTriviaResult,
   getUserFacts: mockGetUserFacts,
   getUserMessages: mockGetUserMessages,
@@ -2704,6 +2705,31 @@ describe('person-targeted trivia: !trivia about @user', () => {
     expect(mockGeneratePersonTrivia).not.toHaveBeenCalled()
   })
 
+  it('quizzes a REGULAR by bare name even when they have not chatted in hours', async () => {
+    // "!trivia mellen" — someone watching without typing. 16k messages in this channel;
+    // chat knows exactly who that is, so it must not become a world-knowledge topic.
+    mockUserChattedSince.mockImplementation(() => false)
+    mockGetUserStats.mockImplementation(() => ({ chat_messages: 16733 }))
+    mockGetUserFacts.mockImplementation(() => [])
+    mockGetUserMessages.mockImplementation(() => ['gg', 'nice', 'lol', 'wp', 'yep', 'sure', 'ok'])
+    await handleCommand('!b trivia about mellen', { user: 'peyton', channel: 'pt-reg' })
+    expect(mockGeneratePersonTrivia).toHaveBeenCalledTimes(1)
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+    mockGetUserStats.mockImplementation(() => null)
+  })
+
+  it('a stranger with a handful of messages never hijacks a world topic', async () => {
+    // "matrix", "jojos", "kripparrian" all came through real chat in one minute. someone
+    // named after one of those, with three messages, must not turn it into a quiz on them.
+    mockUserChattedSince.mockImplementation(() => false)
+    mockGetUserStats.mockImplementation(() => ({ chat_messages: 3 }))
+    mockGetUserMessages.mockImplementation(() => ['a', 'b', 'c', 'd', 'e', 'f', 'g'])
+    await handleCommand('!b trivia about matrix', { user: 'asker', channel: 'pt-collide' })
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('matrix', 'pt-collide', [], [])
+    expect(mockGeneratePersonTrivia).not.toHaveBeenCalled()
+    mockGetUserStats.mockImplementation(() => null)
+  })
+
   it('routes a bare handle to person trivia when they have been chatting here', async () => {
     // chat types handles without the @ — "!trivia about hamstornado". the topic model
     // knows nothing about them, so this must not dead-end in a random substitute.
@@ -3661,8 +3687,9 @@ describe('queued trivia topics — "wait for it" has to mean something', () => {
       await handleCommand(`!b trivia ${t}`, { user: 'spam', channel: 'qtest3' })
     }
     expect(__queueDepthForTest('qtest3')).toBeLessThanOrEqual(2)
+    // a full queue goes SILENT rather than telling ten people they're too late
     const full = await handleCommand('!b trivia fff', { user: 'spam', channel: 'qtest3' })
-    expect(full).toContain('spoken for')
+    expect(full).toBeNull()
   })
 
   it('tells the asker their topic is queued, not that it was ignored', async () => {
@@ -3670,6 +3697,23 @@ describe('queued trivia topics — "wait for it" has to mean something', () => {
     // the old wording promised something nothing delivered; the new one has to be true
     expect(res).not.toContain('wait for it')
     expect(res).toMatch(/up next|queued/)
+  })
+
+  it('a generation already in flight queues too, instead of silently eating the ask', async () => {
+    // "!trivia mellen" vanished with no reply at all because a round was still cooking:
+    // not isGameActive yet, so it fell to the pending/cooldown gate and returned null
+    mockIsGameActive.mockImplementation(() => false)
+    mockGenerateCustomTrivia.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 60))
+      return { question: 'q?', answer: 'a', accept: ['a'] }
+    })
+    const first = handleCommand('!b trivia duke nukem', { user: 'sour', channel: 'qtest5' })
+    await new Promise((r) => setTimeout(r, 10)) // land while the first is still generating
+    const second = await handleCommand('!b trivia mellen', { user: 'peyton', channel: 'qtest5' })
+    expect(second).not.toBeNull()
+    expect(second).toContain('up next')
+    expect(__queueDepthForTest('qtest5')).toBe(1)
+    await first
   })
 
   it('queues per channel, never bleeding one channel\'s topic into another', async () => {
