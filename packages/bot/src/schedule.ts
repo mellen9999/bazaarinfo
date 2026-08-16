@@ -37,7 +37,7 @@ export interface StreamSession {
 export type Prediction =
   | { kind: 'insufficient'; sessions: number; needed: number }
   | { kind: 'irregular'; sessions: number; medianGapMs: number | null }
-  | { kind: 'streak'; at: number; confidenceMs: number; samples: number }
+  | { kind: 'streak'; at: number; confidenceMs: number; loose: boolean; samples: number }
   | { kind: 'weekday'; at: number; confidenceMs: number; loose: boolean; samples: number }
   | { kind: 'gap'; at: number; confidenceMs: number; samples: number }
 
@@ -151,7 +151,7 @@ export function predictNextStream(raw: StreamSession[], now: number): Prediction
       while (at <= lastStart + medR / 2 || at <= now - Math.max(GRACE, conf)) at += DAY
       // `samples` is the history this drew on, not the clock slice — reporting the slice
       // read as "a rolling window of 15, oldest drops off", which is not what happens.
-      return { kind: 'streak', at, confidenceMs: conf, samples: s.length }
+      return { kind: 'streak', at, confidenceMs: conf, loose: conf > LOOSE_CONFIDENCE, samples: s.length }
     }
   }
 
@@ -287,7 +287,8 @@ export function formatSchedule(channel: string, pred: Prediction, now: number, l
       const when = dayLabel(pred.at, now)
       const inMs = pred.at - now
       const soon = inMs <= GRACE ? 'any moment now' : `in ${humanizeDelta(inMs)}`
-      return `${channel} streams near-daily — next likely ${when} ${soon} (±${humanizeDelta(pred.confidenceMs)}), ~${utcClock(pred.at)}.`
+      // a ±5h streak window is honest but nearly useless — say so, same as the weekday model
+      return `${channel} streams near-daily — next likely ${when} ${soon} (±${humanizeDelta(pred.confidenceMs)}${pred.loose ? ', rough' : ''}), ~${utcClock(pred.at)}.`
     }
     case 'weekday':
     case 'gap': {

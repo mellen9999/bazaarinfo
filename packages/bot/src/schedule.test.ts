@@ -158,12 +158,12 @@ describe('predictNextStream — streak model (recent run beats stale weeks)', ()
 
   test('streak copy says near-daily and stays hedged', () => {
     const now = BASE + 31 * DAY + 18 * HOUR
-    const out = formatSchedule('nl_kripp', { kind: 'streak', at: now + 3 * HOUR, confidenceMs: 2 * HOUR, samples: 5 }, now, { isLive: false })
+    const out = formatSchedule('nl_kripp', { kind: 'streak', at: now + 3 * HOUR, confidenceMs: 2 * HOUR, loose: false, samples: 5 }, now, { isLive: false })
     expect(out).toContain('near-daily')
     // the hedge is "likely" + the ± window — provenance/disclaimer tails were cut as noise
     expect(out).toContain('likely')
     expect(out).toContain('±')
-    const ctx = scheduleContext('nl_kripp', { kind: 'streak', at: now + 3 * HOUR, confidenceMs: 2 * HOUR, samples: 5 }, now, { isLive: false })
+    const ctx = scheduleContext('nl_kripp', { kind: 'streak', at: now + 3 * HOUR, confidenceMs: 2 * HOUR, loose: false, samples: 5 }, now, { isLive: false })
     expect(ctx).toContain('near-daily')
     expect(ctx.toLowerCase()).toContain('not confirmed')
   })
