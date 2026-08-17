@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { splitAlternates, pickDistinctLenses, LENSES, answerLeaks, answerEchoesTopic, parseGen, panelVerdict } from './ai-trivia'
+import { splitAlternates, pickDistinctLenses, LENSES, answerLeaks, answerEchoesTopic, parseGen, panelVerdict, topicKey } from './ai-trivia'
 
 describe('splitAlternates — fold answer alternates into accept', () => {
   it('splits a parenthetical alternate', () => {
@@ -147,5 +147,21 @@ describe('panelVerdict — correctness vs taste', () => {
   it('never labels a defect as merely easy', () => {
     // a defect alongside low quality must still read as a defect — it can never be shipped
     expect(panelVerdict([{ ok: false, quality: 0 }, ok(1), ok(1)]).reason).toBe('defect')
+  })
+})
+
+describe('topicKey — the bank shelf key', () => {
+  it('is insensitive to case, spacing and punctuation', () => {
+    const k = topicKey('Fire Emblem')
+    expect(topicKey('fire emblem')).toBe(k)
+    expect(topicKey('  FIRE-EMBLEM ')).toBe(k)
+    expect(topicKey('fireemblem')).toBe(k)
+  })
+  it('keeps genuinely different topics on different shelves', () => {
+    expect(topicKey('cats')).not.toBe(topicKey('cat'))
+    expect(topicKey('roman history')).not.toBe(topicKey('roman')) 
+  })
+  it('collapses an all-punctuation topic to empty rather than a junk shelf', () => {
+    expect(topicKey('?!...')).toBe('')
   })
 })

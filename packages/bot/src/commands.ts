@@ -1662,10 +1662,12 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
         }
         return withSuffix(startCustomTrivia(channel, q), suffix)
       }
-      q = await generateCustomTrivia(t, channel, avoid, avoidAnswers)
-      for (let i = 0; q && i < 2 && (isRecentQuestion(channel, q.question) || isRecentAnswer(channel, q.answer)); i++) {
-        q = await generateCustomTrivia(t, channel, avoid, avoidAnswers)
-      }
+      // the freshness gate is handed DOWN rather than applied here: a round verifies
+      // several candidates and ships one, so a repeat is answered by walking to the next
+      // already-verified survivor. re-running the pipeline (the old 2-retry loop) cost up
+      // to 111 API calls for a single round and produced nothing the first round hadn't.
+      q = await generateCustomTrivia(t, channel, avoid, avoidAnswers, (cand) =>
+        isRecentQuestion(channel, cand.question) || isRecentAnswer(channel, cand.answer))
       // a world-knowledge topic must NEVER dead-end. if the AI couldn't make one (niche
       // subject the verifier won't confirm, daily cap, no key, API hiccup), fall back to a
       // curated, always-true question so chat still gets a round — but LABEL it as a random

@@ -1,17 +1,8 @@
 import { log } from './log'
-import { readJson, extractFirstJson } from './http'
+import { extractFirstJson } from './http'
 import { AI_CHANNELS, isOverDailyCap } from './ai-cache'
-import { recordAiSpend } from './db'
-
-// drop lone surrogate halves that would make JSON.stringify emit invalid UTF-8 and
-// the API reject the body. self-contained so this stays decoupled from ai.ts.
-function stripUnpairedSurrogates(s: string): string {
-  return s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
-}
-
-function safeStringify(body: unknown): string {
-  return JSON.stringify(body, (_k, v) => (typeof v === 'string' ? stripUnpairedSurrogates(v) : v))
-}
+import { anthropicCall, stripUnpairedSurrogates, isHardStopped } from './ai-http'
+import { bankTrivia, takeBankedTrivia } from './db'
 
 // Custom-topic trivia generation. Isolated from the chat path (ai.ts): no system
 // prompt, no chat context, no sanitize/COT guards — just a single constrained call
@@ -143,6 +134,10 @@ export function pickDistinctLenses(channel: string, k: number): string[] {
 // debatable topics to zero survivors at 4; two more angles keep them off the curated pool.
 const CANDIDATES = 6
 
+// how many of those candidates face the 3-lens panel in the first wave. the remainder is
+// held in reserve and only verified if all of these are binned — see generateAndVerify.
+const VERIFY_BATCH = 4
+
 // The rescue pass. Round 1 asks for deep cuts, which is exactly what a fact-checking panel
 // refuses to confirm — so when it comes back empty these take the opposite tack and go for
 // facts nobody could dispute. THREE of them, not one: this is the pass standing between the
@@ -172,17 +167,55 @@ function buildAvoidBlock(avoid: string[], avoidAnswers: string[]): string {
   return avoidQ + avoidA
 }
 
-export async function generateCustomTrivia(topic: string, channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
+// shelf key for the trivia bank: lowercase, alphanumerics only. spacing- and
+// punctuation-insensitive, so "Fire Emblem", "fire emblem" and "fire-emblem" all land on
+// one shelf instead of three. Deliberately NOT trivia.ts's norm() — that one compares a
+// chat guess to an answer and keeps word boundaries; this one is a coarse bucket key.
+export function topicKey(topic: string): string {
+  return topic.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 80)
+}
+
+/**
+ * The one entry point for a custom-topic round.
+ *
+ * `isDupe` is the caller's channel-scoped freshness gate (recent question / recent answer).
+ * It is applied INSIDE the pipeline so a tripped gate walks to the next already-verified
+ * survivor instead of re-running the whole 37-call pipeline — the old caller-side retry
+ * loop could cost 111 calls for a single round.
+ *
+ * Survivors that don't ship are banked, so the next ask on this topic is free and instant.
+ */
+export async function generateCustomTrivia(
+  topic: string,
+  channel: string,
+  avoid: string[] = [],
+  avoidAnswers: string[] = [],
+  isDupe: (q: CustomTrivia) => boolean = () => false,
+): Promise<CustomTrivia | null> {
   if (!API_KEY) return null
   // governed exactly like the !b AI path: only spend in AI-enabled channels, and honor
   // the per-channel daily token backstop so a custom-trivia spree can't dodge the cap.
   if (!AI_CHANNELS.has(channel.toLowerCase())) return null
+  const clean = stripUnpairedSurrogates(topic.trim()).slice(0, MAX_TOPIC_LEN)
+  if (clean.length < 2) return null
+  const key = topicKey(clean)
+  if (!key) return null
+
+  // BANK FIRST — a question already verified by the same panel on this topic, held back
+  // from an earlier round. Zero API calls, zero latency, and it still has to clear the
+  // channel's freshness gates. This is what makes a repeat topic (~a quarter of asks)
+  // effectively free, and it is the only path that still works when the API is down.
+  const banked = takeBankedTrivia(key, (b) => isDupe({ question: b.question, answer: b.answer, accept: b.accept }))
+  if (banked) {
+    log(`ai-trivia: served "${clean}" from the bank (q${banked.quality}${banked.soft ? ' soft' : ''}) — 0 calls`)
+    return { question: banked.question, answer: banked.answer, accept: banked.accept }
+  }
+
+  if (isHardStopped()) return null
   if (isOverDailyCap(channel)) {
     log(`ai-trivia: daily cap hit for ${channel}, skipping generation`)
     return null
   }
-  const clean = stripUnpairedSurrogates(topic.trim()).slice(0, MAX_TOPIC_LEN)
-  if (clean.length < 2) return null
   const avoidBlock = buildAvoidBlock(avoid, avoidAnswers)
 
   // STAGE 1: commit to a specific subject (or a few) before writing anything. This is what
@@ -219,16 +252,32 @@ export async function generateCustomTrivia(topic: string, channel: string, avoid
     passed = r2.passed
     soft.push(...r2.soft)
   }
-  // last resort before abandoning the topic: a question every lens agreed is CORRECT and
-  // on-topic, held back only for reading as a gimme. asking chat an easy Digimon question
-  // beats answering "what's the hardest natural material" to someone who asked about
-  // Digimon. objective defects are never eligible — those were binned at the panel.
-  if (passed.length === 0 && soft.length > 0) {
-    log(`ai-trivia: no strong candidate for "${clean}" — shipping the best verified-easy one`)
-    return pickBestCandidate(soft)
+  // Ranked survivors, strong before soft. A 'soft' question is one every lens agreed is
+  // CORRECT and on-topic and held back only for reading as a gimme — asking chat an easy
+  // Digimon question beats answering "what's the hardest natural material" to someone who
+  // asked about Digimon. Objective defects were binned at the panel and never appear here.
+  const ranked = [...rankCandidates(passed), ...rankCandidates(soft)]
+  if (ranked.length === 0) return null
+  if (passed.length === 0) log(`ai-trivia: no strong candidate for "${clean}" — shipping the best verified-easy one`)
+
+  // ship the first survivor that clears the channel's freshness gates; bank the rest.
+  const shipIdx = ranked.findIndex((c) => !isDupe(c.q))
+  if (shipIdx === -1) {
+    // every survivor was a recent repeat. bank them all — they'll be fresh again later —
+    // and let the caller fall back rather than serving chat the same question twice.
+    bankAll(key, clean, ranked)
+    log(`ai-trivia: every survivor for "${clean}" was a recent repeat — banked ${ranked.length}`)
+    return null
   }
-  if (passed.length === 0) return null
-  return pickBestCandidate(passed)
+  bankAll(key, clean, ranked.filter((_, i) => i !== shipIdx))
+  return ranked[shipIdx].q
+}
+
+// stash the verified-but-unshipped candidates. they already passed the identical panel, so
+// serving one later is not a quality compromise — it is the same round's work, reused.
+function bankAll(key: string, topicRaw: string, cands: Scored[]): void {
+  for (const c of cands) bankTrivia(key, topicRaw, c.q, c.quality, c.soft === true)
+  if (cands.length) log(`ai-trivia: banked ${cands.length} spare question(s) for "${topicRaw}"`)
 }
 
 // STAGE 1 call: turn the raw topic into 1-3 concrete subjects + whether the topic already
@@ -300,21 +349,37 @@ async function generateAndVerify(
   )
   const cands = dedupeCandidates(gens.filter((q): q is CustomTrivia => q !== null))
   if (cands.length === 0) return { passed: [], soft: [], rejected: [] }
-  const verdicts = await Promise.all(cands.map((q) => verifyPanel(q, channel, topic)))
+
   const passed: Scored[] = []
   const soft: Scored[] = []
   const rejected: CustomTrivia[] = []
-  cands.forEach((q, i) => {
-    const v = verdicts[i]
-    if (v.ok) passed.push({ q, quality: v.quality })
-    else if (v.reason === 'easy') {
-      soft.push({ q, quality: v.quality })
-      log(`ai-trivia: held as too-easy "${q.question.slice(0, 50)}" (ans: ${q.answer})`)
-    } else {
-      rejected.push(q)
-      log(`ai-trivia: verify rejected "${q.question.slice(0, 50)}" (ans: ${q.answer}) — defect`)
-    }
-  })
+  const judge = async (batch: CustomTrivia[]) => {
+    const verdicts = await Promise.all(batch.map((q) => verifyPanel(q, channel, topic)))
+    batch.forEach((q, i) => {
+      const v = verdicts[i]
+      if (v.ok) passed.push({ q, quality: v.quality })
+      else if (v.reason === 'easy') {
+        soft.push({ q, quality: v.quality, soft: true })
+        log(`ai-trivia: held as too-easy "${q.question.slice(0, 50)}" (ans: ${q.answer})`)
+      } else {
+        rejected.push(q)
+        log(`ai-trivia: verify rejected "${q.question.slice(0, 50)}" (ans: ${q.answer}) — defect`)
+      }
+    })
+  }
+
+  // The panel is 3 calls per candidate and 73% of the round's bill, so don't spend it on
+  // all six up front. Order by the free deterministic signal we already have — a crisper
+  // answer is a more typeable one — verify the top VERIFY_BATCH, and only reach for the
+  // remainder when every one of those was binned. In the common case that is 12 verify
+  // calls instead of 18, still leaving spare survivors to feed the bank.
+  const ordered = [...cands].sort((a, b) => answerWords(a) - answerWords(b))
+  await judge(ordered.slice(0, VERIFY_BATCH))
+  const rest = ordered.slice(VERIFY_BATCH)
+  if (passed.length === 0 && soft.length === 0 && rest.length > 0 && !isHardStopped()) {
+    log(`ai-trivia: first ${VERIFY_BATCH} all binned — verifying the remaining ${rest.length}`)
+    await judge(rest)
+  }
   return { passed, soft, rejected }
 }
 
@@ -372,21 +437,30 @@ function dedupeCandidates(cands: CustomTrivia[]): CustomTrivia[] {
 }
 
 // a verified candidate plus the verifier's quality rating (1-3), so the orchestrator can
-// ship the BEST survivor, not just any that passed.
+// ship the BEST survivor, not just any that passed. `soft` marks the unanimous-but-easy
+// ones, which are shippable last resorts and are banked as such.
 interface Scored {
   q: CustomTrivia
   quality: number
+  soft?: boolean
 }
 
-// pick the ship-worthy question: highest verifier quality first (best-of-all-time bar),
-// then the most TYPEABLE answer (fewest words) as a tie-break, then random so the same
-// topic still varies across rounds.
+function answerWords(q: CustomTrivia): number {
+  return q.answer.trim().split(/\s+/).length
+}
+
+// order candidates ship-worthiest first: highest verifier quality (best-of-all-time bar),
+// then the most TYPEABLE answer (fewest words), then a random shuffle within a tie so the
+// same topic still varies across rounds. The caller ships the head and banks the tail.
+function rankCandidates(cands: Scored[]): Scored[] {
+  return cands
+    .map((c) => ({ c, jitter: Math.random() }))
+    .sort((a, b) => b.c.quality - a.c.quality || answerWords(a.c.q) - answerWords(b.c.q) || a.jitter - b.jitter)
+    .map((x) => x.c)
+}
+
 function pickBestCandidate(cands: Scored[]): CustomTrivia {
-  const maxQ = Math.max(...cands.map((c) => c.quality))
-  const top = cands.filter((c) => c.quality === maxQ)
-  const minWords = Math.min(...top.map((c) => c.q.answer.trim().split(/\s+/).length))
-  const best = top.filter((c) => c.q.answer.trim().split(/\s+/).length === minWords)
-  return best[Math.floor(Math.random() * best.length)].q
+  return rankCandidates(cands)[0].q
 }
 
 // adversarial verification: a fresh call, no stake in the question, asked to REFUTE.
@@ -725,34 +799,16 @@ export async function generatePersonTrivia(dossier: string, handle: string, chan
   return null
 }
 
-// single shared Anthropic call: builds the body, enforces the timeout, records spend, and
-// returns the model's text (or null on any error/timeout/empty). every stage of the
-// generator (subject pick, deep-cut write, verify) goes through here so the fetch, spend
-// tracking, and failure handling live in ONE place.
-async function callApi(system: string, content: string, channel: string, maxTokens: number): Promise<string | null> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT)
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY!, 'anthropic-version': '2023-06-01' },
-      body: safeStringify({ model: MODEL, max_tokens: maxTokens, thinking: { type: 'disabled' }, system, messages: [{ role: 'user', content }] }),
-      signal: controller.signal,
-    })
-    if (!res.ok) { log(`ai-trivia: API ${res.status}`); return null }
-    const parsed = await readJson<{ content?: { type: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } }>(res)
-    // track spend so every trivia call counts toward the daily cap + shows in ai_spend,
-    // same as the !b path — no untracked API spend.
-    const u = parsed.data?.usage
-    if (u) recordAiSpend(channel, u.input_tokens ?? 0, u.output_tokens ?? 0)
-    return parsed.data?.content?.find((b) => b.type === 'text')?.text ?? null
-  } catch (e) {
-    if ((e as Error)?.name === 'AbortError') log('ai-trivia: call timed out')
-    else log(`ai-trivia: ${(e as Error)?.message ?? e}`)
-    return null
-  } finally {
-    clearTimeout(timer)
-  }
+// every stage of the generator (subject pick, deep-cut write, verify) goes through here.
+// the system prompt is always CACHED: these prompts are module-level constants reused
+// across every call of a round and every round of a marathon, which is exactly the shape
+// prompt caching is for. DEEPCUT_SYSTEM (~2.0k tok) and VERIFY_SYSTEM (~1.5k tok) clear
+// the ~1024-token cache floor and account for the bulk of the input bill; the solver and
+// skeptic prompts sit under the floor and simply don't cache (no penalty for asking).
+// Steady state during a marathon is all cache reads at 0.1x — rounds arrive well inside
+// the 5-minute TTL. Only the first round after an idle gap pays the 1.25x write.
+async function callApi(system: string, content: string, channel: string, maxTokens: number, model = MODEL): Promise<string | null> {
+  return anthropicCall({ tag: 'ai-trivia', channel, model, maxTokens, system, content, timeoutMs: TIMEOUT })
 }
 
 type GenResult = { ok: true; q: CustomTrivia } | { ok: false; retry: boolean }
