@@ -280,16 +280,18 @@ function prepareStatements() {
        WHERE f.lesson MATCH ? LIMIT ?`,
     ),
     upsertAiSpend: db.prepare(
-      `INSERT INTO ai_spend (channel, day, input_tokens, output_tokens, calls, updated_at)
-       VALUES (?, ?, ?, ?, 1, datetime('now'))
+      `INSERT INTO ai_spend (channel, day, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, calls, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'))
        ON CONFLICT(channel, day) DO UPDATE SET
          input_tokens = input_tokens + excluded.input_tokens,
          output_tokens = output_tokens + excluded.output_tokens,
+         cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
+         cache_write_tokens = cache_write_tokens + excluded.cache_write_tokens,
          calls = calls + 1,
          updated_at = datetime('now')`,
     ),
     selectAiSpend: db.prepare(
-      `SELECT input_tokens, output_tokens, calls FROM ai_spend WHERE channel = ? AND day = ?`,
+      `SELECT input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, calls FROM ai_spend WHERE channel = ? AND day = ?`,
     ),
     totalAiSpend: db.prepare(
       `SELECT SUM(input_tokens + output_tokens) as tokens, SUM(calls) as calls FROM ai_spend WHERE day = ?`,
@@ -753,6 +755,38 @@ const migrations: (() => void)[] = [
     )`)
     db.run(`CREATE INDEX idx_ask_misses_channel_time ON ask_misses(channel, created_at DESC)`)
     db.run(`CREATE INDEX idx_ask_misses_reason ON ask_misses(reason)`)
+  },
+
+  // migration 23: cache token columns on the spend ledger. cached input is billed at ~0.1x
+  // and cache writes at ~1.25x, so folding them into input_tokens both overstates the bill
+  // and hides whether prompt caching is hitting at all. these two columns are the only
+  // evidence that the caching work did anything.
+  () => {
+    db.run(`ALTER TABLE ai_spend ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0`)
+    db.run(`ALTER TABLE ai_spend ADD COLUMN cache_write_tokens INTEGER NOT NULL DEFAULT 0`)
+  },
+
+  // migration 24: the trivia bank. best-of-N verifies several candidates per round and
+  // ships exactly one — the rest were binned, having already passed the same panel. banking
+  // them makes a repeat topic (23% of asks) cost zero API calls and zero wait. rows are
+  // single-use: serving one deletes it, so a banked question can never be asked twice.
+  () => {
+    db.run(`CREATE TABLE trivia_bank (
+      id INTEGER PRIMARY KEY,
+      topic_key TEXT NOT NULL,
+      topic_raw TEXT NOT NULL,
+      question TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      accept_json TEXT NOT NULL,
+      quality INTEGER NOT NULL DEFAULT 2,
+      soft INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+    // serve order: strongest first, and never two questions on one topic landing on the
+    // same fact — the unique index makes the "same answer reworded" dupe unbankable.
+    db.run(`CREATE INDEX idx_trivia_bank_topic ON trivia_bank(topic_key, soft, quality DESC)`)
+    db.run(`CREATE UNIQUE INDEX idx_trivia_bank_answer ON trivia_bank(topic_key, lower(answer))`)
+    db.run(`CREATE UNIQUE INDEX idx_trivia_bank_question ON trivia_bank(lower(question))`)
   },
 ]
 
@@ -1526,28 +1560,137 @@ export function pruneOldAskQueries(days = 90) {
 const _ptDayFmt = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
 })
-function ptDay(d: Date = new Date()): string {
+// exported: ai-http latches its hard stop on the same PT day key, so "stopped for the day"
+// and "spend for the day" can never disagree about where the day boundary is.
+export function ptDay(d: Date = new Date()): string {
   return _ptDayFmt.format(d)
 }
 
-export function recordAiSpend(channel: string, inputTokens: number, outputTokens: number): void {
+// cache tokens are recorded separately because they are priced separately — a cache READ
+// costs ~0.1x and a cache WRITE ~1.25x of a normal input token. Folding them into
+// input_tokens would make a cache win look like flat spend and hide whether caching is
+// working at all; a non-zero cache_read_tokens is the proof.
+export function recordAiSpend(
+  channel: string,
+  inputTokens: number,
+  outputTokens: number,
+  cacheReadTokens = 0,
+  cacheWriteTokens = 0,
+): void {
   try {
-    stmts.upsertAiSpend.run(channel.toLowerCase(), ptDay(), inputTokens, outputTokens)
+    stmts.upsertAiSpend.run(channel.toLowerCase(), ptDay(), inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
   } catch (e) {
     log(`ai_spend write failed: ${e}`)
   }
 }
 
-export interface DailySpend { input_tokens: number; output_tokens: number; calls: number }
+export interface DailySpend {
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  calls: number
+}
 
 export function getDailyAiSpend(channel: string): DailySpend {
   const row = stmts.selectAiSpend.get(channel.toLowerCase(), ptDay()) as DailySpend | null
-  return row ?? { input_tokens: 0, output_tokens: 0, calls: 0 }
+  return row ?? { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, calls: 0 }
 }
 
 export function getGlobalDailyAiSpend(): { tokens: number; calls: number } {
   const row = stmts.totalAiSpend.get(ptDay()) as { tokens: number | null; calls: number | null } | null
   return { tokens: row?.tokens ?? 0, calls: row?.calls ?? 0 }
+}
+
+// --- trivia bank ---
+//
+// Verified-but-unshipped questions from best-of-N rounds. A repeat topic serves from here
+// for zero API calls and zero wait. Rows are single-use — takeBankedTrivia deletes the row
+// it returns, inside one transaction, so two concurrent rounds can never serve the same
+// question. Keyed on a normalized topic so "Fire Emblem" and "fire emblem" share a shelf.
+
+export interface BankedTrivia {
+  id: number
+  question: string
+  answer: string
+  accept: string[]
+  quality: number
+  soft: boolean
+}
+
+export function bankTrivia(
+  topicKey: string,
+  topicRaw: string,
+  q: { question: string; answer: string; accept: string[] },
+  quality: number,
+  soft: boolean,
+): void {
+  try {
+    // OR IGNORE: the unique indexes on question and (topic, answer) make re-banking a
+    // duplicate a no-op rather than an error — exactly the wanted behavior.
+    db.run(
+      `INSERT OR IGNORE INTO trivia_bank (topic_key, topic_raw, question, answer, accept_json, quality, soft)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [topicKey, topicRaw.slice(0, 120), q.question, q.answer, JSON.stringify(q.accept), quality, soft ? 1 : 0],
+    )
+  } catch (e) {
+    log(`trivia_bank write failed: ${e}`)
+  }
+}
+
+/**
+ * Claim the best banked question for a topic, or null if the shelf is empty.
+ * `reject` lets the caller skip rows that would trip the channel's recent-question /
+ * recent-answer gates — a banked question must clear exactly the same bar as a fresh one.
+ * Strong questions before soft ("verified but reads easy") ones, highest quality first.
+ */
+export function takeBankedTrivia(topicKey: string, reject?: (q: BankedTrivia) => boolean): BankedTrivia | null {
+  try {
+    return db.transaction(() => {
+      const rows = db
+        .query(
+          `SELECT id, question, answer, accept_json, quality, soft FROM trivia_bank
+           WHERE topic_key = ? ORDER BY soft ASC, quality DESC, id ASC LIMIT 20`,
+        )
+        .all(topicKey) as { id: number; question: string; answer: string; accept_json: string; quality: number; soft: number }[]
+      for (const r of rows) {
+        let accept: string[]
+        try {
+          const parsed = JSON.parse(r.accept_json)
+          accept = Array.isArray(parsed) ? parsed.filter((a): a is string => typeof a === 'string') : []
+        } catch {
+          // a corrupt row is unusable — drop it rather than serve a question with no
+          // accepted answers, which would make the round unwinnable.
+          db.run('DELETE FROM trivia_bank WHERE id = ?', [r.id])
+          continue
+        }
+        const q: BankedTrivia = { id: r.id, question: r.question, answer: r.answer, accept, quality: r.quality, soft: r.soft === 1 }
+        if (reject?.(q)) continue
+        db.run('DELETE FROM trivia_bank WHERE id = ?', [r.id])
+        return q
+      }
+      return null
+    })()
+  } catch (e) {
+    log(`trivia_bank read failed: ${e}`)
+    return null
+  }
+}
+
+export function countBankedTrivia(topicKey: string): number {
+  try {
+    const row = db.query('SELECT COUNT(*) as n FROM trivia_bank WHERE topic_key = ?').get(topicKey) as { n: number } | null
+    return row?.n ?? 0
+  } catch { return 0 }
+}
+
+export function pruneOldTriviaBank(days = 90): void {
+  try {
+    const result = db.run(`DELETE FROM trivia_bank WHERE created_at < datetime('now', ?)`, [`-${days} days`])
+    if (result.changes > 0) log(`pruned ${result.changes} trivia_bank rows older than ${days}d`)
+  } catch (e) {
+    log(`trivia_bank prune error: ${e}`)
+  }
 }
 
 export function pruneOldAiSpend(days = 60): void {

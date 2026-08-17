@@ -569,6 +569,88 @@ describe('db', () => {
     // full phrase match
     expect(db.countUserWordUsage('bob', 'test', '100%', '-1 year')).toBe(1)
   })
+
+  // --- trivia bank ---
+  // A round verifies several candidates and ships one; the rest are banked so the next ask
+  // on that topic costs nothing. The invariants that matter: a banked question is served
+  // exactly once, the caller's freshness gate can veto a row without consuming it, and a
+  // duplicate can never enter the shelf.
+
+  const q = (question: string, answer: string, accept: string[] = []) => ({ question, answer, accept })
+
+  it('banks a question and serves it back once', () => {
+    db.bankTrivia('fireemblem', 'Fire Emblem', q('who composed it?', 'Yuka Tsujiyoko', ['tsujiyoko']), 3, false)
+    const got = db.takeBankedTrivia('fireemblem')
+    expect(got?.question).toBe('who composed it?')
+    expect(got?.accept).toEqual(['tsujiyoko'])
+    expect(got?.quality).toBe(3)
+    // single-use: the row is consumed, so it can never be asked a second time
+    expect(db.takeBankedTrivia('fireemblem')).toBeNull()
+  })
+
+  it('serves the strongest question first, and soft ones only after strong ones', () => {
+    db.bankTrivia('birds', 'birds', q('soft one?', 'a'), 3, true)
+    db.bankTrivia('birds', 'birds', q('weak one?', 'b'), 2, false)
+    db.bankTrivia('birds', 'birds', q('best one?', 'c'), 3, false)
+    expect(db.takeBankedTrivia('birds')?.question).toBe('best one?')
+    expect(db.takeBankedTrivia('birds')?.question).toBe('weak one?')
+    expect(db.takeBankedTrivia('birds')?.question).toBe('soft one?')
+  })
+
+  it('skips a row the caller vetoes without consuming it', () => {
+    db.bankTrivia('cats', 'cats', q('stale one?', 'a'), 3, false)
+    db.bankTrivia('cats', 'cats', q('fresh one?', 'b'), 3, false)
+    const got = db.takeBankedTrivia('cats', (row) => row.answer === 'a')
+    expect(got?.answer).toBe('b')
+    // the vetoed row survives — it is only stale relative to THIS round
+    expect(db.countBankedTrivia('cats')).toBe(1)
+    expect(db.takeBankedTrivia('cats')?.answer).toBe('a')
+  })
+
+  it('returns null rather than a veto-only shelf', () => {
+    db.bankTrivia('dogs', 'dogs', q('only one?', 'a'), 3, false)
+    expect(db.takeBankedTrivia('dogs', () => true)).toBeNull()
+    expect(db.countBankedTrivia('dogs')).toBe(1)
+  })
+
+  it('never banks the same question, or the same answer for a topic, twice', () => {
+    db.bankTrivia('rome', 'rome', q('who built it?', 'Agrippa'), 3, false)
+    db.bankTrivia('rome', 'rome', q('who built it?', 'Agrippa'), 3, false)
+    expect(db.countBankedTrivia('rome')).toBe(1)
+    // the same fact reworded is the repeat that matters — same answer, different wording
+    db.bankTrivia('rome', 'rome', q('name the builder?', 'agrippa'), 3, false)
+    expect(db.countBankedTrivia('rome')).toBe(1)
+  })
+
+  it('keeps shelves separate by topic', () => {
+    db.bankTrivia('cats', 'cats', q('cat one?', 'a'), 3, false)
+    expect(db.takeBankedTrivia('dogs')).toBeNull()
+    expect(db.countBankedTrivia('cats')).toBe(1)
+  })
+
+  it('drops a corrupt row instead of serving an unwinnable question', () => {
+    db.bankTrivia('glitch', 'glitch', q('broken?', 'a'), 3, false)
+    db.bankTrivia('glitch', 'glitch', q('fine?', 'b'), 3, false)
+    // simulate a row whose accept list is not valid JSON
+    db.getDb().run(`UPDATE trivia_bank SET accept_json = 'not json' WHERE answer = 'a'`)
+    expect(db.takeBankedTrivia('glitch')?.answer).toBe('b')
+    expect(db.countBankedTrivia('glitch')).toBe(0)
+  })
+
+  it('records cache tokens separately from uncached input', () => {
+    db.recordAiSpend('spendchan', 100, 20, 900, 50)
+    const s = db.getDailyAiSpend('spendchan')
+    expect(s.input_tokens).toBe(100)
+    expect(s.cache_read_tokens).toBe(900)
+    expect(s.cache_write_tokens).toBe(50)
+    db.recordAiSpend('spendchan', 10, 5, 90, 0)
+    expect(db.getDailyAiSpend('spendchan').cache_read_tokens).toBe(990)
+  })
+
+  it('defaults cache columns to zero for a call site that does not report them', () => {
+    db.recordAiSpend('nocache', 10, 5)
+    expect(db.getDailyAiSpend('nocache').cache_read_tokens).toBe(0)
+  })
 })
 
 // Pasta recall used to return the wrong message entirely. Two ranking bugs compounded:
