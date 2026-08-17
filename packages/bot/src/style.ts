@@ -1,6 +1,7 @@
 import * as db from './db'
 import { formatAccountAge } from './db'
 import { getEmotesForChannel } from './emotes'
+import { anthropicCall } from './ai-http'
 import { log } from './log'
 
 // --- channel style ---
@@ -234,40 +235,28 @@ export async function refreshVoice(channel: string) {
     if (API_KEY && good.length >= 30) {
       const sampleText = good.slice(0, 80).map(m => m.message).join('\n')
 
-      try {
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': API_KEY,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: VOICE_MODEL,
-            max_tokens: 60,
-            messages: [{ role: 'user', content: [
-              `Analyze these Twitch chat messages from #${channel}:\n`,
-              sampleText,
-              '\n\nDescribe how to mimic this chat style in <150 chars.',
-              '\nFocus: slang, abbreviations, grammar patterns, energy, humor style.',
-              '\nWrite as instructions: "use X, do Y, never Z"',
-            ].join('') }],
-          }),
-          signal: AbortSignal.timeout(10_000),
-        })
-
-        if (res.ok) {
-          const json = await res.json() as { content: { type: string; text?: string }[], usage?: { input_tokens: number; output_tokens: number } }
-          const u = json.usage
-          if (u) db.recordAiSpend(ch, u.input_tokens ?? 0, u.output_tokens ?? 0)
-          const text = json.content?.find(b => b.type === 'text')?.text?.trim()
-          if (text && text.length <= 200) {
-            profile = text
-            db.upsertChannelVoice(ch, profile)
-            log(`voice #${ch}: ${profile}`)
-          }
-        }
-      } catch {}
+      // via the shared helper: surrogate-safe body, spend + cache accounting, the
+      // concurrency slot, and the hard-stop breaker. chat samples are the single most
+      // likely place a split emoji reaches the API.
+      const text = (await anthropicCall({
+        tag: 'voice',
+        channel: ch,
+        model: VOICE_MODEL,
+        maxTokens: 60,
+        timeoutMs: 10_000,
+        content: [
+          `Analyze these Twitch chat messages from #${channel}:\n`,
+          sampleText,
+          '\n\nDescribe how to mimic this chat style in <150 chars.',
+          '\nFocus: slang, abbreviations, grammar patterns, energy, humor style.',
+          '\nWrite as instructions: "use X, do Y, never Z"',
+        ].join(''),
+      }))?.trim()
+      if (text && text.length <= 200) {
+        profile = text
+        db.upsertChannelVoice(ch, profile)
+        log(`voice #${ch}: ${profile}`)
+      }
     }
 
     if (!profile && cached) profile = cached.voice

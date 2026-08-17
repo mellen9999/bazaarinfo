@@ -1,5 +1,6 @@
 import { log } from './log'
 import { writeAtomic } from './fs-util'
+import { safeStringify } from './safe-json'
 import { join } from 'path'
 // db is imported lazily inside describeEmotes (the maintenance-script-only path) so this
 // module — pulled into the bot runtime via emotes.ts — stays free of a static db dependency
@@ -248,7 +249,7 @@ async function describeBatch(
         'anthropic-version': '2023-06-01',
         'content-type': 'application/json',
       },
-      body: JSON.stringify({
+      body: safeStringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 800,
         messages: [{ role: 'user', content }],

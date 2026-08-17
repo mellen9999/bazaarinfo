@@ -1,16 +1,7 @@
 import { log } from '../log'
-import { readJson, extractFirstJson } from '../http'
+import { extractFirstJson } from '../http'
 import { AI_CHANNELS, isOverDailyCap } from '../ai-cache'
-import { recordAiSpend } from '../db'
-
-// drop lone surrogate halves that would make JSON.stringify emit invalid UTF-8
-function stripUnpairedSurrogates(s: string): string {
-  return s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
-}
-
-function safeStringify(body: unknown): string {
-  return JSON.stringify(body, (_k, v) => (typeof v === 'string' ? stripUnpairedSurrogates(v) : v))
-}
+import { anthropicCall, stripUnpairedSurrogates } from '../ai-http'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-sonnet-5'
@@ -131,46 +122,17 @@ function validate(text: string): Archetype | null {
 }
 
 async function attemptGen(input: string, channel: string): Promise<Archetype | null> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT)
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': API_KEY!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: safeStringify({
-        model: MODEL,
-        max_tokens: 300,
-        thinking: { type: 'disabled' },
-        system: SYSTEM,
-        messages: [{ role: 'user', content: `SUGGESTIONS: ${input}` }],
-      }),
-      signal: controller.signal,
-    })
-    if (!res.ok) {
-      log(`ai-archetype: API ${res.status}`)
-      return null
-    }
-    const parsed = await readJson<{
-      content?: { type: string; text?: string }[]
-      usage?: { input_tokens?: number; output_tokens?: number }
-    }>(res)
-    if (!parsed.data) return null
-    const u = parsed.data.usage
-    if (u) recordAiSpend(channel, u.input_tokens ?? 0, u.output_tokens ?? 0)
-    const text = parsed.data.content?.find((b) => b.type === 'text')?.text
-    if (!text) return null
-    return validate(text)
-  } catch (e) {
-    if ((e as Error)?.name === 'AbortError') log('ai-archetype: timed out')
-    else log(`ai-archetype: ${(e as Error)?.message ?? e}`)
-    return null
-  } finally {
-    clearTimeout(timer)
-  }
+  const text = await anthropicCall({
+    tag: 'ai-archetype',
+    channel,
+    model: MODEL,
+    maxTokens: 300,
+    timeoutMs: TIMEOUT,
+    system: SYSTEM,
+    content: `SUGGESTIONS: ${input}`,
+  })
+  if (!text) return null
+  return validate(text)
 }
 
 // Generate a hero archetype from chat's voted suggestions. Takes the top 4 by votes,

@@ -1,7 +1,6 @@
 import { log } from './log'
-import { readJson } from './http'
+import { anthropicCall } from './ai-http'
 import { fetchSubreddit, type FeedEntry } from './reddit-feed'
-import * as db from './db'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
@@ -52,19 +51,15 @@ export function buildRedditContext(entries: FeedEntry[]): string {
 async function summarizeWithHaiku(source: Source, context: string): Promise<string> {
   if (!API_KEY) return ''
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 250,
-      messages: [{
-        role: 'user',
-        content: `Summarize the ${source.label} front page (${source.game}) in under 600 chars. Cover ALL of these if present:
+  // reddit post bodies are user-authored and routinely carry split emoji — the shared
+  // helper's surrogate scrubbing is what keeps one bad post from killing the digest.
+  const text = await anthropicCall({
+    tag: 'reddit',
+    channel: BACKGROUND_SPEND_CHANNEL,
+    model: MODEL,
+    maxTokens: 250,
+    timeoutMs: FETCH_TIMEOUT,
+    content: `Summarize the ${source.label} front page (${source.game}) in under 600 chars. Cover ALL of these if present:
 - Meta: dominant heroes/builds/items, what's strong/weak
 - Community mood: complaints, praise, frustration, hype
 - Memes/jokes: recurring bits, copypastas, shitposts worth knowing
@@ -72,19 +67,8 @@ async function summarizeWithHaiku(source: Source, context: string): Promise<stri
 Posts are listed in front-page order — earlier means more prominent. There are no vote
 counts, so never state or imply one. Be specific with names. Lowercase, terse, no headers.
 Raw posts:\n\n${context}`,
-      }],
-    }),
-    signal: AbortSignal.timeout(FETCH_TIMEOUT),
   })
-
-  if (!res.ok) throw new Error(`Haiku API ${res.status}`)
-
-  const parsed = await readJson<{ content: { type: string; text?: string }[], usage?: { input_tokens: number; output_tokens: number } }>(res)
-  if (!parsed.data) return '' // empty/truncated body — skip this digest, don't throw
-  const u = parsed.data.usage
-  if (u) db.recordAiSpend(BACKGROUND_SPEND_CHANNEL, u.input_tokens ?? 0, u.output_tokens ?? 0)
-  const text = parsed.data.content?.find((b) => b.type === 'text')?.text ?? ''
-  return text.slice(0, 600)
+  return (text ?? '').slice(0, 600)
 }
 
 async function refresh(source: Source): Promise<void> {

@@ -4,8 +4,7 @@ import type { ChatEntry } from './chatbuf'
 import { getUserInfo, getFollowage } from './twitch'
 import { getAccessToken } from './auth'
 import { AI_CHANNELS, getChannelId } from './ai-cache'
-import { REMEMBER_RE } from './ai-context'
-import { safeStringify } from './ai'
+import { anthropicCall } from './ai-http'
 import { log } from './log'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
@@ -18,13 +17,6 @@ const EXTRACT_SYSTEM = 'You are a data extraction tool. Extract ONLY what the in
 // scope (memo/facts run per-user, not per-channel) — keeps global spend totals accurate
 // without attributing the tokens to a stream that didn't cause them.
 const BACKGROUND_SPEND_CHANNEL = '_background'
-
-type ApiUsage = { usage?: { input_tokens: number; output_tokens: number } }
-
-function recordSpend(channel: string, data: ApiUsage) {
-  const u = data.usage
-  if (u) db.recordAiSpend(channel, u.input_tokens ?? 0, u.output_tokens ?? 0)
-}
 
 // --- rolling summary ---
 
@@ -42,25 +34,15 @@ async function summarizeChat(channel: string, recent: ChatEntry[], prev: string)
   ].join('')
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: safeStringify({
-        model: MODEL,
-        max_tokens: 50,
-        system: EXTRACT_SYSTEM,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (!res.ok) return prev
-    const data = await res.json() as { content: { type: string; text?: string }[] } & ApiUsage
-    recordSpend(channel, data)
-    const text = data.content?.find((b) => b.type === 'text')?.text?.trim()
+    const text = (await anthropicCall({
+      tag: 'summary',
+      channel,
+      model: MODEL,
+      maxTokens: 50,
+      timeoutMs: 10_000,
+      system: EXTRACT_SYSTEM,
+      content: prompt,
+    }))?.trim()
     if (text) log(`summary #${channel}: ${text}`)
     return text || prev
   } catch {
@@ -95,31 +77,20 @@ async function extractChatLessons(channel: string, recent: ChatEntry[]): Promise
   lessonInFlight.add(channel)
   try {
     const chatLines = recent.map((m) => `${m.user}: ${m.text}`).join('\n')
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': API_KEY,
-        'content-type': 'application/json',
-        'anthropic-version': '2023-06-01',
-      },
-      body: safeStringify({
-        model: MODEL,
-        max_tokens: 150,
-        system: EXTRACT_SYSTEM,
-        messages: [{ role: 'user', content: `Extract 0-4 cultural insights from this Twitch chat. Focus on: slang meanings, emote usage patterns, platform conventions, communication norms, inside jokes. Exclude: game facts, user-specific info, obvious/universal things.
+    const text = (await anthropicCall({
+      tag: 'lesson',
+      channel,
+      model: MODEL,
+      maxTokens: 150,
+      timeoutMs: TIMEOUT,
+      system: EXTRACT_SYSTEM,
+      content: `Extract 0-4 cultural insights from this Twitch chat. Focus on: slang meanings, emote usage patterns, platform conventions, communication norms, inside jokes. Exclude: game facts, user-specific info, obvious/universal things.
 
 Each insight = one short line (10-80 chars). Output ONLY the insights, one per line. If nothing interesting, output nothing.
 
 Chat:
-${chatLines}` }],
-      }),
-      signal: AbortSignal.timeout(TIMEOUT),
-    })
-
-    if (!res.ok) return
-    const data = await res.json() as { content: { text: string }[] } & ApiUsage
-    recordSpend(channel, data)
-    const text = data.content?.[0]?.text ?? ''
+${chatLines}`,
+    })) ?? ''
     const lines = text.split('\n')
       .map((l) => l.replace(/^[-•*\d.)\s]+/, '').trim())
       .filter((l) => l.length >= 10 && l.length <= 80)
@@ -191,30 +162,18 @@ export async function maybeUpdateMemo(user: string, force = false) {
         : existing ? 'Update the existing memo — keep what\'s still true, add new patterns.' : '',
     ].join('')
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: safeStringify({
-        model: MODEL,
-        max_tokens: 80,
-        system: EXTRACT_SYSTEM,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      signal: AbortSignal.timeout(10_000),
-    })
-
-    if (res.ok) {
-      const data = await res.json() as { content: { type: string; text?: string }[] } & ApiUsage
-      recordSpend(BACKGROUND_SPEND_CHANNEL, data)
-      const memo = data.content?.find((b) => b.type === 'text')?.text?.trim()
-      if (memo && memo.length <= 200) {
-        db.upsertUserMemo(user, memo, askCount)
-        log(`memo: ${user} → ${memo}`)
-      }
+    const memo = (await anthropicCall({
+      tag: 'memo',
+      channel: BACKGROUND_SPEND_CHANNEL,
+      model: MODEL,
+      maxTokens: 80,
+      timeoutMs: 10_000,
+      system: EXTRACT_SYSTEM,
+      content: prompt,
+    }))?.trim()
+    if (memo && memo.length <= 200) {
+      db.upsertUserMemo(user, memo, askCount)
+      log(`memo: ${user} → ${memo}`)
     }
   } catch {
     // fire-and-forget, swallow errors
@@ -253,32 +212,25 @@ export async function maybeExtractFacts(user: string, query: string, response: s
       'One fact per line, lowercase, <40 chars each. If nothing notable, output nothing.',
     ].filter(Boolean).join('\n')
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: safeStringify({ model: MODEL, max_tokens: 60, system: EXTRACT_SYSTEM, messages: [{ role: 'user', content: prompt }] }),
-      signal: AbortSignal.timeout(10_000),
-    })
-
-    if (res.ok) {
-      const data = await res.json() as { content: { type: string; text?: string }[] } & ApiUsage
-      recordSpend(BACKGROUND_SPEND_CHANNEL, data)
-      const text = data.content?.find(b => b.type === 'text')?.text?.trim()
-      if (text) {
-        const facts = text.split('\n')
-          .map(l => l.replace(/^[-•*]\s*/, '').trim())
-          .filter(l => l.length >= 5 && l.length <= 60)
-          .slice(0, 3)
-        const INSTRUCTION_FACT = /\b(needs? to (know|respond|answer|be|act|sound|say|learn|have)|just (respond|be|act|sound|talk|answer)|don'?t (sound|act|be|look|seem) like|don'?t be (a |so |too )|should (know|respond|answer|be|sound)|always (respond|say|act|speak|answer|use)|never (respond|say|act|speak|answer|use)|when (asked|talking|responding)|ignore (all|previous|prior|your)|override|system:?\s|INST[:\]])\b/i
-        for (const fact of facts) {
-          if (INSTRUCTION_FACT.test(fact)) continue
-          db.insertUserFact(user, fact)
-          log(`fact: ${user} → ${fact}`)
-        }
+    const text = (await anthropicCall({
+      tag: 'facts',
+      channel: BACKGROUND_SPEND_CHANNEL,
+      model: MODEL,
+      maxTokens: 60,
+      timeoutMs: 10_000,
+      system: EXTRACT_SYSTEM,
+      content: prompt,
+    }))?.trim()
+    if (text) {
+      const facts = text.split('\n')
+        .map(l => l.replace(/^[-•*]\s*/, '').trim())
+        .filter(l => l.length >= 5 && l.length <= 60)
+        .slice(0, 3)
+      const INSTRUCTION_FACT = /\b(needs? to (know|respond|answer|be|act|sound|say|learn|have)|just (respond|be|act|sound|talk|answer)|don'?t (sound|act|be|look|seem) like|don'?t be (a |so |too )|should (know|respond|answer|be|sound)|always (respond|say|act|speak|answer|use)|never (respond|say|act|speak|answer|use)|when (asked|talking|responding)|ignore (all|previous|prior|your)|override|system:?\s|INST[:\]])\b/i
+      for (const fact of facts) {
+        if (INSTRUCTION_FACT.test(fact)) continue
+        db.insertUserFact(user, fact)
+        log(`fact: ${user} → ${fact}`)
       }
     }
   } catch {}

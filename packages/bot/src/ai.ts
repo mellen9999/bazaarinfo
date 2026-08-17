@@ -20,6 +20,7 @@ import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOp
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE, formatContextSummary } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
+import { isHardStopped, noteHardStop, safeStringify } from './ai-http'
 import { detectFancyStyle, toFancy } from './fancy'
 import { matchingDirectives } from './directives'
 import { isWorldCupQuery, refreshWorldCupIfNeeded } from './worldcup'
@@ -34,18 +35,9 @@ import { refreshChannelTitle } from './channel-title'
 
 // strip orphan UTF-16 surrogate halves — twitch chat / 7TV emote names occasionally
 // inject lone D800-DBFF or DC00-DFFF code units. anthropic's JSON parser rejects them
-// with "no low surrogate in string", tripping the circuit breaker.
-export function stripUnpairedSurrogates(s: string): string {
-  return s
-    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '')
-    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
-}
-
-// safe JSON.stringify that scrubs orphan surrogates from every string field.
-// (a bare regex after stringify can't see them — they get encoded as \uXXXX text.)
-export function safeStringify(body: unknown): string {
-  return JSON.stringify(body, (_k, v) => typeof v === 'string' ? stripUnpairedSurrogates(v) : v)
-}
+// with "no low surrogate in string", tripping the circuit breaker. defined in ai-http so
+// every call site gets the protection; re-exported here to keep this module's public API.
+export { stripUnpairedSurrogates, safeStringify } from './ai-http'
 
 // --- constants ---
 
@@ -67,6 +59,16 @@ const CB_OPEN_LINES = [
   'merchant dropped the scroll, servers catching up',
 ]
 let cbOpenIdx = 0
+// a hard stop is NOT a hiccup — the key is rejected or the org's spend ceiling is reached,
+// and it lasts until the next PT day. saying "back in a moment" would be a lie, and going
+// silent would read as the bot ignoring people. same rotation trick for the dup filter.
+const HARD_STOP_LINES = [
+  'my ai brain is offline for today — commands and lookups still work',
+  'out of ai budget til tomorrow, but the lookups are all still live',
+  'no ai answers today (budget), everything else works fine',
+  'ai is capped for the day — item/day/monster lookups still good',
+]
+let hardStopIdx = 0
 const MAX_TOKENS_GAME = 100
 const MAX_TOKENS_CHAT = 80
 const MAX_TOKENS_PASTA = 200
@@ -121,6 +123,9 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (query.length > AI_MAX_QUERY_LEN) query = query.slice(0, AI_MAX_QUERY_LEN)
   if (!ctx.user || !ctx.channel) return null
   if (!AI_CHANNELS.has(ctx.channel.toLowerCase())) return null
+  // checked before the breaker: a hard stop is permanent for the day, so there is nothing
+  // to probe and every request would be a doomed round trip.
+  if (isHardStopped()) return { text: HARD_STOP_LINES[hardStopIdx++ % HARD_STOP_LINES.length], mentions: [] }
   if (cbIsOpen()) return { text: CB_OPEN_LINES[cbOpenIdx++ % CB_OPEN_LINES.length], mentions: [] }
 
   const isVip = AI_VIP.has(ctx.user.toLowerCase())
@@ -304,6 +309,9 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       if (!res.ok) {
         const errBody = res.status === 429 ? '' : await res.text().catch(() => '')
         if (errBody) log(`ai: API ${res.status} ${errBody}`)
+        // a rejected key or an exhausted spend ceiling is permanent for the day — latch it
+        // so the retry loop, the hedge, and every other AI path stop firing doomed requests.
+        noteHardStop(res.status, errBody)
         return { status: res.status }
       }
       const parsed = await readJson<ApiData>(res)
@@ -319,13 +327,13 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // recording at the winner-only site (post-sanitize) misses those tokens and makes
       // the daily cap trip late. logAsk stays at the winner site (per-final-reply).
       try {
-        const u = parsed.data.usage
-        if (u) db.recordAiSpend(ctx.channel, u.input_tokens ?? 0, u.output_tokens ?? 0)
         // cache accounting, per dispatched request (hedge losers included — two
         // concurrent calls can't read each other's write, so a hedge shows as two
         // creations). read>0 = the system prompt hit; creation>0 = cold write.
+        const u = parsed.data.usage
         const cw = u?.cache_creation_input_tokens ?? 0
         const cr = u?.cache_read_input_tokens ?? 0
+        if (u) db.recordAiSpend(ctx.channel, u.input_tokens ?? 0, u.output_tokens ?? 0, cr, cw)
         if (cw || cr) log(`ai: cache read=${cr} write=${cw} uncached=${u?.input_tokens ?? 0}`)
       } catch {}
       return { status: 200, data: parsed.data }

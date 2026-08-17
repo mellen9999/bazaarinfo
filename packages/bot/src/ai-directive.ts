@@ -1,7 +1,6 @@
-import { log } from './log'
-import { readJson, extractFirstJson } from './http'
+import { extractFirstJson } from './http'
 import { AI_CHANNELS, isOverDailyCap } from './ai-cache'
-import { recordAiSpend } from './db'
+import { anthropicCall, stripUnpairedSurrogates } from './ai-http'
 import { MAX_INSTRUCTION } from './directives'
 
 // AI gate for chat-planted steering directives. Parses a natural-language plant
@@ -22,14 +21,7 @@ export interface ParsedDirective {
   instruction: string
 }
 
-function stripUnpairedSurrogates(s: string): string {
-  return s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
-}
-function safeStringify(body: unknown): string {
-  return JSON.stringify(body, (_k, v) => (typeof v === 'string' ? stripUnpairedSurrogates(v) : v))
-}
-
-const SYSTEM = `A Twitch chat user wants to plant a fun, TEMPORARY rule that changes how the bot treats OTHER people. Parse it into JSON. Two kinds:
+const SYSTEM =`A Twitch chat user wants to plant a fun, TEMPORARY rule that changes how the bot treats OTHER people. Parse it into JSON. Two kinds:
 
 1. MUTE — "don't respond to bob", "ignore @bob", "stop replying to bob". Set {"mute":true,"target":"bob","trigger":[],"instruction":""}. A mute MUST name one specific user; "ignore everyone/chat/all" is NOT allowed.
 
@@ -54,43 +46,17 @@ export async function parseDirective(text: string, channel: string): Promise<Par
   const clean = stripUnpairedSurrogates(text.trim()).slice(0, 200)
   if (clean.length < 8) return null
 
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT)
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: safeStringify({
-        model: MODEL,
-        max_tokens: 200,
-        thinking: { type: 'disabled' },
-        system: SYSTEM,
-        messages: [{ role: 'user', content: clean }],
-      }),
-      signal: controller.signal,
-    })
-    if (!res.ok) {
-      log(`ai-directive: API ${res.status}`)
-      return null
-    }
-    const parsed = await readJson<{ content?: { type: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } }>(res)
-    if (!parsed.data) return null
-    const u = parsed.data.usage
-    if (u) recordAiSpend(channel, u.input_tokens ?? 0, u.output_tokens ?? 0)
-    const out = parsed.data.content?.find((b) => b.type === 'text')?.text
-    if (!out) return null
-    return validate(out)
-  } catch (e) {
-    if ((e as Error)?.name === 'AbortError') log('ai-directive: parse timed out')
-    else log(`ai-directive: ${(e as Error)?.message ?? e}`)
-    return null
-  } finally {
-    clearTimeout(timer)
-  }
+  const out = await anthropicCall({
+    tag: 'ai-directive',
+    channel,
+    model: MODEL,
+    maxTokens: 200,
+    timeoutMs: TIMEOUT,
+    system: SYSTEM,
+    content: clean,
+  })
+  if (!out) return null
+  return validate(out)
 }
 
 function validate(text: string): ParsedDirective | null {
