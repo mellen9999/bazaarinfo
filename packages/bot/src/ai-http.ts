@@ -32,25 +32,79 @@ export { stripUnpairedSurrogates, safeStringify } from './safe-json'
 // requests. This latches for the rest of the PT day (the same day key the spend ledger uses),
 // so the bot short-circuits to its deterministic paths instead. A restart re-probes once.
 
-let hardStopDay = ''
+let hardStopDay = ''      // fallback expiry: the PT day the latch was set on
+let hardStopUntil = 0     // preferred expiry: epoch ms the API told us access returns
 let hardStopReason = ''
+let lastProbeAt = 0
+
+// How long a latch may hold before letting exactly one call through to test the water.
+// This is the backstop for every case where we cannot know the real expiry — most
+// importantly a 401: rotate the key and the bot must not stay mute until midnight.
+const PROBE_INTERVAL = 60 * 60_000
+
+// A spend-ceiling refusal states its own expiry:
+//   "You have reached your specified API usage limits. You will regain access on
+//    2026-09-01 at 00:00 UTC."
+// That matters because the reset is a UTC instant, not a PT day boundary — 00:00 UTC on
+// Sep 1 is 17:00 PT on Aug 31, so a "rest of the PT day" latch would keep the bot mute
+// for seven hours after the API started working again. Parse it and honour it exactly.
+function parseResumeTime(body: string): number {
+  const m = /regain access on (\d{4}-\d{2}-\d{2})(?:\s+at\s+(\d{1,2}:\d{2}))?\s*UTC/i.exec(body)
+  if (!m) return 0
+  const t = Date.parse(`${m[1]}T${(m[2] ?? '00:00').padStart(5, '0')}:00Z`)
+  // sanity-gate the parse: a garbled date must not latch the bot for years, and a time
+  // already past is no reason to stop at all.
+  if (!Number.isFinite(t) || t <= Date.now() || t > Date.now() + 60 * 86_400_000) return 0
+  return t
+}
+
+function clearHardStop(why: string): void {
+  if (!hardStopDay && !hardStopUntil) return
+  hardStopDay = ''
+  hardStopUntil = 0
+  hardStopReason = ''
+  log(`ai-http: hard stop CLEARED — ${why}`)
+}
 
 export function isHardStopped(): boolean {
-  return hardStopDay !== '' && hardStopDay === ptDay()
+  if (!hardStopDay && !hardStopUntil) return false
+  const now = Date.now()
+  // expired by the API's own stated resume time, or (when it gave none) by the PT day
+  // rolling over — the same day key the spend ledger uses.
+  if (hardStopUntil > 0 ? now >= hardStopUntil : hardStopDay !== ptDay()) {
+    clearHardStop('expired')
+    return false
+  }
+  // let exactly ONE call per interval through. it is the only way a latch we set from an
+  // unparseable reason (or a key that has since been fixed) can ever discover it is stale.
+  if (now - lastProbeAt >= PROBE_INTERVAL) {
+    lastProbeAt = now
+    log('ai-http: hard stop still set — letting one probe call through')
+    return false
+  }
+  return true
 }
 
 export function hardStopReasonText(): string {
   return isHardStopped() ? hardStopReason : ''
 }
 
+/** any successful call proves the wall is gone — used by the probe path. */
+export function noteApiSuccess(): void {
+  clearHardStop('a call succeeded')
+}
+
 // exported for tests — the latch is process-global by design.
 export function resetHardStopForTests(): void {
   hardStopDay = ''
+  hardStopUntil = 0
   hardStopReason = ''
+  lastProbeAt = 0
 }
 
 // a 400 is normally OUR bug (malformed body) and must not latch; only the usage-limit
-// wording does. 401 always latches — a rejected key will not start working this afternoon.
+// wording does. 401 always latches — a rejected key will not start working this second —
+// but it expires on the probe interval, because a key CAN be rotated.
 function detectHardStop(status: number, body: string): string {
   if (status === 401) return 'api key rejected (401)'
   if (status === 400 && /usage limit|credit balance|spend limit/i.test(body)) {
@@ -60,17 +114,26 @@ function detectHardStop(status: number, body: string): string {
 }
 
 /**
- * Report a non-OK API response. Latches the day-long stop when the status+body say the
- * failure is permanent, and does nothing otherwise. Safe to call on every error — the chat
- * path (ai.ts) runs its own fetch and calls this so both paths share one latch.
+ * Report a non-OK API response. Latches when the status+body say the failure is permanent,
+ * and does nothing otherwise. Safe to call on every error — the chat path (ai.ts) runs its
+ * own fetch and calls this so both paths share one latch.
  */
 export function noteHardStop(status: number, body: string): void {
   const reason = detectHardStop(status, body)
-  if (!reason || isHardStopped()) return
+  if (!reason) return
+  const until = parseResumeTime(body)
+  // a probe that failed re-arms the existing latch rather than logging a fresh outage.
+  const renewing = hardStopDay !== '' || hardStopUntil !== 0
   hardStopDay = ptDay()
+  hardStopUntil = until
   hardStopReason = reason
-  log(`ai-http: HARD STOP for the rest of ${hardStopDay} — ${reason}`)
-  void notify('ai-hard-stop', 'bazaarinfo: AI disabled', `${reason}\nAI paths are short-circuited until the next PT day.`, 'high')
+  // the probe clock starts NOW, not at epoch zero — otherwise the first latch check would
+  // immediately hand out a probe and the wall would never actually go up.
+  lastProbeAt = Date.now()
+  if (renewing) return
+  const when = until ? `until ${new Date(until).toISOString()}` : `for the rest of ${hardStopDay} (PT)`
+  log(`ai-http: HARD STOP ${when} — ${reason}`)
+  void notify('ai-hard-stop', 'bazaarinfo: AI disabled', `${reason}\nAI paths are short-circuited ${when}.`, 'high')
 }
 
 // --- the call --------------------------------------------------------------
@@ -160,7 +223,12 @@ function isTtlRejection(status: number, body: string): boolean {
  */
 export async function anthropicCall(o: AnthropicCallOpts): Promise<string | null> {
   if (!API_KEY) return null
-  if (isHardStopped()) return null
+  // isHardStopped() is not a pure query — when the latch is stale enough it releases one
+  // probe call and returns false. Ask ONCE and carry the answer, or the re-check below
+  // would swallow the very probe this call was granted.
+  const latched = isHardStopped()
+  const isProbe = !latched && (hardStopDay !== '' || hardStopUntil !== 0)
+  if (latched) return null
 
   const release = o.slot === false ? null : await acquireAiSlot()
   // the timeout starts AFTER the slot is held — a queued call must not burn its budget
@@ -170,8 +238,9 @@ export async function anthropicCall(o: AnthropicCallOpts): Promise<string | null
   try {
     // re-check: the latch may have tripped while this call sat in the slot queue, which is
     // exactly the fan-out case (18 verify calls queued behind one that just discovered the
-    // cap). without this the whole wave still fires.
-    if (isHardStopped()) return null
+    // cap). without this the whole wave still fires. a probe is exempt — it is the call
+    // that has been sent to find out whether the latch is stale.
+    if (!isProbe && isHardStopped()) return null
 
     const send = () => {
       const system = o.system
@@ -211,6 +280,9 @@ export async function anthropicCall(o: AnthropicCallOpts): Promise<string | null
         return null
       }
     }
+
+    // the call went through, so whatever wall we were latched behind is down.
+    if (isProbe) noteApiSuccess()
 
     const parsed = await readJson<{ content?: { type: string; text?: string }[]; usage?: Usage; stop_reason?: string }>(res)
     // every dispatched request that returns a 200 body is billed, so record before
