@@ -106,17 +106,34 @@ interface Usage {
 
 // --- cache TTL ---
 //
-// The default ephemeral cache lives 5 minutes. During a marathon (a round every ~40s)
-// that is plenty, but on an ordinary day rounds are minutes apart and EVERY round pays
-// the cold 1.25x write instead of the 0.1x read. A 1-hour TTL writes at 2x and reads at
-// 0.1x, which is far cheaper the moment traffic is spread out at all:
+// Reads cost 0.1x base input under either TTL. Writes are 1.25x at the default 5 minutes
+// and 2x at one hour, so the choice is purely about how often we go cold.
 //
-//   20 rounds over 4h, ~18k cacheable tokens/round
-//   5m TTL: 20 cold writes           = 20 x 18k x 1.25 = 450k billed-equivalent
-//   1h TTL:  4 cold writes + 16 reads = 4 x 18k x 2.0 + 16 x 18k x 0.1 = 173k
+// The relevant detail is that a round fans OUT: 6 generation calls fire in parallel with a
+// byte-identical system prompt, and concurrent calls cannot read each other's write, so a
+// cold round pays six writes, not one. In units of the base input price for that prefix:
 //
-// It is also never worse during a marathon — the write just happens hourly instead of
-// after every quiet gap.
+//                        cold round     warm round
+//   5m TTL               6 x 1.25 = 7.5    6 x 0.1 = 0.6
+//   1h TTL               6 x 2.00 = 12     6 x 0.1 = 0.6
+//
+//   sparse day, 20 rounds ~12 min apart, over 4h
+//     5m: every round cold                        = 20 x 7.5     = 150
+//     1h: ~1 write/hour, the rest warm            = 4 x 12 + 16 x 0.6 = 57.6   (2.6x better)
+//   marathon, 174 rounds ~40s apart
+//     5m: 1 cold + 173 warm                       = 111.3
+//     1h: 1 cold + 173 warm                       = 115.8        (4% worse)
+//
+// So this is NOT free money: it wins big on bursty traffic with gaps and loses slightly on
+// a sustained marathon, and in absolute dollars those two nearly cancel. It is chosen
+// because real traffic is the bursty shape — stream gaps, ad breaks, chat moving on — and
+// the 5-minute window is fragile to every one of those, which is exactly the case the
+// caching docs say to use an extended TTL for.
+//
+// Not done: pre-warming the cache with a single max_tokens:0 call before the fan-out, which
+// would cut a cold round's write from 12 units to ~2.6. It only pays on cold rounds, adds a
+// sequential round trip before every fan-out, and cold rounds are either rare (marathon) or
+// already costing pennies (sparse day). Revisit only if the ledger says otherwise.
 //
 // The bot cannot verify this parameter against the live API until the spend cap lifts, so
 // it degrades itself rather than betting the whole AI surface on an untested field: if a
