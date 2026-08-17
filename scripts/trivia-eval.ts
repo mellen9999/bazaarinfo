@@ -8,11 +8,21 @@
 // needs ANTHROPIC_API_KEY + an AI channel (auto-loaded from .env on mele). uses an
 // isolated temp DB so the bot's data is untouched. the verifier is a temp-0 model call,
 // so a rare case may flip — investigate any FAIL, don't treat one as deterministic truth.
-import { initDb } from '../packages/bot/src/db'
-import { verifyPanel } from '../packages/bot/src/ai-trivia'
+import { initDb, getAiSpendBySource } from '../packages/bot/src/db'
+import { verifyAllLenses, panelVerdict, panelLenses } from '../packages/bot/src/ai-trivia'
 
 initDb('/tmp/bzi-trivia-eval.db')
 const CHANNEL = 'mellen'
+
+// `--haiku-lenses` scores the cost-tiered panel: the solver and skeptic lenses move to
+// haiku 4.5 (3x cheaper) while the general lens stays on sonnet because it owns the
+// off-topic veto. That swap is the biggest remaining cost lever and it ships ONLY if this
+// eval still scores a perfect run — every case below is a real failure that reached chat,
+// so a single regression means a wrong answer gets through. Compare the two runs directly:
+//
+//   bun run scripts/trivia-eval.ts
+//   bun run scripts/trivia-eval.ts --haiku-lenses
+const CHEAP_LENSES = process.argv.includes('--haiku-lenses')
 
 interface Case {
   question: string
@@ -49,19 +59,32 @@ const CASES: Case[] = [
   { question: 'Which streamer, whose name became the "-erino" suffix meme in Twitch chats, is a longtime Hearthstone and Diablo content creator?', answer: 'Kripp', accept: ['kripp', 'kripparrian'], expect: 'accept', why: 'true internet-culture fact with a crisp answer — the provenance guard must not blanket-reject well-established streamer lore' },
 ]
 
+const LENSES = panelLenses(CHEAP_LENSES)
+console.log(`panel: ${LENSES.map((l) => `${l.name}=${l.model}`).join('  ')}\n`)
+
 let pass = 0
 const fails: string[] = []
+// per-lens veto tally. a lens that vetoes far more on haiku than on sonnet is the one
+// paying for the discount, and this is what says so rather than an aggregate score.
+const vetoes: Record<string, number> = {}
 for (let i = 0; i < CASES.length; i++) {
   const c = CASES[i]
-  const { ok } = await verifyPanel({ question: c.question, answer: c.answer, accept: c.accept ?? [] }, CHANNEL)
+  const verdicts = await verifyAllLenses({ question: c.question, answer: c.answer, accept: c.accept ?? [] }, CHANNEL, '', CHEAP_LENSES)
+  const { ok } = panelVerdict(verdicts)
+  verdicts.forEach((v, li) => { if (!v.ok) vetoes[LENSES[li].name] = (vetoes[LENSES[li].name] ?? 0) + 1 })
   const verdict = ok ? 'accept' : 'reject'
   const good = verdict === c.expect
   if (good) pass++
-  else fails.push(`  [${i + 1}] expected ${c.expect}, got ${verdict} :: "${c.question.slice(0, 60)}" (a: ${c.answer})\n        ${c.why}`)
+  else fails.push(`  [${i + 1}] expected ${c.expect}, got ${verdict} :: "${c.question.slice(0, 60)}" (a: ${c.answer})\n        ${c.why}\n        lens votes: ${verdicts.map((v, li) => `${LENSES[li].name}=${v.ok ? 'ok' : 'veto'}`).join(' ')}`)
   console.log(`${good ? 'PASS' : 'FAIL'}  want=${c.expect} got=${verdict}  ${c.question.slice(0, 55)}`)
 }
 
 console.log(`\n=== ${pass}/${CASES.length} correct ===`)
+console.log(`vetoes by lens: ${LENSES.map((l) => `${l.name}=${vetoes[l.name] ?? 0}`).join('  ')}`)
+// what the run actually cost, so the cheaper panel can be judged on both axes at once.
+for (const r of getAiSpendBySource()) {
+  console.log(`spend[${r.source}]: ${r.calls} calls  in=${r.input_tokens} out=${r.output_tokens} cache_read=${r.cache_read_tokens}`)
+}
 if (fails.length) {
   console.log('\nFAILURES:')
   console.log(fails.join('\n'))

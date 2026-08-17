@@ -2,7 +2,7 @@ import { log } from './log'
 import { readJson } from './http'
 import { notify } from './notify'
 import { acquireAiSlot } from './ai-cache'
-import { recordAiSpend, ptDay } from './db'
+import { recordAiSpend, recordAiSpendBySource, ptDay } from './db'
 import { safeStringify } from './safe-json'
 
 // ONE Anthropic HTTP call, shared by every non-chat call site (trivia, directives,
@@ -86,10 +86,10 @@ export interface AnthropicCallOpts {
   content: string | object[]
   system?: string
   /**
-   * Cache the system prompt. Only worth it for a byte-identical prompt reused across calls
-   * within the 5-minute TTL — which is every generator/verifier prompt here. Anthropic
-   * silently declines to cache a prefix under ~1024 tokens, so a short system prompt just
-   * behaves as if this were off; there is no penalty for asking.
+   * Cache the system prompt. Worth it for any byte-identical prompt reused across calls
+   * inside the TTL — which is every generator/verifier prompt here. Anthropic silently
+   * declines to cache a prefix under ~1024 tokens, so a short system prompt just behaves
+   * as if this were off; there is no penalty for asking.
    */
   cacheSystem?: boolean
   timeoutMs?: number
@@ -102,6 +102,39 @@ interface Usage {
   output_tokens?: number
   cache_read_input_tokens?: number
   cache_creation_input_tokens?: number
+}
+
+// --- cache TTL ---
+//
+// The default ephemeral cache lives 5 minutes. During a marathon (a round every ~40s)
+// that is plenty, but on an ordinary day rounds are minutes apart and EVERY round pays
+// the cold 1.25x write instead of the 0.1x read. A 1-hour TTL writes at 2x and reads at
+// 0.1x, which is far cheaper the moment traffic is spread out at all:
+//
+//   20 rounds over 4h, ~18k cacheable tokens/round
+//   5m TTL: 20 cold writes           = 20 x 18k x 1.25 = 450k billed-equivalent
+//   1h TTL:  4 cold writes + 16 reads = 4 x 18k x 2.0 + 16 x 18k x 0.1 = 173k
+//
+// It is also never worse during a marathon — the write just happens hourly instead of
+// after every quiet gap.
+//
+// The bot cannot verify this parameter against the live API until the spend cap lifts, so
+// it degrades itself rather than betting the whole AI surface on an untested field: if a
+// request is ever rejected for the ttl, we drop back to the default TTL, retry that call,
+// and stop sending it. Self-healing, no manual intervention, no silent outage.
+const LONG_CACHE_TTL = '1h'
+let useLongTtl = true
+
+function cacheControl() {
+  return useLongTtl
+    ? { type: 'ephemeral' as const, ttl: LONG_CACHE_TTL }
+    : { type: 'ephemeral' as const }
+}
+
+// true when a 400 is complaining about the cache_control/ttl field specifically, rather
+// than about our actual request content.
+function isTtlRejection(status: number, body: string): boolean {
+  return status === 400 && /ttl|cache_control/i.test(body)
 }
 
 /**
@@ -123,33 +156,46 @@ export async function anthropicCall(o: AnthropicCallOpts): Promise<string | null
     // cap). without this the whole wave still fires.
     if (isHardStopped()) return null
 
-    const system = o.system
-      ? [{ type: 'text' as const, text: o.system, ...(o.cacheSystem === false ? {} : { cache_control: { type: 'ephemeral' as const } }) }]
-      : undefined
-
-    const res = await fetch(ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
-      body: safeStringify({
-        model: o.model,
-        max_tokens: o.maxTokens,
-        thinking: { type: 'disabled' },
-        ...(system ? { system } : {}),
-        messages: [{ role: 'user', content: o.content }],
-      }),
-      signal: controller.signal,
-    })
-
-    if (!res.ok) {
-      // 429 bodies are noise; everything else is worth reading — and a hard stop is only
-      // identifiable from the body text.
-      const body = res.status === 429 ? '' : await res.text().catch(() => '')
-      if (detectHardStop(res.status, body)) noteHardStop(res.status, body)
-      else log(`${o.tag}: API ${res.status}${body ? ` ${body.slice(0, 200)}` : ''}`)
-      return null
+    const send = () => {
+      const system = o.system
+        ? [{ type: 'text' as const, text: o.system, ...(o.cacheSystem === false ? {} : { cache_control: cacheControl() }) }]
+        : undefined
+      return fetch(ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY!, 'anthropic-version': '2023-06-01' },
+        body: safeStringify({
+          model: o.model,
+          max_tokens: o.maxTokens,
+          thinking: { type: 'disabled' },
+          ...(system ? { system } : {}),
+          messages: [{ role: 'user', content: o.content }],
+        }),
+        signal: controller.signal,
+      })
     }
 
-    const parsed = await readJson<{ content?: { type: string; text?: string }[]; usage?: Usage }>(res)
+    let res = await send()
+
+    if (!res.ok) {
+      // 429 bodies are noise; everything else is worth reading — and both a hard stop and
+      // a ttl rejection are only identifiable from the body text.
+      let body = res.status === 429 ? '' : await res.text().catch(() => '')
+      // the long TTL is the one request field we could not verify against the live API.
+      // if it is what upstream objects to, drop it permanently and retry this call once.
+      if (useLongTtl && isTtlRejection(res.status, body)) {
+        useLongTtl = false
+        log(`${o.tag}: API rejected the ${LONG_CACHE_TTL} cache ttl — falling back to the default and retrying`)
+        res = await send()
+        if (!res.ok) body = res.status === 429 ? '' : await res.text().catch(() => '')
+      }
+      if (!res.ok) {
+        if (detectHardStop(res.status, body)) noteHardStop(res.status, body)
+        else log(`${o.tag}: API ${res.status}${body ? ` ${body.slice(0, 200)}` : ''}`)
+        return null
+      }
+    }
+
+    const parsed = await readJson<{ content?: { type: string; text?: string }[]; usage?: Usage; stop_reason?: string }>(res)
     // every dispatched request that returns a 200 body is billed, so record before
     // inspecting the content — a truncated or empty body still costs money.
     const u = parsed.data?.usage
@@ -161,6 +207,23 @@ export async function anthropicCall(o: AnthropicCallOpts): Promise<string | null
         u.cache_read_input_tokens ?? 0,
         u.cache_creation_input_tokens ?? 0,
       )
+      // per-subsystem ledger. the aug 2026 blowout took a log-mining session to pin on
+      // one code path; this makes "where did the money go" a query instead of a hunt.
+      recordAiSpendBySource(
+        o.tag,
+        u.input_tokens ?? 0,
+        u.output_tokens ?? 0,
+        u.cache_read_input_tokens ?? 0,
+        u.cache_creation_input_tokens ?? 0,
+      )
+    }
+
+    // A response cut off at max_tokens is a PAID call that produced nothing usable: the
+    // JSON never closes, so the parser rejects it and the caller reads that as a refusal
+    // rather than as "we starved it". Surfacing it is what makes the ceilings tunable
+    // from evidence instead of guesswork.
+    if (parsed.data?.stop_reason === 'max_tokens') {
+      log(`${o.tag}: TRUNCATED at max_tokens=${o.maxTokens} — the response was cut off and will not parse`)
     }
     return parsed.data?.content?.find((b) => b.type === 'text')?.text ?? null
   } catch (e) {

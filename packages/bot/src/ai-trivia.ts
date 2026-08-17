@@ -15,6 +15,22 @@ const MODEL = 'claude-sonnet-5'
 const TIMEOUT = 12_000 // headroom for the verify panel: ~12 calls fire at once per round
 const MAX_TOPIC_LEN = 80
 
+// Output ceilings. max_tokens is a CEILING, not a reservation — a response that finishes
+// early bills only what it wrote, so headroom is free. Being stingy here is not: a cut-off
+// response has an unterminated JSON body, extractFirstJson returns null, and the caller
+// reads that as a refusal rather than as "we starved it". For a verifier that means a
+// silent veto, and because the panel demands unanimity, ONE truncated lens bins a good
+// question and sends the round to the 12-call rescue pass.
+//
+// Production averaged ~187 output tokens per verify call against the old 360 ceiling. An
+// average that close to the cap guarantees a substantial truncated tail, which is the best
+// explanation for the rescue pass firing on nearly every round (36.4 of a possible 37
+// calls). These ceilings are set well clear of that tail; ai-http logs any response that
+// still hits one, so the real rate is measurable rather than assumed.
+const VERIFY_MAX_TOKENS = 700
+const GEN_MAX_TOKENS = 400
+const SUBJECT_MAX_TOKENS = 250
+
 export interface CustomTrivia {
   question: string
   answer: string
@@ -290,7 +306,7 @@ async function pickSubjects(topic: string, channel: string, avoidAnswers: string
   const avoidLine = avoidAnswers.length
     ? `\n\nAvoid subjects that would lead back to these recently-used answers: ${avoidAnswers.slice(-12).join(', ')}.`
     : ''
-  const text = await callApi(SUBJECT_SYSTEM, `TOPIC: ${topic}${avoidLine}`, channel, 200)
+  const text = await callApi(SUBJECT_SYSTEM, `TOPIC: ${topic}${avoidLine}`, channel, SUBJECT_MAX_TOKENS)
   if (!text) return fallback
   const json = extractFirstJson(text)
   if (!json) return fallback
@@ -536,15 +552,16 @@ export interface Verdict {
 }
 
 // run ONE verifier lens. fails closed (reject) on any error so a wrong question can't slip
-// through on an API hiccup. max_tokens 360 leaves room to reason in the "check" field before
-// the verdict — recomputing a count or independently solving catches errors a yes/no misses.
-async function runVerifier(system: string, q: CustomTrivia, channel: string, topic = '', preamble = ''): Promise<Verdict> {
+// through on an API hiccup. VERIFY_MAX_TOKENS leaves room to reason in the "check" field
+// before the verdict — recomputing a count or independently solving catches errors a
+// yes/no misses, and that reasoning is exactly what needs room to finish.
+async function runVerifier(system: string, q: CustomTrivia, channel: string, topic = '', preamble = '', model = MODEL): Promise<Verdict> {
   // pass every accepted form so a lens can catch a giveaway/match hiding in an alternate.
   const answers = [q.answer, ...q.accept.filter((a) => a.toLowerCase() !== q.answer.toLowerCase())].join(' / ')
   // the user's TOPIC is fed only to the general lens, which owns the off-topic-drift check;
   // the solver/skeptic stay laser-focused on correctness. blank topic => the check is skipped.
   const topicLine = topic.trim() ? `TOPIC: ${topic.trim()}\n` : ''
-  const text = await callApi(system, `${preamble}${topicLine}QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`, channel, 360)
+  const text = await callApi(system, `${preamble}${topicLine}QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`, channel, VERIFY_MAX_TOKENS, model)
   if (!text) return { ok: false, quality: 0 }
   const json = extractFirstJson(text)
   if (!json) return { ok: false, quality: 0 }
@@ -579,15 +596,40 @@ export async function verifyTrivia(q: CustomTrivia, channel: string): Promise<Ve
 // >=2 from at least one (kept). Avoids both over-rejecting good classics and shipping spam.
 const MIN_QUALITY = 2
 
+// The panel, as data: which prompt each lens runs, on which model, and whether it is the
+// lens that owns the off-topic veto (only that one is shown the user's TOPIC — the other
+// two stay laser-focused on correctness).
+//
+// Model per lens is a knob because the solver and skeptic are two thirds of the panel and
+// haiku 4.5 is 3x cheaper than sonnet 5 on both input and output — the single biggest
+// remaining cost lever. It is NOT flipped yet: these lenses are what stop a wrong answer
+// reaching chat, so the swap ships only once `scripts/trivia-eval.ts` still scores 22/22
+// on its corpus of real chat incidents, and that eval needs live API access. Run
+// `bun run scripts/trivia-eval.ts --haiku-lenses` to score the tiered configuration.
+export interface Lens {
+  name: 'general' | 'solver' | 'skeptic'
+  system: string
+  model: string
+  ownsTopicVeto: boolean
+}
+
+export const HAIKU_LENS_MODEL = 'claude-haiku-4-5-20251001'
+
+export function panelLenses(cheapLenses = false): Lens[] {
+  const side = cheapLenses ? HAIKU_LENS_MODEL : MODEL
+  return [
+    { name: 'general', system: VERIFY_SYSTEM, model: MODEL, ownsTopicVeto: true },
+    { name: 'solver', system: VERIFY_SOLVE_SYSTEM, model: side, ownsTopicVeto: false },
+    { name: 'skeptic', system: VERIFY_SKEPTIC_SYSTEM, model: side, ownsTopicVeto: false },
+  ]
+}
+
 // run all three lenses in parallel, returning each verdict in [general, solver, skeptic]
 // order. exported so the eval/diagnostics can see WHICH lens vetoed, not just the aggregate.
-export async function verifyAllLenses(q: CustomTrivia, channel: string, topic = ''): Promise<Verdict[]> {
-  // only the general lens (first) receives the topic — it owns the off-topic-drift veto.
-  return Promise.all([
-    runVerifier(VERIFY_SYSTEM, q, channel, topic),
-    runVerifier(VERIFY_SOLVE_SYSTEM, q, channel),
-    runVerifier(VERIFY_SKEPTIC_SYSTEM, q, channel),
-  ])
+export async function verifyAllLenses(q: CustomTrivia, channel: string, topic = '', cheapLenses = false): Promise<Verdict[]> {
+  return Promise.all(
+    panelLenses(cheapLenses).map((l) => runVerifier(l.system, q, channel, l.ownsTopicVeto ? topic : '', '', l.model)),
+  )
 }
 
 // Pure panel rule, split out so it can be tested without three API calls.
@@ -601,9 +643,9 @@ export function panelVerdict(verdicts: Verdict[]): Verdict {
   return { ok: true, quality }
 }
 
-export async function verifyPanel(q: CustomTrivia, channel: string, topic = ''): Promise<Verdict> {
+export async function verifyPanel(q: CustomTrivia, channel: string, topic = '', cheapLenses = false): Promise<Verdict> {
   if (!API_KEY) return { ok: true, quality: 2 } // can't verify without a key; don't block generation
-  return panelVerdict(await verifyAllLenses(q, channel, topic))
+  return panelVerdict(await verifyAllLenses(q, channel, topic, cheapLenses))
 }
 
 // GAME-DATA trivia: the topic names Bazaar content (a hero, item, monster, tag), so both
@@ -814,7 +856,7 @@ async function callApi(system: string, content: string, channel: string, maxToke
 type GenResult = { ok: true; q: CustomTrivia } | { ok: false; retry: boolean }
 
 async function attemptGen(system: string, userContent: string, channel: string): Promise<GenResult> {
-  const text = await callApi(system, userContent, channel, 300)
+  const text = await callApi(system, userContent, channel, GEN_MAX_TOKENS)
   if (!text) return { ok: false, retry: false }
   return parseGen(text)
 }

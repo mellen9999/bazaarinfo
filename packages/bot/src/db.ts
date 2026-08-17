@@ -74,6 +74,7 @@ let stmts: {
   searchLessonFTS: Statement
   upsertAiSpend: Statement
   selectAiSpend: Statement
+  upsertAiSpendSource: Statement
   totalAiSpend: Statement
 }
 
@@ -292,6 +293,16 @@ function prepareStatements() {
     ),
     selectAiSpend: db.prepare(
       `SELECT input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, calls FROM ai_spend WHERE channel = ? AND day = ?`,
+    ),
+    upsertAiSpendSource: db.prepare(
+      `INSERT INTO ai_spend_source (day, source, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, calls)
+       VALUES (?, ?, ?, ?, ?, ?, 1)
+       ON CONFLICT(day, source) DO UPDATE SET
+         input_tokens = input_tokens + excluded.input_tokens,
+         output_tokens = output_tokens + excluded.output_tokens,
+         cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
+         cache_write_tokens = cache_write_tokens + excluded.cache_write_tokens,
+         calls = calls + 1`,
     ),
     totalAiSpend: db.prepare(
       `SELECT SUM(input_tokens + output_tokens) as tokens, SUM(calls) as calls FROM ai_spend WHERE day = ?`,
@@ -787,6 +798,24 @@ const migrations: (() => void)[] = [
     db.run(`CREATE INDEX idx_trivia_bank_topic ON trivia_bank(topic_key, soft, quality DESC)`)
     db.run(`CREATE UNIQUE INDEX idx_trivia_bank_answer ON trivia_bank(topic_key, lower(answer))`)
     db.run(`CREATE UNIQUE INDEX idx_trivia_bank_question ON trivia_bank(lower(question))`)
+  },
+
+  // migration 25: per-subsystem spend. ai_spend answers "how much did this channel cost
+  // today" but not "which feature spent it" — pinning the aug 2026 blowout on one code
+  // path took a log-mining session that a GROUP BY should have answered. kept as its own
+  // table rather than a column on ai_spend so the daily-cap query and its primary key are
+  // untouched. `source` is the call-site tag ('ai-trivia', 'summary', 'reddit', ...).
+  () => {
+    db.run(`CREATE TABLE ai_spend_source (
+      day TEXT NOT NULL,
+      source TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+      calls INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (day, source)
+    )`)
   },
 ]
 
@@ -1581,6 +1610,51 @@ export function recordAiSpend(
     stmts.upsertAiSpend.run(channel.toLowerCase(), ptDay(), inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
   } catch (e) {
     log(`ai_spend write failed: ${e}`)
+  }
+}
+
+// which SUBSYSTEM spent it, not which channel. `source` is the call-site tag.
+export function recordAiSpendBySource(
+  source: string,
+  inputTokens: number,
+  outputTokens: number,
+  cacheReadTokens = 0,
+  cacheWriteTokens = 0,
+): void {
+  try {
+    stmts.upsertAiSpendSource.run(ptDay(), source, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
+  } catch (e) {
+    log(`ai_spend_source write failed: ${e}`)
+  }
+}
+
+export interface SourceSpend {
+  source: string
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  calls: number
+}
+
+export function getAiSpendBySource(day = ptDay()): SourceSpend[] {
+  try {
+    return db
+      .query(
+        `SELECT source, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, calls
+         FROM ai_spend_source WHERE day = ? ORDER BY (input_tokens + output_tokens) DESC`,
+      )
+      .all(day) as SourceSpend[]
+  } catch { return [] }
+}
+
+export function pruneOldAiSpendSource(days = 60): void {
+  try {
+    const cutoff = ptDay(new Date(Date.now() - days * 86_400_000))
+    const result = db.run(`DELETE FROM ai_spend_source WHERE day < ?`, [cutoff])
+    if (result.changes > 0) log(`pruned ${result.changes} ai_spend_source rows older than ${days}d`)
+  } catch (e) {
+    log(`ai_spend_source prune error: ${e}`)
   }
 }
 
