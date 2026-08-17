@@ -1283,10 +1283,37 @@ describe('custom-topic fallback pack — never dead-ends a topic request', () =>
     expect(second).not.toBe(first)
   })
 
-  it('returns null only when the pack is empty (caller soft last-resort)', () => {
+  it('still launches a round when the curated pack is empty — never dead-ends', () => {
     setFallbackPackForTest([])
     resetForTest()
-    expect(startFallbackTrivia('#fb3')).toBeNull()
+    // an empty pack used to mean "no round for you". the deterministic generators are
+    // always there and always grounded, so there is no reason to hand chat nothing.
+    expect(startFallbackTrivia('#fb3')).toContain('Trivia!')
+  })
+
+  it('serves the whole pack before repeating anything', () => {
+    // the real defect: a 10-deep recency window over a 36-question pack meant a busy day
+    // cycled the same handful. 261 rounds on 2026-08-17 served 5 questions five times each.
+    const big = Array.from({ length: 8 }, (_, i) => ({
+      question: `curated question number ${i}?`, answer: `a${i}`, accept: [`a${i}`],
+    }))
+    setFallbackPackForTest(big)
+    resetForTest()
+    const seen = new Set<string>()
+    let curated = 0
+    for (let i = 0; i < big.length; i++) {
+      startFallbackTrivia('#fbcycle')
+      const g = getActiveGameForTest('#fbcycle')
+      if (!g) continue
+      if (big.some((p) => p.question === g.question)) {
+        expect(seen.has(g.question)).toBe(false) // no repeat inside one cycle
+        seen.add(g.question)
+        curated++
+      }
+      checkAnswer('#fbcycle', 'viewer', g.correctAnswer, mockSay)
+    }
+    // most of the pack got through without a single duplicate
+    expect(curated).toBeGreaterThanOrEqual(big.length - 2)
   })
 
   afterEach(() => setFallbackPackForTest([]))

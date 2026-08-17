@@ -1030,21 +1030,62 @@ export function startKrippTrivia(channel: string): string | null {
   return startTrivia(channel, 'kripp')
 }
 
-// guaranteed-launch fallback for the custom-topic path: a curated, always-true question
-// so chat ALWAYS gets a round even when the AI couldn't make one. picks a question not
-// asked recently in this channel, then routes through startCustomTrivia (which handles
-// the active-game race + canonical/accept normalization). returns null ONLY if the pack
-// failed to load (empty) — callers treat that as the single soft last-resort.
+// Which curated fallback questions a channel has already been served. The old anti-repeat
+// leaned on recentQuestions, a 10-deep window over a 36-question pack — so a busy day just
+// cycled the same handful. On 2026-08-17, with the API capped, 261 rounds drew on those 36
+// questions and served 5 of them five times each.
+//
+// A set per channel instead of a window: every question in the pack is served once before
+// any is served twice, and the set clears when the pack is exhausted. Costs nothing and is
+// 3.6x the variety at the same pack size.
+const fallbackServed = new Map<string, Set<string>>()
+
+/**
+ * Guaranteed-launch fallback for the custom-topic path, so chat ALWAYS gets a round even
+ * when the AI couldn't make one. Returns null ONLY if there is genuinely nothing to serve.
+ *
+ * Exhausting the curated pack does NOT mean repeating it. The bot has a far deeper
+ * deterministic supply — the live card cache, and the Hearthstone set when that is what is
+ * on screen — and a fresh grounded question from the game the channel actually watches
+ * beats a general-knowledge one the chat answered twenty minutes ago.
+ */
 export function startFallbackTrivia(channel: string): string | null {
-  if (fallbackPack.length === 0) return null
+  if (fallbackPack.length === 0) return startTrivia(channel)
   const recent = recentQuestions.get(channel) ?? []
-  const fresh = fallbackPack.filter((q) => !recent.some((r) => norm(r) === norm(q.question)))
-  const q = pickRandom(fresh.length > 0 ? fresh : fallbackPack)
+  let served = fallbackServed.get(channel) ?? new Set<string>()
+
+  const unseen = () => fallbackPack.filter((q) =>
+    !served.has(norm(q.question)) && !recent.some((r) => norm(r) === norm(q.question)))
+
+  let fresh = unseen()
+  if (fresh.length === 0) {
+    // the whole curated pack has been through this channel. rather than start repeating,
+    // hand off to the deterministic generators, which are effectively inexhaustible and
+    // stream-aware. the cycle resets so the curated pack comes back around later.
+    served = new Set()
+    fallbackServed.set(channel, served)
+    fresh = unseen()
+    if (fresh.length === 0) return startTrivia(channel)
+    // one grounded game round between cycles keeps the curated pack from feeling like a
+    // loop even when it is the only thing being drawn from.
+    if (fallbackPack.length > 0) return startTrivia(channel)
+  }
+
+  const q = pickRandom(fresh)
+  served.add(norm(q.question))
+  fallbackServed.set(channel, served)
+  if (fallbackServed.size > 200) {
+    const first = fallbackServed.keys().next().value!
+    fallbackServed.delete(first)
+  }
   return startCustomTrivia(channel, { question: q.question, answer: q.answer, accept: q.accept })
 }
 
 // test seam
-export function setFallbackPackForTest(pack: PackQ[]) { fallbackPack = pack }
+export function setFallbackPackForTest(pack: PackQ[]) {
+  fallbackPack = pack
+  fallbackServed.clear()
+}
 
 // meta-topic server ("!b trivia about trivia") — picks a quiz-culture question the
 // channel hasn't seen recently (question OR answer, so the same fact can't rerun as
