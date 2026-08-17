@@ -1049,35 +1049,39 @@ const fallbackServed = new Map<string, Set<string>>()
  * on screen — and a fresh grounded question from the game the channel actually watches
  * beats a general-knowledge one the chat answered twenty minutes ago.
  */
+const fallbackCycles = new Map<string, number>()
+
 export function startFallbackTrivia(channel: string): string | null {
   if (fallbackPack.length === 0) return startTrivia(channel)
   const recent = recentQuestions.get(channel) ?? []
-  let served = fallbackServed.get(channel) ?? new Set<string>()
+  const served = fallbackServed.get(channel) ?? new Set<string>()
+  const cycles = fallbackCycles.get(channel) ?? 0
 
-  const unseen = () => fallbackPack.filter((q) =>
+  const unseen = fallbackPack.filter((q) =>
     !served.has(norm(q.question)) && !recent.some((r) => norm(r) === norm(q.question)))
 
-  let fresh = unseen()
-  if (fresh.length === 0) {
-    // the whole curated pack has been through this channel. rather than start repeating,
-    // hand off to the deterministic generators, which are effectively inexhaustible and
-    // stream-aware. the cycle resets so the curated pack comes back around later.
-    served = new Set()
+  if (unseen.length === 0) {
+    // the pack has been all the way round this channel. count the cycle and take a
+    // grounded round while the curated questions go back in the deck.
+    served.clear()
     fallbackServed.set(channel, served)
-    fresh = unseen()
-    if (fresh.length === 0) return startTrivia(channel)
-    // one grounded game round between cycles keeps the curated pack from feeling like a
-    // loop even when it is the only thing being drawn from.
-    if (fallbackPack.length > 0) return startTrivia(channel)
+    fallbackCycles.set(channel, cycles + 1)
+    if (fallbackCycles.size > 200) fallbackCycles.delete(fallbackCycles.keys().next().value!)
+    return startTrivia(channel)
   }
 
-  const q = pickRandom(fresh)
+  // First time through, the curated pack leads: 36 hand-verified general questions is a
+  // good spread and they have never been seen here. After that the pack alone would just
+  // be a loop, so split the load with the deterministic generators — the live card cache
+  // and, when it is what is on screen, the hearthstone set. Those are effectively
+  // inexhaustible, so a heavy day keeps producing questions chat has not answered before
+  // instead of cycling the same three dozen.
+  if (cycles > 0 && Math.random() < 0.5) return startTrivia(channel)
+
+  const q = pickRandom(unseen)
   served.add(norm(q.question))
   fallbackServed.set(channel, served)
-  if (fallbackServed.size > 200) {
-    const first = fallbackServed.keys().next().value!
-    fallbackServed.delete(first)
-  }
+  if (fallbackServed.size > 200) fallbackServed.delete(fallbackServed.keys().next().value!)
   return startCustomTrivia(channel, { question: q.question, answer: q.answer, accept: q.accept })
 }
 
@@ -1085,6 +1089,7 @@ export function startFallbackTrivia(channel: string): string | null {
 export function setFallbackPackForTest(pack: PackQ[]) {
   fallbackPack = pack
   fallbackServed.clear()
+  fallbackCycles.clear()
 }
 
 // meta-topic server ("!b trivia about trivia") — picks a quiz-culture question the
