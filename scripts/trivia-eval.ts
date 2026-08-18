@@ -62,25 +62,46 @@ const CASES: Case[] = [
 const LENSES = panelLenses(CHEAP_LENSES)
 console.log(`panel: ${LENSES.map((l) => `${l.name}=${l.model}`).join('  ')}\n`)
 
+// The panel has THREE outcomes, not two, and the difference decides whether a question can
+// reach chat:
+//   accept  — ships.
+//   soft    — every lens agreed it is correct and on topic, they just all called it a
+//             gimme. production keeps these and ships one as a last resort rather than
+//             abandoning the asker's topic, so a "soft" bad question STILL REACHES CHAT.
+//   defect  — a lens found a false fact, a leak, an ambiguity or a fabrication. never ships.
+// Scoring it as a binary accept/reject hid both halves of that: a good question binned only
+// for being easy looked like a failure, and a genuinely wrong question that slipped through
+// as "soft" looked like a pass.
+type Outcome = 'accept' | 'soft' | 'defect'
+
 let pass = 0
 const fails: string[] = []
+const softs: string[] = []
 // per-lens veto tally. a lens that vetoes far more on haiku than on sonnet is the one
 // paying for the discount, and this is what says so rather than an aggregate score.
 const vetoes: Record<string, number> = {}
 for (let i = 0; i < CASES.length; i++) {
   const c = CASES[i]
   const verdicts = await verifyAllLenses({ question: c.question, answer: c.answer, accept: c.accept ?? [] }, CHANNEL, '', CHEAP_LENSES)
-  const { ok } = panelVerdict(verdicts)
-  verdicts.forEach((v, li) => { if (!v.ok) vetoes[LENSES[li].name] = (vetoes[LENSES[li].name] ?? 0) + 1 })
-  const verdict = ok ? 'accept' : 'reject'
-  const good = verdict === c.expect
+  const v = panelVerdict(verdicts)
+  const outcome: Outcome = v.ok ? 'accept' : v.reason === 'easy' ? 'soft' : 'defect'
+  verdicts.forEach((vv, li) => { if (!vv.ok) vetoes[LENSES[li].name] = (vetoes[LENSES[li].name] ?? 0) + 1 })
+
+  // a known-bad question must be a DEFECT. "soft" is not good enough — production ships a
+  // soft question when nothing better exists, so a wrong one landing here is a real hole.
+  const good = c.expect === 'accept' ? outcome !== 'defect' : outcome === 'defect'
   if (good) pass++
-  else fails.push(`  [${i + 1}] expected ${c.expect}, got ${verdict} :: "${c.question.slice(0, 60)}" (a: ${c.answer})\n        ${c.why}\n        lens votes: ${verdicts.map((v, li) => `${LENSES[li].name}=${v.ok ? 'ok' : 'veto'}`).join(' ')}`)
-  console.log(`${good ? 'PASS' : 'FAIL'}  want=${c.expect} got=${verdict}  ${c.question.slice(0, 55)}`)
+  else fails.push(`  [${i + 1}] expected ${c.expect}, got ${outcome} :: "${c.question.slice(0, 60)}" (a: ${c.answer})\n        ${c.why}\n        lens votes: ${verdicts.map((vv, li) => `${LENSES[li].name}=${vv.ok ? `ok q${vv.quality}` : 'veto'}`).join(' ')}`)
+  if (outcome === 'soft') softs.push(`  [${i + 1}] ${c.expect === 'accept' ? 'ships only as a last resort' : 'CAN STILL REACH CHAT'} :: "${c.question.slice(0, 60)}"`)
+  console.log(`${good ? 'PASS' : 'FAIL'}  want=${c.expect} got=${outcome}  ${c.question.slice(0, 55)}`)
 }
 
 console.log(`\n=== ${pass}/${CASES.length} correct ===`)
 console.log(`vetoes by lens: ${LENSES.map((l) => `${l.name}=${vetoes[l.name] ?? 0}`).join('  ')}`)
+if (softs.length) {
+  console.log(`\nSOFT (unanimously correct, unanimously called a gimme):`)
+  console.log(softs.join('\n'))
+}
 // what the run actually cost, so the cheaper panel can be judged on both axes at once.
 for (const r of getAiSpendBySource()) {
   console.log(`spend[${r.source}]: ${r.calls} calls  in=${r.input_tokens} out=${r.output_tokens} cache_read=${r.cache_read_tokens}`)
