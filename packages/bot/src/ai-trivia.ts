@@ -600,12 +600,32 @@ const MIN_QUALITY = 2
 // lens that owns the off-topic veto (only that one is shown the user's TOPIC — the other
 // two stay laser-focused on correctness).
 //
-// Model per lens is a knob because the solver and skeptic are two thirds of the panel and
-// haiku 4.5 is 3x cheaper than sonnet 5 on both input and output — the single biggest
-// remaining cost lever. It is NOT flipped yet: these lenses are what stop a wrong answer
-// reaching chat, so the swap ships only once `scripts/trivia-eval.ts` still scores 22/22
-// on its corpus of real chat incidents, and that eval needs live API access. Run
-// `bun run scripts/trivia-eval.ts --haiku-lenses` to score the tiered configuration.
+// Model per lens is a knob because the solver and skeptic are two thirds of the panel, and
+// haiku 4.5 is 3x cheaper than sonnet 5 on both input and output. It looked like the single
+// biggest remaining cost lever.
+//
+// MEASURED 2026-08-17, AND REJECTED. Scored against the eval corpus of real chat incidents:
+//
+//   all sonnet    21/21     vetoes: general=11  solver=2  skeptic=4
+//   haiku lenses  20/21     vetoes: general=11  solver=4  skeptic=5
+//                 19/21     vetoes: general=11  solver=5  skeptic=8
+//                 19/21     vetoes: general=12  solver=5  skeptic=7
+//
+// Every haiku failure was a FALSE VETO on a good question — "the only bird that can fly
+// backwards" (hummingbird) died in all three runs, and two more known-good questions died
+// once each, including the karambit rewrite that is the corpus's canonical example of a
+// question done right. The cheap lenses are not worse at catching bad questions; they are
+// worse at recognising true ones, and the panel needs unanimity, so a single jumpy lens
+// bins the candidate.
+//
+// That makes it a cost INCREASE, not a saving. A binned slate falls through to the rescue
+// pass — 12 extra calls, ~$0.024 — while tiering saves only ~$0.016 a round. One extra
+// rescue per two rounds already erases it, and a ~14% false-veto rate per question is far
+// past that. It also spends the thing we were protecting: more topics abandoned, more
+// "couldn't cook one about X".
+//
+// So the lens models stay on sonnet. Re-run `bun run scripts/trivia-eval.ts --haiku-lenses`
+// against a future haiku before reopening this; do not reopen it on price alone.
 export interface Lens {
   name: 'general' | 'solver' | 'skeptic'
   system: string
