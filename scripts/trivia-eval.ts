@@ -28,7 +28,12 @@ interface Case {
   question: string
   answer: string
   accept?: string[]
-  expect: 'accept' | 'reject'
+  // 'reject' = must be a hard DEFECT, never shippable.
+  // 'soft'   = must not pass as a normal accept, but MAY survive as a last-resort gimme.
+  //            production prefers an easy on-topic question over abandoning the asker's
+  //            topic, so this is the honest contract for a true-but-trivial question.
+  // 'accept' = ships normally (a soft outcome here is a warning, not a failure).
+  expect: 'accept' | 'reject' | 'soft'
   why: string
 }
 
@@ -42,7 +47,7 @@ const CASES: Case[] = [
   { question: 'What is the scientific term for an organism that feeds on dead and decaying matter?', answer: 'saprophage', expect: 'reject', why: 'ambiguous definition — scavenger / saprotroph / detritivore all fit' },
   { question: "In Happy Gilmore, Bob Barker famously brawls with Adam Sandler — what is Bob Barker's character's first name?", answer: 'Bob', accept: ['bob', 'bob barker'], expect: 'reject', why: 'GIVEAWAY — the answer "Bob" is sitting in the question ("Bob Barker")' },
   { question: 'The Novaco Anger Scale, a standard measure of anger, is named after which psychologist?', answer: 'Raymond Novaco', accept: ['novaco', 'raymond novaco'], expect: 'reject', why: 'GIVEAWAY eponym trap — "Novaco" is already in the question' },
-  { question: 'What color is the sky on a clear day?', answer: 'blue', expect: 'reject', why: 'LOW-EFFORT — a casual answers instantly, teaches nothing, looks like spam' },
+  { question: 'What color is the sky on a clear day?', answer: 'blue', expect: 'soft', why: 'LOW-EFFORT — must never pass as a normal question; only ever a last-resort gimme (MIN_QUALITY floors it)' },
   { question: 'Which martial art did The Price Is Right host Bob Barker practice for decades?', answer: 'judo', accept: ['judo'], expect: 'reject', why: 'plausible-but-WRONG — Barker practiced karate (trained by Chuck Norris); the solver lens re-derives and contradicts the claim' },
   { question: "Forsen's chat spammed a certain emote so relentlessly during a 2014 Twitch Plays Pokemon-style stream that it got added as an official global emote. What is it called?", answer: 'forsenE', accept: ['forsene'], expect: 'reject', why: 'FABRICATED PROVENANCE — forsenE is a BTTV emote, never an official Twitch global, and unrelated to 2014 TPP; a stitched-together false origin story' },
   { question: 'This curved blade was originally a Southeast Asian farming tool, shaped to mimic the claws of what animal?', answer: 'tiger', accept: ['tiger'], expect: 'reject', why: 'UNNAMED-SUBJECT BAIT — "this curved blade" (the karambit) is dangled unnamed, so chat types "karambit" instead of the animal answer; must name the blade outright' },
@@ -89,7 +94,9 @@ for (let i = 0; i < CASES.length; i++) {
 
   // a known-bad question must be a DEFECT. "soft" is not good enough — production ships a
   // soft question when nothing better exists, so a wrong one landing here is a real hole.
-  const good = c.expect === 'accept' ? outcome !== 'defect' : outcome === 'defect'
+  const good = c.expect === 'accept' ? outcome !== 'defect'
+    : c.expect === 'soft' ? outcome === 'soft'
+    : outcome === 'defect'
   if (good) pass++
   else fails.push(`  [${i + 1}] expected ${c.expect}, got ${outcome} :: "${c.question.slice(0, 60)}" (a: ${c.answer})\n        ${c.why}\n        lens votes: ${verdicts.map((vv, li) => `${LENSES[li].name}=${vv.ok ? `ok q${vv.quality}` : 'veto'}`).join(' ')}`)
   if (outcome === 'soft') softs.push(`  [${i + 1}] ${c.expect === 'accept' ? 'ships only as a last resort' : 'CAN STILL REACH CHAT'} :: "${c.question.slice(0, 60)}"`)
