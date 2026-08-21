@@ -12,6 +12,10 @@
 import { initDb } from '../packages/bot/src/db'
 import { generateCustomTrivia } from '../packages/bot/src/ai-trivia'
 
+// AI_TRIVIA is off in production (see aiTriviaEnabled in ai-cache) — running this
+// IS deliberate spend, so it opts itself in. Never set this in the bot's env.
+// (read lazily at call time, so setting it after the imports is fine.)
+process.env.AI_TRIVIA = '1'
 initDb('/tmp/bzi-trivia-probe.db')
 const CHANNEL = 'mellen'
 

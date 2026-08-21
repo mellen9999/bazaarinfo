@@ -81,6 +81,7 @@ see [`.env.example`](.env.example) for all options. minimum needed:
 | `BOT_OWNER` | your username (unlocks `!b refresh`, etc) |
 | `BOT_ADMINS` | comma-separated admin usernames (full chat control) |
 | `ANTHROPIC_API_KEY` | for AI features (optional) |
+| `AI_TRIVIA` | `1` to let trivia use the AI (off by default — it was the biggest token line-item; without it trivia runs on the deterministic card/quiz packs and costs nothing) |
 
 ### structure
 

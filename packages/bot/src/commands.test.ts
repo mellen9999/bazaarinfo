@@ -1,6 +1,12 @@
 import { describe, expect, it, mock, beforeEach, afterEach } from 'bun:test'
 import type { BazaarCard, TierName, Monster } from '@bazaarinfo/shared'
 
+// AI trivia ships OFF (see aiTriviaEnabled in ai-cache). The suite below covers the
+// routing INTO the generators, which only runs with the switch on — the off behaviour
+// has its own describe block at the bottom. Read lazily in prod, so setting it here is
+// enough even though the modules are already imported.
+process.env.AI_TRIVIA = '1'
+
 // --- mock store before importing commands ---
 const mockExact = mock<(name: string) => BazaarCard | undefined>(() => undefined)
 const mockSearch = mock<(query: string, limit: number) => BazaarCard[]>(() => [])
@@ -3721,5 +3727,50 @@ describe('queued trivia topics — "wait for it" has to mean something', () => {
     await handleCommand('!b trivia beta', { user: 'b', channel: 'qtestB' })
     expect(__queueDepthForTest('qtestA')).toBe(1)
     expect(__queueDepthForTest('qtestB')).toBe(1)
+  })
+})
+
+describe('AI trivia kill switch (AI_TRIVIA unset)', () => {
+  beforeEach(() => {
+    delete process.env.AI_TRIVIA
+    mockIsGameActive.mockImplementation(() => false)
+    mockGenerateCustomTrivia.mockClear()
+    mockGenerateChatTrivia.mockClear()
+    mockGeneratePersonTrivia.mockClear()
+    mockGenerateGameTrivia.mockClear()
+  })
+  afterEach(() => { process.env.AI_TRIVIA = '1' })
+
+  it('spends nothing on a custom topic and still starts a real round', async () => {
+    const res = await handleCommand('!b trivia about duke nukem', { user: 'u', channel: 'off-1' })
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+    expect(res).toContain('custom topics are off')
+    expect(res).toContain('Trivia! test question')
+  })
+
+  it('spends nothing on chat trivia', async () => {
+    const res = await handleCommand('!b trivia about chat', { user: 'u', channel: 'off-2' })
+    expect(mockGenerateChatTrivia).not.toHaveBeenCalled()
+    // the old miss line ("let it cook") promised a retry that can never land
+    expect(res).not.toContain('let it cook')
+    expect(res).toContain('custom topics are off')
+  })
+
+  it('spends nothing on person trivia', async () => {
+    const res = await handleCommand('!b trivia about @someone', { user: 'u', channel: 'off-3' })
+    expect(mockGeneratePersonTrivia).not.toHaveBeenCalled()
+    expect(res).toContain('custom topics are off')
+  })
+
+  it('spends nothing on a game topic — the deterministic round covers it', async () => {
+    const res = await handleCommand('!b trivia about vanessa', { user: 'u', channel: 'off-4' })
+    expect(mockGenerateGameTrivia).not.toHaveBeenCalled()
+    expect(res).toContain('custom topics are off')
+    expect(res).toContain('Trivia! test question')
+  })
+
+  it('leaves the plain bazaar round untouched', async () => {
+    const res = await handleCommand('!b trivia', { user: 'u', channel: 'off-5' })
+    expect(res).toBe('Trivia! test question (30s to answer)')
   })
 })

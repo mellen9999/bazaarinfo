@@ -12,7 +12,7 @@ import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam, CONTINUE_RE } from './ai'
-import { aiUnavailableReason } from './ai-cache'
+import { aiUnavailableReason, aiTriviaEnabled } from './ai-cache'
 import { isLowValue } from './ai-query'
 import { META_QUERY_RE } from './intents'
 import { isEmote, findEmote } from './emotes'
@@ -1573,6 +1573,12 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   if (KRIPP_TOPIC_RE.test(t)) {
     const kr = startKrippTrivia(channel)
     if (kr) return withSuffix(kr, suffix)
+  }
+  // AI-written topics are off (AI_TRIVIA unset) — everything past this point costs tokens.
+  // say so plainly and still start a real round: the miss messages below ("couldn't cook
+  // one", "try again", "let it cook") all imply a retry that will never work.
+  if (!aiTriviaEnabled()) {
+    return withSuffix(`custom topics are off — bazaar round instead: ${startTrivia(channel)}`, suffix)
   }
   // busy, but not with a round the asker can see: a generation is in flight, or we are
   // inside the post-generation cooldown. This used to `return null` — total silence — and

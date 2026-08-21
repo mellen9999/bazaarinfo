@@ -1,6 +1,6 @@
 import { log } from './log'
 import { extractFirstJson } from './http'
-import { AI_CHANNELS, isOverDailyCap } from './ai-cache'
+import { AI_CHANNELS, isOverDailyCap, aiTriviaEnabled } from './ai-cache'
 import { anthropicCall, stripUnpairedSurrogates, isHardStopped } from './ai-http'
 import { bankTrivia, takeBankedTrivia } from './db'
 
@@ -208,6 +208,7 @@ export async function generateCustomTrivia(
   avoidAnswers: string[] = [],
   isDupe: (q: CustomTrivia) => boolean = () => false,
 ): Promise<CustomTrivia | null> {
+  if (!aiTriviaEnabled()) return null
   if (!API_KEY) return null
   // governed exactly like the !b AI path: only spend in AI-enabled channels, and honor
   // the per-channel daily token backstop so a custom-trivia spree can't dodge the cap.
@@ -726,6 +727,7 @@ const GAME_CANDIDATES = 3
 const MAX_DOSSIER_LEN = 4000
 
 export async function generateGameTrivia(dossier: string, topic: string, channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
+  if (!aiTriviaEnabled()) return null
   if (!API_KEY) return null
   if (!AI_CHANNELS.has(channel.toLowerCase())) return null
   if (isOverDailyCap(channel)) {
@@ -793,6 +795,7 @@ Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 
 const MIN_CHAT_LINES = 5
 
 export async function generateChatTrivia(chatLines: string[], channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
+  if (!aiTriviaEnabled()) return null
   if (!API_KEY) return null
   if (!AI_CHANNELS.has(channel.toLowerCase())) return null
   if (isOverDailyCap(channel)) {
@@ -842,6 +845,7 @@ Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 
 const MIN_DOSSIER_LEN = 20
 
 export async function generatePersonTrivia(dossier: string, handle: string, channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
+  if (!aiTriviaEnabled()) return null
   if (!API_KEY) return null
   if (!AI_CHANNELS.has(channel.toLowerCase())) return null
   if (isOverDailyCap(channel)) {
@@ -870,6 +874,9 @@ export async function generatePersonTrivia(dossier: string, handle: string, chan
 // Steady state during a marathon is all cache reads at 0.1x — rounds arrive well inside
 // the 5-minute TTL. Only the first round after an idle gap pays the 1.25x write.
 async function callApi(system: string, content: string, channel: string, maxTokens: number, model = MODEL): Promise<string | null> {
+  // backstop: every trivia stage funnels through here, so the kill switch cannot be
+  // routed around by a new caller that forgets the entry-point guard.
+  if (!aiTriviaEnabled()) return null
   return anthropicCall({ tag: 'ai-trivia', channel, model, maxTokens, system, content, timeoutMs: TIMEOUT })
 }
 

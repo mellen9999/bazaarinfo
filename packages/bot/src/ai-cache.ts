@@ -367,3 +367,13 @@ export function isRepeatAbuse(user: string, query: string): boolean {
   }
   return entry.count >= REPEAT_THRESHOLD
 }
+
+// --- AI trivia kill switch ---
+
+// AI-generated trivia (custom topics, chat/person rounds, game-dossier rounds) is OFF
+// unless AI_TRIVIA=1. It was the single biggest token line-item in the bot — a round can
+// fan out to a dozen generate+verify calls, and none of it is core: lookups, answers and
+// grounding are. The deterministic generators (bazaar cards, HS cards, the curated quiz
+// and kripp packs) are untouched and cost nothing, so trivia still works, just without a
+// model behind it. Read lazily so the flag can be flipped without a rebuild.
+export const aiTriviaEnabled = () => process.env.AI_TRIVIA === '1'
