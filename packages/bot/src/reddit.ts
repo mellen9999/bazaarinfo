@@ -23,6 +23,7 @@ interface Source {
 }
 const BAZAAR: Source = { sub: 'PlayTheBazaar', key: 'playthebazaar', label: 'r/PlayTheBazaar', game: 'The Bazaar' }
 const BGS: Source = { sub: 'BobsTavern', key: 'bobstavern', label: 'r/BobsTavern', game: 'Hearthstone Battlegrounds' }
+const GUILDRUN: Source = { sub: 'Guildrun', key: 'guildrun', label: 'r/Guildrun', game: 'Guildrun' }
 
 const digests = new Map<string, string>()
 
@@ -33,6 +34,11 @@ export function getRedditDigest(): string {
 /** community buzz from the battlegrounds subreddit — injected on hearthstone-shaped asks. */
 export function getBgRedditDigest(): string {
   return digests.get(BGS.key) ?? ''
+}
+
+/** community buzz from the guildrun subreddit — injected on guildrun-shaped asks. */
+export function getGrRedditDigest(): string {
+  return digests.get(GUILDRUN.key) ?? ''
 }
 
 // the feed arrives in the subreddit's own hot order, so position is the only ranking
@@ -96,4 +102,8 @@ export function refreshRedditDigest(): Promise<void> {
 
 export function refreshBgRedditDigest(): Promise<void> {
   return refresh(BGS)
+}
+
+export function refreshGrRedditDigest(): Promise<void> {
+  return refresh(GUILDRUN)
 }

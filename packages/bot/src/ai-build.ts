@@ -1,12 +1,13 @@
 import * as store from './store'
 import * as db from './db'
 import { isGameActive } from './trivia'
-import { getRedditDigest, getBgRedditDigest } from './reddit'
+import { getRedditDigest, getBgRedditDigest, getGrRedditDigest } from './reddit'
 import { getPatchInfo } from './patch'
 import { OVERLAY, isOverlayFresh, resolvePatch, selectNotes, getCardChange, getHeroChanges } from './patch-notes'
 import { getWorldCupLine } from './worldcup'
 import { isHsRatingQuery, extractSubject, hsContext } from './hs'
 import { isHsCardQuery, isHsCardIntent, isHearthstoneCategory, hsCardContext } from './hs-cards'
+import { isGrQuery, isGrIntent, isGuildrunCategory, grContext } from './guildrun'
 import { getWeatherLine } from './weather'
 import { META_QUERY_RE } from './intents'
 import { SECTION_HEADERS } from './ai-sanitize'
@@ -905,6 +906,18 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // the no-board line carries none, and must leave the invented-stat guards armed.
   if (hsBoard && hsBoardShaped) hasGameData = true
 
+  // guildrun game data — kripp's third game (aug 2026), same reasoning as the hs block:
+  // the question names guildrun, or the channel is literally streaming it and neither
+  // the Bazaar dump nor hearthstone claimed the query. a NAMED home-game entity always
+  // wins the collision; a 2026 game the model has never seen loses every memory contest.
+  const grLive = isGuildrunCategory(getChannelGame(ctx.channel))
+  const grShaped = isGrQuery(query) || (grLive && !bazaarEntity && !hsShaped)
+  const gr = grShaped
+    ? grContext(query, isGrIntent(query))
+    : { text: '', grounded: false }
+  const grLine = gr.text ? `\n${gr.text}` : ''
+  if (gr.grounded) hasGameData = true
+
   // skip reddit digest + emotes when we have specific game data or short queries
   const digest = getRedditDigest()
   // community buzz is high-value on meta/sentiment asks — keep it even when a game entity
@@ -920,6 +933,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // only on a hearthstone-shaped ask, so it never competes for budget on a Bazaar question.
   const bgDigest = hsShaped ? getBgRedditDigest() : ''
   const bgRedditLine = bgDigest ? `\nBattlegrounds community buzz (r/BobsTavern): ${bgDigest}` : ''
+  // guildrun's community digest, same gate shape — only on a guildrun-shaped ask
+  const grDigest = grShaped ? getGrRedditDigest() : ''
+  const grRedditLine = grDigest ? `\nGuildrun community buzz (r/Guildrun): ${grDigest}` : ''
   const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getRecentEmotes(ctx.channel))
 
   // hot exchange cache
@@ -1131,6 +1147,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // already gated to hearthstone-shaped asks, so when it exists it is on-topic — same
     // boost shape as the bazaar digest on a meta/sentiment question
     { name: 'redditBg', text: bgRedditLine, base: 189, boost: redditMetaIntent ? 185 : 0 },
+    { name: 'redditGr', text: grRedditLine, base: 188, boost: redditMetaIntent ? 185 : 0 },
     { name: 'hotConvo', text: hotLine, base: 10 },
     // ambient live board — unique, current, and short; sits with the flavor tier so a
     // tight budget can still evict it (a board-shaped ask rides gameBlock instead)
@@ -1172,6 +1189,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'hs', text: hsLine, base: -104.5 },
     // BG card text likewise: it IS the answer, and losing it means answering from memory
     { name: 'hsCards', text: hsCardLine, base: -104.4 },
+    // guildrun data: same never-evict tier for the same reason — a 2026 game has no
+    // safe memory to fall back on, so evicting this IS the hallucination
+    { name: 'guildrun', text: grLine, base: -104.35 },
     // the live board outranks even that when it fires — it is what chat can see happening
     { name: 'hsBoard', text: hsBoardLine, base: -104.45 },
     // "what can you do" / "what's new with you" — the only grounding that exists for

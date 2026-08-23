@@ -15,7 +15,8 @@ import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, c
 import { isMuted } from './directives'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
 import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamInfo } from './ai-cache'
-import { refreshRedditDigest, refreshBgRedditDigest } from './reddit'
+import { refreshRedditDigest, refreshBgRedditDigest, refreshGrRedditDigest } from './reddit'
+import { refreshGuildrunIfNeeded } from './guildrun'
 import { refreshHsCardsIfNeeded } from './hs-cards'
 import { setChannelIdResolver } from './board'
 import { setHsChannelIdResolver } from './hs-board'
@@ -342,6 +343,11 @@ loadDescriptionCache().then(async () => {
 // separate slots: both ride the shared reddit rate-limit queue, which spaces fetches 90s apart.
 refreshRedditDigest().catch((e) => log(`reddit digest load failed: ${e}`))
 refreshBgRedditDigest().catch((e) => log(`bg reddit digest load failed: ${e}`))
+refreshGrRedditDigest().catch((e) => log(`guildrun reddit digest load failed: ${e}`))
+
+// warm the guildrun card cache at startup — the lazy trigger lives behind the AI gates,
+// and a cold cache means the first guildrun question of a stream gets zero grounding.
+refreshGuildrunIfNeeded()
 
 // load topical (HN + r/popular) digest — refresh every 4h for fresh world-knowledge in creative path
 refreshTopicalDigest().catch((e) => log(`topical digest load failed: ${e}`))
@@ -685,6 +691,13 @@ scheduleDaily(18, async () => {
   try {
     await refreshBgRedditDigest()
   } catch (e) { log(`daily bg reddit refresh failed: ${e}`) }
+})
+
+// guildrun buzz another hour on — same reason, same shared quota-aware transport
+scheduleDaily(19, async () => {
+  try {
+    await refreshGrRedditDigest()
+  } catch (e) { log(`daily guildrun reddit refresh failed: ${e}`) }
 })
 
 // daily data refresh at 4am PT

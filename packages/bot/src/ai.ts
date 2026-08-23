@@ -27,6 +27,7 @@ import { isWorldCupQuery, refreshWorldCupIfNeeded } from './worldcup'
 import { isWeatherQuery, refreshWeatherIfNeeded } from './weather'
 import { isHsRatingQuery, refreshHsIfNeeded } from './hs'
 import { isHsCardQuery, isHearthstoneCategory, refreshHsCardsIfNeeded } from './hs-cards'
+import { isGrQuery, isGuildrunCategory, refreshGuildrunIfNeeded } from './guildrun'
 import { refreshBoardIfNeeded } from './board'
 import { refreshHsBoardIfNeeded } from './hs-board'
 import { isScheduleQuery } from './schedule'
@@ -242,6 +243,11 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // BG card data: same not-awaited contract, and more so — the dump is ~10MB. this turn
   // answers from the cached cards (refreshed daily) while a stale set reloads behind it.
   if (isHsCardQuery(query)) refreshHsCardsIfNeeded()
+
+  // guildrun data: same contract. refresh on a guildrun-shaped ask OR whenever the
+  // channel is streaming it — during a guildrun stream a bare hero name is the trigger,
+  // and by then the cache must already be warm.
+  if (isGrQuery(query) || isGuildrunCategory(getChannelGame(ctx.channel))) refreshGuildrunIfNeeded()
 
   // schedule asks: prefetch the target channel's title BEFORE building context — a
   // streamer-stated plan in the title ("NEXT STREAM WEDNESDAY") overrides the stats.
