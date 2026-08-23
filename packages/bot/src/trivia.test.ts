@@ -144,6 +144,7 @@ const mockGetUserStats = mock<() => any>(() => null)
 const mockGetChannelLeaderboard = mock<() => { username: string; total_commands: number }[]>(() => [])
 
 mock.module('./db', () => ({
+  ptDay: () => '2026-01-01',
   createTriviaGame: mockCreateTriviaGame,
   recordTriviaAnswer: mockRecordTriviaAnswer,
   recordTriviaWin: mockRecordTriviaWin,

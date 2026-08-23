@@ -368,6 +368,40 @@ export function isRepeatAbuse(user: string, query: string): boolean {
   return entry.count >= REPEAT_THRESHOLD
 }
 
+// --- per-user daily AI budget ---
+
+// every other brake is deliberately 0 (busy-chat asks must flow), which left a single
+// chatter free to fan out four unattended days of trivia generation before the console
+// wall caught it. this is the per-person ceiling: N AI-costing requests per PT day —
+// generous enough that a real chatter never meets it, fatal to a spam loop. heavy
+// surfaces (a custom trivia round fans out to ~a dozen calls) bill more than 1 unit.
+// VIP-exempt at the call sites. 0 disables.
+export const USER_DAILY_AI_CAP = Math.max(0, parseInt(process.env.USER_DAILY_AI_CAP ?? '40') || 0)
+const userAiDay = new Map<string, { day: string; n: number }>()
+
+export function noteUserAiRequest(user: string, weight = 1): void {
+  if (USER_DAILY_AI_CAP === 0) return
+  const day = db.ptDay()
+  const u = user.toLowerCase()
+  const e = userAiDay.get(u)
+  if (e && e.day === day) e.n += weight
+  else userAiDay.set(u, { day, n: weight })
+  if (userAiDay.size > 5_000) {
+    for (const [k, v] of userAiDay) if (v.day !== day) userAiDay.delete(k)
+  }
+}
+
+export function isUserOverDailyAiCap(user: string): boolean {
+  if (USER_DAILY_AI_CAP === 0) return false
+  const e = userAiDay.get(user.toLowerCase())
+  return e !== undefined && e.day === db.ptDay() && e.n >= USER_DAILY_AI_CAP
+}
+
+// exported for tests — the counter is process-global by design.
+export function resetUserAiBudgetForTests(): void {
+  userAiDay.clear()
+}
+
 // --- AI trivia kill switch ---
 
 // AI-generated trivia (custom topics, chat/person rounds, game-dossier rounds) is OFF

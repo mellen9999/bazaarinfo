@@ -12,7 +12,7 @@ import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam, CONTINUE_RE } from './ai'
-import { aiUnavailableReason, aiTriviaEnabled } from './ai-cache'
+import { aiUnavailableReason, aiTriviaEnabled, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest } from './ai-cache'
 import { isLowValue } from './ai-query'
 import { META_QUERY_RE } from './intents'
 import { isEmote, findEmote } from './emotes'
@@ -1579,6 +1579,15 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   // one", "try again", "let it cook") all imply a retry that will never work.
   if (!aiTriviaEnabled()) {
     return withSuffix(`custom topics are off — bazaar round instead: ${startTrivia(channel)}`, suffix)
+  }
+  // a custom round fans out to ~a dozen generate/verify calls, so it bills 10 units
+  // against the asker's daily AI budget — one person gets a handful of rounds a day,
+  // not four unattended days of them. falls back to a free deterministic round.
+  if (ctx.user && !AI_VIP.has(ctx.user.toLowerCase())) {
+    if (isUserOverDailyAiCap(ctx.user)) {
+      return withSuffix(`you're out of ai budget today — bazaar round instead: ${startTrivia(channel)}`, suffix)
+    }
+    noteUserAiRequest(ctx.user, 10)
   }
   // busy, but not with a round the asker can see: a generation is in flight, or we are
   // inside the post-generation cooldown. This used to `return null` — total silence — and

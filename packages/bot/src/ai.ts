@@ -16,11 +16,11 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL } from './ai-sanitize'
 import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak } from './ai-verify'
 import { repairTruncation, isStub } from './ai-truncate'
-import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, getChannelRecentResponses } from './ai-cache'
+import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, isUserOverDailyAiCap, noteUserAiRequest, getChannelRecentResponses } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE, formatContextSummary } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
-import { isHardStopped, noteHardStop, safeStringify } from './ai-http'
+import { isHardStopped, noteHardStop, hardStopResumeAt, safeStringify } from './ai-http'
 import { detectFancyStyle, toFancy } from './fancy'
 import { matchingDirectives } from './directives'
 import { isWorldCupQuery, refreshWorldCupIfNeeded } from './worldcup'
@@ -69,6 +69,25 @@ const HARD_STOP_LINES = [
   'ai is capped for the day — item/day/monster lookups still good',
 ]
 let hardStopIdx = 0
+// the monthly console wall latches for DAYS ("You will regain access on 2026-09-01") —
+// "til tomorrow" is a lie for over a week of that. when the API stated a resume time
+// further out than the next day, say that date instead of the same-day lines.
+const HS_MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+function hardStopLine(): string {
+  const resume = hardStopResumeAt()
+  if (resume - Date.now() > 36 * 3_600_000) {
+    const d = new Date(resume)
+    const when = `${HS_MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`
+    const lines = [
+      `ai answers are on hold til ${when} (budget) — lookups still work`,
+      `out of ai budget til ${when}, everything else still live`,
+      `no ai til ${when} — item/day/monster lookups still good`,
+      `ai brain offline til ${when} (monthly budget), commands still work`,
+    ]
+    return lines[hardStopIdx++ % lines.length]
+  }
+  return HARD_STOP_LINES[hardStopIdx++ % HARD_STOP_LINES.length]
+}
 const MAX_TOKENS_GAME = 100
 const MAX_TOKENS_CHAT = 80
 const MAX_TOKENS_PASTA = 200
@@ -125,7 +144,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (!AI_CHANNELS.has(ctx.channel.toLowerCase())) return null
   // checked before the breaker: a hard stop is permanent for the day, so there is nothing
   // to probe and every request would be a doomed round trip.
-  if (isHardStopped()) return { text: HARD_STOP_LINES[hardStopIdx++ % HARD_STOP_LINES.length], mentions: [] }
+  if (isHardStopped()) return { text: hardStopLine(), mentions: [] }
   if (cbIsOpen()) return { text: CB_OPEN_LINES[cbOpenIdx++ % CB_OPEN_LINES.length], mentions: [] }
 
   const isVip = AI_VIP.has(ctx.user.toLowerCase())
@@ -138,6 +157,13 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (!isVip && isOverDailyCap(ctx.channel)) {
     log(`ai: daily cap hit for ${ctx.channel}, dropping`)
     return ctx.direct ? { text: 'tapped out my daily brain budget — back tomorrow', mentions: [] } : null
+  }
+  // per-user daily budget — a spam loop from one account dies here, long before the
+  // channel cap or the console wall. honest line for a direct ask, silence for passive.
+  if (!isVip && isUserOverDailyAiCap(ctx.user)) {
+    log(`ai: user daily ai cap hit for ${ctx.user}, dropping`)
+    try { db.logAskMiss(ctx, ctx.displayQuery ?? query, 'user_daily_cap') } catch {}
+    return ctx.direct ? { text: `that's all the ai you get today — lookups still work, fresh budget tomorrow`, mentions: [] } : null
   }
   // repeat-query abuse — silent drop (VIP exempt). continuation asks ("continue",
   // "keep going", "more"…) are LEGITIMATELY repeated — each one extends the story with
@@ -159,6 +185,9 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
     try { db.logAskMiss(ctx, ctx.displayQuery ?? query, 'queue_full') } catch {}
     return null
   }
+  // bill the request at commit point — every attempt from here costs real tokens whether
+  // or not a reply lands, so the counter must not depend on success.
+  noteUserAiRequest(ctx.user)
   incrementQueue()
   // measure the slot-wait — the ONE latency term nothing else records. the AI call time lands
   // in ask_queries; inbound delay is logged at the handler; this closes the gap so a slow reply

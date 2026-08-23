@@ -7,6 +7,8 @@ import type { BazaarCard, TierName, Monster } from '@bazaarinfo/shared'
 // enough even though the modules are already imported.
 process.env.AI_TRIVIA = '1'
 
+import { resetUserAiBudgetForTests } from './ai-cache'
+
 // --- mock store before importing commands ---
 const mockExact = mock<(name: string) => BazaarCard | undefined>(() => undefined)
 const mockSearch = mock<(query: string, limit: number) => BazaarCard[]>(() => [])
@@ -71,6 +73,7 @@ const mockUserChattedSince = mock<(user: string, channel: string, since?: string
 
 const mockGetUserStats = mock<(u: string, ch?: string) => unknown>(() => null)
 mock.module('./db', () => ({
+  ptDay: () => '2026-01-01',
   logCommand: mockLogCommand,
   getOrCreateUser: mockGetOrCreateUser,
   getRecentAsks: mockGetRecentAsks,
@@ -266,6 +269,7 @@ const shield = makeCard({
 
 beforeEach(() => {
   resetDedup()
+  resetUserAiBudgetForTests()
   resetProxyCooldowns()
   mockLogCommand.mockReset()
   mockExact.mockReset()

@@ -89,6 +89,12 @@ export function hardStopReasonText(): string {
   return isHardStopped() ? hardStopReason : ''
 }
 
+/** epoch ms the API said access returns, 0 when it stated none. side-effect-free —
+ * unlike isHardStopped() it never clears the latch or releases a probe. */
+export function hardStopResumeAt(): number {
+  return hardStopUntil
+}
+
 /** any successful call proves the wall is gone — used by the probe path. */
 export function noteApiSuccess(): void {
   clearHardStop('a call succeeded')
