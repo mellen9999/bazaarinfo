@@ -3556,6 +3556,39 @@ describe('fix6b: embedded proxy skips when substantive subject precedes the !cmd
   })
 })
 
+// burn/poison/shield/crit exist in BOTH games with different rules — while guildrun
+// is the live category the guildrun glossary owns the term, and a bazaar-only term
+// answers labeled so the wrong game's rule can never read as the live one.
+describe('guildrun keyword ownership during a guildrun stream', () => {
+  it('"what does burn do" answers guildrun rules, not bazaar rules', async () => {
+    const { setChannelGame } = await import('./ai-cache')
+    setChannelGame('grchan-1', 'Guildrun')
+    const r = await handleCommand('!b what does burn do', { user: 'u', channel: 'grchan-1' })
+    expect(r).toContain('guildrun mechanic')
+    expect(r).toContain('1 damage per stack every second')
+  })
+
+  it('a bazaar-only term still answers, labeled with its game', async () => {
+    const { setChannelGame } = await import('./ai-cache')
+    setChannelGame('grchan-2', 'Guildrun')
+    const r = await handleCommand('!b what is flying', { user: 'u', channel: 'grchan-2' })
+    expect(r).toStartWith('in the bazaar: ')
+  })
+
+  it('saying "bazaar" gives the bazaar the term back, unlabeled', async () => {
+    const { setChannelGame } = await import('./ai-cache')
+    setChannelGame('grchan-3', 'Guildrun')
+    const r = await handleCommand('!b what does burn do in the bazaar', { user: 'u', channel: 'grchan-3' })
+    expect(r).toContain('Burn:')
+    expect(r).not.toContain('guildrun')
+  })
+
+  it('naming guildrun works from any channel, live or not', async () => {
+    const r = await handleCommand('!b how does stall work in guildrun', { user: 'u', channel: 'plainchan' })
+    expect(r).toContain('guildrun mechanic')
+  })
+})
+
 describe('fix6c: glossary + standings compound result', () => {
   it('"what does burn do and who is winning" returns glossary + standings', async () => {
     const r = await handleCommand('!b what does burn do and who is winning', { user: 'u', channel: 'fix6c-1' })

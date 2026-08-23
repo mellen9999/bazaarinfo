@@ -7,7 +7,7 @@ import { OVERLAY, isOverlayFresh, resolvePatch, selectNotes, getCardChange, getH
 import { getWorldCupLine } from './worldcup'
 import { isHsRatingQuery, extractSubject, hsContext } from './hs'
 import { isHsCardQuery, isHsCardIntent, isHearthstoneCategory, hsCardContext } from './hs-cards'
-import { isGrQuery, isGrIntent, isGuildrunCategory, grContext } from './guildrun'
+import { isGrQuery, isGrIntent, isGuildrunCategory, grContext, grKeywordCard } from './guildrun'
 import { getWeatherLine } from './weather'
 import { META_QUERY_RE } from './intents'
 import { SECTION_HEADERS } from './ai-sanitize'
@@ -687,6 +687,15 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // pre-resolved game data + knowledge (extractEntities also detects game queries)
   const entities = extractEntities(query)
 
+  // shared keywords (burn, poison, shield, crit…) exist in BOTH games with different
+  // rules. while guildrun is on screen — or the question names it — the guildrun rule
+  // is the one being asked about, so the bazaar glossary's line is dropped from the
+  // prompt before it can answer with the wrong game's mechanics. the bazaar takes the
+  // term back the moment the asker says "bazaar".
+  const grLive = isGuildrunCategory(getChannelGame(ctx.channel))
+  const grOwnsKeyword = (grLive || isGrQuery(query)) && !/\bbazaar\b/i.test(query) && !!grKeywordCard(query)
+  if (grOwnsKeyword) entities.glossary = []
+
   // channel voice — how chat actually talks (compact for game Qs, full for banter)
   const voiceLine = getChannelVoiceContext(ctx.channel, entities.isGame)
   const voiceBlock = voiceLine ? `\n${voiceLine}` : ''
@@ -910,8 +919,14 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // the question names guildrun, or the channel is literally streaming it and neither
   // the Bazaar dump nor hearthstone claimed the query. a NAMED home-game entity always
   // wins the collision; a 2026 game the model has never seen loses every memory contest.
-  const grLive = isGuildrunCategory(getChannelGame(ctx.channel))
-  const grShaped = isGrQuery(query) || (grLive && !bazaarEntity && !hsShaped)
+  // grLive + grOwnsKeyword computed up top (before the bazaar glossary was built).
+  // a keyword the guildrun glossary owns keeps the query guildrun-shaped even when a
+  // bazaar entity coincidentally matched — the bazaar's own line was already dropped.
+  // naming the bazaar opts out entirely: two games' rules for one term in one prompt
+  // is exactly the mixing the guildrun block forbids.
+  const grShaped = isGrQuery(query)
+    || grOwnsKeyword
+    || (grLive && !bazaarEntity && !hsShaped && !/\bbazaar\b/i.test(query))
   const gr = grShaped
     ? grContext(query, isGrIntent(query))
     : { text: '', grounded: false }
@@ -1073,6 +1088,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const noGameData = entities.isGame && !hasGameData
   const noVerifiedDefinition = entities.isGame && DEFINITIONAL_INTENT.test(query)
     && !/\b(best|worst|good|bad|meta|tier|build|strong|weak|viable|worth|better|op|broken|heroes?|comp|loadout|strat|counter)\b/i.test(query)
+    && !gr.grounded // a guildrun-grounded answer is a verified definition, not a gap
     && entities.glossary.length === 0 && entities.knowledge.length === 0
     && entities.cards.length === 0 && entities.monsters.length === 0 && !entities.hero
   // count the subject the CHATTER raised, never the nudge we wrote — replaying the log

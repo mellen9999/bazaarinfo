@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
 import {
   cleanGrText, extractGuildrun, findGrCards, findGrListing, grContext,
-  describeGrCard, isGrQuery, isGrIntent, isGuildrunCategory, __setGrCards,
+  describeGrCard, isGrQuery, isGrIntent, isGuildrunCategory, grKeywordCard, __setGrCards,
   type GrCard,
 } from './guildrun'
 
@@ -214,6 +214,55 @@ describe('findGrCards / grContext', () => {
     expect(line).toContain('guildrun hero')
     expect(line).toContain('Duelist')
     expect(line).toContain('Specs:')
+  })
+})
+
+// --- keyword glossary ---
+// The dump has no keywords file — statuses exist only as markup tags — so mechanic
+// questions ("how does burn work") matched nothing and either got the model's
+// non-existent memory of a 2026 game, or the BAZAAR glossary's wrong-game rules.
+
+describe('keyword glossary', () => {
+  beforeEach(() => __setGrCards(extractGuildrun(DUMPS as any, EXT)))
+
+  it('a mechanic question hits the curated keyword, not thin air', () => {
+    const hit = findGrCards('how does burn work', true)[0]
+    expect(hit?.k).toBe('keyword')
+    expect(hit?.x).toContain('1 damage per stack every second')
+  })
+
+  it('a bare mention of a keyword word never fires — "burn baby burn" is not a question', () => {
+    expect(findGrCards('burn baby burn', false)).toHaveLength(0)
+  })
+
+  it('aliases resolve — "the storm" answers as Storm, "spec" as Specialization', () => {
+    expect(findGrCards('what is the storm', true)[0]?.n).toBe('The Storm')
+    expect(grKeywordCard('whats a spec')?.n).toBe('Specialization')
+  })
+
+  it('the keyword rule outranks a relic sharing the name — the mechanic IS the answer', () => {
+    __setGrCards([{ n: 'Burn', k: 'relic' }])
+    expect(findGrCards('what does burn do', true)[0]?.k).toBe('keyword')
+  })
+
+  it('keywords answer even before the first dump fetch succeeds', () => {
+    __setGrCards([])
+    const r = grContext('how does rush work', true)
+    expect(r.grounded).toBe(true)
+    expect(r.text).toContain('first N seconds')
+  })
+
+  it('grKeywordCard is the collision probe — keyword or nothing', () => {
+    expect(grKeywordCard('what is crit')?.n).toBe('Crit')
+    expect(grKeywordCard('hello everyone')).toBeUndefined()
+  })
+
+  it('describeGrCard renders a keyword as a mechanic line', () => {
+    expect(describeGrCard(grKeywordCard('how does poison work')!)).toStartWith('Poison — guildrun mechanic:')
+  })
+
+  it('inactive-in-demo mechanics say so instead of inventing rules', () => {
+    expect(grKeywordCard('does bleed exist')?.x).toContain('NOT active')
   })
 })
 

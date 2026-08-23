@@ -15,9 +15,10 @@ import { STOP_WORDS, ENTITY_SKIP, COMMON_WORDS } from './ai-query'
 // the resolved text comes from a second community db (a GPL twitch-overlay extension's
 // database, served via jsdelivr) that carries the same 408 relics with real numbers.
 //
-// SCOPE: heroes (stats, kit, specs), relics, items, classes and rank modifiers — the
-// things chat asks "what does X do" about. enemies (644) and the steam patch feed are
-// deliberately out of v1. weekly patches mean every number here drifts — the daily
+// SCOPE: heroes (stats, kit, specs), relics, items, classes, rank modifiers, and a
+// curated keyword glossary (GR_KEYWORDS below — the dump has no keywords file; statuses
+// exist only as markup tags inside descriptions). enemies (644) and the steam patch feed
+// are deliberately out of v1. weekly patches mean every number here drifts — the daily
 // refresh is the only honesty mechanism, so never hardcode counts or values.
 //
 // fail-soft like every other live source: every export returns ''/[] on any failure, so
@@ -33,7 +34,7 @@ const FETCH_TIMEOUT_MS = 60_000
 const MAX_BYTES = 32 * 1024 * 1024 // per file — a shape change must not become an unbounded download
 const MAX_MATCHES = 3 // hero blocks are dense; three is already a full prompt section
 
-export type GrKind = 'hero' | 'relic' | 'item' | 'class' | 'rankmod'
+export type GrKind = 'hero' | 'keyword' | 'relic' | 'item' | 'class' | 'rankmod'
 
 /** trimmed record. short keys — the cache is written to disk on every refresh. */
 export interface GrCard {
@@ -45,7 +46,47 @@ export interface GrCard {
   g?: string // hero: guild
   st?: string // hero: stat line
   sp?: string[] // hero: specialization lines ("The Electric: …")
+  a?: string[] // keyword: extra lookup names ("the storm" → also "storm")
 }
+
+// Curated keyword/mechanic glossary — the exact gap glossary.ts fills for the Bazaar.
+// The dump carries NO keyword definitions (statuses exist only as `[Burn]<burn>` tags
+// inside descriptions), so "how does burn work" matched nothing and either fell to the
+// model's non-existent memory of a 2026 game, or worse, got answered by the BAZAAR
+// glossary with the wrong game's rules. Source: docs/guildrun.md (verified research,
+// demo 0.5.x). These live in code, not the disk cache, so a deploy updates them.
+// Bleed / Damage Amp are defined as NOT ACTIVE on purpose — the honest answer.
+const GR_KEYWORDS: GrCard[] = [
+  { n: 'Burn', k: 'keyword', x: 'deals 1 damage per stack every second and loses 1 stack per tick; ignores Defense; Shields absorb it.' },
+  { n: 'Poison', k: 'keyword', x: 'deals 1 damage per stack every 2 seconds and never decays; ignores Defense; Shields absorb it. slower than Burn but permanent.' },
+  { n: 'Frost', k: 'keyword', x: 'each stack gives -0.5 Attack Speed and -0.5 Defense; decays 1 stack per 2s. widely rated the strongest status.' },
+  { n: 'Stun', k: 'keyword', x: 'target cannot act, 1.5s base; repeated stuns build resistance (-25% each, immune at 4 stacks within 15s).' },
+  { n: 'Anti-Heal', k: 'keyword', a: ['antiheal', 'anti heal'], x: 'halves all healing the target receives.' },
+  { n: 'Healing', k: 'keyword', a: ['heal', 'heals'], x: 'restores Health up to max; halved by Anti-Heal; heal-over-time effects run on a 6s window.' },
+  { n: 'Stealth', k: 'keyword', x: 'untargetable while active — projectiles already in flight still land.' },
+  { n: 'Taunt', k: 'keyword', x: 'forces enemies to target the taunting hero.' },
+  { n: 'Shield', k: 'keyword', a: ['shields'], x: 'temporary hit points consumed before Health; absorbs normal, true AND damage-over-time (Burn/Poison) damage. normal shields last 10s, relic shields 99s, "lasting" hero/rank shields 999s; shortest expires first.' },
+  { n: 'Rush', k: 'keyword', x: 'Rush (N) effects are only active for the first N seconds of combat — the early-snowball build axis, opposite of Stall.' },
+  { n: 'Stall', k: 'keyword', x: 'Stall (N) effects switch on once the fight reaches N seconds, once per battle — the outlast build axis, opposite of Rush.' },
+  { n: 'Backup', k: 'keyword', x: 'the effect works from the bench — reserve heroes contribute it without being fielded.' },
+  { n: 'Omnivamp', k: 'keyword', x: 'heals the owner for a portion of ALL damage they deal (autos, abilities, damage over time), computed after Defense.' },
+  { n: 'True Damage', k: 'keyword', a: ['true dmg'], x: 'ignores Defense entirely; Shields still absorb it.' },
+  { n: 'Crit', k: 'keyword', a: ['crits', 'critical'], x: 'crit chance caps at 100% for a 2x hit; every point past 100 adds +1% crit damage instead. abilities can crit.' },
+  { n: 'The Storm', k: 'keyword', a: ['storm', 'rift storm'], x: 'the anti-stall clock: from 50s everyone on BOTH sides takes storm damage — starts at 5/s, escalates +5 per tick, x1.5 from ~65s — so fights effectively end by 65-75s. Defense mitigates it.' },
+  { n: 'Legacy', k: 'keyword', a: ['legacy stacks'], x: 'permanent uncapped counters (rush/stall triggers, shards earned…) that persist for the whole run and are read fresh each fight — the Endless-mode scaling hook.' },
+  { n: 'Mana', k: 'keyword', x: 'abilities cast at a full mana bar and spend the whole bar. +5 mana per auto attack, plus Mana Regen every 2 seconds.' },
+  { n: 'Mana Regen', k: 'keyword', a: ['manaregen'], x: "grants that much mana every 2 seconds — the Mystic's primary stat." },
+  { n: 'Attack', k: 'keyword', x: "hit damage = base attack x (1 + Attack/100) — the Warrior's primary stat." },
+  { n: 'Magic', k: 'keyword', x: "scales ability effects only, not auto attacks — the Mage's primary stat." },
+  { n: 'Attack Speed', k: 'keyword', x: "attacks per second = base x (1 + Attack Speed/100), clamped 0.2–5 — the Duelist's primary stat." },
+  { n: 'Defense', k: 'keyword', x: 'damage taken = damage / (1 + Defense/100); negative Defense amplifies damage. bypassed by true damage and damage over time.' },
+  { n: 'Shards', k: 'keyword', a: ['shard'], x: 'the run currency — spent on heroes, rank-ups (15/25/35/45 by rank), rerolls, and the team-size upgrade (45).' },
+  { n: 'Ranks', k: 'keyword', a: ['rank up', 'ranking up'], x: 'heroes rank C→B→A→S within a run — buy a duplicate to auto-merge, or a campfire event. C→B picks a specialization; B→A and A→S each pick a rank modifier from the class pool.' },
+  { n: 'Specialization', k: 'keyword', a: ['spec', 'specs', 'specializations'], x: 'the C→B rank-up choice: 1 of 3 fixed paths per hero; some add a second class.' },
+  { n: 'Endless', k: 'keyword', x: 'post-win infinite scaling mode — enemies keep scaling, so permanent legacy-stack comps are the hook.' },
+  { n: 'Bleed', k: 'keyword', x: 'exists in the game data but is NOT active in the current demo.' },
+  { n: 'Damage Amp', k: 'keyword', a: ['damage amplification'], x: 'exists in the game data but is INERT in the current demo.' },
+]
 
 interface GrCache {
   fetchedAt: number
@@ -318,9 +359,14 @@ const AMBIENT_NAMES = new Set<string>([
   ...STOP_WORDS, ...ENTITY_SKIP, ...COMMON_WORDS,
   'rip', 'grace', 'hammer', 'sword', 'shield', 'staff', 'dagger', 'bow', 'axe', 'wand',
   'armor', 'helmet', 'boots', 'gloves', 'ring', 'cloak', 'potion', 'tome', 'orb',
-  // the question's own vocabulary is never the answer
+  // the question's own vocabulary, and every keyword-glossary surface form: those are
+  // ordinary chat words ("burn deck pog", "attack him") — with intent they answer,
+  // on bare mention they never fire
   'hero', 'heroes', 'relic', 'relics', 'item', 'items', 'spec', 'specs', 'class', 'rank',
-  'guild', 'guildrun', 'rush', 'stall', 'storm', 'endless', 'rift', 'shards',
+  'guild', 'guildrun', 'rush', 'stall', 'storm', 'endless', 'rift', 'shards', 'shard',
+  'burn', 'poison', 'frost', 'stun', 'taunt', 'stealth', 'backup', 'crit', 'crits',
+  'critical', 'mana', 'magic', 'attack', 'defense', 'heal', 'heals', 'healing', 'bleed',
+  'legacy', 'ranks', 'the storm', 'attack speed', 'mana regen', 'true damage', 'anti heal',
 ])
 
 let byName = new Map<string, GrCard[]>()
@@ -335,16 +381,26 @@ function add(map: Map<string, GrCard[]>, key: string, card: GrCard): void {
 function buildIndex(): void {
   byName = new Map()
   bySquash = new Map()
-  for (const card of cache?.cards ?? []) {
-    const n = norm(card.n)
-    if (!n) continue
-    add(byName, n, card)
-    add(bySquash, squash(card.n), card)
+  // keywords are code, not cache — indexed always, so "how does burn work" answers
+  // even before the first successful dump fetch
+  for (const card of [...GR_KEYWORDS, ...(cache?.cards ?? [])]) {
+    for (const name of [card.n, ...(card.a ?? [])]) {
+      const n = norm(name)
+      if (!n) continue
+      add(byName, n, card)
+      add(bySquash, squash(name), card)
+    }
   }
 }
 
-// a hero outranks a relic that shares its name, and a longer name beats a shorter one
-const KIND_RANK: Record<GrKind, number> = { hero: 0, class: 1, relic: 2, item: 3, rankmod: 4 }
+function ensureIndex(): void {
+  if (!byName.size) buildIndex()
+}
+
+// a hero outranks a relic that shares its name, a keyword-rule outranks both relic and
+// item (the mechanic IS the answer to "what does burn do"), and a longer name beats a
+// shorter one
+const KIND_RANK: Record<GrKind, number> = { hero: 0, keyword: 1, class: 2, relic: 3, item: 4, rankmod: 5 }
 function rank(a: GrCard, b: GrCard): number {
   return KIND_RANK[a.k] - KIND_RANK[b.k] || b.n.length - a.n.length
 }
@@ -355,6 +411,7 @@ function rank(a: GrCard, b: GrCard): number {
  * caller's (grContext) because intent is a property of the whole question.
  */
 export function findGrCards(query: string, intent: boolean): GrCard[] {
+  ensureIndex()
   if (!byName.size) return []
   const n = norm(query)
   if (!n) return []
@@ -426,7 +483,18 @@ export function isGuildrunCategory(game: string | null | undefined): boolean {
 // --- context block ---
 
 const KIND_LABEL: Record<GrKind, string> = {
-  hero: 'hero', relic: 'relic', item: 'item', class: 'class', rankmod: 'rank modifier',
+  hero: 'hero', keyword: 'mechanic', relic: 'relic', item: 'item', class: 'class', rankmod: 'rank modifier',
+}
+
+/**
+ * The keyword-glossary card a query names, if any — the collision probe. commands.ts
+ * uses it to answer keyword questions deterministically (free, no AI call), and
+ * ai-build uses it to keep the BAZAAR glossary from answering a shared term (burn,
+ * shield, crit…) with the wrong game's rules while Guildrun is on screen.
+ */
+export function grKeywordCard(query: string): GrCard | undefined {
+  ensureIndex()
+  return findGrCards(query, true).find((c) => c.k === 'keyword')
 }
 
 export function describeGrCard(c: GrCard): string {
@@ -450,8 +518,8 @@ export function describeGrCard(c: GrCard): string {
  */
 export function grContext(query: string, intent: boolean): { text: string; grounded: boolean } {
   loadDisk()
+  ensureIndex() // keywords are code — a matched mechanic answers even before the first dump fetch
   const miss = { text: '', grounded: false }
-  if (!cache || cache.cards.length === 0) return miss
   const head = 'Guildrun game data (real values from the game files — relay it, never invent stats or effects):'
 
   const cards = findGrCards(query, intent)
@@ -471,11 +539,11 @@ export function grContext(query: string, intent: boolean): { text: string; groun
     }
   }
 
-  if (!intent) return miss
+  if (!intent || !cache || cache.cards.length === 0) return miss
   // the reason this module has a miss path: a guildrun question we could not resolve.
   // left silent, the model answers a 2026 game from memory it does not have.
   return {
-    text: `Guildrun data is loaded (${cache.cards.length} entries) but nothing in this question matched a name. Do NOT state any specific Guildrun hero's, relic's or item's numbers from memory — ask which one they mean, or answer only from general mechanics you are sure of.`,
+    text: `Guildrun data is loaded (${cache.cards.length} entries plus the mechanic glossary) but nothing in this question matched a name. Do NOT state any specific Guildrun hero's, relic's or item's numbers from memory — ask which one they mean, or answer only from general mechanics you are sure of. If they asked how a mechanic works and it matched nothing here, Guildrun does not have that mechanic — say so plainly instead of guessing rules.`,
     grounded: false,
   }
 }

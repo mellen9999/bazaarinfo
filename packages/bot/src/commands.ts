@@ -12,13 +12,14 @@ import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam, CONTINUE_RE } from './ai'
-import { aiUnavailableReason, aiTriviaEnabled, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest } from './ai-cache'
+import { aiUnavailableReason, aiTriviaEnabled, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest, getChannelGame } from './ai-cache'
 import { isLowValue } from './ai-query'
 import { META_QUERY_RE } from './intents'
 import { isEmote, findEmote } from './emotes'
 import { detectSpamIntent } from './spam-intent'
 import { isPastaRecall, findChatPasta, isConfidentPasta, pastaText } from './pasta'
-import { glossaryAnswer, isBareKeyword } from './glossary'
+import { glossaryAnswer, isBareKeyword, DEFINITIONAL_INTENT, BUILD_INTENT } from './glossary'
+import { isGuildrunCategory, isGrQuery, grKeywordCard, describeGrCard } from './guildrun'
 import { enchantAnswer } from './enchants'
 import { getThread, getRecent } from './chatbuf'
 import { log } from './log'
@@ -1164,13 +1165,31 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // compound: when a standings clause also appears ("what does burn do and who's winning"),
   // append the live standings table — both paths are deterministic and free.
   {
+    // shared keywords (burn, poison, shield, crit…) exist in both games with different
+    // rules. while guildrun is on screen — or the question names it — the guildrun
+    // glossary owns the term and answers deterministically (free, curated, no AI call).
+    // a bazaar-only term still answers, labeled, so the wrong game's rule can never
+    // read as the live one. saying "bazaar" gives the bazaar the term back.
+    const grAsk = (isGrQuery(cleanArgs) || (!!ctx.channel && isGuildrunCategory(getChannelGame(ctx.channel))))
+      && !/\bbazaar\b/i.test(cleanArgs)
+    if (grAsk && (DEFINITIONAL_INTENT.test(cleanArgs) || /^\S+[?!.]*$/.test(cleanArgs.trim())) && !BUILD_INTENT.test(cleanArgs)) {
+      const kw = grKeywordCard(cleanArgs)
+      if (kw) {
+        try { db.logCommand(ctx, 'glossary', cleanArgs, 'keyword') } catch {}
+        const line = describeGrCard(kw)
+        if (ctx.channel && EMBEDDED_STANDINGS_RE.test(cleanArgs)) {
+          return withSuffix(line + ' | ' + getTriviaScore(ctx.channel), suffix)
+        }
+        return withSuffix(line, suffix)
+      }
+    }
     const gloss = glossaryAnswer(cleanArgs)
     if (gloss && !(isBareKeyword(cleanArgs) && store.exact(cleanArgs.trim()))) {
       try { db.logCommand(ctx, 'glossary', cleanArgs, 'keyword') } catch {}
       if (ctx.channel && EMBEDDED_STANDINGS_RE.test(cleanArgs)) {
         return withSuffix(gloss + ' | ' + getTriviaScore(ctx.channel), suffix)
       }
-      return withSuffix(gloss, suffix)
+      return withSuffix((grAsk ? 'in the bazaar: ' : '') + gloss, suffix)
     }
   }
 
