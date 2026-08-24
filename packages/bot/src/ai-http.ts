@@ -164,6 +164,8 @@ export interface AnthropicCallOpts {
   timeoutMs?: number
   /** take a concurrency slot so a wide fan-out can't starve the chat path. default true. */
   slot?: boolean
+  /** server tool definitions (e.g. web search) — passed through verbatim. */
+  tools?: object[]
 }
 
 interface Usage {
@@ -171,6 +173,7 @@ interface Usage {
   output_tokens?: number
   cache_read_input_tokens?: number
   cache_creation_input_tokens?: number
+  server_tool_use?: { web_search_requests?: number }
 }
 
 // --- cache TTL ---
@@ -260,6 +263,7 @@ export async function anthropicCall(o: AnthropicCallOpts): Promise<string | null
           max_tokens: o.maxTokens,
           thinking: { type: 'disabled' },
           ...(system ? { system } : {}),
+          ...(o.tools ? { tools: o.tools } : {}),
           messages: [{ role: 'user', content: o.content }],
         }),
         signal: controller.signal,
@@ -320,7 +324,13 @@ export async function anthropicCall(o: AnthropicCallOpts): Promise<string | null
     if (parsed.data?.stop_reason === 'max_tokens') {
       log(`${o.tag}: TRUNCATED at max_tokens=${o.maxTokens} — the response was cut off and will not parse`)
     }
-    return parsed.data?.content?.find((b) => b.type === 'text')?.text ?? null
+    // web searches bill per request ($10/1k), outside the token ledger — surface the count.
+    const searches = u?.server_tool_use?.web_search_requests ?? 0
+    if (searches > 0) log(`${o.tag}: ${searches} web search(es)`)
+    // a tool-using response interleaves text with tool blocks, and the verdict is the LAST
+    // text; joining loses nothing for plain calls (they only ever have one text block).
+    const texts = parsed.data?.content?.filter((b) => b.type === 'text' && b.text).map((b) => b.text) ?? []
+    return texts.length ? texts.join('\n') : null
   } catch (e) {
     if ((e as Error)?.name === 'AbortError') log(`${o.tag}: call timed out`)
     else log(`${o.tag}: ${(e as Error)?.message ?? e}`)

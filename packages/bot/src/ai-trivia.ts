@@ -260,13 +260,22 @@ export async function generateCustomTrivia(
   if (!key) return null
 
   // BANK FIRST — a question already verified by the same panel on this topic, held back
-  // from an earlier round. Zero API calls, zero latency, and it still has to clear the
-  // channel's freshness gates. This is what makes a repeat topic (~a quarter of asks)
-  // effectively free, and it is the only path that still works when the API is down.
-  const banked = takeBankedTrivia(key, (b) => isDupe({ question: b.question, answer: b.answer, accept: b.accept }))
-  if (banked) {
-    log(`ai-trivia: served "${clean}" from the bank (q${banked.quality}${banked.soft ? ' soft' : ''}) — 0 calls`)
-    return { question: banked.question, answer: banked.answer, accept: banked.accept }
+  // from an earlier round. One source-lens call instead of a 37-call pipeline, and it
+  // still has to clear the channel's freshness gates. This keeps a repeat topic (~a
+  // quarter of asks) cheap, and it is the only path that still works when the API is
+  // down (the source lens waves banked questions through during a hard stop).
+  // banked spares passed the panel but not the source lens (it runs once, at serve time) —
+  // gate each here, dropping refuted ones for good. capped so a poisoned bank stack can't
+  // chain searches; past the cap we fall through to fresh generation.
+  for (let tries = 0; tries < SOURCE_TRIES; tries++) {
+    const banked = takeBankedTrivia(key, (b) => isDupe({ question: b.question, answer: b.answer, accept: b.accept }))
+    if (!banked) break
+    const q = { question: banked.question, answer: banked.answer, accept: banked.accept }
+    if (await sourceCheck(q, channel)) {
+      log(`ai-trivia: served "${clean}" from the bank (q${banked.quality}${banked.soft ? ' soft' : ''})`)
+      return q
+    }
+    log(`ai-trivia: source lens refuted banked "${q.question.slice(0, 50)}" (ans: ${q.answer}) — dropped`)
   }
 
   if (isHardStopped()) return null
@@ -318,17 +327,33 @@ export async function generateCustomTrivia(
   if (ranked.length === 0) return null
   if (passed.length === 0) log(`ai-trivia: no strong candidate for "${clean}" — shipping the best verified-easy one`)
 
-  // ship the first survivor that clears the channel's freshness gates; bank the rest.
-  const shipIdx = ranked.findIndex((c) => !isDupe(c.q))
-  if (shipIdx === -1) {
+  // ship the first survivor that clears the channel's freshness gates AND the source lens;
+  // bank the rest. a refuted candidate is discarded outright — never banked, never shipped.
+  const shippable = ranked.map((c, i) => ({ c, i })).filter(({ c }) => !isDupe(c.q))
+  if (shippable.length === 0) {
     // every survivor was a recent repeat. bank them all — they'll be fresh again later —
     // and let the caller fall back rather than serving chat the same question twice.
     bankAll(key, clean, ranked)
     log(`ai-trivia: every survivor for "${clean}" was a recent repeat — banked ${ranked.length}`)
     return null
   }
-  bankAll(key, clean, ranked.filter((_, i) => i !== shipIdx))
-  return ranked[shipIdx].q
+  const refuted = new Set<number>()
+  let shipI = -1
+  for (const { c, i } of shippable.slice(0, SOURCE_TRIES)) {
+    if (await sourceCheck(c.q, channel)) {
+      shipI = i
+      break
+    }
+    refuted.add(i)
+    log(`ai-trivia: source lens refuted "${c.q.question.slice(0, 50)}" (ans: ${c.q.answer}) — discarded`)
+  }
+  if (shipI === -1) {
+    bankAll(key, clean, ranked.filter((_, i) => !refuted.has(i)))
+    log(`ai-trivia: source lens cleared no shippable candidate for "${clean}"`)
+    return null
+  }
+  bankAll(key, clean, ranked.filter((_, i) => i !== shipI && !refuted.has(i)))
+  return ranked[shipI].q
 }
 
 // stash the verified-but-unshipped candidates. they already passed the identical panel, so
@@ -710,6 +735,57 @@ export async function verifyPanel(q: CustomTrivia, channel: string, topic = '', 
   return panelVerdict(await verifyAllLenses(q, channel, topic, cheapLenses))
 }
 
+// SOURCE LENS: the one failure class the panel cannot catch is CORRELATED error — the
+// generator and all three verifier lenses share the same training data, so a confidently
+// misremembered detail ("an infected grain called Scourgestone") sails through every
+// model-memory check. This lens breaks the correlation by grounding the claim in live web
+// sources instead of another opinion. It runs ONCE per question, at serve time (the fresh
+// winner before it ships, a banked spare before it is served), never on the whole slate —
+// so it costs 1-2 searches per round, not per candidate.
+const SOURCE_TIMEOUT = 30_000 // a search round-trips the web; the 12s default is too tight
+const SOURCE_TRIES = 2 // refuted winner -> promote the runner-up once, then fall back free
+const WEB_SEARCH_TOOL = [{ type: 'web_search_20260209', name: 'web_search', max_uses: 2 }]
+
+const SOURCE_SYSTEM = `You are the final fact-gate for a trivia question about to go to live Twitch chat. You have web search. The question already passed model-memory review — your ONLY job is to catch confident fabrications that model memory cannot: invented names, wrong attributions, plausible-sounding misremembered details.
+
+Search the web (1-2 searches) for the question's central factual claim. Then judge:
+- Every specific claim in the QUESTION must be supported by what you found.
+- The ANSWER must be the correct answer to the question as worded.
+- A claim your results neither support nor mention is NOT confirmed — fail it.
+- A widely-repeated myth counts as wrong when reliable sources debunk it.
+
+After searching, reply with ONLY this JSON:
+{"check":"<what you searched + what the sources said, 1-2 sentences>","ok":true|false}`
+
+/** true = the question's claims are source-confirmed (or checking is impossible right now
+ * and blocking would kill the only working path). false = refuted or unconfirmable. */
+export async function sourceCheck(q: CustomTrivia, channel: string): Promise<boolean> {
+  if (!API_KEY) return true // can't check without a key; same posture as the panel
+  // during a hard stop the bank is the only trivia source left alive — a fail-closed gate
+  // here would silence it for the whole outage. serve unchecked, re-gate when the API is back.
+  if (isHardStopped()) return true
+  const answers = [q.answer, ...q.accept.filter((a) => a.toLowerCase() !== q.answer.toLowerCase())].join(' / ')
+  const text = await callApi(
+    SOURCE_SYSTEM,
+    `QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`,
+    channel,
+    VERIFY_MAX_TOKENS,
+    MODEL,
+    'ai-trivia:source',
+    { tools: WEB_SEARCH_TOOL, timeoutMs: SOURCE_TIMEOUT },
+  )
+  // fail closed on timeout/parse failure: a deterministic fallback round beats a maybe-wrong
+  // one, and "never wrong" is the whole point of this lens.
+  if (!text) return false
+  const json = extractFirstJson(text)
+  if (!json) return false
+  try {
+    return (JSON.parse(json) as { ok?: unknown }).ok === true
+  } catch {
+    return false
+  }
+}
+
 // GAME-DATA trivia: the topic names Bazaar content (a hero, item, monster, tag), so both
 // the writer and the checker are grounded in a DATA dossier built from the live card cache
 // — never world knowledge. The game postdates every model's cutoff and changes each patch,
@@ -914,11 +990,11 @@ export async function generatePersonTrivia(dossier: string, handle: string, chan
 // skeptic prompts sit under the floor and simply don't cache (no penalty for asking).
 // Steady state during a marathon is all cache reads at 0.1x — rounds arrive well inside
 // the 5-minute TTL. Only the first round after an idle gap pays the 1.25x write.
-async function callApi(system: string, content: string, channel: string, maxTokens: number, model = MODEL, tag = 'ai-trivia'): Promise<string | null> {
+async function callApi(system: string, content: string, channel: string, maxTokens: number, model = MODEL, tag = 'ai-trivia', extra?: { tools?: object[]; timeoutMs?: number }): Promise<string | null> {
   // backstop: every trivia stage funnels through here, so the kill switch cannot be
   // routed around by a new caller that forgets the entry-point guard.
   if (!aiTriviaEnabled()) return null
-  return anthropicCall({ tag, channel, model, maxTokens, system, content, timeoutMs: TIMEOUT })
+  return anthropicCall({ tag, channel, model, maxTokens, system, content, timeoutMs: extra?.timeoutMs ?? TIMEOUT, tools: extra?.tools })
 }
 
 type GenResult = { ok: true; q: CustomTrivia } | { ok: false; retry: boolean }
