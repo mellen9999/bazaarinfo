@@ -238,11 +238,16 @@ export async function refreshVoice(channel: string) {
       // via the shared helper: surrogate-safe body, spend + cache accounting, the
       // concurrency slot, and the hard-stop breaker. chat samples are the single most
       // likely place a split emoji reaches the API.
+      // max_tokens is a CEILING, not a reservation — a response that finishes early bills
+      // only what it wrote. The old 60-token cap sat below the ~55 tokens that 150 chars of
+      // prose needs, so any preamble truncated the reply, the <=200-char gate rejected it,
+      // and the call was wasted (measured: 26 truncations/week, voice profiles never
+      // refreshing). Headroom is free; the format rule below is what keeps output short.
       const text = (await anthropicCall({
         tag: 'voice',
         channel: ch,
         model: VOICE_MODEL,
-        maxTokens: 60,
+        maxTokens: 200,
         timeoutMs: 10_000,
         content: [
           `Analyze these Twitch chat messages from #${channel}:\n`,
@@ -250,6 +255,7 @@ export async function refreshVoice(channel: string) {
           '\n\nDescribe how to mimic this chat style in <150 chars.',
           '\nFocus: slang, abbreviations, grammar patterns, energy, humor style.',
           '\nWrite as instructions: "use X, do Y, never Z"',
+          '\nReply with ONLY the instruction text — no heading, no markdown, no preamble, one line.',
         ].join(''),
       }))?.trim()
       if (text && text.length <= 200) {

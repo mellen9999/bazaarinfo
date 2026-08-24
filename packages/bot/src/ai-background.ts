@@ -38,7 +38,9 @@ async function summarizeChat(channel: string, recent: ChatEntry[], prev: string)
       tag: 'summary',
       channel,
       model: MODEL,
-      maxTokens: 50,
+      // ceiling, not reservation: 200 chars of prose ≈ 55 tokens, and there is no length
+      // gate downstream — a truncated summary used to ship cut off mid-sentence.
+      maxTokens: 150,
       timeoutMs: 10_000,
       system: EXTRACT_SYSTEM,
       content: prompt,
@@ -166,7 +168,9 @@ export async function maybeUpdateMemo(user: string, force = false) {
       tag: 'memo',
       channel: BACKGROUND_SPEND_CHANNEL,
       model: MODEL,
-      maxTokens: 80,
+      // ceiling, not reservation: a truncated memo fails the <=200-char gate and wastes
+      // the call. headroom is free — billed on actual output.
+      maxTokens: 200,
       timeoutMs: 10_000,
       system: EXTRACT_SYSTEM,
       content: prompt,
@@ -216,7 +220,9 @@ export async function maybeExtractFacts(user: string, query: string, response: s
       tag: 'facts',
       channel: BACKGROUND_SPEND_CHANNEL,
       model: MODEL,
-      maxTokens: 60,
+      // ceiling, not reservation: 3 facts x 40 chars sits right at 60 tokens — the third
+      // fact truncated mid-line. headroom is free.
+      maxTokens: 150,
       timeoutMs: 10_000,
       system: EXTRACT_SYSTEM,
       content: prompt,
