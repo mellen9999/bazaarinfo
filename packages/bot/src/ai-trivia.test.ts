@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'bun:test'
-import { splitAlternates, pickDistinctLenses, LENSES, answerLeaks, answerEchoesTopic, parseGen, panelVerdict, topicKey } from './ai-trivia'
+import { splitAlternates, pickDistinctLenses, LENSES, answerLeaks, answerEchoesTopic, parseGen, panelVerdict, topicKey, DEEPCUT_SYSTEM } from './ai-trivia'
+
+describe('DEEPCUT_SYSTEM stays above the haiku prompt-cache floor', () => {
+  // haiku's cache floor is 2048 tokens (sonnet's is 1024). the gen side can run on haiku
+  // (AI_TRIVIA_GEN_MODEL), and this prompt once sat ~8 tokens UNDER the floor — every gen
+  // call silently paid full-price input. ~4 chars/token, so 9400 chars ≈ 2350 tokens of
+  // margin. if this fails after a trim, restore content — don't lower the floor.
+  it('is long enough to actually cache on haiku', () => {
+    expect(DEEPCUT_SYSTEM.length).toBeGreaterThan(9400)
+  })
+})
 
 describe('splitAlternates — fold answer alternates into accept', () => {
   it('splits a parenthetical alternate', () => {

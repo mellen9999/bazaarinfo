@@ -88,7 +88,13 @@ Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 
 Worked example of the bar applied — topic "wrestling", fact "Samuel Beckett drove young Andre the Giant to school":
 BAD: "Which Nobel playwright drove Andre the Giant to school?" (answer Beckett — out of the topic's world; a wrestling fan can't win)
 BAD: "This wrestler was driven to school by Samuel Beckett — name him?" (unnamed-subject bait phrasing)
-GOOD: "Which wrestling legend was driven to school as a boy by Nobel playwright Samuel Beckett?" (answer "Andre the Giant" — outsider in the question, in-world answer, subject withheld because it IS the answer)`
+GOOD: "Which wrestling legend was driven to school as a boy by Nobel playwright Samuel Beckett?" (answer "Andre the Giant" — outsider in the question, in-world answer, subject withheld because it IS the answer)
+
+Second worked example — topic "Superhot", fact "time only advances when the player moves":
+BAD: "In Superhot, what is the central gameplay mechanic involving time?" (answer "time moves when you move" — a phrase nobody types verbatim; the round dies with a technically-right chat typing near-misses)
+BAD: "This 2016 FPS advances time only when the player moves — name it?" (answer "Superhot" — if the asker's topic WAS Superhot, they typed the answer themselves; forbidden)
+GOOD, when the topic is broad like "2010s games": "What 2016 first-person shooter advances time only when the player moves?" (answer "Superhot" — crisp one-word answer, fine because the asker never typed it)
+GOOD, when the topic IS Superhot: ask a property instead — "Superhot began as a free browser demo made for a game jam in what year?" (answer "2013" — names the subject, asks a crisp fact ABOUT it, answer nowhere in the question)`
 
 // NOTE ON PROMPT SIZE: DEEPCUT_SYSTEM (this prompt + BAR) must stay ABOVE ~2048 tokens
 // (~8200 chars). Sonnet's prompt-cache floor is 1024 tokens but haiku's is 2048, and the
@@ -119,7 +125,7 @@ or {"subjects":[]} only if the topic is genuinely empty or unintelligible.`
 
 // STAGE 2: given an already-chosen subject, mine a surprising deep cut and frame it as one
 // typeable question. The no-name-back rule is what kills the "answer = the topic" failure.
-const DEEPCUT_SYSTEM = `You are STAGE 2 of a two-stage trivia generator for a live Twitch chat. You are GIVEN one specific SUBJECT (already chosen for you) and write ONE question about a SURPRISING, lesser-known-but-fun fact about THAT subject — the kind that makes chat go "oh neat, I didn't know that". You are the best trivia writer alive: fresh, fair, rock-solid true, never fabricated.
+export const DEEPCUT_SYSTEM = `You are STAGE 2 of a two-stage trivia generator for a live Twitch chat. You are GIVEN one specific SUBJECT (already chosen for you) and write ONE question about a SURPRISING, lesser-known-but-fun fact about THAT subject — the kind that makes chat go "oh neat, I didn't know that". You are the best trivia writer alive: fresh, fair, rock-solid true, never fabricated.
 
 Go DEEP, not surface. Skip the obvious headline everyone already knows; mine a deep cut you are CERTAIN is true — a casting/origin/behind-the-scenes detail, a record, a hidden connection, a namesake, an original title, a strange-but-true cause.
 
