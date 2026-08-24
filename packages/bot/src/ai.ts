@@ -28,6 +28,7 @@ import { isWeatherQuery, refreshWeatherIfNeeded } from './weather'
 import { isHsRatingQuery, refreshHsIfNeeded } from './hs'
 import { isHsCardQuery, isHearthstoneCategory, refreshHsCardsIfNeeded } from './hs-cards'
 import { isGrQuery, isGuildrunCategory, refreshGuildrunIfNeeded } from './guildrun'
+import { refreshGrNewsIfNeeded } from './guildrun-news'
 import { refreshBoardIfNeeded } from './board'
 import { refreshHsBoardIfNeeded } from './hs-board'
 import { isScheduleQuery } from './schedule'
@@ -247,7 +248,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // guildrun data: same contract. refresh on a guildrun-shaped ask OR whenever the
   // channel is streaming it — during a guildrun stream a bare hero name is the trigger,
   // and by then the cache must already be warm.
-  if (isGrQuery(query) || isGuildrunCategory(getChannelGame(ctx.channel))) refreshGuildrunIfNeeded()
+  if (isGrQuery(query) || isGuildrunCategory(getChannelGame(ctx.channel))) {
+    refreshGuildrunIfNeeded()
+    refreshGrNewsIfNeeded()
+  }
 
   // schedule asks: prefetch the target channel's title BEFORE building context — a
   // streamer-stated plan in the title ("NEXT STREAM WEDNESDAY") overrides the stats.

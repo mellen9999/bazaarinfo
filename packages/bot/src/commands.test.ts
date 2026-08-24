@@ -3587,6 +3587,26 @@ describe('guildrun keyword ownership during a guildrun stream', () => {
     const r = await handleCommand('!b how does stall work in guildrun', { user: 'u', channel: 'plainchan' })
     expect(r).toContain('guildrun mechanic')
   })
+
+  it('a bare guildrun name answers deterministically — no AI call spent', async () => {
+    const { setChannelGame } = await import('./ai-cache')
+    const { __setGrCards } = await import('./guildrun')
+    __setGrCards([{ n: 'Hydra', k: 'enemy', st: '890–17.5k HP depending on floor (stats scale with difficulty)' }])
+    setChannelGame('grchan-4', 'Guildrun')
+    const r = await handleCommand('!b hydra', { user: 'u', channel: 'grchan-4' })
+    expect(r).toContain('guildrun enemy')
+    expect(r).toContain('890–17.5k HP')
+  })
+
+  it('an opinion question about a guildrun entity still routes to the AI', async () => {
+    const { setChannelGame } = await import('./ai-cache')
+    const { __setGrCards } = await import('./guildrun')
+    __setGrCards([{ n: 'Irini', k: 'hero', c: 'Duelist' }])
+    setChannelGame('grchan-5', 'Guildrun')
+    mockAiRespond.mockResolvedValueOnce({ text: 'ai answer', mentions: [] })
+    const r = await handleCommand('!b is irini good', { user: 'u', channel: 'grchan-5' })
+    expect(r).not.toContain('guildrun hero')
+  })
 })
 
 describe('fix6c: glossary + standings compound result', () => {

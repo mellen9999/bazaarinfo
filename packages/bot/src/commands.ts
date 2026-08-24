@@ -19,7 +19,7 @@ import { isEmote, findEmote } from './emotes'
 import { detectSpamIntent } from './spam-intent'
 import { isPastaRecall, findChatPasta, isConfidentPasta, pastaText } from './pasta'
 import { glossaryAnswer, isBareKeyword, DEFINITIONAL_INTENT, BUILD_INTENT } from './glossary'
-import { isGuildrunCategory, isGrQuery, grKeywordCard, describeGrCard } from './guildrun'
+import { isGuildrunCategory, isGrQuery, grKeywordCard, grExactCard, describeGrCard } from './guildrun'
 import { enchantAnswer } from './enchants'
 import { getThread, getRecent } from './chatbuf'
 import { log } from './log'
@@ -1164,14 +1164,15 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // a bare keyword that is also an exact item name lets the item win.
   // compound: when a standings clause also appears ("what does burn do and who's winning"),
   // append the live standings table — both paths are deterministic and free.
+  // guildrun claims a query while it's the live category (or named), unless the asker
+  // says "bazaar" — shared vocabulary means guildrun's rules, not the home game's
+  const grAsk = (isGrQuery(cleanArgs) || (!!ctx.channel && isGuildrunCategory(getChannelGame(ctx.channel))))
+    && !/\bbazaar\b/i.test(cleanArgs)
   {
     // shared keywords (burn, poison, shield, crit…) exist in both games with different
-    // rules. while guildrun is on screen — or the question names it — the guildrun
-    // glossary owns the term and answers deterministically (free, curated, no AI call).
-    // a bazaar-only term still answers, labeled, so the wrong game's rule can never
-    // read as the live one. saying "bazaar" gives the bazaar the term back.
-    const grAsk = (isGrQuery(cleanArgs) || (!!ctx.channel && isGuildrunCategory(getChannelGame(ctx.channel))))
-      && !/\bbazaar\b/i.test(cleanArgs)
+    // rules. while guildrun owns the term it answers deterministically (free, curated,
+    // no AI call). a bazaar-only term still answers, labeled, so the wrong game's rule
+    // can never read as the live one.
     if (grAsk && (DEFINITIONAL_INTENT.test(cleanArgs) || /^\S+[?!.]*$/.test(cleanArgs.trim())) && !BUILD_INTENT.test(cleanArgs)) {
       const kw = grKeywordCard(cleanArgs)
       if (kw) {
@@ -1190,6 +1191,18 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
         return withSuffix(gloss + ' | ' + getTriviaScore(ctx.channel), suffix)
       }
       return withSuffix((grAsk ? 'in the bazaar: ' : '') + gloss, suffix)
+    }
+  }
+
+  // deterministic guildrun card lookup — same contract as the bazaar's exact lookup:
+  // the WHOLE query is a name ("!b irini", "!b hydra") → the card answers free and
+  // instant, no AI call. an exact bazaar name still wins (home game owns collisions),
+  // and opinion questions ("is irini good") fall through to the AI with grounding.
+  if (grAsk && !store.exact(cleanArgs.trim())) {
+    const card = grExactCard(cleanArgs.replace(/\bin guild\s?run\b/i, '').replace(/[?!.]+$/, '').trim())
+    if (card) {
+      try { db.logCommand(ctx, 'item', cleanArgs, 'guildrun') } catch {}
+      return withSuffix(describeGrCard(card), suffix)
     }
   }
 
@@ -1306,9 +1319,9 @@ async function aiOrQuip(query: string, ctx: CommandContext, suffix: string): Pro
 }
 
 // 'bg' / 'battlegrounds' / 'hearthstone' all mean the same round — chat types all three
-const TRIVIA_CATEGORIES = new Set(['items', 'heroes', 'monsters', 'kripp', 'bg', 'bgs', 'battlegrounds', 'hearthstone', 'hs'])
+const TRIVIA_CATEGORIES = new Set(['items', 'heroes', 'monsters', 'kripp', 'bg', 'bgs', 'battlegrounds', 'hearthstone', 'hs', 'guildrun', 'gr'])
 const TRIVIA_CATEGORY_ALIASES: Record<string, string> = {
-  bgs: 'bg', battlegrounds: 'bg', hearthstone: 'bg', hs: 'bg',
+  bgs: 'bg', battlegrounds: 'bg', hearthstone: 'bg', hs: 'bg', gr: 'guildrun',
 }
 
 // custom-topic generation is async + costs an API call — guard against concurrent
@@ -1794,7 +1807,7 @@ async function runTrivia(ctx: CommandContext, rawArg: string, suffix: string): P
     return withSuffix(formatStats(target, ctx.channel), suffix)
   }
   if (TRIVIA_CATEGORIES.has(lower)) {
-    const cat = (TRIVIA_CATEGORY_ALIASES[lower] ?? lower) as 'items' | 'heroes' | 'monsters' | 'kripp' | 'bg'
+    const cat = (TRIVIA_CATEGORY_ALIASES[lower] ?? lower) as 'items' | 'heroes' | 'monsters' | 'kripp' | 'bg' | 'guildrun'
     return withSuffix(startTrivia(ctx.channel, cat), suffix)
   }
   return await handleCustomTrivia(ctx, arg, suffix)

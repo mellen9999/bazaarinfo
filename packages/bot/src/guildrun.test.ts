@@ -1,8 +1,8 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
 import {
   cleanGrText, extractGuildrun, findGrCards, findGrListing, grContext,
-  describeGrCard, isGrQuery, isGrIntent, isGuildrunCategory, grKeywordCard, __setGrCards,
-  type GrCard,
+  describeGrCard, isGrQuery, isGrIntent, isGuildrunCategory, grKeywordCard, grExactCard,
+  __setGrCards, type GrCard,
 } from './guildrun'
 
 // The guildrun module exists because the model has NO safe memory of a 2026 game —
@@ -91,6 +91,12 @@ const DUMPS = {
   rankmods: [
     { id: 1, name: 'Burning Attacks', description: 'inflict [{0}+{1}_AttackSpeed]<statcalc_burn> [Burn]<burn>.', balancing: { disabledInGame: false, descriptionArgs: [0, 33] } },
   ],
+  enemies: [
+    { id: 100, name: 'Hydra', activeAbilityId: 1, stats: { maxHealth: 890 }, balancing: { disabledInGame: false } },
+    { id: 101, name: 'Hydra', activeAbilityId: 1, stats: { maxHealth: 17500 }, balancing: { disabledInGame: false } },
+    { id: 102, name: 'enemy-50001', stats: { maxHealth: 500 }, balancing: { disabledInGame: false } },
+    { id: 103, name: 'TestCrab', stats: { maxHealth: 50000 }, balancing: { disabledInGame: false } },
+  ],
 }
 
 const EXT = {
@@ -145,6 +151,20 @@ describe('extractGuildrun', () => {
   it('keeps classes and rank modifiers with cleaned text', () => {
     expect(by('Warrior').x).toBe('Warriors use Attack.')
     expect(by('Burning Attacks').x).toBe('inflict X (scales with Attack Speed) Burn.')
+  })
+
+  it('dedupes enemy floor-variants into one honest range card', () => {
+    const hydra = by('Hydra')
+    expect(hydra.k).toBe('enemy')
+    // per-floor stats vary 20x — quoting one number would be wrong for most sightings
+    expect(hydra.st).toBe('890–17.5k HP depending on floor (stats scale with difficulty)')
+    expect(hydra.x).toContain('Gathering Storm')
+    expect(cards.filter((c) => c.n === 'Hydra')).toHaveLength(1)
+  })
+
+  it('drops unnamed placeholder and test enemies', () => {
+    expect(cards.find((c) => c.n === 'enemy-50001')).toBeUndefined()
+    expect(cards.find((c) => c.n === 'TestCrab')).toBeUndefined()
   })
 })
 
@@ -263,6 +283,26 @@ describe('keyword glossary', () => {
 
   it('inactive-in-demo mechanics say so instead of inventing rules', () => {
     expect(grKeywordCard('does bleed exist')?.x).toContain('NOT active')
+  })
+})
+
+// --- exact lookup (the deterministic !b path) ---
+
+describe('grExactCard', () => {
+  beforeEach(() => __setGrCards(extractGuildrun(DUMPS as any, EXT)))
+
+  it('the whole query as a name answers; a sentence containing it does not', () => {
+    expect(grExactCard('irini')?.n).toBe('Irini')
+    expect(grExactCard("warrior's medallion")?.n).toBe("Warrior's Medallion")
+    expect(grExactCard('is irini good')).toBeUndefined()
+  })
+
+  it('is spacing- and punctuation-insensitive like the bazaar exact lookup', () => {
+    expect(grExactCard('warriors medallion')?.n).toBe("Warrior's Medallion")
+  })
+
+  it('an unknown name returns nothing rather than a guess', () => {
+    expect(grExactCard('zorbo')).toBeUndefined()
   })
 })
 

@@ -8,6 +8,7 @@ import { getWorldCupLine } from './worldcup'
 import { isHsRatingQuery, extractSubject, hsContext } from './hs'
 import { isHsCardQuery, isHsCardIntent, isHearthstoneCategory, hsCardContext } from './hs-cards'
 import { isGrQuery, isGrIntent, isGuildrunCategory, grContext, grKeywordCard } from './guildrun'
+import { getGrNewsLine } from './guildrun-news'
 import { getWeatherLine } from './weather'
 import { META_QUERY_RE } from './intents'
 import { SECTION_HEADERS } from './ai-sanitize'
@@ -951,6 +952,11 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // guildrun's community digest, same gate shape — only on a guildrun-shaped ask
   const grDigest = grShaped ? getGrRedditDigest() : ''
   const grRedditLine = grDigest ? `\nGuildrun community buzz (r/Guildrun): ${grDigest}` : ''
+  // official steam patch notes — the answer to "whats new in guildrun". only on a
+  // guildrun-shaped ask that is actually about news/patches, so it never spends
+  // budget on a hero question.
+  const grNews = grShaped && redditMetaIntent ? getGrNewsLine() : ''
+  const grNewsLine = grNews ? `\n${grNews}` : ''
   const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getRecentEmotes(ctx.channel))
 
   // hot exchange cache
@@ -1164,6 +1170,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // boost shape as the bazaar digest on a meta/sentiment question
     { name: 'redditBg', text: bgRedditLine, base: 189, boost: redditMetaIntent ? 185 : 0 },
     { name: 'redditGr', text: grRedditLine, base: 188, boost: redditMetaIntent ? 185 : 0 },
+    // official beats community buzz for a news ask — slightly higher priority
+    { name: 'grNews', text: grNewsLine, base: 187, boost: redditMetaIntent ? 190 : 0 },
     { name: 'hotConvo', text: hotLine, base: 10 },
     // ambient live board — unique, current, and short; sits with the flavor tier so a
     // tight budget can still evict it (a board-shaped ask rides gameBlock instead)

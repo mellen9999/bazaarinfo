@@ -17,6 +17,7 @@ import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, set
 import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamInfo } from './ai-cache'
 import { refreshRedditDigest, refreshBgRedditDigest, refreshGrRedditDigest } from './reddit'
 import { refreshGuildrunIfNeeded } from './guildrun'
+import { refreshGrNewsIfNeeded } from './guildrun-news'
 import { refreshHsCardsIfNeeded } from './hs-cards'
 import { setChannelIdResolver } from './board'
 import { setHsChannelIdResolver } from './hs-board'
@@ -348,6 +349,7 @@ refreshGrRedditDigest().catch((e) => log(`guildrun reddit digest load failed: ${
 // warm the guildrun card cache at startup — the lazy trigger lives behind the AI gates,
 // and a cold cache means the first guildrun question of a stream gets zero grounding.
 refreshGuildrunIfNeeded()
+refreshGrNewsIfNeeded()
 
 // load topical (HN + r/popular) digest — refresh every 4h for fresh world-knowledge in creative path
 refreshTopicalDigest().catch((e) => log(`topical digest load failed: ${e}`))

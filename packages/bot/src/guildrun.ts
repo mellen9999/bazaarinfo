@@ -34,7 +34,7 @@ const FETCH_TIMEOUT_MS = 60_000
 const MAX_BYTES = 32 * 1024 * 1024 // per file — a shape change must not become an unbounded download
 const MAX_MATCHES = 3 // hero blocks are dense; three is already a full prompt section
 
-export type GrKind = 'hero' | 'keyword' | 'relic' | 'item' | 'class' | 'rankmod'
+export type GrKind = 'hero' | 'keyword' | 'relic' | 'item' | 'class' | 'rankmod' | 'enemy'
 
 /** trimmed record. short keys — the cache is written to disk on every refresh. */
 export interface GrCard {
@@ -145,6 +145,7 @@ interface RawDumps {
   actives: unknown[]
   specs: unknown[]
   rankmods: unknown[]
+  enemies?: unknown[]
 }
 
 /** resolved relic text from the twitch-ext db, keyed "Relic_<id>". */
@@ -273,6 +274,34 @@ export function extractGuildrun(d: RawDumps, ext: ExtRelics = {}): GrCard[] {
     out.push({ n: m.name, k: 'rankmod', x: cleanGrText(m.description) })
   }
 
+  // enemies — 644 rows are ~17 real names × per-floor stat variants plus unnamed
+  // "enemy-NNNNN" placeholders. one card per real name; quoting any single variant's
+  // stats would be wrong for most sightings, so the card carries the HP RANGE (honest:
+  // stats scale with floor) and the union of its abilities.
+  const enemyByName = new Map<string, { hp: number[]; abs: Map<string, string | undefined> }>()
+  for (const en of arr(d.enemies)) {
+    if (!en?.id || typeof en.name !== 'string' || !enabled(en)) continue
+    if (/^enemy-\d+$/i.test(en.name) || /^test/i.test(en.name)) continue
+    const rec = enemyByName.get(en.name) ?? { hp: [] as number[], abs: new Map<string, string | undefined>() }
+    const hp = Number(en.stats?.maxHealth)
+    if (Number.isFinite(hp) && hp > 0) rec.hp.push(hp)
+    for (const id of [en.passiveAbilityId, en.activeAbilityId]) {
+      const ab = typeof id === 'number' ? abilityById.get(id) : undefined
+      if (ab && !rec.abs.has(ab.n)) rec.abs.set(ab.n, ab.x)
+    }
+    enemyByName.set(en.name, rec)
+  }
+  const fmtHp = (v: number): string => (v >= 1000 ? `${Math.round(v / 100) / 10}k` : String(v))
+  for (const [name, rec] of enemyByName) {
+    const abs = [...rec.abs.entries()].slice(0, 2).map(([n, x]) => (x ? `${n}: ${x}` : n))
+    const lo = Math.min(...rec.hp), hi = Math.max(...rec.hp)
+    out.push({
+      n: name, k: 'enemy',
+      st: rec.hp.length ? (lo === hi ? `${fmtHp(lo)} HP` : `${fmtHp(lo)}–${fmtHp(hi)} HP depending on floor (stats scale with difficulty)`) : undefined,
+      x: abs.join(' | ') || undefined,
+    })
+  }
+
   return out
 }
 
@@ -302,8 +331,8 @@ async function fetchJson(url: string): Promise<unknown> {
 async function refresh(): Promise<void> {
   let cards: GrCard[] = []
   try {
-    const [heroes, classes, guilds, relics, items, passives, actives, specs, rankmods] = await Promise.all(
-      ['heroes', 'heroClasses', 'guilds', 'relics', 'items', 'passiveAbilities', 'activeAbilities', 'heroSpecializations', 'rankModifiers']
+    const [heroes, classes, guilds, relics, items, passives, actives, specs, rankmods, enemies] = await Promise.all(
+      ['heroes', 'heroClasses', 'guilds', 'relics', 'items', 'passiveAbilities', 'activeAbilities', 'heroSpecializations', 'rankModifiers', 'enemies']
         .map((f) => fetchJson(`${DUMP_BASE}${f}.json`)),
     ) as unknown[][]
     // the ext db is an enhancement, not a dependency — its outage must not blank the refresh
@@ -314,7 +343,7 @@ async function refresh(): Promise<void> {
     } catch (e) {
       log(`guildrun: ext relic db unavailable, using dump templates: ${e}`)
     }
-    cards = extractGuildrun({ heroes, classes, guilds, relics, items, passives, actives, specs, rankmods }, ext)
+    cards = extractGuildrun({ heroes, classes, guilds, relics, items, passives, actives, specs, rankmods, enemies }, ext)
   } catch (e) {
     log(`guildrun: refresh failed: ${e}`)
     return
@@ -367,6 +396,8 @@ const AMBIENT_NAMES = new Set<string>([
   'burn', 'poison', 'frost', 'stun', 'taunt', 'stealth', 'backup', 'crit', 'crits',
   'critical', 'mana', 'magic', 'attack', 'defense', 'heal', 'heals', 'healing', 'bleed',
   'legacy', 'ranks', 'the storm', 'attack speed', 'mana regen', 'true damage', 'anti heal',
+  // enemy names that are ordinary nouns ("snake? PogChamp" is not a bestiary question)
+  'snake', 'spider', 'slime', 'turtle', 'lizard', 'demon', 'hydra',
 ])
 
 let byName = new Map<string, GrCard[]>()
@@ -400,7 +431,7 @@ function ensureIndex(): void {
 // a hero outranks a relic that shares its name, a keyword-rule outranks both relic and
 // item (the mechanic IS the answer to "what does burn do"), and a longer name beats a
 // shorter one
-const KIND_RANK: Record<GrKind, number> = { hero: 0, keyword: 1, class: 2, relic: 3, item: 4, rankmod: 5 }
+const KIND_RANK: Record<GrKind, number> = { hero: 0, keyword: 1, class: 2, relic: 3, item: 4, rankmod: 5, enemy: 6 }
 function rank(a: GrCard, b: GrCard): number {
   return KIND_RANK[a.k] - KIND_RANK[b.k] || b.n.length - a.n.length
 }
@@ -483,7 +514,7 @@ export function isGuildrunCategory(game: string | null | undefined): boolean {
 // --- context block ---
 
 const KIND_LABEL: Record<GrKind, string> = {
-  hero: 'hero', keyword: 'mechanic', relic: 'relic', item: 'item', class: 'class', rankmod: 'rank modifier',
+  hero: 'hero', keyword: 'mechanic', relic: 'relic', item: 'item', class: 'class', rankmod: 'rank modifier', enemy: 'enemy',
 }
 
 /**
@@ -495,6 +526,32 @@ const KIND_LABEL: Record<GrKind, string> = {
 export function grKeywordCard(query: string): GrCard | undefined {
   ensureIndex()
   return findGrCards(query, true).find((c) => c.k === 'keyword')
+}
+
+/**
+ * Exact-name lookup for the deterministic !b path: fires only when the WHOLE query is
+ * a card's name ("!b irini", "!b warriors medallion") — the same contract as the
+ * bazaar's own exact lookup, so a name answers free and instant, and every opinion
+ * question ("is irini good") still goes to the AI with grounding.
+ */
+export function grExactCard(query: string): GrCard | undefined {
+  loadDisk()
+  ensureIndex()
+  const hits = byName.get(norm(query)) ?? bySquash.get(squash(query))
+  return hits ? [...hits].sort(rank)[0] : undefined
+}
+
+/** live card sets for the trivia generators — empty until the first fetch lands. */
+export function grHeroCards(): GrCard[] {
+  loadDisk()
+  return (cache?.cards ?? []).filter((c) => c.k === 'hero')
+}
+export function grRelicCards(): GrCard[] {
+  loadDisk()
+  return (cache?.cards ?? []).filter((c) => c.k === 'relic')
+}
+export function grKeywordCards(): GrCard[] {
+  return GR_KEYWORDS
 }
 
 export function describeGrCard(c: GrCard): string {
