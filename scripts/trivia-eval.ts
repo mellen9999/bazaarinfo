@@ -32,6 +32,9 @@ interface Case {
   question: string
   answer: string
   accept?: string[]
+  // when set, fed to the general lens exactly like production does for a custom-topic
+  // round — exercises the OFF-TOPIC veto (drift + out-of-world answer). unset = skipped.
+  topic?: string
   // 'reject' = must be a hard DEFECT, never shippable.
   // 'soft'   = must not pass as a normal accept, but MAY survive as a last-resort gimme.
   //            production prefers an easy on-topic question over abandoning the asker's
@@ -56,6 +59,8 @@ const CASES: Case[] = [
   { question: "Forsen's chat spammed a certain emote so relentlessly during a 2014 Twitch Plays Pokemon-style stream that it got added as an official global emote. What is it called?", answer: 'forsenE', accept: ['forsene'], expect: 'reject', why: 'FABRICATED PROVENANCE — forsenE is a BTTV emote, never an official Twitch global, and unrelated to 2014 TPP; a stitched-together false origin story' },
   { question: 'This curved blade was originally a Southeast Asian farming tool, shaped to mimic the claws of what animal?', answer: 'tiger', accept: ['tiger'], expect: 'reject', why: 'UNNAMED-SUBJECT BAIT — "this curved blade" (the karambit) is dangled unnamed, so chat types "karambit" instead of the animal answer; must name the blade outright' },
   { question: "This crustacean's punch accelerates so fast it briefly boils the water, creating a flash of light called what?", answer: 'sonoluminescence', accept: ['sonoluminescence'], expect: 'reject', why: 'UNNAMED-SUBJECT BAIT — "this crustacean" (mantis shrimp) is dangled unnamed, so chat types "mantis shrimp" not the flash term; must name the shrimp' },
+  { topic: 'Romania', question: 'Which Diablo 3 class was the first to defeat Diablo on Inferno difficulty in hardcore mode?', answer: 'Barbarian', accept: ['barbarian', 'barb'], expect: 'reject', why: 'OFF-TOPIC drift — asked about Romania, got a Diablo question; the real live failure the topic veto exists for' },
+  { topic: 'wrestling', question: 'Which Nobel Prize-winning playwright drove a young Andre the Giant to school in rural France?', answer: 'Samuel Beckett', accept: ['beckett', 'samuel beckett'], expect: 'reject', why: 'OUT-OF-WORLD ANSWER — true fact, but a wrestling fan cannot name a playwright with wrestling knowledge; must be flipped so the wrestler is the answer' },
 
   // --- known GOOD: well-formed, true, single crisp answer; must pass ---
   { question: 'Minecraft\'s creator, who sold it to Microsoft in 2014, is known by what one-word online handle?', answer: 'Notch', expect: 'accept', why: 'true, single crisp answer' },
@@ -66,6 +71,8 @@ const CASES: Case[] = [
   { question: 'Guild Wars was developed by ArenaNet, a studio founded by former employees of which company behind Diablo and StarCraft?', answer: 'Blizzard', expect: 'accept', why: 'true, niche-but-verifiable, crisp answer' },
   { question: 'The karambit, a curved blade that began as a Southeast Asian farming tool, was shaped to mimic the claws of what animal?', answer: 'tiger', accept: ['tiger'], expect: 'accept', why: 'the fixed rephrase — names the blade outright, so chat aims at the animal, not the blade' },
   { question: 'Which streamer, whose name became the "-erino" suffix meme in Twitch chats, is a longtime Hearthstone and Diablo content creator?', answer: 'Kripp', accept: ['kripp', 'kripparrian'], expect: 'accept', why: 'true internet-culture fact with a crisp answer — the provenance guard must not blanket-reject well-established streamer lore' },
+  { topic: 'wrestling', question: 'Which wrestling legend was driven to school as a boy by Nobel Prize-winning playwright Samuel Beckett?', answer: 'Andre the Giant', accept: ['andre the giant', 'andre'], expect: 'accept', why: 'the correct flip of the Beckett fact — outsider in the question, in-world answer; the topic veto must not over-reject a fair cross-domain bridge' },
+  { topic: 'Elden Ring', question: 'Elden Ring\'s worldbuilding was co-created by which fantasy author best known for A Song of Ice and Fire?', answer: 'George R. R. Martin', accept: ['george r r martin', 'grrm', 'george martin'], expect: 'accept', why: 'one-hop creator zoom — a fan of the topic knows its co-creator; the topic veto must stay generous about a subject\'s own creators' },
 ]
 
 const LENSES = panelLenses(CHEAP_LENSES)
@@ -91,7 +98,7 @@ const softs: string[] = []
 const vetoes: Record<string, number> = {}
 for (let i = 0; i < CASES.length; i++) {
   const c = CASES[i]
-  const verdicts = await verifyAllLenses({ question: c.question, answer: c.answer, accept: c.accept ?? [] }, CHANNEL, '', CHEAP_LENSES)
+  const verdicts = await verifyAllLenses({ question: c.question, answer: c.answer, accept: c.accept ?? [] }, CHANNEL, c.topic ?? '', CHEAP_LENSES)
   const v = panelVerdict(verdicts)
   const outcome: Outcome = v.ok ? 'accept' : v.reason === 'easy' ? 'soft' : 'defect'
   verdicts.forEach((vv, li) => { if (!vv.ok) vetoes[LENSES[li].name] = (vetoes[LENSES[li].name] ?? 0) + 1 })

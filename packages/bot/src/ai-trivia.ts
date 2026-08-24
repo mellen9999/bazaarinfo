@@ -12,6 +12,14 @@ import { bankTrivia, takeBankedTrivia } from './db'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-sonnet-5'
+// GENERATION-side model knob (subject pick + custom-topic deep-cut writing only — the
+// verify panel, and the grounded game/chat/person writers, stay on MODEL). Safe to trial a
+// cheaper writer here because every candidate still has to clear the full sonnet panel; a
+// worse writer costs binned slates, not wrong questions. Read lazily (same pattern as
+// aiTriviaEnabled) so the probe can set it after import. Adopt in prod ONLY on probe
+// numbers matching the sonnet baseline — see the lens-model rejection below for why a
+// cheap model that LOOKS 3x cheaper can net out more expensive.
+const genModel = () => process.env.AI_TRIVIA_GEN_MODEL || MODEL
 const TIMEOUT = 12_000 // headroom for the verify panel: ~12 calls fire at once per round
 const MAX_TOPIC_LEN = 80
 
@@ -75,10 +83,10 @@ const SUBJECT_SYSTEM = `You are STAGE 1 of a two-stage trivia generator for a li
 
 Interpret the topic generously. It may be broad ("birds"), vague, misspelled, slangy, a proper noun, an opinion/constraint phrase ("a 2010s game that isn't indie slop"), or adult/edgy ("sex", "drugs"). Strip any attitude and extract the real subject. Treat an unfamiliar word as a real thing. NEVER refuse for being broad, simple, weird, niche, short, unfamiliar, adult, or edgy.
 
-Pick 1-3 SPECIFIC, concrete subjects you genuinely know well enough to have a SURPRISING, lesser-known fact ready about each:
+Pick 1-3 SPECIFIC, concrete subjects you genuinely know well enough to have a SURPRISING, lesser-known fact ready about each. THE ASKED TOPIC ITSELF COMES FIRST: the player asked for exactly this and wants to win with their knowledge OF it — never swap it for something merely adjacent when the topic itself can carry a question.
 - If the topic already NAMES one specific thing (a single movie, person, game, place, song, event, product), return exactly that ONE subject and set "namesSubject": true.
 - If the topic is BROAD or a category, pick 2-3 specific, NON-OBVIOUS instances and set "namesSubject": false. Reach past the single most famous example: for "2010s games" skip Skyrim/GTA V/Witcher 3; for "birds" pick specific species. Vary your picks across repeated asks.
-- For a NICHE topic you only partly know, anchor on something solid — the specific thing, or zoom out to its franchise, creator, studio, genre, era, or country.
+- For a NICHE topic you only partly know, stay as literal as you can: prefer the thing itself, and only if you truly lack a solid fact about it zoom out ONE hop — its franchise, creator, studio, genre, era, or country. Never drift further than one hop from what was asked.
 - For an adult/edgy topic, pick a clean, broadcast-safe specific subject.
 - Add a short disambiguating tag in a name when useful, e.g. "Anger Management (2003 film)".
 
@@ -307,7 +315,7 @@ async function pickSubjects(topic: string, channel: string, avoidAnswers: string
   const avoidLine = avoidAnswers.length
     ? `\n\nAvoid subjects that would lead back to these recently-used answers: ${avoidAnswers.slice(-12).join(', ')}.`
     : ''
-  const text = await callApi(SUBJECT_SYSTEM, `TOPIC: ${topic}${avoidLine}`, channel, SUBJECT_MAX_TOKENS)
+  const text = await callApi(SUBJECT_SYSTEM, `TOPIC: ${topic}${avoidLine}`, channel, SUBJECT_MAX_TOKENS, genModel(), 'ai-trivia:subject')
   if (!text) return fallback
   const json = extractFirstJson(text)
   if (!json) return fallback
@@ -339,7 +347,7 @@ async function generateAndVerify(
   const gens = await Promise.all(
     items.map(async (it) => {
       const content = `SUBJECT: ${it.subject}\nGUESS_THE_SUBJECT: ${guessTheSubject}\n\n${it.instruction}${avoidBlock}`
-      const g = await attemptGen(DEEPCUT_SYSTEM, content, channel)
+      const g = await attemptGen(DEEPCUT_SYSTEM, content, channel, 'ai-trivia:gen', genModel())
       if (!g.ok) return null
       // the asker's own words can never be the winning answer — they typed them.
       // applies in BOTH modes: guessTheSubject legitimizes naming a stage-1 SUBJECT
@@ -556,13 +564,13 @@ export interface Verdict {
 // through on an API hiccup. VERIFY_MAX_TOKENS leaves room to reason in the "check" field
 // before the verdict — recomputing a count or independently solving catches errors a
 // yes/no misses, and that reasoning is exactly what needs room to finish.
-async function runVerifier(system: string, q: CustomTrivia, channel: string, topic = '', preamble = '', model = MODEL): Promise<Verdict> {
+async function runVerifier(system: string, q: CustomTrivia, channel: string, topic = '', preamble = '', model = MODEL, tag = 'ai-trivia:verify'): Promise<Verdict> {
   // pass every accepted form so a lens can catch a giveaway/match hiding in an alternate.
   const answers = [q.answer, ...q.accept.filter((a) => a.toLowerCase() !== q.answer.toLowerCase())].join(' / ')
   // the user's TOPIC is fed only to the general lens, which owns the off-topic-drift check;
   // the solver/skeptic stay laser-focused on correctness. blank topic => the check is skipped.
   const topicLine = topic.trim() ? `TOPIC: ${topic.trim()}\n` : ''
-  const text = await callApi(system, `${preamble}${topicLine}QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`, channel, VERIFY_MAX_TOKENS, model)
+  const text = await callApi(system, `${preamble}${topicLine}QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`, channel, VERIFY_MAX_TOKENS, model, tag)
   if (!text) return { ok: false, quality: 0 }
   const json = extractFirstJson(text)
   if (!json) return { ok: false, quality: 0 }
@@ -747,7 +755,7 @@ export async function generateGameTrivia(dossier: string, topic: string, channel
   const gens = await Promise.all(
     angles.slice(0, GAME_CANDIDATES).map(async (angle) => {
       const content = `TOPIC: ${topic}\nGAME DATA (numbers are base-tier values):\n${data}\n\nFavor THIS angle if the DATA supports it, else any solid one: ${angle}${avoidBlock}`
-      const g = await attemptGen(GAME_SYSTEM, content, channel)
+      const g = await attemptGen(GAME_SYSTEM, content, channel, 'ai-trivia:game')
       if (!g.ok) return null
       if (answerLeaks(g.q)) {
         log(`ai-trivia: dropped game giveaway "${g.q.answer}" (answer appears in the question)`)
@@ -761,7 +769,7 @@ export async function generateGameTrivia(dossier: string, topic: string, channel
   if (isOverDailyCap(channel)) return null // generation may have tipped the daily cap
 
   const preamble = `GAME DATA (sole source of truth):\n${data}\n\n`
-  const verdicts = await Promise.all(cands.map((q) => runVerifier(VERIFY_GAME_SYSTEM, q, channel, '', preamble)))
+  const verdicts = await Promise.all(cands.map((q) => runVerifier(VERIFY_GAME_SYSTEM, q, channel, '', preamble, MODEL, 'ai-trivia:game')))
   const passed: Scored[] = []
   cands.forEach((q, i) => {
     if (verdicts[i].ok && verdicts[i].quality >= MIN_QUALITY) passed.push({ q, quality: verdicts[i].quality })
@@ -810,7 +818,7 @@ export async function generateChatTrivia(chatLines: string[], channel: string, a
 
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0 && isOverDailyCap(channel)) break
-    const r = await attemptGen(CHAT_SYSTEM, content, channel)
+    const r = await attemptGen(CHAT_SYSTEM, content, channel, 'ai-trivia:chat')
     if (r.ok) return r.q
     if (!r.retry) return null
   }
@@ -858,7 +866,7 @@ export async function generatePersonTrivia(dossier: string, handle: string, chan
 
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0 && isOverDailyCap(channel)) break
-    const r = await attemptGen(PERSON_SYSTEM, content, channel)
+    const r = await attemptGen(PERSON_SYSTEM, content, channel, 'ai-trivia:person')
     if (r.ok) return r.q
     if (!r.retry) return null
   }
@@ -873,17 +881,17 @@ export async function generatePersonTrivia(dossier: string, handle: string, chan
 // skeptic prompts sit under the floor and simply don't cache (no penalty for asking).
 // Steady state during a marathon is all cache reads at 0.1x — rounds arrive well inside
 // the 5-minute TTL. Only the first round after an idle gap pays the 1.25x write.
-async function callApi(system: string, content: string, channel: string, maxTokens: number, model = MODEL): Promise<string | null> {
+async function callApi(system: string, content: string, channel: string, maxTokens: number, model = MODEL, tag = 'ai-trivia'): Promise<string | null> {
   // backstop: every trivia stage funnels through here, so the kill switch cannot be
   // routed around by a new caller that forgets the entry-point guard.
   if (!aiTriviaEnabled()) return null
-  return anthropicCall({ tag: 'ai-trivia', channel, model, maxTokens, system, content, timeoutMs: TIMEOUT })
+  return anthropicCall({ tag, channel, model, maxTokens, system, content, timeoutMs: TIMEOUT })
 }
 
 type GenResult = { ok: true; q: CustomTrivia } | { ok: false; retry: boolean }
 
-async function attemptGen(system: string, userContent: string, channel: string): Promise<GenResult> {
-  const text = await callApi(system, userContent, channel, GEN_MAX_TOKENS)
+async function attemptGen(system: string, userContent: string, channel: string, tag = 'ai-trivia:gen', model = MODEL): Promise<GenResult> {
+  const text = await callApi(system, userContent, channel, GEN_MAX_TOKENS, model, tag)
   if (!text) return { ok: false, retry: false }
   return parseGen(text)
 }
