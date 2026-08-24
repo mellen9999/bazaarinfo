@@ -20,15 +20,21 @@ const MODEL = 'claude-sonnet-5'
 // numbers matching the sonnet baseline — see the lens-model rejection below for why a
 // cheap model that LOOKS 3x cheaper can net out more expensive.
 //
-// MEASURED 2026-08-23 (trivia-topic-probe, 8 topics, standard pricing) AND ADOPTED —
-// AI_TRIVIA_GEN_MODEL=claude-haiku-4-5-20251001 is set on mele:
+// MEASURED 2026-08-23 (trivia-topic-probe, 8 topics, standard pricing) AND REJECTED —
+// the knob stays for scoring a future cheap model, but stays UNSET in prod:
 //   sonnet gen           7/8 on-topic  0 gave up  19.1 calls/round  $0.0917/round
-//   haiku gen (run 1)    7/8 on-topic  0 gave up  20.4 calls/round  $0.0884/round
-//   haiku gen (run 2)    7/8 on-topic  0 gave up  19.4 calls/round  $0.0845/round
-// Quality parity on the thing that matters (on-topic, zero give-up, panel survival), so
-// unlike the lens swap there is no rescue-pass tax. The saving looked small at first
-// because DEEPCUT_SYSTEM sat just under haiku's 2048-token cache floor (sonnet's is 1024)
-// — fixed by the worked example below; see the prompt-size note under BAR.
+//   haiku gen (3 runs)   7-8/8         0 gave up  19.4-25.8/round   $0.0845-0.1300/round
+// Question quality held (on-topic parity, zero give-up), but the dollars didn't move:
+// (1) haiku 4.5 refuses to cache any prefix under 4096 tokens — verified directly against
+//     the API: a 2462-token DEEPCUT prefix gets cache_creation=0 at both TTLs, a 4916-token
+//     one caches fine. Sonnet's floor is 1024, so the gen prompt caches on sonnet but runs
+//     100% full-price input on haiku (~110k uncached tokens per 8-topic probe). Bloating
+//     the shared prompt +65% just to clear haiku's floor was rejected — quality risk to the
+//     exact thing the pipeline exists for, plus 6 parallel 2x cache writes per cold round.
+// (2) verify-side spend ROSE under haiku gen (95 → 96-138 calls/run): weaker candidates
+//     reach the sonnet panel and the wave-2 batch fires more often. Same trap as the lens
+//     swap below — a cheap stage upstream buys a more expensive stage downstream.
+// Net: mean $/round ≈ baseline, with more variance. Sonnet writes, sonnet verifies.
 const genModel = () => process.env.AI_TRIVIA_GEN_MODEL || MODEL
 const TIMEOUT = 12_000 // headroom for the verify panel: ~12 calls fire at once per round
 const MAX_TOPIC_LEN = 80
@@ -96,12 +102,11 @@ BAD: "This 2016 FPS advances time only when the player moves — name it?" (answ
 GOOD, when the topic is broad like "2010s games": "What 2016 first-person shooter advances time only when the player moves?" (answer "Superhot" — crisp one-word answer, fine because the asker never typed it)
 GOOD, when the topic IS Superhot: ask a property instead — "Superhot began as a free browser demo made for a game jam in what year?" (answer "2013" — names the subject, asks a crisp fact ABOUT it, answer nowhere in the question)`
 
-// NOTE ON PROMPT SIZE: DEEPCUT_SYSTEM (this prompt + BAR) must stay ABOVE ~2048 tokens
-// (~8200 chars). Sonnet's prompt-cache floor is 1024 tokens but haiku's is 2048, and the
-// gen side can run on haiku (AI_TRIVIA_GEN_MODEL): before the worked example above pushed
-// it over, the prompt sat ~8 tokens UNDER the haiku floor and every gen call silently paid
-// full-price input (measured: 110k uncached tokens per 8-topic probe run). If you trim this
-// prompt, check the probe still reports cache activity on ai-trivia:gen under --haiku-gen.
+// The worked examples above exist for QUALITY, not size: they lock the three rules chat
+// actually complained about (in-world answer, no topic echo, crisp typeable answer) into
+// the writer with concrete good/bad pairs mirroring the eval corpus. Cache note: this
+// prompt caches on sonnet (floor 1024 tok; it counts ~3.5k there) but would NOT on haiku
+// 4.5, whose floor is 4096 — one of the measured reasons the haiku-gen knob is rejected.
 
 // STAGE 1 of the two-tier generator: pick the SUBJECT(S), do NOT write a question yet.
 // Splitting "what is this question about" from "what is the surprising fact" is the whole
@@ -125,7 +130,7 @@ or {"subjects":[]} only if the topic is genuinely empty or unintelligible.`
 
 // STAGE 2: given an already-chosen subject, mine a surprising deep cut and frame it as one
 // typeable question. The no-name-back rule is what kills the "answer = the topic" failure.
-export const DEEPCUT_SYSTEM = `You are STAGE 2 of a two-stage trivia generator for a live Twitch chat. You are GIVEN one specific SUBJECT (already chosen for you) and write ONE question about a SURPRISING, lesser-known-but-fun fact about THAT subject — the kind that makes chat go "oh neat, I didn't know that". You are the best trivia writer alive: fresh, fair, rock-solid true, never fabricated.
+const DEEPCUT_SYSTEM = `You are STAGE 2 of a two-stage trivia generator for a live Twitch chat. You are GIVEN one specific SUBJECT (already chosen for you) and write ONE question about a SURPRISING, lesser-known-but-fun fact about THAT subject — the kind that makes chat go "oh neat, I didn't know that". You are the best trivia writer alive: fresh, fair, rock-solid true, never fabricated.
 
 Go DEEP, not surface. Skip the obvious headline everyone already knows; mine a deep cut you are CERTAIN is true — a casting/origin/behind-the-scenes detail, a record, a hidden connection, a namesake, an original title, a strange-but-true cause.
 
