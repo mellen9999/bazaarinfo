@@ -19,6 +19,16 @@ const MODEL = 'claude-sonnet-5'
 // aiTriviaEnabled) so the probe can set it after import. Adopt in prod ONLY on probe
 // numbers matching the sonnet baseline — see the lens-model rejection below for why a
 // cheap model that LOOKS 3x cheaper can net out more expensive.
+//
+// MEASURED 2026-08-23 (trivia-topic-probe, 8 topics, standard pricing) AND ADOPTED —
+// AI_TRIVIA_GEN_MODEL=claude-haiku-4-5-20251001 is set on mele:
+//   sonnet gen           7/8 on-topic  0 gave up  19.1 calls/round  $0.0917/round
+//   haiku gen (run 1)    7/8 on-topic  0 gave up  20.4 calls/round  $0.0884/round
+//   haiku gen (run 2)    7/8 on-topic  0 gave up  19.4 calls/round  $0.0845/round
+// Quality parity on the thing that matters (on-topic, zero give-up, panel survival), so
+// unlike the lens swap there is no rescue-pass tax. The saving looked small at first
+// because DEEPCUT_SYSTEM sat just under haiku's 2048-token cache floor (sonnet's is 1024)
+// — fixed by the worked example below; see the prompt-size note under BAR.
 const genModel = () => process.env.AI_TRIVIA_GEN_MODEL || MODEL
 const TIMEOUT = 12_000 // headroom for the verify panel: ~12 calls fire at once per round
 const MAX_TOPIC_LEN = 80
@@ -73,7 +83,19 @@ Output ONLY a single minified JSON object, no markdown, no prose, no code fences
 or
 {"ok":false}
 
-Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 4 words.`
+Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 4 words.
+
+Worked example of the bar applied — topic "wrestling", fact "Samuel Beckett drove young Andre the Giant to school":
+BAD: "Which Nobel playwright drove Andre the Giant to school?" (answer Beckett — out of the topic's world; a wrestling fan can't win)
+BAD: "This wrestler was driven to school by Samuel Beckett — name him?" (unnamed-subject bait phrasing)
+GOOD: "Which wrestling legend was driven to school as a boy by Nobel playwright Samuel Beckett?" (answer "Andre the Giant" — outsider in the question, in-world answer, subject withheld because it IS the answer)`
+
+// NOTE ON PROMPT SIZE: DEEPCUT_SYSTEM (this prompt + BAR) must stay ABOVE ~2048 tokens
+// (~8200 chars). Sonnet's prompt-cache floor is 1024 tokens but haiku's is 2048, and the
+// gen side can run on haiku (AI_TRIVIA_GEN_MODEL): before the worked example above pushed
+// it over, the prompt sat ~8 tokens UNDER the haiku floor and every gen call silently paid
+// full-price input (measured: 110k uncached tokens per 8-topic probe run). If you trim this
+// prompt, check the probe still reports cache activity on ai-trivia:gen under --haiku-gen.
 
 // STAGE 1 of the two-tier generator: pick the SUBJECT(S), do NOT write a question yet.
 // Splitting "what is this question about" from "what is the surprising fact" is the whole
