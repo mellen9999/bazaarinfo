@@ -52,7 +52,7 @@ describe('sourceCheck — web-grounded gate on the shipped question', () => {
 
   it('passes a source-confirmed question and sends the web_search tool', async () => {
     mockApi(searchResponse({ check: 'sources confirm the culling of Stratholme', ok: true }))
-    expect(await sourceCheck(Q, '#test')).toBe(true)
+    expect(await sourceCheck(Q, '#test')).toBe('pass')
     const tools = lastBody?.tools as { type: string; name: string }[]
     expect(tools?.[0]?.type).toBe('web_search_20260209')
     expect(tools?.[0]?.name).toBe('web_search')
@@ -60,17 +60,17 @@ describe('sourceCheck — web-grounded gate on the shipped question', () => {
 
   it('rejects when the sources refute the claim', async () => {
     mockApi(searchResponse({ check: 'no source mentions any such grain', ok: false }))
-    expect(await sourceCheck(Q, '#test')).toBe(false)
+    expect(await sourceCheck(Q, '#test')).toBe('fail')
   })
 
-  it('fails closed on an unparseable verdict', async () => {
+  it('reports an unparseable verdict as a check error, not a refutation', async () => {
     mockApi([{ type: 'text', text: 'the sources were inconclusive, sorry' }])
-    expect(await sourceCheck(Q, '#test')).toBe(false)
+    expect(await sourceCheck(Q, '#test')).toBe('error')
   })
 
-  it('fails closed on an API error', async () => {
+  it('reports an API failure as a check error, not a refutation', async () => {
     globalThis.fetch = (async () => new Response('overloaded', { status: 529 })) as typeof fetch
-    expect(await sourceCheck(Q, '#test')).toBe(false)
+    expect(await sourceCheck(Q, '#test')).toBe('error')
   })
 
   it('waves the question through during a hard stop — the bank must survive an outage', async () => {
@@ -80,7 +80,7 @@ describe('sourceCheck — web-grounded gate on the shipped question', () => {
       return new Response('should not be reached', { status: 500 })
     }) as typeof fetch
     noteHardStop(401, 'authentication_error')
-    expect(await sourceCheck(Q, '#test')).toBe(true)
+    expect(await sourceCheck(Q, '#test')).toBe('pass')
     expect(called).toBe(false)
   })
 })

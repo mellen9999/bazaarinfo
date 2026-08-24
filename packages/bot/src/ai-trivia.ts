@@ -271,9 +271,17 @@ export async function generateCustomTrivia(
     const banked = takeBankedTrivia(key, (b) => isDupe({ question: b.question, answer: b.answer, accept: b.accept }))
     if (!banked) break
     const q = { question: banked.question, answer: banked.answer, accept: banked.accept }
-    if (await sourceCheck(q, channel)) {
+    const verdict = await sourceCheck(q, channel)
+    if (verdict === 'pass') {
       log(`ai-trivia: served "${clean}" from the bank (q${banked.quality}${banked.soft ? ' soft' : ''})`)
       return q
+    }
+    if (verdict === 'error') {
+      // the CHECK broke, not the question — put it back for a healthier moment and fall
+      // through to generation rather than burning more doomed searches.
+      bankTrivia(key, clean, q, banked.quality, banked.soft)
+      log(`ai-trivia: source lens errored on banked "${q.question.slice(0, 50)}" — re-banked`)
+      break
     }
     log(`ai-trivia: source lens refuted banked "${q.question.slice(0, 50)}" (ans: ${q.answer}) — dropped`)
   }
@@ -340,9 +348,16 @@ export async function generateCustomTrivia(
   const refuted = new Set<number>()
   let shipI = -1
   for (const { c, i } of shippable.slice(0, SOURCE_TRIES)) {
-    if (await sourceCheck(c.q, channel)) {
+    const verdict = await sourceCheck(c.q, channel)
+    if (verdict === 'pass') {
       shipI = i
       break
+    }
+    if (verdict === 'error') {
+      // check flake, not a bad question — leave it OUT of `refuted` so it is banked below
+      // and re-judged whenever it next surfaces. never shipped unchecked.
+      log(`ai-trivia: source lens errored on "${c.q.question.slice(0, 50)}" — banked for a re-check`)
+      continue
     }
     refuted.add(i)
     log(`ai-trivia: source lens refuted "${c.q.question.slice(0, 50)}" (ans: ${c.q.answer}) — discarded`)
@@ -742,7 +757,7 @@ export async function verifyPanel(q: CustomTrivia, channel: string, topic = '', 
 // sources instead of another opinion. It runs ONCE per question, at serve time (the fresh
 // winner before it ships, a banked spare before it is served), never on the whole slate —
 // so it costs 1-2 searches per round, not per candidate.
-const SOURCE_TIMEOUT = 30_000 // a search round-trips the web; the 12s default is too tight
+const SOURCE_TIMEOUT = 45_000 // searches round-trip the web via code execution; 30s timed out live
 const SOURCE_TRIES = 2 // refuted winner -> promote the runner-up once, then fall back free
 const WEB_SEARCH_TOOL = [{ type: 'web_search_20260209', name: 'web_search', max_uses: 2 }]
 
@@ -757,13 +772,17 @@ Search the web (1-2 searches) for the question's central factual claim. Then jud
 After searching, reply with ONLY this JSON:
 {"check":"<what you searched + what the sources said, 1-2 sentences>","ok":true|false}`
 
-/** true = the question's claims are source-confirmed (or checking is impossible right now
- * and blocking would kill the only working path). false = refuted or unconfirmable. */
-export async function sourceCheck(q: CustomTrivia, channel: string): Promise<boolean> {
-  if (!API_KEY) return true // can't check without a key; same posture as the panel
+/** 'pass' = source-confirmed (or checking is impossible right now and blocking would kill
+ * the only working path). 'fail' = the sources refuted it — discard forever. 'error' = the
+ * CHECK broke (timeout/API flake), which says nothing about the question — never ship it
+ * unchecked, but keep it banked so a healthier moment can re-judge it. */
+export type SourceVerdict = 'pass' | 'fail' | 'error'
+
+export async function sourceCheck(q: CustomTrivia, channel: string): Promise<SourceVerdict> {
+  if (!API_KEY) return 'pass' // can't check without a key; same posture as the panel
   // during a hard stop the bank is the only trivia source left alive — a fail-closed gate
   // here would silence it for the whole outage. serve unchecked, re-gate when the API is back.
-  if (isHardStopped()) return true
+  if (isHardStopped()) return 'pass'
   const answers = [q.answer, ...q.accept.filter((a) => a.toLowerCase() !== q.answer.toLowerCase())].join(' / ')
   const text = await callApi(
     SOURCE_SYSTEM,
@@ -774,15 +793,15 @@ export async function sourceCheck(q: CustomTrivia, channel: string): Promise<boo
     'ai-trivia:source',
     { tools: WEB_SEARCH_TOOL, timeoutMs: SOURCE_TIMEOUT },
   )
-  // fail closed on timeout/parse failure: a deterministic fallback round beats a maybe-wrong
-  // one, and "never wrong" is the whole point of this lens.
-  if (!text) return false
+  // still fail closed for SHIPPING — an errored check never lets a question through. the
+  // caller just treats it as "unjudged" rather than "wrong" when deciding what to keep.
+  if (!text) return 'error'
   const json = extractFirstJson(text)
-  if (!json) return false
+  if (!json) return 'error'
   try {
-    return (JSON.parse(json) as { ok?: unknown }).ok === true
+    return (JSON.parse(json) as { ok?: unknown }).ok === true ? 'pass' : 'fail'
   } catch {
-    return false
+    return 'error'
   }
 }
 
