@@ -1241,6 +1241,27 @@ describe('kripp channel-scoped pack', () => {
     }
   })
 
+  it('explicit kripp category never serves a scene-lore question', () => {
+    // the reynad/bazaar entries carry subject:'scene' — they stay in the ambient mix
+    // but must never answer an explicit "trivia about kripp" ask (reads as ignored topic)
+    setKrippPackForTest([...pack, { question: "reynad's real first name?", answer: 'Andrey', accept: ['andrey'], subject: 'scene' }])
+    for (let i = 0; i < 100; i++) {
+      resetForTest()
+      startTrivia('mellen', 'kripp')
+      const g = getActiveGameForTest('mellen')!
+      expect(g.questionType).toBe(20)
+      expect(g.question.toLowerCase()).not.toContain('reynad')
+    }
+  })
+
+  it('explicit kripp ask with an all-scene pack still lands a round (full-pack fallback)', () => {
+    setKrippPackForTest([{ question: "reynad's real first name?", answer: 'Andrey', accept: ['andrey'], subject: 'scene' }])
+    resetForTest()
+    startTrivia('mellen', 'kripp')
+    const g = getActiveGameForTest('mellen')!
+    expect(g.questionType).toBe(20)
+  })
+
   it('kripp category in a non-kripp channel falls back to a normal question', () => {
     setKrippPackForTest(pack)
     resetForTest()

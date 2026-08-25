@@ -199,7 +199,8 @@
         "andrey yanyuk"
       ],
       "difficulty": "medium",
-      "category": "bazaar"
+      "category": "bazaar",
+      "subject": "scene"
     },
     {
       "question": "the bazaar is made by reynad's org — name it (also an old hearthstone team)?",
@@ -210,7 +211,8 @@
         "tempo"
       ],
       "difficulty": "medium",
-      "category": "bazaar"
+      "category": "bazaar",
+      "subject": "scene"
     },
     {
       "question": "before hearthstone, which card game did reynad compete in?",
@@ -222,7 +224,8 @@
         "magic: the gathering"
       ],
       "difficulty": "medium",
-      "category": "bazaar"
+      "category": "bazaar",
+      "subject": "scene"
     },
     {
       "question": "the bazaar started as a crowdfunding campaign on which platform?",
@@ -233,7 +236,8 @@
         "indigogo"
       ],
       "difficulty": "medium",
-      "category": "bazaar"
+      "category": "bazaar",
+      "subject": "scene"
     },
     {
       "question": "in kripp's d3 hardcore inferno world-first, which class did HE play?",
@@ -398,7 +402,8 @@
         "byron reckful bernstein"
       ],
       "difficulty": "hard",
-      "category": "hs-competitive"
+      "category": "hs-competitive",
+      "subject": "scene"
     },
     {
       "question": "kripp's wow character was what race and class?",
@@ -436,7 +441,7 @@
       "category": "wow"
     },
     {
-      "question": "ironman rules cap your gear at what item quality?",
+      "question": "kripp's wow ironman challenge caps your gear at what item quality?",
       "answer": "white and grey only",
       "accept": [
         "white and grey",
@@ -453,7 +458,7 @@
       "category": "wow"
     },
     {
-      "question": "the one profession/secondary skill allowed in the ironman challenge is?",
+      "question": "the one profession/secondary skill allowed in kripp's wow ironman challenge is?",
       "answer": "first aid",
       "accept": [
         "first aid",
@@ -621,7 +626,8 @@
         "april 6, 2018"
       ],
       "difficulty": "medium",
-      "category": "bazaar-dev"
+      "category": "bazaar-dev",
+      "subject": "scene"
     },
     {
       "question": "which three heroes were the bazaar's original/launch roster?",
@@ -635,7 +641,8 @@
         "dooley vanessa pygmalien"
       ],
       "difficulty": "medium",
-      "category": "bazaar-dev"
+      "category": "bazaar-dev",
+      "subject": "scene"
     },
     {
       "question": "reynad cited which two deckbuilders as inspirations for the bazaar?",
@@ -647,7 +654,8 @@
         "star realms and ascension"
       ],
       "difficulty": "hard",
-      "category": "bazaar-dev"
+      "category": "bazaar-dev",
+      "subject": "scene"
     },
     {
       "question": "reynad was born in which country before moving to minnesota at age 6?",
@@ -658,7 +666,8 @@
         "the ukraine"
       ],
       "difficulty": "hard",
-      "category": "reynad-games"
+      "category": "reynad-games",
+      "subject": "scene"
     },
     {
       "question": "what year did reynad found tempo storm?",
@@ -668,7 +677,8 @@
         "may 2014"
       ],
       "difficulty": "medium",
-      "category": "reynad-games"
+      "category": "reynad-games",
+      "subject": "scene"
     },
     {
       "question": "reynad won the first streamed hearthstone arena tournament (may 2013) — name it",
@@ -679,7 +689,8 @@
         "the lord of the arena"
       ],
       "difficulty": "hard",
-      "category": "reynad-games"
+      "category": "reynad-games",
+      "subject": "scene"
     },
     {
       "question": "which forbes list did reynad make in 2017 as tempo storm's founder?",
@@ -692,7 +703,8 @@
         "gaming"
       ],
       "difficulty": "medium",
-      "category": "reynad-games"
+      "category": "reynad-games",
+      "subject": "scene"
     },
     {
       "question": "kripp's first hearthstone team (liquid value) won season 1 of which early online hs show run by the now-defunct esgn network?",
@@ -945,7 +957,8 @@
         "pygmalien"
       ],
       "difficulty": "hard",
-      "category": "reynad-bazaar"
+      "category": "reynad-bazaar",
+      "subject": "scene"
     },
     {
       "question": "stelle, the bazaar's engineer/pilot hero, is built around what keyword mechanic that puts her items in the air?",
@@ -955,7 +968,8 @@
         "fly"
       ],
       "difficulty": "hard",
-      "category": "reynad-bazaar"
+      "category": "reynad-bazaar",
+      "subject": "scene"
     },
     {
       "question": "in the bazaar you don't fight live opponents — you battle async copies of other players' boards, called what?",
@@ -966,7 +980,8 @@
         "ghost data"
       ],
       "difficulty": "hard",
-      "category": "reynad-bazaar"
+      "category": "reynad-bazaar",
+      "subject": "scene"
     },
     {
       "question": "the bazaar's merchant hero pygmalien hails from which fictional empire in the game's world?",
@@ -978,7 +993,8 @@
         "the jaballa empire"
       ],
       "difficulty": "hard",
-      "category": "reynad-bazaar"
+      "category": "reynad-bazaar",
+      "subject": "scene"
     },
     {
       "question": "kripp hoarded duplicate cards for years, refusing to disenchant. which hearthstone game director said hitting that button before tgt 'would have brought down hearthstone'?",

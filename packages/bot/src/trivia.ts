@@ -24,7 +24,10 @@ import { join } from 'path'
 // these are curated, adversarially fact-checked real-world facts about the streamer,
 // only ever mixed into THAT streamer's channel. accuracy is non-negotiable (they show
 // in his own chat), so the pack is human-vetted before a channel is switched on.
-interface PackQ { question: string; answer: string; accept: string[]; difficulty?: string }
+// subject: 'scene' marks adjacent lore (reynad, tempo, the bazaar itself) that belongs in
+// the ambient channel mix but NOT in an explicit "trivia about kripp" ask — serving a
+// reynad question there reads as the bot ignoring the topic. absent = about kripp himself.
+interface PackQ { question: string; answer: string; accept: string[]; difficulty?: string; subject?: string }
 // channels that get the kripp pack mixed in. add a channel here only after vetting.
 const KRIPP_CHANNELS = new Set<string>(['mellen', 'nl_kripp']) // vetted + shipped
 const KRIPP_MIX = 0.3 // ~30% of un-categorized rounds in a kripp channel are kripp questions
@@ -260,7 +263,7 @@ export function setSay(fn: SayFn) {
 }
 
 // question generators
-type QuestionGen = () => { question: string; answer: string; accepted: string[]; type: number } | null
+type QuestionGen = (category?: TriviaCategory) => { question: string; answer: string; accepted: string[]; type: number } | null
 
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
@@ -619,9 +622,18 @@ function genItemCarrierQuestion(): ReturnType<QuestionGen> {
 
 // type 20: channel-scoped streamer trivia (kripp pack). only reachable in KRIPP_CHANNELS
 // via pickQuestionType — never fires elsewhere. answer matching reuses norm() + accept[].
-function genKrippQuestion(): ReturnType<QuestionGen> {
+// an explicit kripp ask ("!trivia kripp(arrian)") serves only questions ABOUT kripp —
+// the scene-lore entries (reynad, tempo, the bazaar) stay in the ambient mix, where a
+// question with no kripp in it doesn't read as an ignored topic. falls back to the full
+// pack if the subject pool is ever empty, so an explicit ask can never dead-end.
+function genKrippQuestion(category?: TriviaCategory): ReturnType<QuestionGen> {
   if (krippPack.length === 0) return null
-  const q = pickRandom(krippPack)
+  let pool = krippPack
+  if (category === 'kripp') {
+    const subjectOnly = krippPack.filter((p) => (p.subject ?? 'kripp') === 'kripp')
+    if (subjectOnly.length > 0) pool = subjectOnly
+  }
+  const q = pickRandom(pool)
   return {
     question: q.question,
     answer: q.answer,
@@ -1030,7 +1042,7 @@ export function startTrivia(channel: string, category?: TriviaCategory): string 
   let attempts = 0
   while (!q && attempts < 20) {
     lastTypeIdx = pickQuestionType(channel, category)
-    const candidate = generators[lastTypeIdx]()
+    const candidate = generators[lastTypeIdx](category)
     if (candidate && !recentQ.includes(candidate.question)) q = candidate
     attempts++
   }
