@@ -6,8 +6,10 @@ import { unlinkSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
-// env must be set before auth/index are imported (they read it at module load)
-process.env.TWITCH_EXTENSION_SECRET ||= 'dGVzdA=='
+// env must be set before auth/index are imported (they read it at module load).
+// hard assignment, not ||= — bun auto-loads .env, and tests must never run
+// against a real extension secret (atob also rejects non-base64 values)
+process.env.TWITCH_EXTENSION_SECRET = 'dGVzdA=='
 process.env.COMPANION_SECRET = 'test-master-secret-value-do-not-ship'
 
 const TEST_DIR = join(tmpdir(), `bzi-rotation-test-${process.pid}`)

@@ -145,7 +145,7 @@ describe('JWT exp guard (#27 fail-closed on missing/zero/non-numeric exp)', () =
 
 describe('verifyCompanionSecret (per-channel only)', () => {
   it('accepts the derived per-channel secret, rejects the master and mismatches', async () => {
-    process.env.TWITCH_EXTENSION_SECRET ||= 'dGVzdA=='
+    process.env.TWITCH_EXTENSION_SECRET = 'dGVzdA=='
     process.env.COMPANION_SECRET = 'test-master-secret-value-do-not-ship'
     // first load of auth in this process — env must be set before import
     const { verifyCompanionSecret, deriveChannelSecret, getCompanionSecret } = await import('./auth')
