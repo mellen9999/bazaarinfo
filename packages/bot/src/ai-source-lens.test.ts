@@ -74,13 +74,15 @@ describe('sourceCheck — web-grounded gate on the shipped question', () => {
   })
 
   it('waves the question through during a hard stop — the bank must survive an outage', async () => {
-    let called = false
-    globalThis.fetch = (async () => {
-      called = true
+    // scope the assertion to the anthropic API — noteHardStop fires an ntfy alert
+    // through the same global fetch when a topic is configured (real .env on prod boxes)
+    let apiCalled = false
+    globalThis.fetch = (async (url: Parameters<typeof fetch>[0]) => {
+      if (String(url).includes('api.anthropic.com')) apiCalled = true
       return new Response('should not be reached', { status: 500 })
     }) as typeof fetch
     noteHardStop(401, 'authentication_error')
     expect(await sourceCheck(Q, '#test')).toBe('pass')
-    expect(called).toBe(false)
+    expect(apiCalled).toBe(false)
   })
 })
