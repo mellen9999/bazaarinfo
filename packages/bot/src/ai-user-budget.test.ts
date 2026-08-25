@@ -5,6 +5,9 @@ import { describe, expect, it, beforeEach } from 'bun:test'
 // left a single chatter free to fan out four unattended days of trivia generation
 // before the monthly console wall caught it. One account must run out of AI for the
 // day long before the whole bot does.
+// hard-set before import (module-load read) — bun auto-loads .env, and prod boxes
+// deliberately run with the cap OFF (0); the test must exercise the default, not prod cfg
+delete process.env.USER_DAILY_AI_CAP
 const { USER_DAILY_AI_CAP, noteUserAiRequest, isUserOverDailyAiCap, resetUserAiBudgetForTests } = await import('./ai-cache')
 
 describe('per-user daily AI budget', () => {
