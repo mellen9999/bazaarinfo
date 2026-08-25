@@ -372,7 +372,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         const u = parsed.data.usage
         const cw = u?.cache_creation_input_tokens ?? 0
         const cr = u?.cache_read_input_tokens ?? 0
-        if (u) db.recordAiSpend(ctx.channel, u.input_tokens ?? 0, u.output_tokens ?? 0, cr, cw)
+        if (u) {
+          db.recordAiSpend(ctx.channel, u.input_tokens ?? 0, u.output_tokens ?? 0, cr, cw)
+          db.recordAiSpendBySource('chat', u.input_tokens ?? 0, u.output_tokens ?? 0, cr, cw)
+        }
         if (cw || cr) log(`ai: cache read=${cr} write=${cw} uncached=${u?.input_tokens ?? 0}`)
       } catch {}
       return { status: 200, data: parsed.data }
