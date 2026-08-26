@@ -115,6 +115,16 @@ describe('parseGen — person/chat trivia post-parse gate', () => {
     expect(parseGen('{"ok":false}')).toEqual({ ok: false, retry: true })
     expect(parseGen('not json at all')).toEqual({ ok: false, retry: true })
   })
+
+  // Live regression, 2026-08-25. "!trivia The tidolar crime family" shipped a yes/no
+  // question and revealed "time's up! answer: false" — a coin flip the whole room wins
+  // by guessing, and a reveal that reads as a bug. Never a real trivia answer.
+  it('rejects a yes/no or true/false answer', () => {
+    for (const a of ['false', 'True', 'yes', 'No.']) {
+      const r = parseGen(`{"ok":true,"question":"Does the Tidolar mob share its name with one of New York's Five Families?","answer":"${a}","accept":["${a}"]}`)
+      expect(r).toEqual({ ok: false, retry: true })
+    }
+  })
 })
 
 

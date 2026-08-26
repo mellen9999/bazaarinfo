@@ -7,7 +7,8 @@ import { snapshotSchedule, resolveScheduleChannel } from './schedule-query'
 import { formatSchedule, formatLastStream, isScheduleQuery, isPastStreamQuery, withTitleOverride } from './schedule'
 import { getChannelTitle } from './channel-title'
 import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, recentAnswerList, isRecentAnswer, startKrippTrivia, startFallbackTrivia, startQuizCultureTrivia, setRoundEndHook} from './trivia'
-import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, generateGameTrivia, type CustomTrivia } from './ai-trivia'
+import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, generateGameTrivia, generateLoreTrivia, type CustomTrivia } from './ai-trivia'
+import { buildLoreDossier, isKnownChatter } from './lore'
 import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
@@ -1415,23 +1416,8 @@ const PERSON_TOPIC_RE = /^@([a-z0-9_]{2,25})$/i
 // channel, and there must be a real dossier; anything short of all three falls through to
 // the normal topic path.
 const BARE_NAME_RE = /^[a-z0-9_]{3,25}$/i
-const BARE_NAME_WINDOW = '-6 hours'
-// A bare word is a PERSON only when chat would recognise the name. Two ways to earn that:
-// they just chatted, or they are a regular here. The second half is what makes
-// "!trivia <name>" work for someone watching without typing right now.
-//
-// Kept to REGULARS deliberately. A bare name is also a world topic — "matrix", "jojos",
-// "kripparrian" all came through in one minute of real chat — and a stranger with three
-// messages must never hijack one of those into a quiz about themselves.
-const REGULAR_MSGS = 200
-function isKnownChatter(name: string, channel: string): boolean {
-  try {
-    if (db.userChattedSince(name, channel, BARE_NAME_WINDOW)) return true
-    return (db.getUserStats(name, channel)?.chat_messages ?? 0) >= REGULAR_MSGS
-  } catch {
-    return false
-  }
-}
+// isKnownChatter lives in lore.ts — the lore gate needs the same "would chat recognise this
+// name" test, and it must mean exactly one thing.
 
 // on the `!b` path, @mentions are stripped out of the command text before dispatch (they
 // survive only in the suffix tag), so "!b trivia about @x" reaches us as topic "about".
@@ -1708,6 +1694,24 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
           return withSuffix(`couldn't cook that exact one — bazaar question instead: ${startTrivia(channel)}`, suffix)
         }
         return withSuffix(startCustomTrivia(channel, q), suffix)
+      }
+      // a topic that is this channel's OWN in-joke ("the tidolar crime family") is not
+      // world knowledge — the model has never heard of it and invents a plausible-sounding
+      // answer nobody in chat can win. ask our log instead. the gate is deliberately tight
+      // (see lore.ts): when it doesn't fire we drop straight through to the world path
+      // below unchanged, so a real world topic is never hijacked.
+      const lore = buildLoreDossier(t, channel)
+      if (lore) {
+        const lq = await generateLoreTrivia(lore.text, t, channel, avoid, avoidAnswers)
+        if (lq && !isRecentQuestion(channel, lq.question) && !isRecentAnswer(channel, lq.answer)) {
+          return withSuffix(startCustomTrivia(channel, lq), suffix)
+        }
+        // do NOT fall through to the world model. the gate that got us here means this is
+        // chat's own in-joke, and the world model has nothing true to say about one — it
+        // fabricates, confidently, which is the whole reason this path exists. same call
+        // the game path makes: a real bazaar round, labeled, rather than an invention.
+        log(`trivia: lore round for "${t}" produced nothing — serving a bazaar round instead`)
+        return withSuffix(`couldn't cook that exact one — bazaar question instead: ${startTrivia(channel)}`, suffix)
       }
       // the freshness gate is handed DOWN rather than applied here: a round verifies
       // several candidates and ships one, so a repeat is answered by walking to the next

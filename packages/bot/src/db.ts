@@ -47,6 +47,7 @@ let stmts: {
   maxSessionId: Statement
   searchFTS: Statement
   searchFTSByUser: Statement
+  termFootprint: Statement
   searchPastaFTS: Statement
   recentAsks: Statement
   searchAskFTS: Statement
@@ -206,6 +207,14 @@ function prepareStatements() {
        JOIN chat_messages cm ON cm.id = chat_fts.rowid
        WHERE chat_fts MATCH ? AND cm.channel = ? AND LOWER(cm.username) = ?
        ORDER BY bm25(chat_fts), cm.created_at DESC LIMIT ?`,
+    ),
+    // how big a term's footprint in this channel is — the evidence that something is
+    // CHANNEL LORE rather than a word chat happens to use. no LIMIT: the counts are the
+    // whole point, and the FTS index makes even a 40k-hit term a single scan of matches.
+    termFootprint: db.prepare(
+      `SELECT COUNT(*) AS msgs, COUNT(DISTINCT LOWER(cm.username)) AS users, MIN(cm.created_at) AS first_seen
+       FROM chat_fts JOIN chat_messages cm ON cm.id = chat_fts.rowid
+       WHERE chat_fts MATCH ? AND cm.channel = ?`,
     ),
     recentAsks: db.prepare(
       `SELECT query, response, created_at FROM ask_queries
@@ -1364,6 +1373,18 @@ export function searchPastaFTS(channel: string, query: string, minLen = 180, min
     return stmts.searchPastaFTS.all(query, channel, minLen, minReps, limit) as PastaRow[]
   } catch {
     return []
+  }
+}
+
+export interface TermFootprint { msgs: number; users: number; firstSeen: string | null }
+
+/** how often, by how many people, and since when this channel has said something. See termFootprint. */
+export function chatTermFootprint(channel: string, ftsQuery: string): TermFootprint {
+  try {
+    const r = stmts.termFootprint.get(ftsQuery, channel) as { msgs: number; users: number; first_seen: string | null } | null
+    return { msgs: r?.msgs ?? 0, users: r?.users ?? 0, firstSeen: r?.first_seen ?? null }
+  } catch {
+    return { msgs: 0, users: 0, firstSeen: null }
   }
 }
 

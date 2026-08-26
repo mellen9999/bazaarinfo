@@ -72,6 +72,10 @@ const mockGetLastTriviaResult = mock<(channel: string) => { question: string; an
 const mockUserChattedSince = mock<(user: string, channel: string, since?: string) => boolean>(() => false)
 
 const mockGetUserStats = mock<(u: string, ch?: string) => unknown>(() => null)
+// channel-lore sources — empty by default so a world topic is never hijacked into a
+// chat-recall question; the lore tests seed them.
+const mockSearchPastaFTS = mock<(...args: any[]) => { message: string; reps: number }[]>(() => [])
+const mockChatTermFootprint = mock<(...args: any[]) => unknown>(() => ({ msgs: 0, users: 0, firstSeen: null }))
 mock.module('./db', () => ({
   ptDay: () => '2026-01-01',
   logCommand: mockLogCommand,
@@ -84,6 +88,8 @@ mock.module('./db', () => ({
   getUserMessages: mockGetUserMessages,
   getUserTopItems: mockGetUserTopItems,
   userChattedSince: mockUserChattedSince,
+  searchPastaFTS: mockSearchPastaFTS,
+  chatTermFootprint: mockChatTermFootprint,
   getChannelLeaderboard: mock(() => []),
   getTriviaLeaderboard: mock(() => []),
   createTriviaGame: mock(() => 1),
@@ -181,11 +187,17 @@ const mockGenerateGameTrivia = mock(async (_dossier: string, _topic: string) => 
   answer: 'gans',
   accept: ['gans'],
 }))
+const mockGenerateLoreTrivia = mock(async (_dossier: string, _topic: string) => ({
+  question: 'who does the pasta accuse?',
+  answer: 'mellen',
+  accept: ['mellen', '@mellen'],
+}))
 mock.module('./ai-trivia', () => ({
   generateCustomTrivia: mockGenerateCustomTrivia,
   generateChatTrivia: mockGenerateChatTrivia,
   generatePersonTrivia: mockGeneratePersonTrivia,
   generateGameTrivia: mockGenerateGameTrivia,
+  generateLoreTrivia: mockGenerateLoreTrivia,
 }))
 
 // directive-plant AI gate — mocked so tests never hit the API. default returns a valid
@@ -2388,6 +2400,11 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     mockStartFallbackTrivia.mockImplementation(() => 'Trivia! fallback question (30s)') // default: pack loaded
     mockGenerateGameTrivia.mockClear()
     mockGenerateGameTrivia.mockImplementation(async () => ({ question: 'game q?', answer: 'gans', accept: ['gans'] }))
+    mockGenerateLoreTrivia.mockClear()
+    mockGenerateLoreTrivia.mockImplementation(async () => ({ question: 'who does the pasta accuse?', answer: 'mellen', accept: ['mellen'] }))
+    mockSearchPastaFTS.mockClear()
+    mockSearchPastaFTS.mockImplementation(() => [])
+    mockUserChattedSince.mockImplementation(() => false)
     // game-dossier sources — not covered by the global reset; restore defaults so a
     // fixture seeded in one test can't leak game-topic detection into the next.
     mockGetItems.mockReset()
@@ -2396,6 +2413,43 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     mockGetMonsters.mockImplementation(() => [])
     mockGetHeroNames.mockReset()
     mockGetHeroNames.mockImplementation(() => [])
+  })
+
+  // Live regression, 2026-08-25. "!trivia The tidolar crime family" reached the
+  // world-knowledge model, which invented a Sopranos mob and revealed "answer: false".
+  // tidolar is a regular and the crime family is a chat copypasta — our own log had it.
+  describe('channel lore', () => {
+    const PASTA = 'MANY PEOPLE ARE SAYING THAT mellen (NAMED AFTER A FRUIT?) IS WORKING WITH THE TRICKY-TIDOLAR CRIME FAMILY! SAD!!'
+    const seedLore = () => {
+      mockUserChattedSince.mockImplementation((u: string) => u.toLowerCase() === 'tidolar')
+      mockSearchPastaFTS.mockImplementation(() => [{ message: PASTA, reps: 28 }])
+    }
+
+    it("a chat in-joke is answered from chat's own history, not the world model", async () => {
+      seedLore()
+      const res = await handleCommand('!b trivia The tidolar crime family', { user: 'u', channel: 'ct-lore1' })
+      expect(mockGenerateLoreTrivia).toHaveBeenCalled()
+      expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+      expect(mockGenerateLoreTrivia.mock.calls[0][0]).toContain('TRICKY-TIDOLAR CRIME FAMILY')
+      expect(res).toBe('Trivia! custom question (30s)')
+    })
+
+    it('a world topic with no chat footprint still goes to the world model', async () => {
+      const res = await handleCommand('!b trivia the sopranos crime family', { user: 'u', channel: 'ct-lore2' })
+      expect(mockGenerateLoreTrivia).not.toHaveBeenCalled()
+      expect(mockGenerateCustomTrivia).toHaveBeenCalled()
+      expect(res).toBe('Trivia! custom question (30s)')
+    })
+
+    it('a lore miss serves a labeled bazaar round — never the world model, which would invent one', async () => {
+      seedLore()
+      mockGenerateLoreTrivia.mockImplementation(async () => null)
+      const res = await handleCommand('!b trivia The tidolar crime family', { user: 'u', channel: 'ct-lore3' })
+      expect(mockGenerateLoreTrivia).toHaveBeenCalled()
+      expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+      expect(res).toContain('bazaar question instead')
+      expect(res).toContain('Trivia! test question')
+    })
   })
 
   it('a hero topic routes to the game-data generator, never the world-knowledge model', async () => {

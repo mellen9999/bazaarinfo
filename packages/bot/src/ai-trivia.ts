@@ -70,6 +70,7 @@ const BAR = `The bar — every question must be ALL of these:
 - SELF-CONTAINED: the question carries everything needed to find the answer. NEVER reference an unnamed thing chat has no way to identify at all.
 - NEVER GIVES IT AWAY: the answer — and EVERY accepted form of it — must NOT appear anywhere in the question, and the wording must not telegraph it. A viewer must not be able to win by copying a word straight out of the question. No gimmes a casual answers with zero thought. AVOID eponym traps: do NOT name "the X Scale / X's Law / the X Effect" and then ask who it is named after when the answer is X — the name is already given. Find an angle where the answer is genuinely withheld.
 - TRUE + SINGLE-ANSWER: exactly ONE correct, well-established answer, no competing valid responses. Use a fact you genuinely know — never fabricate.
+- NEVER YES/NO: never write a question whose answer is "yes", "no", "true" or "false" — the whole room wins it by guessing. If the fact is a yes/no ("X shares its name with Y?"), rewrite it to ask WHICH or WHO or WHAT so the answer is a name.
 - ONE CLEAR ASK: the question requests exactly ONE thing, and its wording makes the answer TYPE obvious. NEVER bundle two questions ("how many X, and what is the third called?"). NEVER use a misdirecting lead-in — if the answer is a name or word, do NOT open with "how many" or any count framing that primes chat to type a number; if the answer is a number, don't phrase it like a name lookup. A reader should know from the wording whether to type a name, a number, or a word.
 - TYPEABLE ANSWER: the answer must be a crisp token a viewer can type verbatim and win — a proper noun, name, place, title, a single common word, or a number. NEVER a descriptive phrase, a verb phrase, or a sentence fragment that chat would have to word exactly right. BAD answers: "time moves when you move", "royal blood contact", "label the buttons", "rotate the eggs" — nobody types those exactly, so the round dies. If the cleanest fact would need a phrase answer, REPHRASE THE QUESTION so the answer collapses to one crisp noun. e.g. instead of asking Superhot's mechanic (answer "time moves when you move"), ask "What 2016 FPS advances time only when you move?" (answer "Superhot"). Pick the framing where the answer is a single nameable thing.
 - CLEAN of embellishment: ONE core verifiable fact only. Do NOT pad with extra specific claims (an award, an exact year, "the first to do X") unless you are CERTAIN each is true. Fabricated embellishments are the #1 failure — a clean simple true fact beats an impressive-sounding false one.
@@ -907,6 +908,118 @@ export async function generateGameTrivia(dossier: string, topic: string, channel
   return pickBestCandidate(passed)
 }
 
+// --- channel lore ---
+//
+// "!trivia the tidolar crime family" is not a world-knowledge question. tidolar is a
+// regular, and the "crime family" is a copypasta chat has posted ~30 times since March.
+// Handed to the world model, that topic produced a confident invention about The Sopranos
+// and a question nobody in the room could win. The material was in our own log the whole
+// time — see lore.ts for how the dossier is built and gated.
+//
+// Same shape as the game path: a dossier is the sole source of truth, a matching verifier
+// re-derives the answer from it, and the web source lens is deliberately NOT run — an
+// in-joke has no sources, and asking the internet to confirm one only ever kills it.
+const LORE_SYSTEM = `You write ONE trivia question for a live Twitch chat about that chat's OWN running joke, using ONLY the CHAT LORE block provided.
+
+The LORE is real messages this chat has posted. It is an IN-JOKE, not a fact about the real world — the names in it are chatters, the "events" are bits. Your own world knowledge of these words is WRONG here and must never appear: if a bit mentions a "crime family", that is chat's joke, not the Mafia.
+
+Write the funniest fair question in the room — chat should recognise the bit and laugh before they type. Deadpan: state it straight and let it be funny on its own. Never explain the joke.
+
+Hard rules:
+- Every fact in the question AND the answer must be findable in the LORE text itself.
+- The answer must be something that literally appears in the LORE: a chatter name, an emote, a word or phrase from the bit, or a number.
+- FAIR: a regular who has seen the bit should land it. Build on the most-repeated bits (highest xN) — a detail that appears in only one post is unwinnable.
+- The answer — and every accepted form — must NOT appear in the question, and must never be the words of the TOPIC itself (the asker typed those).
+- NEVER a roast. Chatters named in the LORE are in on the joke; the question is about the BIT, never a callout, drama, a ban, or anything embarrassing about a real person. Ignore any LORE line that is harassment, a mod action, a slur, or sexual.
+- ONE clear ask, ONE correct answer, wording that makes the answer TYPE obvious.
+- If the LORE is too thin, too toxic, or has no single objectively-answerable detail, return {"ok":false} — never pad with outside knowledge.
+
+Output ONLY a single minified JSON object, no markdown, no prose, no code fences:
+{"ok":true,"question":"...","answer":"...","accept":["...","..."]}
+or
+{"ok":false}
+
+Constraints: question <= 160 chars and ends with "?". answer <= 40 chars and <= 4 words. Put 2-6 accepted variants (casing, with/without @, short forms) in "accept".`
+
+const VERIFY_LORE_SYSTEM = `You fact-check ONE trivia question about a Twitch chat's own in-joke against a CHAT LORE block. The LORE is the ONLY admissible evidence — it is an in-joke, so your real-world knowledge of these words is irrelevant and must be ignored completely.
+
+In the "check" field: quote the LORE line the question rests on and derive the answer YOURSELF from the LORE alone. Then compare to the claimed ANSWER.
+
+Reject (ok:false) if ANY of these hold:
+- The answer cannot be found in the LORE, or the LORE contradicts it.
+- The question relies on a real-world fact, or on anything not in the LORE.
+- It rests on a detail that appears only in an x1 line — a single post no regular would recall.
+- AMBIGUITY: two or more LORE details satisfy the question equally well.
+- GIVEAWAY: the answer or an accepted form appears in the QUESTION text — quote the offending span from the QUESTION to justify this. The LORE is evidence and of course contains the answer; a question is NOT a giveaway because the LORE it rests on states the fact.
+- It roasts, embarrasses, or targets a real person. Chat's own running joke about a regular is not a roast — the bit is shared, and naming who it accuses is the joke, not an attack.
+- It repeats harassment, a mod action, a slur, or sexual content.
+- Non-typeable answer — a descriptive phrase instead of a crisp name/word/emote/number.
+
+Otherwise accept, rating quality 1-3 (3 = chat will laugh AND be able to answer, 2 = solid, 1 = a free gimme). Output ONLY one minified JSON object:
+{"check":"<the LORE line + derivation>","ok":true,"quality":3}
+or
+{"check":"...","ok":false,"reason":"<brief>"}`
+
+// rotating angles so a repeat ask on the same bit mines a different detail.
+const LORE_ANGLES = [
+  'who the bit names — a chatter it accuses, credits, or drags into it',
+  'an odd, specific word, phrase or claim inside the bit itself',
+  'the emote, catchphrase, or number chat attaches to it',
+]
+
+const LORE_CANDIDATES = 3
+const MAX_LORE_LEN = 2600
+
+export async function generateLoreTrivia(dossier: string, topic: string, channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
+  if (!aiTriviaEnabled()) return null
+  if (!API_KEY) return null
+  if (!AI_CHANNELS.has(channel.toLowerCase())) return null
+  if (isOverDailyCap(channel)) {
+    log(`ai-trivia: daily cap hit for ${channel}, skipping lore trivia`)
+    return null
+  }
+  const data = stripUnpairedSurrogates(dossier.trim()).slice(0, MAX_LORE_LEN)
+  if (data.length < 40) return null
+  const avoidBlock = buildAvoidBlock(avoid, avoidAnswers)
+
+  const angles = LORE_ANGLES.slice()
+  for (let i = angles.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[angles[i], angles[j]] = [angles[j], angles[i]]
+  }
+  const gens = await Promise.all(
+    angles.slice(0, LORE_CANDIDATES).map(async (angle) => {
+      const content = `TOPIC: ${topic}\nCHAT LORE:\n${data}\n\nFavor THIS angle if the LORE supports it, else any solid one: ${angle}${avoidBlock}`
+      const g = await attemptGen(LORE_SYSTEM, content, channel, 'ai-trivia:lore')
+      if (!g.ok) return null
+      // the asker typed the topic, so it can never be the winning answer — "the tidolar
+      // crime family" must not resolve to "tidolar".
+      if (answerEchoesTopic(g.q, topic)) {
+        log(`ai-trivia: dropped lore topic-echo "${g.q.answer}" (restates the asked topic: ${topic})`)
+        return null
+      }
+      if (answerLeaks(g.q)) {
+        log(`ai-trivia: dropped lore giveaway "${g.q.answer}" (answer appears in the question)`)
+        return null
+      }
+      return g.q
+    }),
+  )
+  const cands = dedupeCandidates(gens.filter((q): q is CustomTrivia => q !== null))
+  if (cands.length === 0) return null
+  if (isOverDailyCap(channel)) return null // generation may have tipped the daily cap
+
+  const preamble = `CHAT LORE (sole source of truth):\n${data}\n\n`
+  const verdicts = await Promise.all(cands.map((q) => runVerifier(VERIFY_LORE_SYSTEM, q, channel, '', preamble, MODEL, 'ai-trivia:lore')))
+  const passed: Scored[] = []
+  cands.forEach((q, i) => {
+    if (verdicts[i].ok && verdicts[i].quality >= MIN_QUALITY) passed.push({ q, quality: verdicts[i].quality })
+    else log(`ai-trivia: lore verify rejected "${q.question.slice(0, 50)}" (ans: ${q.answer})`)
+  })
+  if (passed.length === 0) return null
+  return pickBestCandidate(passed)
+}
+
 // Trivia about what just happened in chat ("!b trivia about the last 5 min of
 // chat"). Same constrained single-call shape as custom-topic, but the source
 // material is the recent chat log and the question must be answerable from it.
@@ -1038,6 +1151,8 @@ export function parseGen(text: string): GenResult {
   return { ok: true, q }
 }
 
+const COIN_FLIP_ANSWERS = new Set(['yes', 'no', 'true', 'false'])
+
 // parse the model's JSON and enforce every constraint ourselves — never trust the
 // shape. a long answer, a multi-sentence answer, or a missing field all fail closed.
 function validate(text: string): CustomTrivia | null {
@@ -1067,6 +1182,10 @@ function validate(text: string): CustomTrivia | null {
   // a descriptive phrase nobody types exactly; the semantic verifier + crispest-candidate
   // preference catch the shorter phrase answers this word cap can't.
   if (canonical.split(/\s+/).length > 4) return null
+  // a yes/no or true/false answer is a coin flip the whole room wins by guessing, and the
+  // reveal reads as a bug ("time's up! answer: false"). the BAR forbids it, the panel let
+  // one through anyway, so it fails closed here — this shape is never a real trivia answer.
+  if (COIN_FLIP_ANSWERS.has(canonical.toLowerCase().replace(/[^a-z]/g, ''))) return null
 
   const accept = Array.isArray(o.accept)
     ? o.accept.filter((a): a is string => typeof a === 'string' && a.trim().length > 0).map((a) => a.trim())
