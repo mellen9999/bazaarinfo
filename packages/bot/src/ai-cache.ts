@@ -377,29 +377,39 @@ export function isRepeatAbuse(user: string, query: string): boolean {
 // surfaces (a custom trivia round fans out to ~a dozen calls) bill more than 1 unit.
 // VIP-exempt at the call sites. 0 disables.
 export const USER_DAILY_AI_CAP = Math.max(0, parseInt(process.env.USER_DAILY_AI_CAP ?? '40') || 0)
+// the counter is write-through to sqlite (user_ai_budget). In memory alone, every restart
+// refilled everybody — and with Restart=always a deploy or a crash is routine, so the cap
+// was only ever as long as the current uptime. Memory stays the hot path: sqlite is read
+// once per user per day, written on each bump, and fail-soft on both sides.
 const userAiDay = new Map<string, { day: string; n: number }>()
 
-export function noteUserAiRequest(user: string, weight = 1): void {
-  if (USER_DAILY_AI_CAP === 0) return
-  const day = db.ptDay()
-  const u = user.toLowerCase()
+function userEntry(u: string, day: string): { day: string; n: number } {
   const e = userAiDay.get(u)
-  if (e && e.day === day) e.n += weight
-  else userAiDay.set(u, { day, n: weight })
+  if (e && e.day === day) return e
+  const fresh = { day, n: db.getUserAiUnits(u, day) }
+  userAiDay.set(u, fresh)
   if (userAiDay.size > 5_000) {
     for (const [k, v] of userAiDay) if (v.day !== day) userAiDay.delete(k)
   }
+  return fresh
+}
+
+export function noteUserAiRequest(user: string, weight = 1): void {
+  if (USER_DAILY_AI_CAP === 0) return
+  const u = user.toLowerCase()
+  userEntry(u, db.ptDay()).n += weight
+  db.bumpUserAiUnits(u, weight)
 }
 
 export function isUserOverDailyAiCap(user: string): boolean {
   if (USER_DAILY_AI_CAP === 0) return false
-  const e = userAiDay.get(user.toLowerCase())
-  return e !== undefined && e.day === db.ptDay() && e.n >= USER_DAILY_AI_CAP
+  return userEntry(user.toLowerCase(), db.ptDay()).n >= USER_DAILY_AI_CAP
 }
 
 // exported for tests — the counter is process-global by design.
 export function resetUserAiBudgetForTests(): void {
   userAiDay.clear()
+  db.clearUserAiBudget()
 }
 
 // --- AI trivia kill switch ---

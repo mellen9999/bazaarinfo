@@ -1,5 +1,7 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
 
+import * as db from './db'
+
 // The per-user daily AI budget is the brake every other one deliberately isn't: user
 // cooldown, global cooldown and channel cap are all 0 so busy-chat asks flow, which
 // left a single chatter free to fan out four unattended days of trivia generation
@@ -8,6 +10,8 @@ import { describe, expect, it, beforeEach } from 'bun:test'
 // hard-set before import (module-load read) — bun auto-loads .env, and prod boxes
 // deliberately run with the cap OFF (0); the test must exercise the default, not prod cfg
 delete process.env.USER_DAILY_AI_CAP
+// the budget is write-through to sqlite, so the counter needs a real db to survive a restart
+db.initDb(':memory:')
 const { USER_DAILY_AI_CAP, noteUserAiRequest, isUserOverDailyAiCap, resetUserAiBudgetForTests } = await import('./ai-cache')
 
 describe('per-user daily AI budget', () => {
@@ -44,5 +48,27 @@ describe('per-user daily AI budget', () => {
   it('one user at the cap does not touch anyone else', () => {
     for (let i = 0; i < USER_DAILY_AI_CAP; i++) noteUserAiRequest('spammer')
     expect(isUserOverDailyAiCap('bystander')).toBe(false)
+  })
+
+  it('spend is written through to sqlite, weights included', () => {
+    noteUserAiRequest('triviahead', 10)
+    noteUserAiRequest('triviahead')
+    expect(db.getUserAiUnits('triviahead')).toBe(11)
+  })
+
+  it('a restart does not refill — the count rehydrates from sqlite', () => {
+    // what a previous process left on disk; this process has never seen the name
+    db.bumpUserAiUnits('ghost', USER_DAILY_AI_CAP)
+    expect(isUserOverDailyAiCap('ghost')).toBe(true)
+  })
+
+  it('rehydration is case-insensitive too', () => {
+    db.bumpUserAiUnits('GhOsT2', USER_DAILY_AI_CAP)
+    expect(isUserOverDailyAiCap('ghost2')).toBe(true)
+  })
+
+  it('a persisted row from another day is not today\'s budget', () => {
+    db.bumpUserAiUnits('yesterdayspammer', USER_DAILY_AI_CAP)
+    expect(db.getUserAiUnits('yesterdayspammer', '1999-01-01')).toBe(0)
   })
 })

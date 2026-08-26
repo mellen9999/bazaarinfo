@@ -77,6 +77,8 @@ let stmts: {
   selectAiSpend: Statement
   upsertAiSpendSource: Statement
   totalAiSpend: Statement
+  bumpUserAiUnits: Statement
+  selectUserAiUnits: Statement
 }
 
 function prepareStatements() {
@@ -316,6 +318,11 @@ function prepareStatements() {
     totalAiSpend: db.prepare(
       `SELECT SUM(input_tokens + output_tokens) as tokens, SUM(calls) as calls FROM ai_spend WHERE day = ?`,
     ),
+    bumpUserAiUnits: db.prepare(
+      `INSERT INTO user_ai_budget (user, day, units) VALUES (?, ?, ?)
+       ON CONFLICT(user, day) DO UPDATE SET units = units + excluded.units`,
+    ),
+    selectUserAiUnits: db.prepare(`SELECT units FROM user_ai_budget WHERE user = ? AND day = ?`),
   }
 }
 
@@ -824,6 +831,20 @@ const migrations: (() => void)[] = [
       cache_write_tokens INTEGER NOT NULL DEFAULT 0,
       calls INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (day, source)
+    )`)
+  },
+
+  // migration 26: the per-user daily AI budget, persisted. It used to live only in a Map,
+  // so every restart handed the whole chat a fresh 40 units — the one behaviour a spend
+  // ceiling cannot have, since restarts are routine (deploys, crashes, Restart=always).
+  // One row per (user, PT day); pruned weekly. `units` is weighted, not a call count —
+  // a custom trivia round bills 10.
+  () => {
+    db.run(`CREATE TABLE user_ai_budget (
+      user TEXT NOT NULL,
+      day TEXT NOT NULL,
+      units INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user, day)
     )`)
   },
 ]
@@ -1646,6 +1667,46 @@ export function recordAiSpendBySource(
     stmts.upsertAiSpendSource.run(ptDay(), source, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
   } catch (e) {
     log(`ai_spend_source write failed: ${e}`)
+  }
+}
+
+// --- per-user daily AI budget (see USER_DAILY_AI_CAP in ai-cache) ---
+// Both halves are fail-soft: a budget the db can't serve degrades to the in-memory
+// counter rather than locking every chatter out of the AI.
+
+export function bumpUserAiUnits(user: string, units: number): void {
+  try {
+    stmts.bumpUserAiUnits.run(user.toLowerCase(), ptDay(), units)
+  } catch (e) {
+    log(`user_ai_budget write failed: ${e}`)
+  }
+}
+
+export function getUserAiUnits(user: string, day = ptDay()): number {
+  try {
+    const row = stmts.selectUserAiUnits.get(user.toLowerCase(), day) as { units: number } | null
+    return row?.units ?? 0
+  } catch (e) {
+    log(`user_ai_budget read failed: ${e}`)
+    return 0
+  }
+}
+
+export function clearUserAiBudget(): void {
+  try {
+    db.run(`DELETE FROM user_ai_budget`)
+  } catch {
+    // test-only reset; a missing table is not worth a log line
+  }
+}
+
+export function pruneOldUserAiBudget(days = 7): void {
+  try {
+    const cutoff = ptDay(new Date(Date.now() - days * 86_400_000))
+    const result = db.run(`DELETE FROM user_ai_budget WHERE day < ?`, [cutoff])
+    if (result.changes > 0) log(`pruned ${result.changes} user_ai_budget rows older than ${days}d`)
+  } catch (e) {
+    log(`user_ai_budget prune error: ${e}`)
   }
 }
 

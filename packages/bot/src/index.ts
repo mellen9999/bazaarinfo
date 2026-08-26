@@ -721,6 +721,7 @@ scheduleDaily(4, async () => {
     db.pruneOldTriviaGames(180)
     db.pruneOldAiSpend(60)
     db.pruneOldAiSpendSource(60)
+    db.pruneOldUserAiBudget(7)
     db.pruneOldTriviaBank(90)
   } catch (e) { log(`daily prune failed: ${e}`) }
   try {

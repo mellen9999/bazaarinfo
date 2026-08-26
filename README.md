@@ -82,6 +82,7 @@ see [`.env.example`](.env.example) for all options. minimum needed:
 | `BOT_ADMINS` | comma-separated admin usernames (full chat control) |
 | `ANTHROPIC_API_KEY` | for AI features (optional) |
 | `AI_TRIVIA` | `1` to let trivia use the AI (off by default — it was the biggest token line-item; without it trivia runs on the deterministic card/quiz packs and costs nothing) |
+| `USER_DAILY_AI_CAP` | per-user AI budget, units per PT day (default `40`, `0` disables). A plain `!b` bills 1, a custom trivia round bills 10, so one chatter gets ~4 rounds a day and can't run the whole show. Persisted in sqlite — a restart doesn't refill it. `AI_VIP` names are exempt. |
 
 ### structure
 

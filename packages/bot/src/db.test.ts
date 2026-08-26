@@ -162,6 +162,12 @@ describe('db', () => {
     expect(db.getUserStats('migsafe')!.trivia_points).toBe(5)
   })
 
+  it('user_ai_budget prunes only rows older than the window', () => {
+    db.bumpUserAiUnits('today', 5)
+    db.pruneOldUserAiBudget(7)
+    expect(db.getUserAiUnits('today')).toBe(5)
+  })
+
   it('migrations are idempotent — ask_misses survives a second initDb run', () => {
     db.logAskMiss({ user: 'alice', channel: 'test' }, 'best shield', 'deadline')
     db.flushWrites()
