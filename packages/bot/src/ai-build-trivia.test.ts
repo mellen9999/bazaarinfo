@@ -67,3 +67,27 @@ describe('triviaStandings budget eviction fix — standings survives a full cont
     expect(r.text).toContain('Vanessa')
   })
 })
+
+describe('third-person stats ask grounds on that chatter\'s real row', () => {
+  // regression: "how many points does <name> have" matched no injection regex, so the model
+  // got zero data and deflected ("no trivia standings loaded for X") while the row existed.
+  it('injects the named chatter\'s real wins/points', () => {
+    const ch = '#target-stats'
+    const gameId = createTriviaGame(ch, 21, 'Q?', 'A')
+    const uid = getOrCreateUser('sourlemonz82')
+    recordTriviaWin(gameId, uid, 4000, 1, 7)
+
+    const r = buildUserMessage('how many points does SourLemonz82 have?', { user: 'h', channel: ch } as any)
+    expect(r.text).toContain('sourlemonz82: 1 wins, 7pts')
+    expect(r.hasStats).toBe(true)
+  })
+
+  it('says plainly when the named chatter has no record instead of guessing', () => {
+    const ch = '#target-unknown'
+    const gameId = createTriviaGame(ch, 21, 'Q?', 'A')
+    recordTriviaWin(gameId, getOrCreateUser('someoneelse'), 4000, 1, 3)
+
+    const r = buildUserMessage('how many points does neverplayed99 have?', { user: 'h', channel: ch } as any)
+    expect(r.text).toContain('neverplayed99: no trivia wins or points on record')
+  })
+})

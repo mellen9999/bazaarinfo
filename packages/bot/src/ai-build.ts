@@ -655,6 +655,36 @@ export const TRIVIA_REF_RE = /\b(fact[\s-]?check\s+(?:that|the|this)?\s*(?:trivi
 // "trivia about winning" does NOT match (no leaderboard/ranking/who/my/how-many keyword present).
 export const STANDINGS_RE = /\b(leaderboard|leaderboards|standings|scoreboard|rankings?|ranked|top\s+(?:players?|scorers?|chatters?|winners?)|who(?:'?s|\s+is|\s+are)?\s+(?:winning|leading|ahead|on\s+top|in\s+(?:the\s+)?lead|first|number\s*one|no\.?\s*1)|am\s+i\s+(?:winning|leading|first|ahead|on\s+top)|where\s+(?:am\s+i|do\s+i\s+(?:rank|stand|place))|my\s+(?:trivia\s+)?(?:rank|ranking|standing|place|points?|score|streak|wins?|stats?)|who(?:\s+has|\s+got|'s\s+got)\s+(?:the\s+)?(?:most|highest|best|top)\s+(?:wins?|points?|scores?)|(?:points?|scores?|wins?)\s+leader|lead(?:er|ing)\s+in\s+(?:points?|wins?|scores?)|how\s+many\s+(?:trivia\s+|my\s+)?(?:wins?|points?|scores?)\s+(?:(?:do|have|got)\s+)?i\b|(?:more|fewer|higher|better)\s+(?:trivia\s+)?(?:wins?|points?|scores?)\s+than)\b/i
 
+// third-person stats ask — "how many points does sourlemonz82 have", "@bob's trivia wins".
+// deliberately narrow: only wins/points/streak wording, never "X's stats" or "where does X
+// rank", which read as the streamer's in-game rating and would drag the trivia board into an
+// answer about hearthstone. STANDINGS_RE only covers first-person ("my points", "how many wins
+// do i have"), so a named-chatter ask injected NOTHING and the bot deflected ("no standings
+// loaded for X") while that chatter's real row sat in the DB. capture groups hold the name.
+const TARGET_NAME = '@?([a-z0-9_]{2,25})'
+export const TARGET_STATS_RE = new RegExp(
+  `\\bhow\\s+many\\s+(?:trivia\\s+)?(?:wins?|points?|scores?)\\s+(?:does|has|did)\\s+${TARGET_NAME}\\b` +
+  `|\\bdoes\\s+${TARGET_NAME}\\s+have\\s+(?:any\\s+)?(?:trivia\\s+)?(?:wins?|points?|scores?)\\b` +
+  `|\\b${TARGET_NAME}['\u2019]s\\s+(?:trivia\\s+)?(?:wins?|points?|streak)\\b`,
+  'i',
+)
+
+// pronouns/determiners sit exactly where a name does ("how many points does IT have") — a
+// lookup on those would be a guaranteed miss reported as a real chatter having no stats.
+const NOT_A_NAME = new Set([
+  'i', 'me', 'my', 'mine', 'you', 'your', 'yours', 'u', 'he', 'him', 'his', 'she', 'her',
+  'they', 'them', 'their', 'we', 'us', 'our', 'it', 'its', 'this', 'that', 'these', 'those',
+  'the', 'a', 'an', 'chat', 'everyone', 'anyone', 'someone', 'nobody', 'each', 'one',
+])
+
+// the matched name, or '' when the query names no one usable.
+export function statsTarget(query: string): string {
+  const m = query.match(TARGET_STATS_RE)
+  if (!m) return ''
+  const name = (m.slice(1).find(Boolean) ?? '').toLowerCase()
+  return NOT_A_NAME.has(name) ? '' : name
+}
+
 // detects @-mention win/point comparisons so both users' stats can be injected
 export const COMPARISON_RE = /\b(?:more|fewer|higher|better)\s+(?:trivia\s+)?(?:wins?|points?|scores?)\s+than\b/i
 
@@ -757,7 +787,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // the real rows so it answers from data, in voice. mirrors the BOT_STATS_RE injection above.
   // STANDINGS_RE is defined at module level (exported for tests).
   let standingsLine = ''
-  if (STANDINGS_RE.test(query)) {
+  const statsTargetUser = statsTarget(query)
+  if (STANDINGS_RE.test(query) || statsTargetUser) {
     try {
       const board = db.getTriviaLeaderboard(ctx.channel, 5)
       if (board.length === 0) {
@@ -773,6 +804,18 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
           parts.push(`${ctx.user}'s trivia: ${me.trivia_wins} wins, ${me.trivia_points}pts${streak}${place}`)
         } else {
           parts.push(`${ctx.user} has no trivia wins yet`)
+        }
+        // named-chatter ask ("how many points does sourlemonz82 have") — inject THEIR real
+        // row so the answer comes from the DB. an unknown name is said plainly; the model is
+        // told not to guess a number, because a made-up score is worse than "no record".
+        if (statsTargetUser && statsTargetUser !== ctx.user.toLowerCase()) {
+          const t = db.getUserStats(statsTargetUser, ctx.channel)
+          const tRank = board.findIndex((l) => l.username.toLowerCase() === statsTargetUser)
+          parts.push(
+            t && (t.trivia_wins > 0 || t.trivia_points > 0)
+              ? `${statsTargetUser}: ${t.trivia_wins} wins, ${t.trivia_points}pts${tRank >= 0 ? `, #${tRank + 1}` : ', outside top 5'}`
+              : `${statsTargetUser}: no trivia wins or points on record — say that plainly, never guess a number`,
+          )
         }
         // @-mention comparison ("do i have more wins than @bob") — inject target's stats
         // using "you: N wins" form so STAT_LEAK ("you have N wins") does NOT blank it.

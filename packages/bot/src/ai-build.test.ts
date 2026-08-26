@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { fitToBudget, nowLine, streamLine, shapeLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE } from './ai-build'
+import { fitToBudget, nowLine, streamLine, shapeLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE, statsTarget } from './ai-build'
 import { markLiveStateKnown, setChannelLive, setChannelOffline, setStreamInfo } from './ai-cache'
 import { META_QUERY_RE } from './intents'
 
@@ -197,6 +197,30 @@ describe('STANDINGS_RE — new intent phrasings ground AI with real leaderboard 
       'am i winning',
       'top players',
     ]) expect(STANDINGS_RE.test(q)).toBe(true)
+  })
+})
+
+describe('statsTarget — asks about another chatter ground on that chatter, not a deflection', () => {
+  it('extracts the named chatter', () => {
+    expect(statsTarget('how many points does SourLemonz82 have?')).toBe('sourlemonz82')
+    expect(statsTarget('how many trivia wins does @bob have')).toBe('bob')
+    expect(statsTarget('does bob have any points')).toBe('bob')
+    expect(statsTarget("@bob's trivia points")).toBe('bob')
+    expect(statsTarget('sourlemonz82\u2019s wins')).toBe('sourlemonz82')
+  })
+
+  it('never treats a pronoun or determiner as a chatter', () => {
+    for (const q of [
+      'how many points does it have',
+      'how many points does the toaster have',
+      'does anyone have points',
+      'how many points do i have',
+    ]) expect(statsTarget(q)).toBe('')
+  })
+
+  it('leaves in-game rating wording to the hearthstone path', () => {
+    expect(statsTarget("kripp's stats")).toBe('')
+    expect(statsTarget('where does kripp rank')).toBe('')
   })
 })
 
