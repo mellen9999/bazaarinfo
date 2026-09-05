@@ -1,7 +1,7 @@
 import { extractFirstJson } from './http'
 import { AI_CHANNELS, isOverDailyCap } from './ai-cache'
 import { anthropicCall, stripUnpairedSurrogates } from './ai-http'
-import { MAX_INSTRUCTION } from './directives'
+import { MAX_INSTRUCTION, listDirectives, type Directive } from './directives'
 import type { SuppressFeature } from './suppress'
 
 // AI gate for chat-planted steering directives. Parses a natural-language plant
@@ -31,6 +31,13 @@ export interface ParsedSuppress {
   minutes?: number
 }
 
+// mod-only: "stop speaking spanish" when chat planted a spanish vibe → drop exactly
+// that vibe (1-based indexes into the numbered ACTIVE VIBES list the parse call saw).
+export interface ParsedUnvibe {
+  kind: 'unvibe'
+  indexes: number[]
+}
+
 const SUPPRESS_FEATURES = new Set<SuppressFeature>(['trivia', 'depths', 'ai', 'all'])
 
 const MOD_SYSTEM = `
@@ -38,7 +45,9 @@ const MOD_SYSTEM = `
 3. MOD PAUSE/RESUME — the asker IS a channel moderator telling the BOT to stop or resume one of its own features because chat is abusing it. Features: "trivia" (trivia rounds), "depths" (the dungeon game), "ai" (the bot's conversational answers), "all" (everything — for a general "quiet down"/"chill"/"take a break"/"you're being too much").
    - pause: {"ok":true,"kind":"suppress","feature":"<feature>","minutes":<from the text; "a bit"=15, "a while"=45, default 30>}
    - resume ("ok trivia is fine again", "you're good now", "wake up"): {"ok":true,"kind":"resume","feature":"<feature or all>"}
-   This is about the bot's OWN behavior. Ignoring/muting a specific named chatter is kind 1 (MUTE), not this. A topic-scoped trivia complaint ("no more digimon trivia") is NOT this — return {"ok":false} and let the topic-ban handle it.`
+   This is about the bot's OWN behavior. Ignoring/muting a specific named chatter is kind 1 (MUTE), not this. A topic-scoped trivia complaint ("no more digimon trivia") is NOT this — return {"ok":false} and let the topic-ban handle it.
+
+4. MOD UNVIBE — the mod wants a currently-active vibe GONE ("stop speaking spanish" while vibe 2 is "answer in spanish", "drop the pirate thing", "enough with that emote gag", "unmute bob"). Match against the ACTIVE VIBES list appended below and return {"ok":true,"kind":"unvibe","indexes":[<the 1-based numbers to remove>]}. Only when the order clearly targets a listed vibe/mute. If the mod orders a behavior change with NO matching active vibe ("stop speaking spanish" but nothing spanish is listed), that's kind 2 STEER restating the order ("speak plain english, no spanish"), not unvibe.`
 
 const SYSTEM =`A Twitch chat user wants to plant a fun, TEMPORARY rule that changes how the bot treats OTHER people. Parse it into JSON. Two kinds:
 
@@ -58,12 +67,29 @@ Return {"ok":false} if it: makes the bot say something insulting, demeaning, moc
 
 Output ONLY the single minified JSON object — no markdown, no commentary, no second/corrected object, nothing before or after it.`
 
-export async function parseDirective(text: string, channel: string, isMod = false): Promise<ParsedDirective | ParsedSuppress | null> {
+// vibesSnapshot: the exact board the caller will resolve unvibe indexes against —
+// passing it through closes the ~9s TOCTOU window where the board could shift
+// (expiry/eviction/new plant) between what the model saw and what gets removed.
+export async function parseDirective(text: string, channel: string, isMod = false, vibesSnapshot?: Directive[]): Promise<ParsedDirective | ParsedSuppress | ParsedUnvibe | null> {
   if (!API_KEY) return null
   if (!AI_CHANNELS.has(channel.toLowerCase())) return null
   if (isOverDailyCap(channel)) return null
   const clean = stripUnpairedSurrogates(text.trim()).slice(0, 200)
   if (clean.length < 8) return null
+
+  // mods see the numbered active-vibe board so "stop speaking spanish" can name
+  // exactly which vibe dies (kind 4). the list is already scrubbed at plant time
+  // (no brackets/newlines can survive scrubInstruction), so it can't forge structure.
+  let content = clean
+  if (isMod) {
+    const vibes = vibesSnapshot ?? listDirectives(channel)
+    if (vibes.length) {
+      const lines = vibes.map((d, i) => d.mute
+        ? `${i + 1}. mute @${d.targetUser}`
+        : `${i + 1}. "${d.instruction}"${d.targetUser ? ` for @${d.targetUser}` : ''}${d.trigger.length ? ` on ${d.trigger.join('/')}` : ''}`)
+      content = `${clean}\n\nACTIVE VIBES:\n${lines.join('\n')}`
+    }
+  }
 
   const out = await anthropicCall({
     tag: 'ai-directive',
@@ -71,16 +97,16 @@ export async function parseDirective(text: string, channel: string, isMod = fals
     model: MODEL,
     maxTokens: 200,
     timeoutMs: TIMEOUT,
-    // the mod pause/resume vocabulary is only in the prompt for actual mods — a
-    // non-mod plant can't even ask the model to emit a suppress object.
+    // the mod pause/resume/unvibe vocabulary is only in the prompt for actual mods —
+    // a non-mod plant can't even ask the model to emit one of those objects.
     system: isMod ? SYSTEM + MOD_SYSTEM : SYSTEM,
-    content: clean,
+    content,
   })
   if (!out) return null
   return validate(out, isMod)
 }
 
-export function validate(text: string, isMod = false): ParsedDirective | ParsedSuppress | null {
+export function validate(text: string, isMod = false): ParsedDirective | ParsedSuppress | ParsedUnvibe | null {
   const json = extractFirstJson(text)
   if (!json) return null
   let obj: unknown
@@ -103,6 +129,16 @@ export function validate(text: string, isMod = false): ParsedDirective | ParsedS
     if (!feature) return null
     const minutes = typeof o.minutes === 'number' && Number.isFinite(o.minutes) ? o.minutes : undefined
     return { kind: o.kind, feature, minutes }
+  }
+  if (o.kind === 'unvibe') {
+    // same wall as suppress: mod-only, discard otherwise. indexes are validated as
+    // small positive ints here; bounds against the live list happen at removal.
+    if (!isMod) return null
+    const indexes = Array.isArray(o.indexes)
+      ? o.indexes.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 8)
+      : []
+    if (indexes.length === 0) return null
+    return { kind: 'unvibe', indexes }
   }
   const mute = o.mute === true
   const targetUser = typeof o.target === 'string' && o.target.trim() ? o.target.trim().toLowerCase().replace(/^@/, '') : undefined

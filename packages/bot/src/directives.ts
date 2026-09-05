@@ -66,7 +66,9 @@ export interface DirectiveInput {
 
 export function addDirective(channel: string, planter: string, input: DirectiveInput): void {
   const mute = !!input.mute
-  const targetUser = input.targetUser?.trim().toLowerCase().replace(/^@/, '') || undefined
+  // targetUser is rendered into prompt blocks (bot-state, the mod unvibe board) —
+  // clamp it to twitch-username shape so it can never smuggle structure.
+  const targetUser = input.targetUser?.trim().toLowerCase().replace(/^@/, '').replace(/[^a-z0-9_]/g, '').slice(0, 25) || undefined
   // a mute with no target would silence the whole channel — never allow it.
   if (mute && !targetUser) return
   const ch = channel.toLowerCase()
@@ -80,9 +82,15 @@ export function addDirective(channel: string, planter: string, input: DirectiveI
   // never stored — a misjudged plant would otherwise re-inject itself into the system
   // prompt on every matching turn for the full TTL.
   if (instruction && (JAILBREAK_ECHO.test(instruction) || INSTRUCTION_ECHO.test(instruction) || SECRET_PATTERN.test(instruction))) return
+  // triggers get the same scrub as the instruction: they're echoed into the same
+  // prompt surfaces, and an unscrubbed trigger was a working forged-[MOD] injection.
+  const trigger = (input.trigger ?? [])
+    .map((t) => scrubInstruction(t.toLowerCase()).slice(0, 40))
+    .filter((t) => t && !JAILBREAK_ECHO.test(t) && !INSTRUCTION_ECHO.test(t) && !SECRET_PATTERN.test(t))
+    .slice(0, 6)
   const list = active(ch)
   list.push({
-    trigger: (input.trigger ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 6),
+    trigger,
     targetUser,
     mute,
     instruction,
@@ -126,6 +134,26 @@ export function isMuted(channel: string, asker: string): boolean {
 
 export function listDirectives(channel: string): Directive[] {
   return active(channel)
+}
+
+// surgical removal by 1-based position in listDirectives order — the mod "stop
+// speaking spanish" path: the AI parse sees the numbered active list and names which
+// to drop, so one bad vibe dies without nuking the rest. returns short descriptions
+// of what was removed (for the confirmation line).
+export function removeDirectives(channel: string, oneBasedIndexes: number[]): string[] {
+  const ch = channel.toLowerCase()
+  const list = active(ch)
+  const drop = new Set(oneBasedIndexes.map((i) => i - 1).filter((i) => i >= 0 && i < list.length))
+  if (drop.size === 0) return []
+  const removed: string[] = []
+  const kept: Directive[] = []
+  list.forEach((d, i) => {
+    if (drop.has(i)) removed.push(d.mute ? `mute @${d.targetUser}` : `"${d.instruction}"`)
+    else kept.push(d)
+  })
+  if (kept.length) byChannel.set(ch, kept)
+  else byChannel.delete(ch)
+  return removed
 }
 
 export function clearDirectives(channel: string): number {

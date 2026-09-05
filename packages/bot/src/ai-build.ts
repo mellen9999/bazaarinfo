@@ -47,6 +47,7 @@ import {
 import { randomPastaExamples } from './ai-prompt'
 import { directiveHint } from './directives'
 import { suppressHint } from './suppress'
+import { SELF_STATE_RE, botStateReport } from './bot-state'
 import { DEFINITIONAL_INTENT } from './glossary'
 import { recordGap } from './gap-watch'
 import { monotonyStreak } from './ai-verify'
@@ -1182,6 +1183,11 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // active mod pauses — so "why no trivia" gets an honest answer, never a promise
     // the bot can't keep. empty (zero cost) when nothing is paused.
     suppressHint(ctx.channel),
+    // "what are you doing / why are you like this" → the live bot-state snapshot, so
+    // any plain question about current behavior answers from real state, not a guess.
+    // gated on intent to keep the tail lean; the block itself is capped and leak-safe
+    // (never carries a live trivia answer).
+    SELF_STATE_RE.test(query) ? botStateReport(ctx.channel) : '',
     `\n[USER] = ${ctx.user}`,
   ].filter(Boolean).join('')
 

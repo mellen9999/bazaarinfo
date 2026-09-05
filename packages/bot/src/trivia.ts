@@ -1483,6 +1483,19 @@ export function isGameActive(channel: string): boolean {
   return activeGames.has(channel)
 }
 
+// leak-safe live-round snapshot for bot-state introspection: question, clock, and
+// guess count ONLY. the answer/accepted fields must never cross this boundary — a
+// "what are you doing" ask mid-round would inject them straight into an AI reply.
+export function activeRoundInfo(channel: string): { question: string; secondsLeft: number; guesses: number } | null {
+  const game = activeGames.get(channel)
+  if (!game) return null
+  return {
+    question: game.question,
+    secondsLeft: Math.max(0, Math.ceil((ROUND_DURATION - (Date.now() - game.startedAt)) / 1000)),
+    guesses: game.participants.size,
+  }
+}
+
 export function getTriviaScore(channel: string): string {
   const leaders = db.getTriviaLeaderboard(channel, 5)
   if (leaders.length === 0) return 'no trivia scores yet — !b trivia to start a round'

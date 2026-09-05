@@ -11,7 +11,8 @@ import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, generat
 import { buildLoreDossier, isKnownChatter } from './lore'
 import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
 import { parseDirective } from './ai-directive'
-import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
+import { addDirective, listDirectives, clearDirectives, removeDirectives, isMuted } from './directives'
+import { registerStateProvider } from './bot-state'
 import { suppress, unsuppress, isSuppressed, remainingMinutes, listSuppressions, suppressNotice, type SuppressFeature } from './suppress'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam, CONTINUE_RE } from './ai'
 import { aiUnavailableReason, aiTriviaEnabled, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest, getChannelGame } from './ai-cache'
@@ -1596,6 +1597,21 @@ async function drainTopicQueue(channel: string): Promise<string | null> {
 
 setRoundEndHook(drainTopicQueue)
 
+// bot-state introspection: expose the topic queue + mod topic bans (owned here) so a
+// plain "what's queued / what's banned" gets a grounded answer. registered instead of
+// imported by bot-state (commands -> ai-build -> bot-state would cycle).
+registerStateProvider((channel) => {
+  const q = liveQueue(channel)
+  return q.length ? `trivia queue: ${q.map((e) => `"${e.topic.slice(0, 30)}" (by ${e.user})`).join(', ')}` : ''
+})
+registerStateProvider((channel) => {
+  const bans = triviaTopicBans.get(channel)
+  if (!bans?.size) return ''
+  const now = Date.now()
+  const live = [...bans].filter(([, exp]) => exp > now)
+  return live.length ? `banned trivia topics: ${live.map(([k, exp]) => `${k} (${Math.max(1, Math.round((exp - now) / 60_000))}m)`).join(', ')}` : ''
+})
+
 async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: string): Promise<string | null> {
   const channel = ctx.channel
   if (!channel) return null
@@ -1963,16 +1979,21 @@ export const DIRECTIVE_INTENT = new RegExp([
 // classify call, so "plain talking" mod control isn't limited to the fast-path regexes.
 // kept phrase-shaped (no bare "you"/"off"/"down") so routine mod lookups don't pay the
 // latency of a parse that will just return ok:false.
-const MOD_CONTROL_HINT = /\b(?:stop|pause|quit|halt|disable|enough|quiet|chill|calm|settle|relax|behave|shut up|hush|shush|silence|breather|break from|take a break|resume|unpause|re-?enable|wake up|come back|back on|turn off|cool it|knock it off|tone it down|pipe down|zip it|stfu|too much|too many|spamm?ing|annoying|out of hand|misbehav\w*|acting up)\b/i
+const MOD_CONTROL_HINT = /\b(?:stop|pause|quit|halt|disable|enough|quiet|chill|calm|settle|relax|behave|shut up|hush|shush|silence|breather|break from|take a break|resume|unpause|re-?enable|wake up|come back|back on|turn off|cool it|knock it off|tone it down|pipe down|zip it|stfu|too much|too many|spamm?ing|annoying|out of hand|misbehav\w*|acting up|drop (?:the|that|it)|remove (?:the|that)|kill (?:the|that)|undo (?:the|that)|get rid of|no more|unmute)\b/i
 
 const DIRECTIVE_PLANT_CD = 60_000
+const MOD_PLANT_CD = 5_000
 const directivePlantCooldown = new Map<string, number>()
 
 async function handlePlantDirective(text: string, ctx: CommandContext, suffix: string): Promise<string | null> {
   const channel = ctx.channel
   if (!channel || !ctx.user) return null
   const last = directivePlantCooldown.get(ctx.user.toLowerCase()) ?? 0
-  if (Date.now() - last < DIRECTIVE_PLANT_CD && !ctx.isMod) return null // anti-spam: 1 plant/user/60s; mods exempt
+  // anti-spam: 1 plant/user/60s. mods get a short window instead of full exemption —
+  // the broad MOD_CONTROL_HINT prefilter means a careless/compromised mod account
+  // could otherwise burn the channel's whole daily AI budget in paid classify calls.
+  const cd = ctx.isMod ? MOD_PLANT_CD : DIRECTIVE_PLANT_CD
+  if (Date.now() - last < cd) return null
 
   // burn the window BEFORE the paid classify call — a rejected plant or a DIRECTIVE_INTENT
   // false-positive still costs a Sonnet call, so it must be throttled too, not just successes.
@@ -1982,7 +2003,11 @@ async function handlePlantDirective(text: string, ctx: CommandContext, suffix: s
     for (const [k, t] of directivePlantCooldown) if (now - t > DIRECTIVE_PLANT_CD) directivePlantCooldown.delete(k)
   }
 
-  const parsed = await parseDirective(text, channel, !!ctx.isMod)
+  // snapshot the vibe board the parse will see — unvibe indexes resolve against THIS
+  // exact list (by object identity), so a board shift during the ~9s call can never
+  // remove the wrong vibe.
+  const vibesBefore = ctx.isMod ? listDirectives(channel) : []
+  const parsed = await parseDirective(text, channel, !!ctx.isMod, vibesBefore)
   if (!parsed) return null // not a directive, AI-rejected, AI off, or cap hit → caller falls through to a normal answer
 
   // mod pause/resume via plain talking — the NL path behind the deterministic regexes.
@@ -1992,6 +2017,18 @@ async function handlePlantDirective(text: string, ctx: CommandContext, suffix: s
     if (!ctx.isMod) return null
     if (parsed.kind === 'suppress') {
       return applySuppress(channel, parsed.feature, ctx.user, parsed.minutes ?? parseSuppressMinutes(text), suffix)
+    }
+    if (parsed.kind === 'unvibe') {
+      // "stop speaking spanish" → the parse saw the numbered snapshot and named which
+      // entries die. map snapshot indexes → the entries themselves → their CURRENT
+      // positions (active() keeps object identity through expiry filtering), so a
+      // board that shifted mid-call drops nothing wrong — a vanished entry just
+      // resolves to "already gone".
+      const targets = parsed.indexes.map((i) => vibesBefore[i - 1]).filter(Boolean)
+      const current = listDirectives(channel)
+      const liveIdx = targets.map((t) => current.indexOf(t) + 1).filter((i) => i > 0)
+      const removed = removeDirectives(channel, liveIdx)
+      return withSuffix(removed.length ? `dropped ${removed.join(' + ')}` : `that vibe's already gone`, suffix)
     }
     return applyResume(channel, parsed.feature, suffix) ?? withSuffix(`nothing's paused right now`, suffix)
   }

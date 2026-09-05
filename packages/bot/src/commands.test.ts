@@ -164,6 +164,7 @@ mock.module('./trivia', () => ({
   startFallbackTrivia: mockStartFallbackTrivia,
   startQuizCultureTrivia: mockStartQuizCultureTrivia,
   setRoundEndHook: mock(() => {}),
+  activeRoundInfo: mock(() => null),
 }))
 
 // custom-topic trivia generator — mocked so tests never hit the API. default returns
@@ -235,6 +236,7 @@ mock.module('./emotes', () => ({
 
 const { handleCommand, parseArgs, salvageQuery, resetDedup, resetProxyCooldowns, resetTriviaTopicBans, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES, stripTopicConnector, DIRECTIVE_INTENT, __queueDepthForTest, __clearTopicQueueForTest } = await import('./commands')
 const { isSuppressed, resetForTest: resetSuppressState } = await import('./suppress')
+const { addDirective: addDirectiveReal, listDirectives: listDirectivesReal, resetForTest: resetDirectivesState } = await import('./directives')
 const chatbuf = await import('./chatbuf')
 const directives = await import('./directives')
 
@@ -286,6 +288,7 @@ beforeEach(() => {
   resetUserAiBudgetForTests()
   resetProxyCooldowns()
   resetSuppressState()
+  resetDirectivesState()
   mockLogCommand.mockReset()
   mockExact.mockReset()
   mockSearch.mockReset()
@@ -4009,6 +4012,36 @@ describe('mod pause', () => {
     const back = await handleCommand('!b could you re-enable trivia', mod('mp-12'))
     expect(back).toContain('trivia back on')
     expect(isSuppressed('mp-12', 'trivia')).toBe(false)
+  })
+
+  it('mod "stop speaking spanish" removes exactly the matching vibe (unvibe)', async () => {
+    addDirectiveReal('mp-13', 'chatter1', { instruction: 'answer in spanish' })
+    addDirectiveReal('mp-13', 'chatter2', { instruction: 'end messages with KEKW' })
+    mockParseDirective.mockImplementation(async (_t: string, _c: string, isMod?: boolean) =>
+      isMod ? { kind: 'unvibe', indexes: [1] } : null)
+    const out = await handleCommand('!b stop speaking spanish', { user: 'modspan', channel: 'mp-13', isMod: true })
+    expect(out).toContain('dropped')
+    expect(out).toContain('answer in spanish')
+    const left = listDirectivesReal('mp-13')
+    expect(left.length).toBe(1)
+    expect(left[0].instruction).toBe('end messages with KEKW')
+    mockParseDirective.mockImplementation(async () => null)
+  })
+
+  it('unvibe from a non-mod is discarded even if the model emitted it', async () => {
+    addDirectiveReal('mp-14', 'chatter1', { instruction: 'answer in spanish' })
+    mockParseDirective.mockImplementation(async () => ({ kind: 'unvibe', indexes: [1] }))
+    await handleCommand('!b stop speaking spanish', { user: 'troll', channel: 'mp-14' })
+    expect(listDirectivesReal('mp-14').length).toBe(1)
+    mockParseDirective.mockImplementation(async () => null)
+  })
+
+  it('unvibe against an already-expired board answers honestly', async () => {
+    mockParseDirective.mockImplementation(async (_t: string, _c: string, isMod?: boolean) =>
+      isMod ? { kind: 'unvibe', indexes: [1] } : null)
+    const out = await handleCommand('!b drop the pirate thing', { user: 'modpirate', channel: 'mp-15', isMod: true })
+    expect(out).toContain("already gone")
+    mockParseDirective.mockImplementation(async () => null)
   })
 
   it('mod pauses show in !b vibes and survive vibes clear', async () => {
