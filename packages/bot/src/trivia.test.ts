@@ -202,6 +202,8 @@ const {
   carriesLiveQuestion,
 } = await import('./trivia')
 
+const { suppress: suppressFeature, resetForTest: resetSuppressState } = await import('./suppress')
+
 rebuildTriviaMaps()
 
 const mockSay = mock((_channel: string, _text: string) => {})
@@ -381,6 +383,16 @@ describe('looksLikeAnswer', () => {
 // startTrivia — game lifecycle
 // ---------------------------------------------------------------------------
 describe('startTrivia', () => {
+  it('a mod pause blocks every start path at the launchRound wall', () => {
+    suppressFeature('#test', 'trivia', 'modguy', 25)
+    const result = startTrivia('#test')
+    expect(result).toContain('paused by mods')
+    expect(result).toContain('~25m')
+    expect(isGameActive('#test')).toBe(false)
+    resetSuppressState()
+    expect(startTrivia('#test')).toStartWith('Trivia!')
+  })
+
   it('starts and returns question', () => {
     const result = startTrivia('#test')
     expect(result).toStartWith('Trivia!')

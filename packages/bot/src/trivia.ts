@@ -6,6 +6,7 @@ import { resolveTooltip } from '@bazaarinfo/shared'
 import type { Monster } from '@bazaarinfo/shared'
 import { pickEmoteByMood, isEmote } from './emotes'
 import { HS_GENERATORS, hsTriviaReady } from './hs-trivia'
+import { isSuppressed, remainingMinutes } from './suppress'
 import { GR_GENERATORS, grTriviaReady } from './gr-trivia'
 
 // what the channel is streaming, injected rather than imported: reaching into ai-cache
@@ -1159,6 +1160,12 @@ const CUSTOM_TYPE = 21
 // and custom AI (startCustomTrivia) paths. assumes the channel has no active game
 // (callers guard); purely creates the DB row, timers, hint schedule, and state.
 function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>): string {
+  // mod-pause wall: every start path (built-in categories, kripp/fallback/quiz-culture
+  // packs, custom AI, queue drain) funnels through here, so a paused channel can never
+  // sneak a round in through a side door.
+  if (isSuppressed(channel, 'trivia')) {
+    return `trivia is paused by mods — back in ~${remainingMinutes(channel, 'trivia')}m`
+  }
   // normalize every accepted answer through the canonical normalizer so the guess
   // (also normed) compares symmetrically — no punctuation/hyphen/"the" false-negatives.
   // #7: for answers that norm to empty (emoji/symbol/CJK), keep the raw trim+lower form

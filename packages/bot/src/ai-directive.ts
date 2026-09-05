@@ -2,6 +2,7 @@ import { extractFirstJson } from './http'
 import { AI_CHANNELS, isOverDailyCap } from './ai-cache'
 import { anthropicCall, stripUnpairedSurrogates } from './ai-http'
 import { MAX_INSTRUCTION } from './directives'
+import type { SuppressFeature } from './suppress'
 
 // AI gate for chat-planted steering directives. Parses a natural-language plant
 // ("anytime someone asks about topology, work in GachiBlacksmith") into a structured
@@ -21,6 +22,24 @@ export interface ParsedDirective {
   instruction: string
 }
 
+// mod-only: "take a break from trivia" / "ok you're good again" → a real feature pause
+// or resume (suppress.ts). only ever produced when the asker is a mod — the vocabulary
+// isn't even in the prompt otherwise, and validate() discards it as a second wall.
+export interface ParsedSuppress {
+  kind: 'suppress' | 'resume'
+  feature: SuppressFeature
+  minutes?: number
+}
+
+const SUPPRESS_FEATURES = new Set<SuppressFeature>(['trivia', 'depths', 'ai', 'all'])
+
+const MOD_SYSTEM = `
+
+3. MOD PAUSE/RESUME — the asker IS a channel moderator telling the BOT to stop or resume one of its own features because chat is abusing it. Features: "trivia" (trivia rounds), "depths" (the dungeon game), "ai" (the bot's conversational answers), "all" (everything — for a general "quiet down"/"chill"/"take a break"/"you're being too much").
+   - pause: {"ok":true,"kind":"suppress","feature":"<feature>","minutes":<from the text; "a bit"=15, "a while"=45, default 30>}
+   - resume ("ok trivia is fine again", "you're good now", "wake up"): {"ok":true,"kind":"resume","feature":"<feature or all>"}
+   This is about the bot's OWN behavior. Ignoring/muting a specific named chatter is kind 1 (MUTE), not this. A topic-scoped trivia complaint ("no more digimon trivia") is NOT this — return {"ok":false} and let the topic-ban handle it.`
+
 const SYSTEM =`A Twitch chat user wants to plant a fun, TEMPORARY rule that changes how the bot treats OTHER people. Parse it into JSON. Two kinds:
 
 1. MUTE — "don't respond to bob", "ignore @bob", "stop replying to bob". Set {"mute":true,"target":"bob","trigger":[],"instruction":""}. A mute MUST name one specific user; "ignore everyone/chat/all" is NOT allowed.
@@ -39,7 +58,7 @@ Return {"ok":false} if it: makes the bot say something insulting, demeaning, moc
 
 Output ONLY the single minified JSON object — no markdown, no commentary, no second/corrected object, nothing before or after it.`
 
-export async function parseDirective(text: string, channel: string): Promise<ParsedDirective | null> {
+export async function parseDirective(text: string, channel: string, isMod = false): Promise<ParsedDirective | ParsedSuppress | null> {
   if (!API_KEY) return null
   if (!AI_CHANNELS.has(channel.toLowerCase())) return null
   if (isOverDailyCap(channel)) return null
@@ -52,14 +71,16 @@ export async function parseDirective(text: string, channel: string): Promise<Par
     model: MODEL,
     maxTokens: 200,
     timeoutMs: TIMEOUT,
-    system: SYSTEM,
+    // the mod pause/resume vocabulary is only in the prompt for actual mods — a
+    // non-mod plant can't even ask the model to emit a suppress object.
+    system: isMod ? SYSTEM + MOD_SYSTEM : SYSTEM,
     content: clean,
   })
   if (!out) return null
-  return validate(out)
+  return validate(out, isMod)
 }
 
-function validate(text: string): ParsedDirective | null {
+export function validate(text: string, isMod = false): ParsedDirective | ParsedSuppress | null {
   const json = extractFirstJson(text)
   if (!json) return null
   let obj: unknown
@@ -71,6 +92,18 @@ function validate(text: string): ParsedDirective | null {
   if (!obj || typeof obj !== 'object') return null
   const o = obj as Record<string, unknown>
   if (o.ok !== true) return null
+  if (o.kind === 'suppress' || o.kind === 'resume') {
+    // hard wall: a suppress/resume from a non-mod call is discarded even if the model
+    // somehow emitted one (prompt-injected plant, model drift) — mod authority is
+    // badge-derived, never text-derived.
+    if (!isMod) return null
+    const feature = typeof o.feature === 'string' && SUPPRESS_FEATURES.has(o.feature as SuppressFeature)
+      ? (o.feature as SuppressFeature)
+      : null
+    if (!feature) return null
+    const minutes = typeof o.minutes === 'number' && Number.isFinite(o.minutes) ? o.minutes : undefined
+    return { kind: o.kind, feature, minutes }
+  }
   const mute = o.mute === true
   const targetUser = typeof o.target === 'string' && o.target.trim() ? o.target.trim().toLowerCase().replace(/^@/, '') : undefined
   const instruction = typeof o.instruction === 'string' ? o.instruction.trim() : ''

@@ -12,6 +12,7 @@ import { buildLoreDossier, isKnownChatter } from './lore'
 import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, isMuted } from './directives'
+import { suppress, unsuppress, isSuppressed, remainingMinutes, listSuppressions, suppressNotice, type SuppressFeature } from './suppress'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam, CONTINUE_RE } from './ai'
 import { aiUnavailableReason, aiTriviaEnabled, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest, getChannelGame } from './ai-cache'
 import { isLowValue } from './ai-query'
@@ -109,6 +110,9 @@ const DYNAMIC_SUBS = new Set([
 
 /** shared AI call + post-processing (dedup emotes/mentions, append missing @mentions) */
 async function tryAiRespond(query: string, ctx: CommandContext, mentions: string[] = [], displayQuery?: string): Promise<string | null> {
+  // mod pause on AI answers — one throttled honest line, then silence. single gate
+  // covers every AI answer path (bare !b, threads, conversational, lookup fallback).
+  if (ctx.channel && isSuppressed(ctx.channel, 'ai')) return suppressNotice(ctx.channel)
   let result: Awaited<ReturnType<typeof aiRespond>> = null
   try { result = await aiRespond(query, { ...ctx, direct: true, displayQuery }) } catch (e) { log(`ai: call failed: ${e}`) }
   if (!result?.text) return null
@@ -977,6 +981,50 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     return withSuffix(score + midRound, sfx)
   }
 
+  // mod trivia-topic ban/unban + feature pause/resume — a mod's "no more digimon trivia"
+  // or "stop doing trivia" takes real effect. placed BEFORE schedule/lookups so mod
+  // control phrasing is never swallowed by another deterministic path ("trivia back on"
+  // reads schedule-ish). non-mods fall through to the AI (which knows [MOD] semantics).
+  if (ctx.channel && ctx.isMod) {
+    const sfx = mentions.length ? ` ${mentions.join(' ')}` : ''
+    const unban = cleanArgs.match(TRIVIA_UNBAN_RE)
+    if (unban) {
+      const topic = stripArticles(unban[1])
+      return unbanTriviaTopic(ctx.channel, topic)
+        ? withSuffix(`${normTopic(topic)} trivia unbanned`, sfx)
+        : withSuffix(`${normTopic(topic)} trivia wasnt banned`, sfx)
+    }
+    const ban = cleanArgs.match(TRIVIA_BAN_RE)
+    if (ban) {
+      const topic = stripArticles(ban[1])
+      // reject verb/filler captures ("stop making trivia about me" must not ban "making",
+      // "stop the trivia" must not ban "the" — that one is a feature pause below)
+      if (topic && !/^(?:making|doing|playing|running|giving|more|any|some|these|those|the|this|that|it)$/i.test(topic)) {
+        const key = banTriviaTopic(ctx.channel, topic)
+        return withSuffix(`${key} trivia banned for 2h — mod's orders`, sfx)
+      }
+    }
+    // feature pause/resume — resume first ("turn trivia back on" carries no stop-verb,
+    // stop-phrasings never carry resume verbs). an INFO QUESTION ("why did you stop
+    // doing trivia", "is trivia paused") must never toggle state — it falls through to
+    // the AI, which sees the [MOD PAUSE] hint and answers honestly. polite modal
+    // requests ("can you stop doing trivia") are commands in intent and DO act.
+    // anything else these regexes miss still lands via the AI parse in the plant block
+    // below (plain mod talking is the primary path).
+    const isQuestion = /^(?:when|what|why|how|where|who|is|are|was|were|does|do|did)\b/i.test(cleanArgs)
+    if (!isQuestion && RESUME_RE.test(cleanArgs)) {
+      const resumed = applyResume(ctx.channel, featureOf(cleanArgs) ?? 'all', sfx)
+      if (resumed) return resumed
+    }
+    const sup = isQuestion ? null : cleanArgs.match(SUPPRESS_RE)
+    if (sup) {
+      return applySuppress(ctx.channel, featureOf(sup[1]) ?? 'ai', ctx.user ?? 'mod', parseSuppressMinutes(cleanArgs), sfx)
+    }
+    if (!isQuestion && SUPPRESS_ALL_RE.test(cleanArgs)) {
+      return applySuppress(ctx.channel, 'all', ctx.user ?? 'mod', parseSuppressMinutes(cleanArgs), sfx)
+    }
+  }
+
   // "when's the next stream / stream schedule" → deterministic prediction from logged
   // Helix start times (schedule.ts). NEVER routed through AI — a schedule is statistics,
   // and an AI guess would fabricate a time. answers honestly ("still learning", "too
@@ -1083,27 +1131,6 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     if (match) return await handler(match[1]?.trim() ?? cleanArgs, ctx, suffix)
   }
 
-  // mod trivia-topic ban/unban — a mod's "no more digimon trivia" takes real effect.
-  // non-mods fall through to the AI (which knows [MOD] semantics and quips accordingly).
-  if (ctx.channel && ctx.isMod) {
-    const unban = cleanArgs.match(TRIVIA_UNBAN_RE)
-    if (unban) {
-      const topic = stripArticles(unban[1])
-      return unbanTriviaTopic(ctx.channel, topic)
-        ? withSuffix(`${normTopic(topic)} trivia unbanned`, suffix)
-        : withSuffix(`${normTopic(topic)} trivia wasnt banned`, suffix)
-    }
-    const ban = cleanArgs.match(TRIVIA_BAN_RE)
-    if (ban) {
-      const topic = stripArticles(ban[1])
-      // reject verb/filler captures ("stop making trivia about me" must not ban "making")
-      if (topic && !/^(?:making|doing|playing|running|giving|more|any|some|these|those)$/i.test(topic)) {
-        const key = banTriviaTopic(ctx.channel, topic)
-        return withSuffix(`${key} trivia banned for 2h — mod's orders`, suffix)
-      }
-    }
-  }
-
   // topic-first trivia: "bakugon trivia" / "digimon quiz" — chatters put the topic before
   // the game word. lives OUTSIDE the subcommand table because a bail here must fall
   // through to the normal pipeline (a table match always returns, even null → silence).
@@ -1142,7 +1169,10 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // plant intent: "anytime someone asks about X, do Y" → store a steering directive
   // instead of answering. AI-gated (rejects mean/targeting/unsafe + false positives);
   // on reject it returns null and we fall through to a normal answer.
-  if (ctx.channel && DIRECTIVE_INTENT.test(cleanArgs)) {
+  // for MODS the gate is broad: any control-ish phrasing goes to the AI parse so plain
+  // talking works ("you're being too much, take a breather") — mod messages are rare,
+  // a classify call is fine; ordinary mod lookups ("!b toaster") still skip it.
+  if (ctx.channel && (DIRECTIVE_INTENT.test(cleanArgs) || (ctx.isMod && MOD_CONTROL_HINT.test(cleanArgs)))) {
     const planted = await handlePlantDirective(cleanArgs, ctx, suffix)
     if (planted) return planted
   }
@@ -1279,6 +1309,11 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     return aiResponse
   }
 
+  // mod ai-pause: the miss above was the pause, not a lookup whiff — the throttled
+  // honest notice (or silence) is the only truthful reply; a "found only dust" quip
+  // would blame a lookup for what a mod ordered.
+  if (ctx.channel && isSuppressed(ctx.channel, 'ai')) return suppressNotice(ctx.channel)
+
   // AI was attempted and missed (timeout, or every retry blocked by a guard). a
   // bazaar-flavoured "found only dust" quip here lies twice: it blames a failed ITEM
   // lookup for what was an AI miss, and on a conversational ask it IS the "no bazaar
@@ -1307,7 +1342,7 @@ function getBFallbackCooldown(user?: string): number {
 }
 
 // structured subcommand miss → always answer: AI if available, else quippy noMatch line
-async function aiOrQuip(query: string, ctx: CommandContext, suffix: string): Promise<string> {
+async function aiOrQuip(query: string, ctx: CommandContext, suffix: string): Promise<string | null> {
   if (getBFallbackCooldown(ctx.user) === 0) {
     const response = await tryAiRespond(query, ctx)
     if (response) {
@@ -1316,6 +1351,8 @@ async function aiOrQuip(query: string, ctx: CommandContext, suffix: string): Pro
       return response
     }
   }
+  // mod ai-pause: the notice/silence, never a quip that pretends it was a lookup miss
+  if (ctx.channel && isSuppressed(ctx.channel, 'ai')) return suppressNotice(ctx.channel)
   return withSuffix(noMatchMsg(query), suffix)
 }
 
@@ -1528,6 +1565,12 @@ export function __queueDepthForTest(channel: string): number {
 }
 export function __clearTopicQueueForTest(): void {
   topicQueue.clear()
+}
+
+// a mod pause must also drop the held topics — otherwise the queue fires two more
+// rounds right after the "stop" (the promise those queue lines made is void now).
+export function clearTopicQueue(channel: string): void {
+  topicQueue.delete(channel)
 }
 
 /**
@@ -1790,6 +1833,73 @@ const TRIVIA_BAN_RE = /\b(?:no more|ban|enough(?: of)?(?: the| this)?|stop(?: th
 const TRIVIA_UNBAN_RE = /\b(?:unban|allow|re-?enable|bring back)\s+((?:[\w'-]+ ){0,4}?[\w'-]{2,})\s+(?:trivia|quiz(?:zes)?)\b/i
 const stripArticles = (s: string) => s.replace(/^(?:the|a|an|any|all|this|that)\s+/i, '').trim()
 
+// --- mod feature pauses ("stop doing trivia" / "quiet down" / "wake up") ---
+// deterministic fast-path so a mod can rein the bot in even with AI down/capped; the
+// broad NL understanding lives in ai-directive's mod section (any plain phrasing).
+// state + enforcement in suppress.ts.
+const SUPPRESS_FEATURE_RE = /\b(trivia|quiz(?:zes)?|depths|dungeon|ai|answer(?:s|ing)?|respond(?:ing)?|repl(?:y|ies|ying))\b/i
+function featureOf(text: string): SuppressFeature | null {
+  const m = text.match(SUPPRESS_FEATURE_RE)
+  if (!m) return null
+  const w = m[1].toLowerCase()
+  if (w.startsWith('trivia') || w.startsWith('quiz')) return 'trivia'
+  if (w === 'depths' || w === 'dungeon') return 'depths'
+  return 'ai'
+}
+// anchored after the feature (only a duration may follow) so a SCOPED complaint
+// ("stop making trivia about me", "stop responding to bob") falls through to the AI
+// parse / directive mute instead of nuking the whole feature.
+const SUPPRESS_RE = /\b(?:stop|pause|disable|halt|quit|no more|turn off|cool it(?: with)?|knock (?:it )?off(?: with)?|cut(?: out| the)?|enough(?: of)?|take a break from)\s+(?:doing |making |playing |running |starting |the |with |all |any )*?(trivia|quiz(?:zes)?|depths|dungeon|ai answers?|ai|answer(?:s|ing)?|respond(?:ing)?)\s*(?:for\b[\s\S]{0,30})?$/i
+const SUPPRESS_ALL_RE = /^(?:please |ok |hey )*(?:chill(?: out)?|quiet(?: down)?|shut up|shush|hush|calm down|settle down|tone it down|take a break|go quiet|be quiet|zip it|pipe down|stfu)\b/i
+const RESUME_RE = /\b(?:resume|unpause|re-?enable|wake up|come back|carry on|speak again|back on|turn[\s\S]{0,15}\bback on|start[\s\S]{0,20}\bagain|you(?:'re| are) (?:good|fine|ok(?:ay)?)(?: now| again)?)\b/i
+
+function parseSuppressMinutes(text: string): number | undefined {
+  const m = text.match(/\bfor\s+(a bit|a while|a min(?:ute)?|half an hour|an? hour|(\d+)\s*(m|min(?:ute)?s?|h|hrs?|hours?))\b/i)
+  if (!m) return undefined
+  if (m[2]) {
+    const n = parseInt(m[2], 10)
+    return /^h/i.test(m[3]) ? n * 60 : n
+  }
+  const w = m[1].toLowerCase()
+  if (w === 'a bit') return 15
+  if (w === 'a while') return 45
+  if (w.startsWith('a min')) return 5
+  if (w === 'half an hour') return 30
+  return 60
+}
+
+function applySuppress(channel: string, feature: SuppressFeature, by: string, minutes: number | undefined, suffix: string): string {
+  const mins = suppress(channel, feature, by, minutes)
+  let tail = ''
+  if (feature === 'trivia' || feature === 'all') {
+    // never leave chat hanging on a live round — always-reveal is sacred
+    const skipped = skipTrivia(channel)
+    clearTopicQueue(channel)
+    if (skipped) tail = ` — ${skipped}`
+  }
+  // an explicit depths pause resets the run (inputs are gated, a frozen half-run helps
+  // nobody). a blanket "quiet down" only freezes inputs — killing a permadeath run chat
+  // invested an hour in is over-reach for a general shush.
+  if (feature === 'depths') dungeon.resetRun(channel)
+  const what = feature === 'all' ? 'going quiet' : feature === 'ai' ? 'ai answers off' : feature === 'depths' ? 'the depths sealed' : 'trivia off'
+  const wake = feature === 'all' ? ' — mods: "!b wake up" brings me back' : ''
+  return withSuffix(`got it — ${what} for ${mins}m${wake}${tail}`, suffix)
+}
+
+// null when nothing was actually paused → caller falls through to a normal answer
+// (RESUME_RE is loose on purpose; acting only on real state kills its false positives).
+function applyResume(channel: string, feature: SuppressFeature, suffix: string): string | null {
+  let lifted = unsuppress(channel, feature)
+  if (!lifted && feature !== 'all' && isSuppressed(channel, 'all')) {
+    // "trivia back on" while fully quieted — lifting the blanket is what they meant
+    lifted = unsuppress(channel, 'all')
+    feature = 'all'
+  }
+  if (!lifted) return null
+  const line = feature === 'all' ? `back — what'd I miss` : feature === 'ai' ? 'ai answers back on' : feature === 'depths' ? 'the depths reopen' : 'trivia back on'
+  return withSuffix(line, suffix)
+}
+
 // single trivia router shared by `!trivia ...` and `!b trivia ...`. handles the
 // built-in subcommands (score/skip/stats/category), then treats anything else as a
 // custom AI topic.
@@ -1797,6 +1907,11 @@ async function runTrivia(ctx: CommandContext, rawArg: string, suffix: string): P
   if (!ctx.channel) return null
   const arg = rawArg.trim()
   const lower = arg.toLowerCase()
+  // mod pause: block round STARTS early (a custom topic burns ~a dozen AI calls before
+  // hitting the launchRound wall). score/skip/stats stay live — they're not rounds.
+  if (isSuppressed(ctx.channel, 'trivia') && !/^(?:score|skip|stats?\b)/i.test(lower)) {
+    return withSuffix(`trivia is paused by mods — back in ~${remainingMinutes(ctx.channel, 'trivia')}m`, suffix)
+  }
   // bare `!b trivia` arrives as the literal "trivia" (subcommand dispatcher falls back
   // to cleanArgs when no group captured) — treat it, like an empty arg, as a random round.
   if (!arg || lower === 'trivia') return withSuffix(startTrivia(ctx.channel), suffix)
@@ -1844,6 +1959,12 @@ export const DIRECTIVE_INTENT = new RegExp([
   /\bignore\s+@?(?!(?:that|this|these|those|the|a|an|him|her|them|it|me|us|you|my|your|his|chat|everything|everyone|anyone|all|stuff|what|when|if|me\b)\b)\w{2,}/.source,
 ].join('|'), 'i')
 
+// mod-only prefilter for the AI parse — any bot-control-ish phrasing from a mod earns a
+// classify call, so "plain talking" mod control isn't limited to the fast-path regexes.
+// kept phrase-shaped (no bare "you"/"off"/"down") so routine mod lookups don't pay the
+// latency of a parse that will just return ok:false.
+const MOD_CONTROL_HINT = /\b(?:stop|pause|quit|halt|disable|enough|quiet|chill|calm|settle|relax|behave|shut up|hush|shush|silence|breather|break from|take a break|resume|unpause|re-?enable|wake up|come back|back on|turn off|cool it|knock it off|tone it down|pipe down|zip it|stfu|too much|too many|spamm?ing|annoying|out of hand|misbehav\w*|acting up)\b/i
+
 const DIRECTIVE_PLANT_CD = 60_000
 const directivePlantCooldown = new Map<string, number>()
 
@@ -1861,8 +1982,19 @@ async function handlePlantDirective(text: string, ctx: CommandContext, suffix: s
     for (const [k, t] of directivePlantCooldown) if (now - t > DIRECTIVE_PLANT_CD) directivePlantCooldown.delete(k)
   }
 
-  const parsed = await parseDirective(text, channel)
+  const parsed = await parseDirective(text, channel, !!ctx.isMod)
   if (!parsed) return null // not a directive, AI-rejected, AI off, or cap hit → caller falls through to a normal answer
+
+  // mod pause/resume via plain talking — the NL path behind the deterministic regexes.
+  // triple-walled: prompt section only for mods, validate() discards for non-mods, and
+  // this check. resume with nothing paused gets an honest line (mod asked explicitly).
+  if ('kind' in parsed) {
+    if (!ctx.isMod) return null
+    if (parsed.kind === 'suppress') {
+      return applySuppress(channel, parsed.feature, ctx.user, parsed.minutes ?? parseSuppressMinutes(text), suffix)
+    }
+    return applyResume(channel, parsed.feature, suffix) ?? withSuffix(`nothing's paused right now`, suffix)
+  }
 
   // the broadcaster is always exempt from mutes (enforced at the isGameActive+isMod check too),
   // but a planted mute targeting them would waste an eviction-protected slot and falsely confirm.
@@ -1883,7 +2015,11 @@ function handleVibes(arg: string, ctx: CommandContext, suffix: string): string |
     return withSuffix(n > 0 ? `cleared ${n} active vibe${n === 1 ? '' : 's'}` : `no active vibes`, suffix)
   }
   const list = listDirectives(ctx.channel)
-  if (list.length === 0) return withSuffix(`no active vibes — plant one like "anytime someone asks about X, do Y"`, suffix)
+  // mod pauses ride along in the listing (they're channel state a mod wants visible),
+  // but `!b vibes clear` does NOT touch them — mod authority ≠ viewer vibes; resume
+  // phrases ("wake up", "trivia back on") are the undo.
+  const sups = listSuppressions(ctx.channel).map((s) => `[mod pause] ${s.feature} (${s.minutes}m, by ${s.by})`)
+  if (list.length === 0 && sups.length === 0) return withSuffix(`no active vibes — plant one like "anytime someone asks about X, do Y"`, suffix)
   const now = Date.now()
   const lines = list.map((d) => {
     const mins = Math.max(1, Math.round((d.expiresAt - now) / 60_000))
@@ -1891,7 +2027,7 @@ function handleVibes(arg: string, ctx: CommandContext, suffix: string): string |
     const scope = d.targetUser ? `@${d.targetUser}` : d.trigger.length ? d.trigger.join('/') : 'all'
     return `[${scope}] ${d.instruction} (${mins}m, by ${d.planter})`
   })
-  return withSuffix(`active vibes: ${lines.join(' · ')}`, suffix)
+  return withSuffix(`active vibes: ${[...lines, ...sups].join(' · ')}`, suffix)
 }
 
 const commands: Record<string, CommandHandler> = {
@@ -1916,6 +2052,10 @@ export async function handleCommand(text: string, ctx: CommandContext = {}): Pro
   // muted by a chat-planted directive → stay silent across ALL commands (!b, !trivia,
   // !vibes…), so a mute can't be escaped via trivia. mods/broadcaster are never muteable.
   if (ctx.channel && ctx.user && !ctx.isMod && !ctx.privileged && isMuted(ctx.channel, ctx.user)) return null
+
+  // mod pause 'all' → the bot goes quiet for everyone but mods, who keep the resume
+  // path ("!b wake up") and !b vibes. never gate mods here or the pause is a one-way door.
+  if (ctx.channel && !ctx.isMod && isSuppressed(ctx.channel, 'all')) return null
 
   return handler(args.trim(), ctx)
 }

@@ -13,6 +13,7 @@ import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, carriesLiveQuestion, setLiveGameResolver} from './trivia'
 import { isMuted } from './directives'
+import { isSuppressed } from './suppress'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
 import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamInfo } from './ai-cache'
 import { refreshRedditDigest, refreshBgRedditDigest, refreshGrRedditDigest } from './reddit'
@@ -418,7 +419,7 @@ const client = new TwitchClient(
       // dungeon: tally votes from chat. self-gates to offline channels + an active run, and
       // never replies per-vote — only a resolved window posts a line. isolated so a throw
       // here can't kill message handling. muted users can't vote (same mute invariant).
-      if (!muted) {
+      if (!muted && !isSuppressed(channel, 'depths')) {
         try {
           dungeon.castInput(channel, username, text)
         } catch (e) {

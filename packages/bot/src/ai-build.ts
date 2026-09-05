@@ -46,6 +46,7 @@ import {
 } from './ai-query'
 import { randomPastaExamples } from './ai-prompt'
 import { directiveHint } from './directives'
+import { suppressHint } from './suppress'
 import { DEFINITIONAL_INTENT } from './glossary'
 import { recordGap } from './gap-watch'
 import { monotonyStreak } from './ai-verify'
@@ -1178,6 +1179,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // chat-planted flavor directives that match this query (kept in the required tail so
     // a tight context budget can't evict them). empty when none are active/matching.
     directiveHint(ctx.channel, query, ctx.user),
+    // active mod pauses — so "why no trivia" gets an honest answer, never a promise
+    // the bot can't keep. empty (zero cost) when nothing is paused.
+    suppressHint(ctx.channel),
     `\n[USER] = ${ctx.user}`,
   ].filter(Boolean).join('')
 
