@@ -110,7 +110,9 @@ export function findLiveTierClaims(reply: string, boardLine: string): string[] {
 // the em-dash itself is fine — deadpan understatement leans on it. the STREAK is the defect,
 // so that is what's measured, and the model is asked to vary before the call rather than
 // after (a nudge costs nothing, a retry costs a round-trip).
-const DASH_CLAUSE = /^[^—]{10,},?\s*—\s*.{10,}$/
+// both glyphs: shipped replies carry " - " since the em-dash became keyboard-plain
+// (ai-sanitize plainDashes), and the streak is the same shape either way.
+const DASH_CLAUSE = /^(?:[^—]{10,},?\s*—\s*.{10,}|(?:(?!\s-\s).){10,}\s-\s.{10,})$/
 
 export function isDashClause(text: string): boolean {
   return DASH_CLAUSE.test(text.trim())

@@ -210,13 +210,23 @@ describe('system prompt', () => {
   // 2026-08-06 nl_kripp sample was a jab, because "funniest person in chat" was the
   // only positive signal in a prompt that was otherwise all bans. warmth is now the
   // stated default and the joke must ride on top of a real answer, not replace it.
+  // since 2026-09-06 the voice is DEMONSTRATED: five short exchanges instead of a
+  // paragraph of adjectives (copypasta always had few-shots; conversation had none).
   it('defaults to warm and helpful, not a heckler', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt).toContain('warm + DRY')
+    expect(prompt).toContain('helpful first')
     expect(prompt).toContain('not a heckler')
-    expect(prompt).toContain('helpful FIRST, funny second')
-    expect(prompt).toContain('never counter-insult')
-    expect(prompt).toContain('feeling worse than they arrived')
+    expect(prompt).toContain('never bite back')
+    expect(prompt).toContain('worse than they arrived')
+  })
+
+  it('shows the voice with exemplar exchanges, placeholders only', () => {
+    const prompt = buildSystemPrompt()
+    const voice = prompt.slice(prompt.indexOf('VOICE:'), prompt.indexOf('VOICE BANS'))
+    expect((voice.match(/→/g) ?? []).length).toBeGreaterThanOrEqual(5)
+    // a real item name in an exemplar would teach one opinion forever
+    expect(voice).toContain('"is X good"')
+    expect(voice).not.toMatch(/\b(boomerang|bubble gum|tour bus)\b/i)
   })
 
   // the bot spent a stream mining logged history for unsolicited dunks ("4th time
@@ -242,10 +252,11 @@ describe('system prompt', () => {
     expect(prompt).toContain('400 chars')
   })
 
-  it('contains length constraints', () => {
+  it('contains length constraints that match the ask, and allows one question back', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt).toContain('one tight sentence')
-    expect(prompt).toContain('two sentences ONLY')
+    expect(prompt).toContain('LENGTH: match the ask')
+    expect(prompt).toContain('a fragment (1-6 words)')
+    expect(prompt).toContain('one short question back, never as padding')
   })
 
   it('bans URL/link generation', () => {

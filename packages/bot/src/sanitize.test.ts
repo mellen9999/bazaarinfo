@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { healPunctuation } from './ai-sanitize'
+import { healPunctuation, plainDashes } from './ai-sanitize'
 import { sanitize, getAiCooldown, getGlobalAiCooldown, recordUsage, isModelRefusal, buildFTSQuery, capEmoteTotal, capRepeatedSpam, hasHallucinatedStats } from './ai'
 
 describe('sanitize', () => {
@@ -1210,5 +1210,19 @@ describe('stray "?" on statements (live log)', () => {
   it('still flips a genuine single-clause question', () => {
     expect(sanitize('what does it do.').text).toBe('what does it do?')
     expect(sanitize('is it good.').text).toBe('is it good?')
+  })
+})
+
+// half of all shipped replies carried U+2014; no twitch regular types that glyph. the swap
+// is typography only — clause structure, spacing and everything else stays byte-identical.
+describe('plainDashes', () => {
+  it('turns em and en dashes into a spaced hyphen', () => {
+    expect(plainDashes('burn is fine — the gun is the problem')).toBe('burn is fine - the gun is the problem')
+    expect(plainDashes('day 3–5 is the wall')).toBe('day 3 - 5 is the wall')
+    expect(plainDashes('no spaces—still works')).toBe('no spaces - still works')
+  })
+  it('leaves hyphens and everything else alone', () => {
+    const s = 're-roll it, then pick the 2-cost one. ok?'
+    expect(plainDashes(s)).toBe(s)
   })
 })

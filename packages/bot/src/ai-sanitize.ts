@@ -508,6 +508,11 @@ export function stripInputEcho(response: string, query: string): string {
 // buffering, — the tour bus". Chat saw the dangling comma in ~7 replies over 3 days.
 // Only ever runs when a word was actually removed, so a reply that kept all its
 // emotes is returned byte-for-byte unchanged.
+// em/en dash → the hyphen a keyboard produces. glyph only; clause structure is untouched.
+export function plainDashes(text: string): string {
+  return text.replace(/\s*[—–]\s*/g, ' - ')
+}
+
 export function healPunctuation(text: string): string {
   return text
     .replace(/\s+([,.;:!?])/g, '$1')           // space left before punctuation

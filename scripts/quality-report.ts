@@ -69,6 +69,9 @@ const fmt = (v: number) => `${v.toFixed(1)}%`
 const dashClause = R.filter(isDashClause).length
 const emdash = R.filter((r) => /—/.test(r)).length
 const short = R.filter((r) => r.length < 45).length
+// a bot that never asks anything can't hold a thread. healthy is a few percent, not zero
+// and not a fifth; before the ask-back rule shipped this was 0.7% and every one a bug.
+const asksBack = R.filter((r) => /\?\s*$/.test(r)).length
 
 const runs: number[] = []
 let cur = 0
@@ -142,6 +145,7 @@ console.log(`  clause — clause  ${fmt(rate(dashClause)).padStart(6)}   ${fmt(B
 console.log(`  in a run of 3+   ${fmt(rate(inRunOf3)).padStart(6)}   ${fmt(BASELINE.inRunOf3)}${mark(rate(inRunOf3), BASELINE.inRunOf3)}`)
 console.log(`  any em-dash      ${fmt(rate(emdash)).padStart(6)}`)
 console.log(`  under 45 chars   ${fmt(rate(short)).padStart(6)}`)
+console.log(`  asks back (?)    ${fmt(rate(asksBack)).padStart(6)}`)
 console.log(`  longest run      ${String(longestRun).padStart(6)}   (17 was the worst seen)`)
 console.log(`  streak-breaker   ${fmt(rate(nudged)).padStart(6)}   of replies would be nudged`)
 

@@ -89,6 +89,14 @@ describe('monotonyStreak — the metronome is the tell, not the em-dash', () => 
     expect(isDashClause('nope — no')).toBe(false)
   })
 
+  // shipped replies carry " - " since the glyph went keyboard-plain (plainDashes); the
+  // streak is the same shape and must still be counted, while a hyphenated word is not
+  it('recognises the shape with a plain hyphen too', () => {
+    expect(isDashClause('flame skirt is doing real work here - that is the whole build in one card')).toBe(true)
+    expect(isDashClause('the re-roll button is the whole build in one card, use it')).toBe(false)
+    expect(monotonyStreak([dash('a'), 'stack shield and let it grind - that is the run in one line'])).toBe(2)
+  })
+
   it('counts only the unbroken run at the newest end', () => {
     expect(monotonyStreak([])).toBe(0)
     expect(monotonyStreak([plain, dash('a'), dash('b')])).toBe(2)

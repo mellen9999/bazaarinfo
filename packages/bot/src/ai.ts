@@ -13,7 +13,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 
 // --- local imports from sub-modules ---
 
-import { sanitize, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL } from './ai-sanitize'
+import { sanitize, plainDashes, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL } from './ai-sanitize'
 import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak } from './ai-verify'
 import { repairTruncation, isStub } from './ai-truncate'
 import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, isUserOverDailyAiCap, noteUserAiRequest, getChannelRecentResponses } from './ai-cache'
@@ -91,7 +91,8 @@ function hardStopLine(): string {
   return HARD_STOP_LINES[hardStopIdx++ % HARD_STOP_LINES.length]
 }
 const MAX_TOKENS_GAME = 100
-const MAX_TOKENS_CHAT = 80
+// 110 so a two-sentence explanation can exist; the 150-char hardCap below still bounds it
+const MAX_TOKENS_CHAT = 110
 const MAX_TOKENS_PASTA = 200
 const TIMEOUT = 7_000
 const MAX_RETRIES = 3
@@ -579,6 +580,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         log(`ai: corrected a wrong weekday claim to ${dayFix.day}`)
         result.text = dayFix.text
       }
+      // typography, not rhythm: half of all shipped replies carried U+2014 and no regular
+      // types that glyph. runs AFTER the streak check above (which reads the shape, and
+      // still does — isDashClause accepts both glyphs). creative/pasta keep their dashes.
+      if (!isCreative) result.text = plainDashes(result.text)
       // enforce length caps in code
       const isShort = isShortResponse(query)
       const hardCap = isCreative ? 400 : hasGameData ? 250 : isRememberReq ? 120 : isShort ? 60 : 150
