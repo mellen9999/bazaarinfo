@@ -56,4 +56,15 @@ describe('mention-mode context (P1)', () => {
     const r = buildUserMessage('hey there', { user: 'alice', channel: CH } as any)
     expect(r.text).not.toContain('@MENTION')
   })
+
+  // stream events render inline in "Recent chat" — zero new system-prompt text, the model
+  // already reads this section. "[mod" is the exact token the prompt already trusts.
+  it('a mod /announce shows up under Recent chat as "* [mod announce] …"', () => {
+    chatbuf.record(CH, 'alice', 'is boomerang good')
+    chatbuf.recordEvent(CH, '* [mod announce] raffle starting in 5 minutes')
+
+    const r = buildUserMessage('why though', { user: 'alice', channel: CH, mention: true } as any)
+    expect(r.text).toContain('Recent chat:')
+    expect(r.text).toContain('> * [mod announce] raffle starting in 5 minutes')
+  })
 })

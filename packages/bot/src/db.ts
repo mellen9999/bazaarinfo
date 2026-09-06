@@ -851,6 +851,26 @@ const migrations: (() => void)[] = [
       PRIMARY KEY (user, day)
     )`)
   },
+
+  // migration 27: per-user event log (raids/subs/resubs/gift trains/announcements) — the
+  // "everything a person does" memory, separate from chat_messages (which feeds regulars/
+  // recall/pasta detection — an event row there would poison all three). one row per
+  // train for a gift train (stream-events.ts collapses the re-renders; db.ts updates the
+  // same row rather than inserting one per subgift).
+  () => {
+    db.run(`CREATE TABLE user_events (
+      id INTEGER PRIMARY KEY,
+      channel TEXT NOT NULL,
+      login TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      detail TEXT NOT NULL DEFAULT '',
+      months INTEGER,
+      count INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+    db.run(`CREATE INDEX idx_user_events_login ON user_events(login, created_at DESC)`)
+    db.run(`CREATE INDEX idx_user_events_channel ON user_events(channel, created_at DESC)`)
+  },
 ]
 
 function runMigrations() {
@@ -1950,5 +1970,83 @@ export function pruneOldTriviaGames(days = 180) {
     if (total > 0) log(`pruned ${total} trivia records older than ${days}d`)
   } catch (e) {
     log(`trivia prune error: ${e}`)
+  }
+}
+
+// --- user events (raids/subs/resubs/gift trains/announcements) ---
+
+export interface UserEvent {
+  channel: string
+  login: string
+  kind: 'sub' | 'resub' | 'gift' | 'raid' | 'announce'
+  detail: string
+  months?: number
+  count?: number
+}
+
+export interface UserEventRow {
+  channel: string
+  kind: string
+  detail: string
+  months: number | null
+  count: number | null
+  created_at: string
+}
+
+// a gift train re-renders repeatedly as its count climbs (stream-events.ts collapses
+// them to one chat line) — mirror that here: update the train's existing row instead of
+// inserting one per subgift. everything else is a straight insert.
+export function logUserEvent(ev: UserEvent): void {
+  const channel = ev.channel.toLowerCase()
+  const login = ev.login.toLowerCase()
+  try {
+    if (ev.kind === 'gift') {
+      const existing = db.query(
+        `SELECT id FROM user_events WHERE channel = ? AND login = ? AND kind = 'gift'
+         AND created_at >= datetime('now', '-10 minutes') ORDER BY created_at DESC LIMIT 1`,
+      ).get(channel, login) as { id: number } | null
+      if (existing) {
+        db.query(`UPDATE user_events SET detail = ?, count = ? WHERE id = ?`)
+          .run(ev.detail, ev.count ?? null, existing.id)
+        return
+      }
+    }
+    db.query(
+      `INSERT INTO user_events (channel, login, kind, detail, months, count) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(channel, login, ev.kind, ev.detail, ev.months ?? null, ev.count ?? null)
+  } catch (e) {
+    log(`user event log error: ${e}`)
+  }
+}
+
+export function getUserEvents(login: string, limit = 8): UserEventRow[] {
+  try {
+    return db.query(
+      `SELECT channel, kind, detail, months, count, created_at FROM user_events
+       WHERE login = ? ORDER BY created_at DESC LIMIT ?`,
+    ).all(login.toLowerCase(), limit) as UserEventRow[]
+  } catch {
+    return []
+  }
+}
+
+// "what happened this stream" reader — sinceExpr is a sqlite datetime() modifier, e.g. '-6 hours'
+export function getChannelEvents(channel: string, sinceExpr: string, limit = 50): UserEventRow[] {
+  try {
+    return db.query(
+      `SELECT channel, kind, detail, months, count, created_at FROM user_events
+       WHERE channel = ? AND created_at >= datetime('now', ?) ORDER BY created_at DESC LIMIT ?`,
+    ).all(channel.toLowerCase(), sinceExpr, limit) as UserEventRow[]
+  } catch {
+    return []
+  }
+}
+
+export function pruneOldUserEvents(days = 90): void {
+  try {
+    const result = db.run(`DELETE FROM user_events WHERE created_at < datetime('now', ?)`, [`-${days} days`])
+    if (result.changes > 0) log(`pruned ${result.changes} user events older than ${days}d`)
+  } catch (e) {
+    log(`user event prune error: ${e}`)
   }
 }

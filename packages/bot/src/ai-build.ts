@@ -122,7 +122,7 @@ export function shapeLine(recent: string[]): string {
 // authoritative row. built from ai-sanitize's SECTION_HEADERS so the input-side strip and the
 // output-side CONTEXT_ECHO guard can never drift apart again.
 const SECTION_HEADER_RE = new RegExp(`\\b(?:${SECTION_HEADERS.join('|')}):`, 'gi')
-function stripChatMessage(msg: string): string {
+export function stripChatMessage(msg: string): string {
   return msg.replace(/\n/g, ' ').replace(SECTION_HEADER_RE, '')
 }
 
@@ -295,7 +295,7 @@ export function buildAboutUserLine(query: string, asker: string, channel: string
   return `\nAbout ${ref} (twitch, real): ${bits.join('; ')}.${limit}`
 }
 
-export function buildUserContext(user: string, channel: string, skipAsks = false, suppressMemo = false, query = ''): string {
+export function buildUserContext(user: string, channel: string, skipAsks = false, suppressMemo = false, query = '', flags?: { firstMsg?: boolean; returningChatter?: boolean }): string {
   // kick off background Twitch data fetch (non-blocking)
   maybeFetchTwitchInfo(user, channel)
 
@@ -399,7 +399,12 @@ export function buildUserContext(user: string, channel: string, skipAsks = false
     }
   } catch {}
 
-  const sections = [profile, followLine, streamsLine, memoLine, factsLine, asksLine].filter(Boolean)
+  // twitch's own first-message/returning-chatter signal — leads the section (and alone is
+  // enough to return one) so it colours whatever the model was already going to say, never
+  // triggering a greeting on its own.
+  const flagLine = flags?.firstMsg ? 'first message ever in this chat' : flags?.returningChatter ? 'returning chatter' : ''
+
+  const sections = [flagLine, profile, followLine, streamsLine, memoLine, factsLine, asksLine].filter(Boolean)
   if (sections.length === 0) return ''
   return `[${user}] ${sections.join('. ')}`
 }
@@ -593,6 +598,7 @@ export function buildChattersContext(chatEntries: ChatEntry[], asker: string, ch
   const users: string[] = []
 
   for (const entry of chatEntries) {
+    if (entry.kind === 'event') continue
     const lower = entry.user.toLowerCase()
     if (lower === asker.toLowerCase() || lower === botName || seen.has(lower)) continue
     seen.add(lower)
@@ -700,11 +706,15 @@ export function buildChatStr(entries: ChatEntry[], botName?: string): string {
     return true
   })
   const lines = deduped.map((m) => {
-    const isBotLine = !!botName && m.user.toLowerCase() === botName
-    const user = isBotLine ? 'you' : m.user.replace(/[:\n]/g, '') + (m.mod ? ' [mod]' : '')
     const text = stripChatMessage(m.text.replace(/^!\w+\s*/, '').replace(/^---+/, ''))
       .slice(0, 300)
     const count = counts.get(m.text.trim()) ?? 1
+    // a stream event (raid/sub/gift/announce) — no user: prefix, no [mod] suffix. a
+    // chatter typing the same shape ("* raid: …") never hits this branch since only the
+    // sentinel entry we ourselves recorded carries kind==='event'; theirs stays user-prefixed.
+    if (m.kind === 'event') return count > 1 ? `> ${text} ×${count}` : `> ${text}`
+    const isBotLine = !!botName && m.user.toLowerCase() === botName
+    const user = isBotLine ? 'you' : m.user.replace(/[:\n]/g, '') + (m.mod ? ' [mod]' : '')
     return count > 1 ? `> ${user}: ${text} ×${count}` : `> ${user}: ${text}`
   })
   const header = 'Recent chat:\n'
@@ -1248,7 +1258,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     streamLine(ctx.channel),
     shapeLine(getChannelRecentResponses(ctx.channel)),
     isContinuationLike ? `\n⚠️ SCENE CONTINUATION — [USER] asked for more. OVERRIDES one-and-done. This is turn ${hot.length + 1}. Each turn SHIFT AXIS — change at least one: setting, POV, format (action/dialogue/montage/letter/news/court transcript), stakes, genre (noir/sci-fi/horror/romance/heist), tempo. NEVER rehash. NEVER recycle the same beat with new words. Compound escalation: fistfight → duel → war → reckoning. ${hot.length >= 3 ? 'TURN 4+: linear escalation is exhausted — HARD CUT. timejump (years pass / future), dimension shift (alt reality / dream), genre flip, or new generation of the same characters. reset the stakes ladder. ' : ''}Pull from real-world (2025-2026 news, pop culture, history, science, internet). 400 chars.` : '',
-    buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq, query),
+    buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq, query, { firstMsg: ctx.firstMsg, returningChatter: ctx.returningChatter }),
     buildAboutUserLine(query, ctx.user, ctx.channel),
     ctx.mention
       ? `\n---\n@MENTION — ${ctx.replyParent?.body ? `[USER] replied to your line: "${ctx.replyParent.body.slice(0, 200)}"` : '[USER] addressed you by name'} — answer them directly.\n[USER]: ${query}`

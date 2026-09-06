@@ -40,6 +40,7 @@ import { readJson } from './http'
 import * as raid from './raid'
 import * as dungeon from './dungeon'
 import { backfillVods } from './vod-backfill'
+import { renderUserNotice, routesAsAsk } from './stream-events'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
 const CLIENT_ID = process.env.TWITCH_CLIENT_ID
@@ -389,7 +390,7 @@ for (const ch of channelNames) {
 
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
-  async (channel, userId, username, text, badges, messageId, threadId, sentTs, replyParent) => {
+  async (channel, userId, username, text, badges, messageId, threadId, sentTs, replyParent, flags) => {
     try {
       if (userId === botUserId) return
 
@@ -486,7 +487,7 @@ const client = new TwitchClient(
         }
       }
 
-      const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId, threadId, replyParent, triviaGuess })
+      const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId, threadId, replyParent, triviaGuess, firstMsg: flags?.firstMsg, returningChatter: flags?.returningChatter })
       if (response) {
         // freshness gate — now a generous 180s backstop (see REPLY_FRESHNESS_MS): every reply
         // here is a direct command someone's waiting on and replies are reply-threaded, so we
@@ -532,6 +533,31 @@ const client = new TwitchClient(
 
 client.setAuthRefresh(doRefresh)
 client.setIrcOnly(['nl_kripp'])
+// stream events (raid/sub/resub/gift/announce) — context only. renders into the chat
+// transcript (chatbuf) and the per-user event log; zero unprompted speech except the one
+// route below (a resub/sub note that itself opens with "!b"/"@bot").
+client.setUserNoticeHandler((n) => {
+  try {
+    if (!n.login) return // no login tag — nothing to attribute this to, skip entirely
+    const rendered = renderUserNotice(n)
+    if (!rendered) return
+    const { text, collapseKey, event } = rendered
+    chatbuf.recordEvent(n.channel, text, collapseKey)
+    if (event) db.logUserEvent(event)
+    log(`event #${n.channel}: ${text}`)
+    if (!routesAsAsk(n, BOT_USERNAME)) return
+    const isMod = n.badges.includes('moderator') || n.badges.includes('broadcaster')
+    handleCommand(n.text!, { user: n.login, channel: n.channel, privileged: true, isMod })
+      .then((response) => {
+        if (!response) return
+        client.say(n.channel, `@${n.login} ${response}`)
+        chatbuf.record(n.channel, BOT_USERNAME, response)
+      })
+      .catch((e) => log(`usernotice ask error: ${e}`))
+  } catch (e) {
+    log(`usernotice handler error: ${e}`)
+  }
+})
 const channelIdFor = (ch: string) => client.getChannels().find((c) => c.name.toLowerCase() === ch)?.userId ?? null
 setChannelIdResolver(channelIdFor)
 // trivia follows what's on screen — a Bazaar question to a room watching Battlegrounds is
@@ -753,6 +779,7 @@ scheduleDaily(4, async () => {
     db.pruneOldTriviaBank(90)
     db.pruneStaleUserFacts(180)
     db.pruneStaleUserMemos(365)
+    db.pruneOldUserEvents(90)
   } catch (e) { log(`daily prune failed: ${e}`) }
   try {
     await refreshGlobalEmotes()

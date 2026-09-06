@@ -333,6 +333,9 @@ export interface CommandContext {
   replyParent?: { login: string; body?: string }
   // the line was already consumed as a live-trivia guess upstream (index.ts checkAnswer)
   triviaGuess?: boolean
+  // twitch's own first-message/returning-chatter signal — threaded through to aiRespond
+  firstMsg?: boolean
+  returningChatter?: boolean
 }
 
 type CommandHandler = (args: string, ctx: CommandContext) => string | null | Promise<string | null>
