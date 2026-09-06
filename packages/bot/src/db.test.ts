@@ -687,6 +687,34 @@ describe('db', () => {
     expect(() => db.pruneNullFacts()).not.toThrow()
     expect(db.getUserFacts('nullfactuser2', 10)).toEqual(['mains vanessa'])
   })
+
+  it('prunes stale facts for a gone-quiet user, keeps an old fact for a still-active one', () => {
+    db.insertUserFact('staleuser', 'mains vanessa')
+    db.insertUserFact('activeuser', 'plays weapons')
+    db.flushWrites()
+    db.getDb().run(`UPDATE user_facts SET created_at = datetime('now', '-200 days') WHERE username IN ('staleuser', 'activeuser')`)
+    // activeuser asked something recently; staleuser has no ask at all
+    db.logAsk({ user: 'activeuser', channel: 'testchan' }, 'q', 'r')
+    db.flushWrites()
+
+    db.pruneStaleUserFacts(180)
+
+    expect(db.getUserFacts('staleuser', 10)).toEqual([])
+    expect(db.getUserFacts('activeuser', 10)).toEqual(['plays weapons'])
+  })
+
+  it('prunes memos for users unseen past the window, keeps recently-seen users', () => {
+    db.upsertUserMemo('gonequiet', 'mains pyg, runs the buh zar bit', 5)
+    db.upsertUserMemo('stillhere', 'mains vanessa, writes in german', 5)
+    db.getOrCreateUser('gonequiet')
+    db.getOrCreateUser('stillhere')
+    db.getDb().run(`UPDATE users SET last_seen = datetime('now', '-400 days') WHERE LOWER(username) = 'gonequiet'`)
+
+    db.pruneStaleUserMemos(365)
+
+    expect(db.getUserMemo('gonequiet')).toBeNull()
+    expect(db.getUserMemo('stillhere')).not.toBeNull()
+  })
 })
 
 // Pasta recall used to return the wrong message entirely. Two ranking bugs compounded:

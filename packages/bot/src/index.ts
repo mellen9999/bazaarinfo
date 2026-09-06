@@ -728,6 +728,8 @@ scheduleDaily(4, async () => {
     db.pruneOldAiSpendSource(60)
     db.pruneOldUserAiBudget(7)
     db.pruneOldTriviaBank(90)
+    db.pruneStaleUserFacts(180)
+    db.pruneStaleUserMemos(365)
   } catch (e) { log(`daily prune failed: ${e}`) }
   try {
     await refreshGlobalEmotes()

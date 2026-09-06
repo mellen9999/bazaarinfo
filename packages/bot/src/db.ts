@@ -1641,6 +1641,44 @@ export function pruneOldAskQueries(days = 90) {
   }
 }
 
+// a fact stays as long as the user is still around to be asked about it — this only drops
+// facts older than `days` belonging to a user who has ALSO not asked anything in that same
+// window. a year-old "mains vanessa" for someone still chatting weekly is not stale.
+export function pruneStaleUserFacts(days = 180): void {
+  try {
+    const result = db.run(
+      `DELETE FROM user_facts
+       WHERE created_at < datetime('now', ?)
+         AND LOWER(username) NOT IN (
+           SELECT LOWER(u.username) FROM users u
+           JOIN ask_queries a ON a.user_id = u.id
+           WHERE a.created_at >= datetime('now', ?)
+         )`,
+      [`-${days} days`, `-${days} days`],
+    )
+    if (result.changes > 0) log(`pruned ${result.changes} stale user facts older than ${days}d`)
+  } catch (e) {
+    log(`user fact prune error: ${e}`)
+  }
+}
+
+// memos for users who haven't been seen at all in `days` — the memo is for a person no
+// longer in chat, not for a specific stale exchange.
+export function pruneStaleUserMemos(days = 365): void {
+  try {
+    const result = db.run(
+      `DELETE FROM user_memos
+       WHERE LOWER(username) IN (
+         SELECT LOWER(username) FROM users WHERE last_seen < datetime('now', ?)
+       )`,
+      [`-${days} days`],
+    )
+    if (result.changes > 0) log(`pruned ${result.changes} stale user memos unseen ${days}d+`)
+  } catch (e) {
+    log(`user memo prune error: ${e}`)
+  }
+}
+
 // --- per-channel AI spend ledger ---
 
 // the daily AI-spend cap is a per-DAY budget; key it on the PT calendar date (the stream
