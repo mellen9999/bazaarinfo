@@ -291,3 +291,135 @@ describe('reply-parent parsing (P1 addressed-without-!b)', () => {
     expect(replyParent).toEqual({ login: 'bot', body: 'q' })
   })
 })
+
+// USERNOTICE (sub/resub/raid/gift/announce) — context only, rendered by stream-events.ts.
+// this file only proves the parse + dispatch plumbing: tag shapes, escaping, dedupe, and
+// the first-msg/returning-chatter privmsg flags threaded to the 10th dispatch arg.
+describe('parseIrcLine USERNOTICE', () => {
+  test('raid — camelCase msg-param tags', () => {
+    const line = '@badges=;display-name=Kripp;id=abc123;login=kripp;msg-id=raid;msg-param-displayName=Kripp;msg-param-login=kripp;msg-param-viewerCount=1204;room-id=1;system-msg=1\\sraiders\\sfrom\\sKripp\\shave\\sjoined!;tmi-sent-ts=1700000000000;user-id=2 :tmi.twitch.tv USERNOTICE #nl_kripp'
+    const m = parseIrcLine(line)
+    expect(m).toMatchObject({
+      type: 'usernotice', channel: 'nl_kripp', msgId: 'raid', login: 'kripp', displayName: 'Kripp',
+      params: { 'msg-param-displayName': 'Kripp', 'msg-param-login': 'kripp', 'msg-param-viewerCount': '1204' },
+    })
+  })
+
+  test('resub with a user-typed message', () => {
+    const line = '@badges=subscriber/12;display-name=Alice;id=r1;login=alice;msg-id=resub;msg-param-cumulative-months=14;msg-param-sub-plan=1000;room-id=1;system-msg=Alice\\ssubscribed;tmi-sent-ts=123;user-id=5 :tmi.twitch.tv USERNOTICE #chan :loving the stream'
+    const m = parseIrcLine(line)
+    expect(m).toMatchObject({ type: 'usernotice', msgId: 'resub', login: 'alice', text: 'loving the stream' })
+  })
+
+  test('resub with no message — text is undefined, not empty string', () => {
+    const line = '@badges=subscriber/1;display-name=Bob;id=r2;login=bob;msg-id=resub;msg-param-cumulative-months=2;msg-param-sub-plan=1000;room-id=1;tmi-sent-ts=123;user-id=6 :tmi.twitch.tv USERNOTICE #chan'
+    const m = parseIrcLine(line)
+    expect(m).toMatchObject({ type: 'usernotice', msgId: 'resub' })
+    if (m.type === 'usernotice') expect(m.text).toBeUndefined()
+  })
+
+  test('submysterygift — mass-gift-count + sender-count params', () => {
+    const line = '@badges=subscriber/1;display-name=Ben;id=m1;login=ben;msg-id=submysterygift;msg-param-mass-gift-count=20;msg-param-sender-count=20;room-id=1;tmi-sent-ts=123;user-id=7 :tmi.twitch.tv USERNOTICE #chan'
+    const m = parseIrcLine(line)
+    expect(m).toMatchObject({ type: 'usernotice', msgId: 'submysterygift', params: { 'msg-param-mass-gift-count': '20' } })
+  })
+
+  test('subgift — recipient login/display-name params', () => {
+    const line = '@badges=;display-name=Carl;id=g1;login=carl;msg-id=subgift;msg-param-recipient-display-name=Bob;msg-param-recipient-user-name=bob;room-id=1;tmi-sent-ts=123;user-id=8 :tmi.twitch.tv USERNOTICE #chan'
+    const m = parseIrcLine(line)
+    expect(m).toMatchObject({
+      type: 'usernotice', msgId: 'subgift',
+      params: { 'msg-param-recipient-user-name': 'bob', 'msg-param-recipient-display-name': 'Bob' },
+    })
+  })
+
+  test('announcement — trailing text is the announce body', () => {
+    const line = '@msg-id=announcement;login=moduser;display-name=ModUser;id=a1;room-id=1;tmi-sent-ts=123;user-id=9 :tmi.twitch.tv USERNOTICE #chan :big news everyone'
+    const m = parseIrcLine(line)
+    expect(m).toMatchObject({ type: 'usernotice', msgId: 'announcement', login: 'moduser', text: 'big news everyone' })
+  })
+
+  test('system-msg unescapes \\s to a real space', () => {
+    const line = '@id=s1;login=x;msg-id=sub;room-id=1;system-msg=X\\ssubscribed\\swith\\sPrime;tmi-sent-ts=1;user-id=1 :tmi.twitch.tv USERNOTICE #chan'
+    const m = parseIrcLine(line)
+    expect(m).toMatchObject({ type: 'usernotice', systemMsg: 'X subscribed with Prime' })
+  })
+
+  test('an unrecognized msg-id still parses to type usernotice, msgId preserved', () => {
+    const line = '@id=u1;login=x;msg-id=someNewTwitchThing;room-id=1;tmi-sent-ts=1;user-id=1 :tmi.twitch.tv USERNOTICE #chan'
+    const m = parseIrcLine(line)
+    expect(m).toMatchObject({ type: 'usernotice', msgId: 'someNewTwitchThing' })
+  })
+})
+
+describe('parseIrcLine first-msg / returning-chatter flags', () => {
+  test('first-msg=1 sets firstMsg true', () => {
+    const m = parseIrcLine('@badges=;first-msg=1;id=1;user-id=2 :viewer!v@v.tmi.twitch.tv PRIVMSG #chan :hello')
+    expect(m).toMatchObject({ type: 'privmsg', firstMsg: true })
+  })
+
+  test('returning-chatter=1 sets returningChatter true', () => {
+    const m = parseIrcLine('@badges=;returning-chatter=1;id=1;user-id=2 :viewer!v@v.tmi.twitch.tv PRIVMSG #chan :hello')
+    expect(m).toMatchObject({ type: 'privmsg', returningChatter: true })
+  })
+
+  test('absent tags leave both flags undefined', () => {
+    const m = parseIrcLine('@badges=;id=1;user-id=2 :viewer!v@v.tmi.twitch.tv PRIVMSG #chan :hello')
+    expect(m).toMatchObject({ type: 'privmsg' })
+    if (m.type === 'privmsg') {
+      expect(m.firstMsg).toBeUndefined()
+      expect(m.returningChatter).toBeUndefined()
+    }
+  })
+})
+
+describe('dispatch forwards flags as the 10th arg', () => {
+  test('dispatchPrivmsg carries firstMsg/returningChatter through to onMessage', () => {
+    const received: unknown[][] = []
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [] },
+      (...args: unknown[]) => { received.push(args) },
+    )
+    const c = client as unknown as { dispatchPrivmsg: (m: unknown) => void }
+    c.dispatchPrivmsg({
+      type: 'privmsg', channel: 'chan', login: 'viewer', text: 'hi', userId: '2', messageId: 'm3',
+      badges: [], sentTs: 0, firstMsg: true,
+    })
+    const flags = (received[0] as unknown[])[9]
+    expect(flags).toMatchObject({ firstMsg: true })
+  })
+
+  test('a privmsg with neither flag forwards undefined flags (not an object)', () => {
+    const received: unknown[][] = []
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [] },
+      (...args: unknown[]) => { received.push(args) },
+    )
+    const c = client as unknown as { dispatchPrivmsg: (m: unknown) => void }
+    c.dispatchPrivmsg({
+      type: 'privmsg', channel: 'chan', login: 'viewer', text: 'hi', userId: '2', messageId: 'm4',
+      badges: [], sentTs: 0,
+    })
+    const flags = (received[0] as unknown[])[9]
+    expect(flags).toBeUndefined()
+  })
+})
+
+describe('usernotice dedupe + routing', () => {
+  test('dispatchUserNotice fires the handler once per messageId, dedupes a redelivery', () => {
+    const received: unknown[] = []
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [] },
+      () => {},
+    )
+    client.setUserNoticeHandler((n) => received.push(n))
+    const c = client as unknown as { dispatchUserNotice: (m: unknown) => void }
+    const notice = {
+      type: 'usernotice', channel: 'chan', msgId: 'raid', login: 'kripp', displayName: 'Kripp',
+      userId: '2', messageId: 'evt-dup', badges: [], sentTs: 0, systemMsg: '', params: {},
+    }
+    c.dispatchUserNotice(notice)
+    c.dispatchUserNotice(notice)
+    expect(received.length).toBe(1)
+  })
+})

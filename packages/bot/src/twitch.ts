@@ -100,7 +100,15 @@ export interface ReplyParent {
   body?: string
 }
 
-export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string, sentTs?: number, replyParent?: ReplyParent) => void
+// flags carried alongside a privmsg dispatch — twitch's own signals for a chatter's first
+// line ever in a channel / their first line after a break. rendering (a greeting etc) is
+// entirely the caller's call; this client just threads the tag through.
+export interface MessageFlags {
+  firstMsg?: boolean
+  returningChatter?: boolean
+}
+
+export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string, sentTs?: number, replyParent?: ReplyParent, flags?: MessageFlags) => void
 
 export type AuthRefreshFn = () => Promise<string>
 
@@ -120,6 +128,26 @@ interface IrcPrivmsg {
   replyParentUserLogin?: string
   replyParentBody?: string
   threadId?: string
+  firstMsg?: boolean
+  returningChatter?: boolean
+}
+
+// USERNOTICE: twitch's channel-event line — sub/resub/raid/gift/announce. carries no
+// chat text of its own except an optional user-typed message (resub note, announcement
+// body) in the trailing param. rendering lives in stream-events.ts — this client just parses.
+export interface IrcUserNotice {
+  type: 'usernotice'
+  channel: string
+  msgId: string
+  login: string
+  displayName: string
+  userId: string
+  messageId: string
+  badges: string[]
+  sentTs: number
+  systemMsg: string
+  params: Record<string, string>
+  text?: string
 }
 
 type IrcMessage =
@@ -130,6 +158,7 @@ type IrcMessage =
   | { type: 'notice'; raw?: string }
   | { type: 'userstate'; channel: string; privileged: boolean }
   | IrcPrivmsg
+  | IrcUserNotice
   | { type: 'other' }
 
 function parseIrcTags(raw: string): Record<string, string> {
@@ -174,6 +203,32 @@ export function parseIrcLine(line: string): IrcMessage {
       const privileged = tags['mod'] === '1' || badges.includes('vip') || badges.includes('moderator') || badges.includes('broadcaster')
       return { type: 'userstate', channel: usMatch[1], privileged }
     }
+    // USERNOTICE: sub/resub/raid/gift-sub/announcement. no nick!user@host prefix (it's
+    // tmi.twitch.tv acting on the channel's behalf), and the text (if any) is the trailing
+    // param — a resub note or a mod's /announce body — never a chat line from `login`.
+    const unMatch = rest.match(/^:tmi\.twitch\.tv USERNOTICE #(\S+)(?: :(.*))?$/)
+    if (unMatch) {
+      const [, channel, trailingText] = unMatch
+      const badges = (tags['badges'] || '').split(',').filter(Boolean).map((b) => b.split('/')[0])
+      const params: Record<string, string> = {}
+      for (const k of Object.keys(tags)) {
+        if (k.startsWith('msg-param-')) params[k] = tags[k]
+      }
+      return {
+        type: 'usernotice',
+        channel,
+        msgId: tags['msg-id'] ?? '',
+        login: tags['login'] ?? '',
+        displayName: tags['display-name'] || tags['login'] || '',
+        userId: tags['user-id'] ?? '',
+        messageId: tags['id'] ?? '',
+        badges,
+        sentTs: Number(tags['tmi-sent-ts']) || 0,
+        systemMsg: tags['system-msg'] ?? '',
+        params,
+        text: trailingText || undefined,
+      }
+    }
     const pmMatch = rest.match(/^:([^!]+)![^ ]+ PRIVMSG #(\S+) :(.*)$/)
     if (!pmMatch) return { type: 'other' }
     const [, login, channel, text] = pmMatch
@@ -192,6 +247,8 @@ export function parseIrcLine(line: string): IrcMessage {
       replyParentUserLogin: tags['reply-parent-user-login'] || undefined,
       replyParentBody: tags['reply-parent-msg-body'] || undefined,
       threadId: tags['reply-thread-parent-msg-id'] || tags['reply-parent-msg-id'] || undefined,
+      firstMsg: tags['first-msg'] === '1' ? true : undefined,
+      returningChatter: tags['returning-chatter'] === '1' ? true : undefined,
     }
   }
   return { type: 'other' }
@@ -203,6 +260,7 @@ export class TwitchClient {
   private sessionId = ''
   private config: TwitchConfig
   private onMessage: MessageHandler
+  private onUserNotice: ((n: IrcUserNotice) => void) | null = null
   private onAuthFailure: AuthRefreshFn | null = null
   private keepaliveTimeout: Timer | null = null
   private keepaliveMs = 15_000
@@ -284,6 +342,10 @@ export class TwitchClient {
 
   setAuthRefresh(fn: AuthRefreshFn) {
     this.onAuthFailure = fn
+  }
+
+  setUserNoticeHandler(fn: (n: IrcUserNotice) => void) {
+    this.onUserNotice = fn
   }
 
   setIrcOnly(channels: string[]) {
@@ -721,6 +783,9 @@ export class TwitchClient {
           case 'privmsg':
             this.dispatchPrivmsg(msg)
             break
+          case 'usernotice':
+            this.dispatchUserNotice(msg)
+            break
         }
       }
       this.ircLastData = Date.now()
@@ -749,10 +814,13 @@ export class TwitchClient {
     const replyParent: ReplyParent | undefined = m.replyParentUserLogin
       ? { login: m.replyParentUserLogin.toLowerCase(), body: m.replyParentBody }
       : undefined
-    this.dispatchMessage(m.channel, m.userId, m.login, text, m.badges, m.messageId, m.threadId, m.sentTs, replyParent)
+    const flags: MessageFlags | undefined = (m.firstMsg || m.returningChatter)
+      ? { firstMsg: m.firstMsg, returningChatter: m.returningChatter }
+      : undefined
+    this.dispatchMessage(m.channel, m.userId, m.login, text, m.badges, m.messageId, m.threadId, m.sentTs, replyParent, flags)
   }
 
-  private dispatchMessage(channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string, sentTs?: number, replyParent?: ReplyParent) {
+  private dispatchMessage(channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string, sentTs?: number, replyParent?: ReplyParent, flags?: MessageFlags) {
     if (messageId) {
       if (this.seenMessageIdSet.has(messageId)) return
       this.seenMessageIdSet.add(messageId)
@@ -762,7 +830,23 @@ export class TwitchClient {
         if (evicted) this.seenMessageIdSet.delete(evicted)
       }
     }
-    this.onMessage(channel, userId, username, text, badges, messageId, threadId, sentTs, replyParent)
+    this.onMessage(channel, userId, username, text, badges, messageId, threadId, sentTs, replyParent, flags)
+  }
+
+  // USERNOTICE (sub/resub/raid/gift/announce) — dedup by messageId through the same ring
+  // as privmsg (EventSub carries no USERNOTICE equivalent, but a reconnect can redeliver
+  // the same tmi message id). rendering/routing is entirely the caller's job.
+  private dispatchUserNotice(m: IrcUserNotice) {
+    if (m.messageId) {
+      if (this.seenMessageIdSet.has(m.messageId)) return
+      this.seenMessageIdSet.add(m.messageId)
+      this.seenMessageIds.push(m.messageId)
+      if (this.seenMessageIds.length > this.SEEN_MSG_CAP) {
+        const evicted = this.seenMessageIds.shift()
+        if (evicted) this.seenMessageIdSet.delete(evicted)
+      }
+    }
+    this.onUserNotice?.(m)
   }
 
   // After welcome, JOIN ack should arrive within seconds. If a channel hasn't acked

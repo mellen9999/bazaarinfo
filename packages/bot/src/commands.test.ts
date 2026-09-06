@@ -1303,6 +1303,26 @@ describe('!b edge cases', () => {
     expect(result).toBe('sup chat')
   })
 
+  // usernotice asks (a resub/sub note opening with "!b"/"@bot") route with no
+  // messageId/threadId/replyParent — proves that's already a safe no-op path.
+  it('handleCommand works with no messageId/threadId/replyParent set', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'hey', mentions: [] }))
+    const result = await handleCommand('!b ', { user: 'chatter', channel: 'stream', privileged: true, isMod: true })
+    expect(result).toBe('hey')
+  })
+
+  it('firstMsg/returningChatter reach the aiRespond ctx', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'hey', mentions: [] }))
+    await handleCommand('!b ', { user: 'chatter', channel: 'stream', firstMsg: true })
+    const ctxArg = mockAiRespond.mock.calls.at(-1)?.[1]
+    expect(ctxArg).toMatchObject({ firstMsg: true })
+
+    mockAiRespond.mockClear()
+    await handleCommand('!b ', { user: 'chatter', channel: 'stream', returningChatter: true })
+    const ctxArg2 = mockAiRespond.mock.calls.at(-1)?.[1]
+    expect(ctxArg2).toMatchObject({ returningChatter: true })
+  })
+
   it('strips quotes from input', async () => {
     const eclipse = makeCard({ Title: 'The Eclipse' })
     mockExact.mockImplementation((name) => name === 'the eclipse' ? eclipse : undefined)

@@ -329,6 +329,9 @@ export interface CommandContext {
   // never construct this by hand.
   mention?: boolean
   replyParent?: { login: string; body?: string }
+  // twitch's own first-message/returning-chatter signal — threaded through to aiRespond
+  firstMsg?: boolean
+  returningChatter?: boolean
 }
 
 type CommandHandler = (args: string, ctx: CommandContext) => string | null | Promise<string | null>

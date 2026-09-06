@@ -720,6 +720,55 @@ describe('db', () => {
     expect(db.getUserMemo('gonequiet')).toBeNull()
     expect(db.getUserMemo('stillhere')).not.toBeNull()
   })
+
+  // --- user_events (raids/subs/resubs/gift trains/announcements) ---
+
+  it('migration creates the user_events table', () => {
+    const row = db.getDb().query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'user_events'`).get()
+    expect(row).not.toBeNull()
+  })
+
+  it('logUserEvent + getUserEvents round-trip', () => {
+    db.logUserEvent({ channel: 'chan', login: 'alice', kind: 'resub', detail: 'resubbed (14 months)', months: 14 })
+    const rows = db.getUserEvents('alice', 8)
+    expect(rows.length).toBe(1)
+    expect(rows[0]).toMatchObject({ channel: 'chan', kind: 'resub', detail: 'resubbed (14 months)', months: 14 })
+  })
+
+  it('a gift-train event updates the same row instead of inserting a new one per re-render', () => {
+    db.logUserEvent({ channel: 'chan', login: 'carl', kind: 'gift', detail: 'gifted 1 subs', count: 1 })
+    db.logUserEvent({ channel: 'chan', login: 'carl', kind: 'gift', detail: 'gifted 2 subs', count: 2 })
+    db.logUserEvent({ channel: 'chan', login: 'carl', kind: 'gift', detail: 'gifted 3 subs', count: 3 })
+    const rows = db.getUserEvents('carl', 10)
+    expect(rows.length).toBe(1)
+    expect(rows[0]).toMatchObject({ detail: 'gifted 3 subs', count: 3 })
+  })
+
+  it('a gift event outside the 10-minute window starts a new row', () => {
+    db.logUserEvent({ channel: 'chan', login: 'dana', kind: 'gift', detail: 'gifted 1 subs', count: 1 })
+    db.getDb().run(`UPDATE user_events SET created_at = datetime('now', '-11 minutes') WHERE login = 'dana'`)
+    db.logUserEvent({ channel: 'chan', login: 'dana', kind: 'gift', detail: 'gifted a sub to eve', count: 1 })
+    const rows = db.getUserEvents('dana', 10)
+    expect(rows.length).toBe(2)
+  })
+
+  it('getChannelEvents reads events for a channel within a time window', () => {
+    db.logUserEvent({ channel: 'events-chan', login: 'frank', kind: 'raid', detail: 'raided with 500 viewers', count: 500 })
+    const rows = db.getChannelEvents('events-chan', '-1 hours', 10)
+    expect(rows.length).toBe(1)
+    expect(rows[0]).toMatchObject({ kind: 'raid', count: 500 })
+  })
+
+  it('pruneOldUserEvents drops only rows past the day cap', () => {
+    db.logUserEvent({ channel: 'chan', login: 'oldevent', kind: 'sub', detail: 'subscribed (tier 1)' })
+    db.getDb().run(`UPDATE user_events SET created_at = datetime('now', '-100 days') WHERE login = 'oldevent'`)
+    db.logUserEvent({ channel: 'chan', login: 'freshevent', kind: 'sub', detail: 'subscribed (tier 1)' })
+
+    db.pruneOldUserEvents(90)
+
+    expect(db.getUserEvents('oldevent', 10)).toEqual([])
+    expect(db.getUserEvents('freshevent', 10).length).toBe(1)
+  })
 })
 
 // Pasta recall used to return the wrong message entirely. Two ranking bugs compounded:

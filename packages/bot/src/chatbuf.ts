@@ -7,10 +7,15 @@ export interface ChatEntry {
   messageId?: string
   threadId?: string
   mod?: boolean // moderator/broadcaster badge on the line — rendered as a marker so the model can tell an order from a viewer's wish
+  kind?: 'event' // a stream event (raid/sub/gift/announce) rendered into the transcript — user is always the '*' sentinel, never a real chatter
 }
 
 const buffers = new Map<string, ChatEntry[]>()
 const MAX_SIZE = 100
+// live gift-train / other collapsible event entries, so a running total updates the SAME
+// rendered line in place instead of appending a new one per subgift. cleared per-entry
+// once it scrolls out of the ring (see recordEvent).
+const eventCollapseMap = new Map<string, Map<string, ChatEntry>>()
 const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
 
 // --- session tracking ---
@@ -79,8 +84,9 @@ async function maybeLearnLessons(channel: string) {
   const buf = buffers.get(channel)
   if (!buf || buf.length < 30) return
 
-  // fire-and-forget — filter bot messages so lessons reflect chat culture, not bot output
-  const chatOnly = buf.slice(-80).filter((m) => m.user.toLowerCase() !== botName)
+  // fire-and-forget — filter bot messages so lessons reflect chat culture, not bot output.
+  // events excluded too — "chat culture" means what people say, not a raid/gift line.
+  const chatOnly = buf.slice(-80).filter((m) => m.user.toLowerCase() !== botName && m.kind !== 'event')
   lessonExtractor(channel, chatOnly).catch((e) => {
     log(`lesson error (${channel}): ${e}`)
   })
@@ -134,7 +140,7 @@ export function getActiveThreads(channel: string, windowMs = 120_000): Thread[] 
   if (!buf) return []
 
   const now = Date.now()
-  const recent = buf.filter((m) => now - m.ts < windowMs && m.user.toLowerCase() !== botName)
+  const recent = buf.filter((m) => now - m.ts < windowMs && m.user.toLowerCase() !== botName && m.kind !== 'event')
   if (recent.length < 2) return []
 
   // track who's talking to whom via @mentions and reply proximity
@@ -221,6 +227,46 @@ export function record(channel: string, user: string, text: string, messageId?: 
   maybeLearnLessons(channel)
 }
 
+// A stream event (raid/sub/gift/announce) rendered into the transcript as a sentinel-user
+// line, so the model reads it inline with "Recent chat" without any prompt-text change.
+// Deliberately skips the session bump / summarizer+lesson tick counters that record() does —
+// an event is not a chat message and must not look like renewed chat activity by itself.
+// collapseKey lets a running total (a gift train) update the SAME line in place instead of
+// appending a new one per subgift.
+export function recordEvent(channel: string, text: string, collapseKey?: string) {
+  text = stripSurrogates(text)
+  let buf = buffers.get(channel)
+  if (!buf) {
+    buf = []
+    buffers.set(channel, buf)
+  }
+  if (collapseKey) {
+    const existing = eventCollapseMap.get(channel)?.get(collapseKey)
+    if (existing) {
+      existing.text = text
+      return
+    }
+  }
+  const entry: ChatEntry = { user: '*', text, ts: Date.now(), kind: 'event' }
+  buf.push(entry)
+  if (buf.length > MAX_SIZE) {
+    const dropped = buf.shift()
+    if (dropped?.kind === 'event') {
+      const chanMap = eventCollapseMap.get(channel)
+      if (chanMap) {
+        for (const [k, v] of chanMap) {
+          if (v === dropped) { chanMap.delete(k); break }
+        }
+      }
+    }
+  }
+  if (collapseKey) {
+    let chanMap = eventCollapseMap.get(channel)
+    if (!chanMap) { chanMap = new Map(); eventCollapseMap.set(channel, chanMap) }
+    chanMap.set(collapseKey, entry)
+  }
+}
+
 /** Get all messages in a thread by thread root message ID */
 export function getThread(channel: string, threadId: string): ChatEntry[] {
   const buf = buffers.get(channel)
@@ -235,6 +281,7 @@ export function cleanupChannel(channel: string) {
   summaries.delete(channel)
   msgsSinceSummary.delete(channel)
   msgsSinceLesson.delete(channel)
+  eventCollapseMap.delete(channel)
 }
 
 export function getRecent(channel: string, count: number): ChatEntry[] {

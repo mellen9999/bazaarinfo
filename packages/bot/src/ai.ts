@@ -125,6 +125,10 @@ export interface AiContext {
   mention?: boolean
   replyParent?: { login: string; body?: string }
   direct?: boolean
+  // twitch's own first-message/returning-chatter signal — colours a reply they asked for,
+  // never a greeting on its own.
+  firstMsg?: boolean
+  returningChatter?: boolean
   // What the user actually TYPED, when `query` is something we built for the model
   // (the bare-!b nudge, an identity prompt, a steering suffix). Everything that gets
   // replayed to the model later — the ask log, the hot exchange cache, fact extraction —
