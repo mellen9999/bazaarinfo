@@ -36,3 +36,18 @@ describe('badges', () => {
     expect(badgeKey({ vip: true })).not.toBe(badgeKey({ mod: true }))
   })
 })
+
+// the raw tags ride the privmsg flags untouched; parsing is badges.ts's job
+import { parseIrcLine } from './twitch'
+describe('badge tags on a privmsg', () => {
+  it('carry through as raw strings, absent when the chatter has none', () => {
+    const line = '@badge-info=subscriber/14;badges=subscriber/2012,vip/1;display-name=Alice;id=abc;user-id=1 :alice!alice@alice.tmi.twitch.tv PRIVMSG #ch :hi'
+    const m = parseIrcLine(line) as any
+    expect(m.badgeTags).toBe('subscriber/2012,vip/1')
+    expect(m.badgeInfoTags).toBe('subscriber/14')
+    expect(m.badges).toEqual(['subscriber', 'vip'])
+    const plain = parseIrcLine('@id=x;user-id=2 :bob!bob@bob.tmi.twitch.tv PRIVMSG #ch :yo') as any
+    expect(plain.badgeTags).toBeUndefined()
+    expect(plain.badgeInfoTags).toBeUndefined()
+  })
+})

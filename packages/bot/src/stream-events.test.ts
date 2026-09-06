@@ -214,3 +214,19 @@ describe('routesAsAsk', () => {
     expect(routesAsAsk(mk({ msgId: 'sub' }), 'bazaarinfo')).toBe(false)
   })
 })
+
+import { formatUserEvents } from './stream-events'
+describe('formatUserEvents', () => {
+  it('renders detail + age, tags a foreign channel, skips announcements, caps the count', () => {
+    const now = Date.UTC(2026, 8, 6, 12, 0, 0)
+    const rows = [
+      { channel: 'ch', kind: 'resub', detail: 'resubbed (14 months): "gg"', created_at: '2026-09-03 12:00:00' },
+      { channel: 'ch', kind: 'announce', detail: 'english only', created_at: '2026-09-04 12:00:00' },
+      { channel: 'rogue', kind: 'gift', detail: 'gifted 20 subs', created_at: '2026-09-06 11:30:00' },
+      { channel: 'ch', kind: 'raid', detail: 'raided with 1,204 viewers', created_at: '2026-08-01 12:00:00' },
+      { channel: 'ch', kind: 'sub', detail: 'subscribed (tier 1)', created_at: '2026-07-01 12:00:00' },
+    ]
+    expect(formatUserEvents(rows, 'ch', now)).toBe('resubbed (14 months): "gg" 3d ago; gifted 20 subs 30m ago (#rogue); raided with 1,204 viewers 36d ago')
+    expect(formatUserEvents([], 'ch', now)).toBe('')
+  })
+})

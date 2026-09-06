@@ -871,6 +871,19 @@ const migrations: (() => void)[] = [
     db.run(`CREATE INDEX idx_user_events_login ON user_events(login, created_at DESC)`)
     db.run(`CREATE INDEX idx_user_events_channel ON user_events(channel, created_at DESC)`)
   },
+
+  // migration 28: what a chatter's badges say, per channel — the newest snapshot only
+  // (sub months, gifted-subs tier, bits tier, roles), written when it changes, read by
+  // the user context and the person-trivia dossier. no api call: it rides on every message.
+  () => {
+    db.run(`CREATE TABLE user_badges (
+      username TEXT NOT NULL COLLATE NOCASE,
+      channel TEXT NOT NULL COLLATE NOCASE,
+      snapshot TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (username, channel)
+    )`)
+  },
 ]
 
 function runMigrations() {
@@ -2048,5 +2061,54 @@ export function pruneOldUserEvents(days = 90): void {
     if (result.changes > 0) log(`pruned ${result.changes} user events older than ${days}d`)
   } catch (e) {
     log(`user event prune error: ${e}`)
+  }
+}
+
+// --- badge snapshots (badges.ts parses; index.ts writes on change) ---
+
+export function upsertUserBadges(username: string, channel: string, snapshotJson: string): void {
+  try {
+    db.query(
+      `INSERT INTO user_badges (username, channel, snapshot) VALUES (?, ?, ?)
+       ON CONFLICT(username, channel) DO UPDATE SET snapshot = excluded.snapshot, updated_at = datetime('now')`,
+    ).run(username.toLowerCase(), channel.toLowerCase(), snapshotJson)
+  } catch (e) {
+    log(`user badges upsert error: ${e}`)
+  }
+}
+
+export function getUserBadges(username: string, channel: string): Record<string, unknown> | null {
+  try {
+    const row = db.query(`SELECT snapshot FROM user_badges WHERE username = ? AND channel = ?`)
+      .get(username.toLowerCase(), channel.toLowerCase()) as { snapshot: string } | null
+    return row ? JSON.parse(row.snapshot) : null
+  } catch {
+    return null
+  }
+}
+
+// --- chat profile: how much, since when, at what hour — from the messages we already log ---
+
+export interface UserChatProfile {
+  messages: number
+  firstSeen: string
+  lastSeen: string
+  peakHourUtc: number | null
+}
+
+export function getUserChatProfile(username: string, channel: string): UserChatProfile | null {
+  try {
+    const row = db.query(
+      `SELECT COUNT(*) AS messages, MIN(created_at) AS firstSeen, MAX(created_at) AS lastSeen
+       FROM chat_messages WHERE channel = ? AND LOWER(username) = ?`,
+    ).get(channel.toLowerCase(), username.toLowerCase()) as { messages: number; firstSeen: string | null; lastSeen: string | null } | null
+    if (!row || !row.messages || !row.firstSeen || !row.lastSeen) return null
+    const peak = db.query(
+      `SELECT CAST(strftime('%H', created_at) AS INTEGER) AS h, COUNT(*) AS n FROM chat_messages
+       WHERE channel = ? AND LOWER(username) = ? GROUP BY h ORDER BY n DESC LIMIT 1`,
+    ).get(channel.toLowerCase(), username.toLowerCase()) as { h: number } | null
+    return { messages: row.messages, firstSeen: row.firstSeen, lastSeen: row.lastSeen, peakHourUtc: peak?.h ?? null }
+  } catch {
+    return null
   }
 }

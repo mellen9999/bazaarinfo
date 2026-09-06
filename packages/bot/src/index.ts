@@ -21,6 +21,7 @@ import { refreshGuildrunIfNeeded } from './guildrun'
 import { refreshGrNewsIfNeeded } from './guildrun-news'
 import { refreshHsCardsIfNeeded } from './hs-cards'
 import { prefetchGameDossier } from './game-dossier'
+import { parseBadges, badgeKey } from './badges'
 import { setChannelIdResolver } from './board'
 import { setHsChannelIdResolver } from './hs-board'
 import { refreshTopicalDigest } from './topical'
@@ -413,6 +414,7 @@ const client = new TwitchClient(
       // the mod flag rides into the buffer so a mod's earlier order in "Recent chat" reads
       // as an order, not a random viewer's wish
       chatbuf.record(channel, username, text, messageId, threadId, isMod)
+      noteBadges(channel, username, flags?.badges, flags?.badgeInfo)
 
       // pre-fetch Twitch user info + followage for every chatter (fire-and-forget)
       // so data is ready BEFORE they ask questions, not after
@@ -536,6 +538,28 @@ client.setIrcOnly(['nl_kripp'])
 // stream events (raid/sub/resub/gift/announce) — context only. renders into the chat
 // transcript (chatbuf) and the per-user event log; zero unprompted speech except the one
 // route below (a resub/sub note that itself opens with "!b"/"@bot").
+// what the chatter's badges say (sub months, gifts, bits, roles) — one row per user per
+// channel, rewritten only when it changes. the in-memory key is the dedupe: kripp's chat
+// is thousands of lines a day and the snapshot moves once a month.
+const lastBadgeKey = new Map<string, string>()
+function noteBadges(channel: string, username: string, badges?: string, badgeInfo?: string) {
+  if (!badges && !badgeInfo) return
+  try {
+    const snap = parseBadges(badges, badgeInfo)
+    const key = badgeKey(snap)
+    const k = `${username.toLowerCase()}@${channel.toLowerCase()}`
+    if (lastBadgeKey.get(k) === key) return
+    lastBadgeKey.set(k, key)
+    if (lastBadgeKey.size > 5000) {
+      const first = lastBadgeKey.keys().next().value
+      if (first) lastBadgeKey.delete(first)
+    }
+    db.upsertUserBadges(username, channel, JSON.stringify(snap))
+  } catch (e) {
+    log(`badge note error: ${e}`)
+  }
+}
+
 client.setUserNoticeHandler((n) => {
   try {
     if (!n.login) return // no login tag — nothing to attribute this to, skip entirely

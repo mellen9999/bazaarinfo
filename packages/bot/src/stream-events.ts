@@ -214,3 +214,24 @@ export function routesAsAsk(n: IrcUserNotice, botName: string): boolean {
   if (/^!b\b/i.test(t)) return true
   return new RegExp(`^@${botName}\\s+`, 'i').test(t)
 }
+
+// the per-user log, read back: "resubbed (14 months): "gg" 3d ago; gifted 20 subs 9d ago
+// (#rogue)". detail is already a sentence fragment; only the age and a foreign channel
+// are added. announcements are a mod's broadcast, not something the person "did" — skipped.
+export function formatUserEvents(rows: { channel: string; kind: string; detail: string; created_at: string }[], channel: string, now = Date.now(), max = 3): string {
+  const out: string[] = []
+  for (const r of rows) {
+    if (r.kind === 'announce') continue
+    const age = ageOf(r.created_at, now)
+    const where = r.channel.toLowerCase() === channel.toLowerCase() ? '' : ` (#${r.channel})`
+    out.push(`${r.detail} ${age}${where}`)
+    if (out.length >= max) break
+  }
+  return out.join('; ')
+}
+
+function ageOf(createdAt: string, now: number): string {
+  const mins = Math.round((now - new Date(createdAt.replace(' ', 'T') + 'Z').getTime()) / 60_000)
+  if (!Number.isFinite(mins) || mins < 0) return 'just now'
+  return mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`
+}

@@ -106,6 +106,10 @@ export interface ReplyParent {
 export interface MessageFlags {
   firstMsg?: boolean
   returningChatter?: boolean
+  // raw `badges` / `badge-info` tag values — what the chatter's badges say (sub months,
+  // gifts, bits, roles); parsed by badges.ts, never interpreted here
+  badges?: string
+  badgeInfo?: string
 }
 
 export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string, sentTs?: number, replyParent?: ReplyParent, flags?: MessageFlags) => void
@@ -129,6 +133,8 @@ interface IrcPrivmsg {
   replyParentBody?: string
   threadId?: string
   firstMsg?: boolean
+  badgeTags?: string
+  badgeInfoTags?: string
   returningChatter?: boolean
 }
 
@@ -249,6 +255,8 @@ export function parseIrcLine(line: string): IrcMessage {
       threadId: tags['reply-thread-parent-msg-id'] || tags['reply-parent-msg-id'] || undefined,
       firstMsg: tags['first-msg'] === '1' ? true : undefined,
       returningChatter: tags['returning-chatter'] === '1' ? true : undefined,
+      badgeTags: tags['badges'] || undefined,
+      badgeInfoTags: tags['badge-info'] || undefined,
     }
   }
   return { type: 'other' }
@@ -814,8 +822,8 @@ export class TwitchClient {
     const replyParent: ReplyParent | undefined = m.replyParentUserLogin
       ? { login: m.replyParentUserLogin.toLowerCase(), body: m.replyParentBody }
       : undefined
-    const flags: MessageFlags | undefined = (m.firstMsg || m.returningChatter)
-      ? { firstMsg: m.firstMsg, returningChatter: m.returningChatter }
+    const flags: MessageFlags | undefined = (m.firstMsg || m.returningChatter || m.badgeTags || m.badgeInfoTags)
+      ? { firstMsg: m.firstMsg, returningChatter: m.returningChatter, badges: m.badgeTags, badgeInfo: m.badgeInfoTags }
       : undefined
     this.dispatchMessage(m.channel, m.userId, m.login, text, m.badges, m.messageId, m.threadId, m.sentTs, replyParent, flags)
   }

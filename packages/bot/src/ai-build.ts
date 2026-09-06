@@ -11,6 +11,8 @@ import { isGrQuery, isGrIntent, isGuildrunCategory, grContext, grKeywordCard } f
 import { getGrNewsLine } from './guildrun-news'
 import { getGameDossierLine, isUngroundedGame, canonicalGameName } from './game-dossier'
 import { getChannelSnapshotLine, isStreamerAsk, FOLLOW_ASK_RE, channelNamedIn } from './twitch-profile'
+import { formatBadges, type BadgeSnapshot } from './badges'
+import { formatUserEvents } from './stream-events'
 import { getWeatherLine } from './weather'
 import { META_QUERY_RE } from './intents'
 import { SECTION_HEADERS } from './ai-sanitize'
@@ -272,14 +274,34 @@ function isFactEchoed(fact: string, channel: string): boolean {
 // facts — account age, followage here and on the named channel, their own channel. only
 // on those ask shapes, only when X is a real chatter here, never for the asker (their
 // own block already carries it).
+// badges + the event log, one compact fragment. shared by the asker's own block, the
+// about-@someone block and the person-trivia dossier — one reader, one rendering.
+export function userStandingLine(user: string, channel: string): string {
+  const bits: string[] = []
+  try {
+    const badges = db.getUserBadges(user, channel) as BadgeSnapshot | null
+    const b = badges ? formatBadges(badges) : ''
+    if (b) bits.push(b)
+    const ev = formatUserEvents(db.getUserEvents(user, 6), channel)
+    if (ev) bits.push(`recently: ${ev}`)
+  } catch {}
+  return bits.join('; ')
+}
+
+// "does X stream" / "how long has X followed rogue" / any @X: the named chatter's
+// twitch-readable record — account age, followage here and on a named channel, badges,
+// what they've done, their own channel on a streamer ask. only when X is a real chatter
+// here, never for the asker (their own block already carries it).
 export function buildAboutUserLine(query: string, asker: string, channel: string): string {
-  if (!isStreamerAsk(query) && !FOLLOW_ASK_RE.test(query)) return ''
+  if (!isStreamerAsk(query) && !FOLLOW_ASK_RE.test(query) && !/@\w+/.test(query)) return ''
   const ref = findReferencedUser(query, channel)
   if (!ref || ref === asker.toLowerCase()) return ''
   const bits: string[] = []
   try {
     const tu = db.getCachedTwitchUser(ref)
     if (tu?.account_created_at) bits.push(`account ${db.formatAccountAge(tu.account_created_at)}`)
+    const standing = userStandingLine(ref, channel)
+    if (standing) bits.push(standing)
     const here = db.getCachedFollowage(ref, channel)
     if (here?.followed_at) bits.push(`following #${channel} since ${db.formatAccountAge(here.followed_at).replace(' old', '')}`)
     const other = FOLLOW_ASK_RE.test(query) ? channelNamedIn(query, channel) : null
@@ -360,6 +382,11 @@ export function buildUserContext(user: string, channel: string, skipAsks = false
   // the ordinary chatter and never spends budget
   const streamsLine = isStreamerAsk(query) ? getChannelSnapshotLine(user) : ''
 
+  // what their badges say + what they've done here (resubs, gifts, raids) — the twitch
+  // record of this person, read from the message tags and the event log. always on: it is
+  // the difference between "some viewer" and "the 3-year sub who just gifted 20".
+  const standingLine = userStandingLine(user, channel)
+
   // persistent AI memory memo (suppressed on identity requests to avoid stale echoes)
   let memoLine = ''
   if (!suppressMemo) {
@@ -404,7 +431,7 @@ export function buildUserContext(user: string, channel: string, skipAsks = false
   // triggering a greeting on its own.
   const flagLine = flags?.firstMsg ? 'first message ever in this chat' : flags?.returningChatter ? 'returning chatter' : ''
 
-  const sections = [flagLine, profile, followLine, streamsLine, memoLine, factsLine, asksLine].filter(Boolean)
+  const sections = [flagLine, profile, followLine, standingLine, streamsLine, memoLine, factsLine, asksLine].filter(Boolean)
   if (sections.length === 0) return ''
   return `[${user}] ${sections.join('. ')}`
 }

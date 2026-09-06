@@ -17,6 +17,8 @@ import { suppress, unsuppress, isSuppressed, remainingMinutes, listSuppressions,
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam, CONTINUE_RE } from './ai'
 import { aiUnavailableReason, aiTriviaEnabled, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest, getChannelGame } from './ai-cache'
 import { isLowValue, isThrowawayReply } from './ai-query'
+import { userStandingLine } from './ai-build'
+import { getChannelSnapshotLine } from './twitch-profile'
 import { META_QUERY_RE } from './intents'
 import { isEmote, findEmote } from './emotes'
 import { detectSpamIntent } from './spam-intent'
@@ -1526,6 +1528,26 @@ function buildPersonDossier(username: string, channel: string): string | null {
   const lines: string[] = []
   const sig = signatureEmote(msgs)
   if (sig) lines.push(`signature emote (their most-spammed): ${sig}`)
+  // the twitch record: badges (sub months, gifts, bits, roles), resubs/gifts/raids they
+  // did, how long and how much they've chatted here, their own channel if fetched
+  // every read here is optional colour — a missing table or a cold cache costs the line,
+  // never the round
+  try {
+    const standing = userStandingLine(username, channel)
+    if (standing) lines.push(`twitch standing: ${standing}`)
+    const chat = db.getUserChatProfile(username, channel)
+    if (chat) {
+      const since = chat.firstSeen.slice(0, 7)
+      const peak = chat.peakHourUtc === null ? '' : `, most active around ${String(chat.peakHourUtc).padStart(2, '0')}:00 UTC`
+      lines.push(`chat history: ${chat.messages} messages logged here since ${since}${peak}`)
+    }
+    const own = getChannelSnapshotLine(username)
+    if (own) lines.push(`their channel: ${own}`)
+    const tw = db.getCachedTwitchUser(username)
+    if (tw?.account_created_at) lines.push(`twitch account ${db.formatAccountAge(tw.account_created_at)}`)
+    const fol = db.getCachedFollowage(username, channel)
+    if (fol?.followed_at) lines.push(`following #${channel} since ${db.formatAccountAge(fol.followed_at).replace(' old', '')}`)
+  } catch {}
   const stats = db.getUserStats(username, channel)
   if (stats?.favorite_item) lines.push(`most-looked-up item: ${stats.favorite_item}`)
   const tops = db.getUserTopItems(username, 4)

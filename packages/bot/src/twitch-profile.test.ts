@@ -5,7 +5,7 @@ import {
 } from './twitch-profile'
 import { initDb } from './db'
 import * as db from './db'
-import { buildAboutUserLine, buildUserContext } from './ai-build'
+import { buildAboutUserLine, buildUserContext, userStandingLine } from './ai-build'
 import { setChannelInfos } from './ai-cache'
 
 const NOW = Date.now()
@@ -78,7 +78,35 @@ describe('about-user context', () => {
     expect(line).toContain('streams Diablo IV')
     expect(line).not.toContain('followage is only readable')
     expect(buildAboutUserLine('does @alice stream', 'alice', 'prof-ch')).toBe('')
-    expect(buildAboutUserLine('is boomerang good @alice', 'bob', 'prof-ch')).toBe('')
+    expect(buildAboutUserLine('is boomerang good', 'bob', 'prof-ch')).toBe('')
+    // any @mention of a real chatter carries their record — banter about someone gets the who
+    expect(buildAboutUserLine('@alice is a chad', 'bob', 'prof-ch')).toContain('About alice')
+  })
+
+  it('badges and the event log land in the standing line, for the asker and for @someone', () => {
+    db.upsertUserBadges('alice', 'prof-ch', JSON.stringify({ subMonths: 14, subTier: 2, gifter: 50 }))
+    db.logUserEvent({ channel: 'prof-ch', login: 'alice', kind: 'resub', detail: 'resubbed (14 months): "gg"', months: 14 })
+    db.logUserEvent({ channel: 'rogue', login: 'alice', kind: 'gift', detail: 'gifted 20 subs', count: 20 })
+    db.logUserEvent({ channel: 'prof-ch', login: 'alice', kind: 'announce', detail: 'english only' })
+    const standing = userStandingLine('alice', 'prof-ch')
+    expect(standing).toContain('sub 14 months (tier 2), gifted 50+ subs')
+    expect(standing).toContain('recently: ')
+    expect(standing).toContain('resubbed (14 months): "gg"')
+    expect(standing).toContain('gifted 20 subs')
+    expect(standing).toContain('(#rogue)')
+    expect(standing).not.toContain('english only')
+    expect(buildUserContext('alice', 'prof-ch', true, true, 'hi')).toContain('sub 14 months (tier 2)')
+    expect(buildAboutUserLine('@alice is a chad', 'bob', 'prof-ch')).toContain('gifted 50+ subs')
+    expect(userStandingLine('nobody', 'prof-ch')).toBe('')
+  })
+
+  it('the chat profile counts what is logged here', () => {
+    db.logChat('prof-ch', 'alice', 'second line')
+    db.flushWrites()
+    const p = db.getUserChatProfile('alice', 'prof-ch')
+    expect(p?.messages).toBe(2)
+    expect(typeof p?.peakHourUtc).toBe('number')
+    expect(db.getUserChatProfile('nobody', 'prof-ch')).toBeNull()
   })
 
   it('a follow ask about another joined channel reads its cached followage and states the limit', () => {
