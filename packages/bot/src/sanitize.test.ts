@@ -1191,3 +1191,24 @@ describe('schedule capability denial (SCHEDULE_DENIAL, live log)', () => {
     expect(sanitize('next stream likely wed, not a promise').text).toBe('next stream likely wed, not a promise')
   })
 })
+
+// the "fix questions ending with ." rule flipped plain statements into fake questions
+// whenever they opened with a listed word — 4 live prod strings shipped as questions that
+// were never asking anything.
+describe('stray "?" on statements (live log)', () => {
+  it('leaves multi-clause statements alone even when they open with a question word', () => {
+    expect(sanitize('right there — live now, "NEW BAZAAR SEASON!" title, 2h44m in with 1.3k watching.').text)
+      .toBe('right there — live now, "NEW BAZAAR SEASON!" title, 2h44m in with 1.3k watching.')
+    expect(sanitize("can't kick off trivia myself, galactic overlord — needs a mod to start it.").text)
+      .toBe("can't kick off trivia myself, galactic overlord — needs a mod to start it.")
+    expect(sanitize('right, no mod powers here — just opinions and a bad memory for grudges.').text)
+      .toBe('right, no mod powers here — just opinions and a bad memory for grudges.')
+    expect(sanitize("can't ping him, he's not in chat right now.").text)
+      .toBe("can't ping him, he's not in chat right now.")
+  })
+
+  it('still flips a genuine single-clause question', () => {
+    expect(sanitize('what does it do.').text).toBe('what does it do?')
+    expect(sanitize('is it good.').text).toBe('is it good?')
+  })
+})

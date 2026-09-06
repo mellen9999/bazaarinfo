@@ -376,9 +376,22 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
     }
   }
 
-  // fix questions ending with . instead of ?
+  // fix questions ending with . instead of ? — but only a genuine single-clause question.
+  // ungated this flipped plain statements into fake questions: "right there — live now,
+  // "NEW BAZAAR SEASON!" title..." and "can't kick off trivia myself, galactic overlord —
+  // needs a mod to start it." both open with a listed word but are multi-clause statements,
+  // and "can't"/"isn't"/etc match the "can"/"is" openers via \b (a quote-boundary, not a
+  // word-boundary against the contraction). require no internal clause break and no
+  // contraction opener before flipping.
   s = s.trim()
-  if (s.endsWith('.') && /^(who|what|where|when|why|how|is|are|was|were|do|does|did|can|could|would|should|will|have|has|right|ya think)\b/i.test(s)) {
+  const CONTRACTION_OPENER = /^(?:can't|isn't|don't|won't|aren't|doesn't|didn't|couldn't|wouldn't|shouldn't)\b/i
+  if (
+    s.endsWith('.') &&
+    s.length <= 80 &&
+    !/[,—–;:.]/.test(s.slice(0, -1)) &&
+    !CONTRACTION_OPENER.test(s) &&
+    /^(who|what|where|when|why|how|is|are|was|were|do|does|did|can|could|would|should|will|have|has|right|ya think)\b/i.test(s)
+  ) {
     s = s.slice(0, -1) + '?'
   }
 
