@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'bun:test'
-import { fitToBudget, nowLine, streamLine, shapeLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE, statsTarget, buildChatStr, buildChattersContext, buildUserContext } from './ai-build'
+import { nowLine, streamLine, shapeLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE, statsTarget } from './ai-build'
+import { fitToBudget, buildChatStr, buildChattersContext } from './ai-build-chat'
+import { buildUserContext } from './ai-build-user'
 import { markLiveStateKnown, setChannelLive, setChannelOffline, setStreamInfo, cacheExchange } from './ai-cache'
 import { META_QUERY_RE } from './intents'
 import type { ChatEntry } from './chatbuf'

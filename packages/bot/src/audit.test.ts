@@ -6,7 +6,8 @@
 import { describe, expect, it, beforeAll } from 'bun:test'
 import * as store from './store'
 import { sanitize, buildSystemPrompt, isModelRefusal, buildFTSQuery, GREETINGS } from './ai'
-import { handleCommand, parseArgs } from './commands'
+import { handleCommand } from './commands'
+import { parseArgs } from './commands-lookup'
 import { GAME_TERMS, extractEntities } from './ai-context'
 import { AI_CHANNELS, enableAiForChannel, disableAiForChannel, aiUnavailableReason } from './ai-cache'
 

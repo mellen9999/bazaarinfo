@@ -6,7 +6,7 @@ import {
 import { initDb } from './db'
 import { __setTokensForTest } from './auth'
 import * as db from './db'
-import { buildAboutUserLine, buildUserContext, userStandingLine } from './ai-build'
+import { buildAboutUserLine, buildUserContext, userStandingLine } from './ai-build-user'
 import { setChannelInfos } from './ai-cache'
 
 const NOW = Date.now()

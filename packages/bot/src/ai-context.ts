@@ -13,9 +13,9 @@ export {
   randomPastaExamples, buildSystemPrompt, invalidatePromptCache,
 } from './ai-prompt'
 
-export {
-  buildGameContext, buildUserContext, buildTimeline,
-  buildRecallContext, buildChatRecall, buildChattersContext,
-  buildUserMessage, formatContextSummary,
-} from './ai-build'
+export { buildGameContext } from './ai-build-game'
+export { buildUserContext } from './ai-build-user'
+export { buildTimeline, buildRecallContext, buildChatRecall } from './ai-build-recall'
+export { buildChattersContext, formatContextSummary } from './ai-build-chat'
+export { buildUserMessage } from './ai-build'
 export type { UserMessageResult } from './ai-build'

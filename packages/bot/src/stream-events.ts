@@ -1,7 +1,7 @@
 // renders a twitch USERNOTICE (sub/resub/raid/gift/announce) into a chat-transcript line
 // and a structured event for the per-user log. pure — no db, no network. the only state is
 // an in-memory gift-train collapse map, reset per test via __resetTrainsForTest.
-import { stripChatMessage } from './ai-build'
+import { stripChatMessage } from './ai-build-chat'
 import type { IrcUserNotice } from './twitch'
 
 export interface UserEvent {

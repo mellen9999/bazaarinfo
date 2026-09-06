@@ -234,7 +234,12 @@ mock.module('./emotes', () => ({
   pickEmoteByMood: mock(() => undefined),
 }))
 
-const { handleCommand, parseArgs, salvageQuery, resetDedup, resetProxyCooldowns, resetTriviaTopicBans, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES, stripTopicConnector, DIRECTIVE_INTENT, __queueDepthForTest, __clearTopicQueueForTest } = await import('./commands')
+const { handleCommand, resetDedup, resetProxyCooldowns } = await import('./commands')
+const { parseArgs, salvageQuery } = await import('./commands-lookup')
+const { buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES } = await import('./commands-bare')
+const { PROXY_COOLDOWN } = await import('./commands-proxy')
+const { stripTopicConnector, __queueDepthForTest, __clearTopicQueueForTest } = await import('./commands-trivia')
+const { resetTriviaTopicBans, DIRECTIVE_INTENT } = await import('./commands-mod')
 const { isSuppressed, suppress, resetForTest: resetSuppressState } = await import('./suppress')
 const { addDirective: addDirectiveReal, listDirectives: listDirectivesReal, resetForTest: resetDirectivesState } = await import('./directives')
 const chatbuf = await import('./chatbuf')
@@ -2405,18 +2410,21 @@ describe('bare !b: regression guardrails — usage string is dead', () => {
     }
   })
 
-  it('commands.ts source contains no hardcoded usage constants', async () => {
-    const { readFileSync } = await import('fs')
+  it('commands*.ts sources contain no hardcoded usage constants', async () => {
+    const { readFileSync, readdirSync } = await import('fs')
     const { resolve } = await import('path')
-    const src = readFileSync(resolve(import.meta.dir, 'commands.ts'), 'utf8')
-    // strip the regression-test bookkeeping comment lines so they don't self-match
-    const code = src.replace(/^\s*\/\/.*$/gm, '').replace(/^\s*\*.*$/gm, '')
-    expect(code).not.toMatch(/BASE_USAGE\s*=/)
-    expect(code).not.toMatch(/JOIN_USAGE\s*=/)
-    expect(code).not.toMatch(/\blobbyChannel\b/)
-    expect(code).not.toMatch(/!b <item> \[tier\]/)
-    expect(code).not.toMatch(/hero\/mob\/skill\/tag\/day/)
-    expect(code).not.toMatch(/type !join in/)
+    const files = readdirSync(import.meta.dir).filter((f) => /^commands.*\.ts$/.test(f) && !f.endsWith('.test.ts'))
+    for (const file of files) {
+      const src = readFileSync(resolve(import.meta.dir, file), 'utf8')
+      // strip the regression-test bookkeeping comment lines so they don't self-match
+      const code = src.replace(/^\s*\/\/.*$/gm, '').replace(/^\s*\*.*$/gm, '')
+      expect(code).not.toMatch(/BASE_USAGE\s*=/)
+      expect(code).not.toMatch(/JOIN_USAGE\s*=/)
+      expect(code).not.toMatch(/\blobbyChannel\b/)
+      expect(code).not.toMatch(/!b <item> \[tier\]/)
+      expect(code).not.toMatch(/hero\/mob\/skill\/tag\/day/)
+      expect(code).not.toMatch(/type !join in/)
+    }
   })
 })
 
