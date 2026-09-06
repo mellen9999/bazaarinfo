@@ -15,7 +15,7 @@ import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, c
 import { isMuted } from './directives'
 import { isSuppressed } from './suppress'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
-import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamInfo, setModCheck } from './ai-cache'
+import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamInfo, getStreamInfo, setModCheck } from './ai-cache'
 import { refreshRedditDigest, refreshBgRedditDigest, refreshGrRedditDigest } from './reddit'
 import { refreshGuildrunIfNeeded } from './guildrun'
 import { refreshGrNewsIfNeeded } from './guildrun-news'
@@ -41,7 +41,8 @@ import { readJson } from './http'
 import * as raid from './raid'
 import * as dungeon from './dungeon'
 import { backfillVods } from './vod-backfill'
-import { renderUserNotice, routesAsAsk } from './stream-events'
+import { renderUserNotice, routesAsAsk, renderStoredEvent } from './stream-events'
+import { renderModeration, noteTimeout, isTimedOut, noteDeletedMessage, wasDeleted, noteSentLine, storedLineFor } from './moderation'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
 const CLIENT_ID = process.env.TWITCH_CLIENT_ID
@@ -379,9 +380,12 @@ for (const ch of channelNames) {
   // the bot's own lines come from the persisted reply ring (never chat_messages, so no
   // consumer of that table ever sees the bot as a chatter) and are interleaved by clock,
   // so "Recent chat" reads as the real conversation from the first ask after a restart.
+  // stream events (raid/sub/gift/announce) ride back in too — a restart mid-stream used to
+  // forget the raid that landed twenty minutes ago while every chatter still remembered it.
   const recent = [
     ...db.getRecentChannelChat(ch, 100),
     ...db.loadRecentResponsesTimed(ch, 12).map((r) => ({ username: BOT_USERNAME, message: r.response, created_at: r.created_at })),
+    ...db.getChannelEvents(ch, '-3 hours').map((e) => ({ username: '*', message: renderStoredEvent(e), created_at: e.created_at, kind: 'event' as const })),
   ].sort((a, b) => a.created_at.localeCompare(b.created_at))
   if (recent.length > 0) {
     chatbuf.restoreChat(ch, recent)
@@ -410,10 +414,14 @@ const client = new TwitchClient(
       const isMod = badges.some((b) => b === 'moderator' || b === 'broadcaster')
       const muted = !isMod && isMuted(channel, username, privileged)
 
-      try { db.logChat(channel, username, text) } catch {}
+      // the message id rides into the log so a mod's /delete can take the exact row back out
+      try { db.logChat(channel, username, text, messageId) } catch {}
       // the mod flag rides into the buffer so a mod's earlier order in "Recent chat" reads
-      // as an order, not a random viewer's wish
-      chatbuf.record(channel, username, text, messageId, threadId, isMod)
+      // as an order, not a random viewer's wish. a cheer / highlight / channel-point redeem is
+      // a transcript annotation the room saw too — the model reads `[500 bits]` like `[mod]`.
+      const tag = flags?.bits ? `${flags.bits} bits` : flags?.highlighted ? 'highlighted' : flags?.redeem ? 'redeem' : undefined
+      chatbuf.record(channel, username, text, messageId, threadId, isMod, tag)
+      if (flags?.bits) db.logUserEvent({ channel, login: username, kind: 'cheer', detail: `cheered ${flags.bits} bits`, count: flags.bits })
       noteBadges(channel, username, flags?.badges, flags?.badgeInfo)
 
       // pre-fetch Twitch user info + followage for every chatter (fire-and-forget)
@@ -503,6 +511,14 @@ const client = new TwitchClient(
           log(`[#${channel}] [${username}] DROPPED stale reply (${Math.round(age / 1000)}s old, inbound=${Math.round(inboundAgeMs / 1000)}s): ${response.slice(0, 60)}`)
           return
         }
+        // the asker got timed out, or a mod deleted the question, while we were thinking:
+        // answering now re-surfaces a line the room can no longer see. a live-round announce
+        // still goes out (its timers are armed; see above).
+        if ((isTimedOut(channel, username) || wasDeleted(messageId)) && !carriesLiveQuestion(channel, response)) {
+          log(`[#${channel}] [${username}] DROPPED reply to a ${isTimedOut(channel, username) ? 'timed-out asker' : 'deleted ask'}: ${response.slice(0, 60)}`)
+          try { db.logAskMiss({ user: username, channel }, text, 'asker_removed') } catch {}
+          return
+        }
         // outbound pacing is handled solely by the twitch client's send buckets + FIFO
         // pacer (see twitch.ts say/kickPacer). no second throttle here — the first reply
         // goes out immediately and the rest are spaced ~400ms so chat never gets a burst.
@@ -522,7 +538,9 @@ const client = new TwitchClient(
         const finalResponse = (responseIsCommand && messageId)
           ? `${response} @${username}`
           : response
-        client.say(channel, finalResponse, replyId)
+        // the wire text (post strip/truncate) is what a CLEARMSG quotes back; remember which
+        // stored line it was so a mod deleting our reply can be traced to the exact ask row.
+        client.say(channel, finalResponse, replyId).then((sent) => noteSentLine(channel, sent, response)).catch(() => {})
         // thread the bot's own line under the root it replied to, so a later reply-to-bot
         // hop (getThread) can see this turn too — not just the viewer's opening message.
         chatbuf.record(channel, BOT_USERNAME, response, undefined, replyId ? (threadId ?? messageId) : undefined)
@@ -579,15 +597,78 @@ client.setUserNoticeHandler((n) => {
     handleCommand(n.text!, { user: n.login, channel: n.channel, privileged: true, isMod })
       .then((response) => {
         if (!response) return
+        if (isTimedOut(n.channel, n.login)) {
+          log(`[#${n.channel}] [${n.login}] DROPPED usernotice reply to a timed-out asker`)
+          try { db.logAskMiss({ user: n.login, channel: n.channel }, n.text!, 'asker_removed') } catch {}
+          return
+        }
         // same shape as the privmsg path: a relayed !command keeps its prefix, the
         // @mention goes after it; anything else is addressed up front
         client.say(n.channel, /^[!\\/.]/.test(response) ? `${response} @${n.login}` : `@${n.login} ${response}`)
+          .then((sent) => noteSentLine(n.channel, sent, response)).catch(() => {})
         chatbuf.record(n.channel, BOT_USERNAME, response)
       })
       .catch((e) => log(`usernotice ask error: ${e}`))
   } catch (e) {
     log(`usernotice handler error: ${e}`)
   }
+})
+// moderation (CLEARCHAT / CLEARMSG) — what a mod removes is gone from the bot too: the ring,
+// the chat log (hard delete; fts/recall/pasta/voice follow by construction), and any reply
+// still in flight to the removed asker. the room sees a one-line event; the deleted text is
+// never repeated anywhere. a mod acting on the BOT's line is the one ground-truth quality
+// signal we get — it is logged, marked on the ask row, and pushed to the phone.
+const botLogin = BOT_USERNAME.toLowerCase()
+client.setModerationHandler((m) => {
+  try {
+    if (m.type === 'clearmsg') {
+      if (m.login === botLogin) {
+        const stored = storedLineFor(m.channel, m.text) ?? m.text
+        chatbuf.removeBotLine(m.channel, stored)
+        const marked = db.markResponseDeleted(m.channel, stored)
+        db.deleteRecentResponse(m.channel, stored)
+        log(`mod #${m.channel}: DELETED OUR LINE${marked ? ' (ask row marked)' : ''}: ${JSON.stringify(stored.slice(0, 120))}`)
+        void notify(`bot-line-deleted:${m.channel}`, `mod deleted a bot line in #${m.channel}`, stored.slice(0, 300))
+        return
+      }
+      chatbuf.removeMessage(m.channel, m.targetMsgId)
+      const gone = db.deleteChatMessage(m.channel, m.targetMsgId, { login: m.login, text: m.text })
+      noteDeletedMessage(m.targetMsgId)
+      const rendered = renderModeration(m, botLogin)
+      if (rendered) chatbuf.recordEvent(m.channel, rendered.text, rendered.collapseKey)
+      log(`mod #${m.channel}: deleted ${m.login}'s line (${gone} row${gone === 1 ? '' : 's'})`)
+      return
+    }
+    // clearchat
+    if (!m.login) {
+      chatbuf.clearRing(m.channel)
+      const rendered = renderModeration(m, botLogin)
+      if (rendered) chatbuf.recordEvent(m.channel, rendered.text)
+      log(`mod #${m.channel}: chat cleared`)
+      return
+    }
+    if (m.login === botLogin) {
+      log(`mod #${m.channel}: THE BOT WAS ${m.durationSec ? `TIMED OUT (${m.durationSec}s)` : 'BANNED'}`)
+      void notify(`bot-timeout:${m.channel}`, `bot ${m.durationSec ? 'timed out' : 'banned'} in #${m.channel}`, m.durationSec ? `${m.durationSec}s` : 'permanent', 'high')
+      return
+    }
+    chatbuf.removeUser(m.channel, m.login)
+    // a timeout takes the visible window (what twitch itself wipes); a ban takes the user's
+    // whole log here — a banned chatter's lines must never come back as a pasta or a quote.
+    const gone = db.deleteUserChat(m.channel, m.login, m.durationSec ? Date.now() - 60 * 60_000 : null)
+    noteTimeout(m.channel, m.login, m.durationSec)
+    const rendered = renderModeration(m, botLogin)
+    if (rendered) chatbuf.recordEvent(m.channel, rendered.text)
+    log(`mod #${m.channel}: ${m.login} ${m.durationSec ? `timed out ${m.durationSec}s` : 'banned'} (${gone} rows purged)`)
+  } catch (e) {
+    log(`moderation handler error: ${e}`)
+  }
+})
+// a channel helix says is live and busy, yet silent on irc, is a dropped JOIN — rejoin first,
+// page the owner only if that didn't help (twitch.ts owns the clock and the rejoin).
+client.setLiveViewersResolver((ch) => getStreamInfo(ch)?.viewers)
+client.setStarvedHandler((ch, viewers) => {
+  void notify(`irc-starved:${ch}`, `irc starved #${ch}`, `live with ${viewers} viewers, still no chat 5 min after rejoining`, 'high')
 })
 const channelIdFor = (ch: string) => client.getChannels().find((c) => c.name.toLowerCase() === ch)?.userId ?? null
 setChannelIdResolver(channelIdFor)
@@ -657,10 +738,14 @@ async function pollStreams(initial = false) {
         // a channel already live when the bot (re)starts hasn't transitioned — seed state
         // silently. only a real offline->online flip mid-run fires the dnd announcement.
         if (!initial) dungeon.onStreamOnline(ch)
+        // the flip lands in the transcript so "when did stream start" has a line to point at,
+        // not just the current-state clock. boot is silent — nothing happened, we arrived.
+        if (!initial) chatbuf.recordEvent(ch, `* stream went live${s.game_name ? `: ${s.game_name}` : ''}${s.title ? ` "${s.title.slice(0, 80)}"` : ''}`)
       } else if (prev !== s.game_name) {
         log(`channel update: #${ch} → ${s.game_name || '(no game)'}`)
         setChannelGame(ch, s.game_name)
         prefetchGameDossier(s.game_name)
+        chatbuf.recordEvent(ch, `* game changed: ${prev || '(no game)'} -> ${s.game_name || '(no game)'}`)
       }
       liveState.set(ch, s.game_name)
     }
@@ -674,6 +759,7 @@ async function pollStreams(initial = false) {
       log(`stream offline: #${ch}`)
       setChannelOffline(ch)
       dungeon.onStreamOffline(ch)
+      chatbuf.recordEvent(ch, '* stream ended')
       liveState.delete(ch)
       offlineMisses.delete(ch)
     }

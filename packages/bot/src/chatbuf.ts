@@ -8,6 +8,7 @@ export interface ChatEntry {
   threadId?: string
   mod?: boolean // moderator/broadcaster badge on the line — rendered as a marker so the model can tell an order from a viewer's wish
   kind?: 'event' // a stream event (raid/sub/gift/announce) rendered into the transcript — user is always the '*' sentinel, never a real chatter
+  tag?: string // e.g. '500 bits' | 'highlighted' | 'redeem' — rendered alongside [mod], not instead of it
 }
 
 const buffers = new Map<string, ChatEntry[]>()
@@ -36,7 +37,7 @@ export function restoreSummary(channel: string, summary: string) {
 // returns [] for ~5-10 mins after restart and the bot says "chat's dead" on a live channel.
 // entries must be in ASCENDING time order (oldest first). Side effects (summarizer, lesson
 // extractor, session bumps) are deliberately skipped — this is just replaying history.
-export function restoreChat(channel: string, entries: { username: string; message: string; created_at: string }[]) {
+export function restoreChat(channel: string, entries: { username: string; message: string; created_at: string; kind?: 'event' }[]) {
   if (entries.length === 0) return
   let buf = buffers.get(channel)
   if (!buf) {
@@ -45,7 +46,10 @@ export function restoreChat(channel: string, entries: { username: string; messag
   }
   for (const e of entries) {
     const ts = new Date(e.created_at + 'Z').getTime()
-    buf.push({ user: e.username, text: e.message, ts })
+    // a replayed event is history, not a live collapse target — no collapseKey, so a
+    // gift train re-render after restart can't mutate a hydrated row nothing points to.
+    if (e.kind === 'event') buf.push({ user: '*', text: e.message, ts, kind: 'event' })
+    else buf.push({ user: e.username, text: e.message, ts })
     trim(channel, buf)
   }
   const last = buf[buf.length - 1]
@@ -205,7 +209,7 @@ function stripSurrogates(s: string): string {
     .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
 }
 
-export function record(channel: string, user: string, text: string, messageId?: string, threadId?: string, mod = false) {
+export function record(channel: string, user: string, text: string, messageId?: string, threadId?: string, mod = false, tag?: string) {
   text = stripSurrogates(text)
   const now = Date.now()
   const last = lastMessageTime.get(channel) ?? 0
@@ -221,10 +225,59 @@ export function record(channel: string, user: string, text: string, messageId?: 
     buf = []
     buffers.set(channel, buf)
   }
-  buf.push({ user, text, ts: now, messageId, threadId, ...(mod ? { mod } : {}) })
+  buf.push({ user, text, ts: now, messageId, threadId, ...(mod ? { mod } : {}), ...(tag ? { tag } : {}) })
   trim(channel, buf)
   maybeSummarize(channel)
   maybeLearnLessons(channel)
+}
+
+// CLEARMSG: a mod deleted one specific line. Drop it from the live ring too, or the model
+// keeps reading it in "Recent chat" for up to MAX_SIZE more messages after sqlite already
+// forgot it existed.
+export function removeMessage(channel: string, messageId: string): boolean {
+  const buf = buffers.get(channel)
+  if (!buf) return false
+  const i = buf.findIndex((m) => m.messageId === messageId)
+  if (i === -1) return false
+  buf.splice(i, 1)
+  return true
+}
+
+// CLEARCHAT on one user (timeout/ban): every line they have in the ring right now must go —
+// same "what a mod removes must vanish" rule as sqlite. Bot lines are untouched (user is
+// never the removed login), and event entries (user '*') can't collide with a real login.
+export function removeUser(channel: string, login: string): number {
+  const buf = buffers.get(channel)
+  if (!buf) return 0
+  const lower = login.toLowerCase()
+  const before = buf.length
+  const kept = buf.filter((m) => m.user.toLowerCase() !== lower)
+  buffers.set(channel, kept)
+  return before - kept.length
+}
+
+// a mod deleted the BOT's own reply — pull it from the ring so a later recall/pasta pass
+// can't quote it back into chat right after a mod cleaned it up. Newest first: the message
+// that just got clearmsg'd is far more likely to be near the end of the ring than the start.
+export function removeBotLine(channel: string, text: string): boolean {
+  const buf = buffers.get(channel)
+  if (!buf) return false
+  for (let i = buf.length - 1; i >= 0; i--) {
+    if (buf[i].user.toLowerCase() === botName && buf[i].text === text) {
+      buf.splice(i, 1)
+      return true
+    }
+  }
+  return false
+}
+
+// CLEARCHAT with no target user: mod cleared the WHOLE channel. Empties the ring and its
+// collapse map — but nothing else. Contrast cleanupChannel (part-time/disconnect): session
+// id, summaries, and the lesson/summary tick counters are the bot's own memory of the
+// channel, not what chat can see, so a mod's "clear chat" click must leave them alone.
+export function clearRing(channel: string) {
+  buffers.set(channel, [])
+  eventCollapseMap.delete(channel)
 }
 
 // the one eviction path for every push: a collapse key must die with its ring entry, or a

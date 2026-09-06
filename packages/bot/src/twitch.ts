@@ -110,6 +110,12 @@ export interface MessageFlags {
   // gifts, bits, roles); parsed by badges.ts, never interpreted here
   badges?: string
   badgeInfo?: string
+  // cheer amount on this message (bits= tag), twitch's own highlighted-message flag, and
+  // whether this line paid for a channel-points reward — all just threaded through, never
+  // interpreted here
+  bits?: number
+  highlighted?: true
+  redeem?: true
 }
 
 export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string, sentTs?: number, replyParent?: ReplyParent, flags?: MessageFlags) => void
@@ -136,6 +142,9 @@ interface IrcPrivmsg {
   badgeTags?: string
   badgeInfoTags?: string
   returningChatter?: boolean
+  bits?: number
+  highlighted?: true
+  redeem?: true
 }
 
 // USERNOTICE: twitch's channel-event line — sub/resub/raid/gift/announce. carries no
@@ -156,6 +165,28 @@ export interface IrcUserNotice {
   text?: string
 }
 
+// CLEARCHAT: a timeout, a ban, or (no login) a whole-chat clear. no message text ever —
+// this is twitch enforcing, not a chat line.
+export interface IrcClearChat {
+  type: 'clearchat'
+  channel: string
+  login?: string
+  userId?: string
+  durationSec?: number
+  sentTs: number
+}
+
+// CLEARMSG: a single message removed by id. carries the deleted text verbatim in `text` —
+// callers must never surface it (that would just re-publish what a mod took down).
+export interface IrcClearMsg {
+  type: 'clearmsg'
+  channel: string
+  login: string
+  targetMsgId: string
+  text: string
+  sentTs: number
+}
+
 type IrcMessage =
   | { type: 'ping'; payload: string }
   | { type: 'welcome' }
@@ -163,8 +194,11 @@ type IrcMessage =
   | { type: 'auth_failure' }
   | { type: 'notice'; raw?: string }
   | { type: 'userstate'; channel: string; privileged: boolean; mod: boolean }
+  | { type: 'reconnect' }
   | IrcPrivmsg
   | IrcUserNotice
+  | IrcClearChat
+  | IrcClearMsg
   | { type: 'other' }
 
 function parseIrcTags(raw: string): Record<string, string> {
@@ -184,6 +218,9 @@ export function parseIrcLine(line: string): IrcMessage {
   if (/ 001 /.test(line)) return { type: 'welcome' }
   const joinMatch = line.match(/ JOIN #(\S+)/)
   if (joinMatch) return { type: 'join', channel: joinMatch[1] }
+  // untagged — twitch asking us to reconnect (maintenance). closing our socket lets the
+  // existing onclose reconnect path handle it, same as any other drop.
+  if (/^:tmi\.twitch\.tv RECONNECT\b/.test(line)) return { type: 'reconnect' }
   if (/NOTICE.*(?:Login authentication failed|Login unsuccessful)/.test(line)) return { type: 'auth_failure' }
   if (line.startsWith(':tmi.twitch.tv NOTICE')) return { type: 'notice', raw: line }
 
@@ -236,10 +273,41 @@ export function parseIrcLine(line: string): IrcMessage {
         text: trailingText || undefined,
       }
     }
+    // CLEARCHAT: timeout/ban/whole-clear. must come before the PRIVMSG match — it's a
+    // tmi.twitch.tv-sourced line, never a chatter's own message.
+    const ccMatch = rest.match(/^:tmi\.twitch\.tv CLEARCHAT #(\S+)(?: :(.*))?$/)
+    if (ccMatch) {
+      const [, channel, login] = ccMatch
+      return {
+        type: 'clearchat',
+        channel,
+        login: login ? login.toLowerCase() : undefined,
+        userId: tags['target-user-id'] || undefined,
+        // ban-duration absent WITH a login = permanent ban, not "duration unknown" — twitch
+        // sends no unban over IRC either way (see noteTimeout's 24h cap in moderation.ts).
+        durationSec: login && tags['ban-duration'] !== undefined ? Number(tags['ban-duration']) : undefined,
+        sentTs: Number(tags['tmi-sent-ts']) || 0,
+      }
+    }
+    // CLEARMSG: one message deleted by id. trailing param is the deleted text verbatim —
+    // callers must never surface it (moderation.ts's renderer never includes it).
+    const cmMatch = rest.match(/^:tmi\.twitch\.tv CLEARMSG #(\S+)(?: :(.*))?$/)
+    if (cmMatch) {
+      const [, channel, text] = cmMatch
+      return {
+        type: 'clearmsg',
+        channel,
+        login: (tags['login'] || '').toLowerCase(),
+        targetMsgId: tags['target-msg-id'] || '',
+        text: text ?? '',
+        sentTs: Number(tags['tmi-sent-ts']) || 0,
+      }
+    }
     const pmMatch = rest.match(/^:([^!]+)![^ ]+ PRIVMSG #(\S+) :(.*)$/)
     if (!pmMatch) return { type: 'other' }
     const [, login, channel, text] = pmMatch
     const badges = (tags['badges'] || '').split(',').filter(Boolean).map((b) => b.split('/')[0])
+    const bitsNum = Number(tags['bits'])
     return {
       type: 'privmsg',
       channel,
@@ -259,6 +327,9 @@ export function parseIrcLine(line: string): IrcMessage {
       // '' is a real value here: a chatter with NO badges must clear a stale snapshot
       badgeTags: tags['badges'],
       badgeInfoTags: tags['badge-info'],
+      bits: tags['bits'] !== undefined && Number.isInteger(bitsNum) && bitsNum > 0 ? bitsNum : undefined,
+      highlighted: tags['msg-id'] === 'highlighted-message' ? true : undefined,
+      redeem: tags['custom-reward-id'] ? true : undefined,
     }
   }
   return { type: 'other' }
@@ -271,6 +342,7 @@ export class TwitchClient {
   private config: TwitchConfig
   private onMessage: MessageHandler
   private onUserNotice: ((n: IrcUserNotice) => void) | null = null
+  private moderationHandler: ((m: IrcClearChat | IrcClearMsg) => void) | null = null
   private onAuthFailure: AuthRefreshFn | null = null
   private keepaliveTimeout: Timer | null = null
   private keepaliveMs = 15_000
@@ -332,6 +404,13 @@ export class TwitchClient {
   private ircConnectTimeout: Timer | null = null
   private ircJoinAckTimeout: Timer | null = null
   private ircJoinedChannels = new Set<string>()
+  // per-channel starvation self-heal: live viewers but no PRIVMSG in 5min smells like a
+  // stuck JOIN, not a quiet chat. injected (not imported) to keep ai-cache/notify out of
+  // twitch.ts — this client stays transport-only.
+  private liveViewersResolver: ((channel: string) => number | undefined) | null = null
+  private starvedHandler: ((channel: string, viewers: number) => void) | null = null
+  private lastPrivmsgAt = new Map<string, number>()
+  private starvedStrikeAt = new Map<string, number>()
   // Dedup ring for messages seen via either transport. EventSub + IRC PRIVMSG can
   // both deliver the same message; first wins, duplicates dropped by message id.
   private seenMessageIds: string[] = []
@@ -359,6 +438,18 @@ export class TwitchClient {
 
   setUserNoticeHandler(fn: (n: IrcUserNotice) => void) {
     this.onUserNotice = fn
+  }
+
+  setModerationHandler(fn: (m: IrcClearChat | IrcClearMsg) => void) {
+    this.moderationHandler = fn
+  }
+
+  setLiveViewersResolver(fn: (channel: string) => number | undefined) {
+    this.liveViewersResolver = fn
+  }
+
+  setStarvedHandler(fn: (channel: string, viewers: number) => void) {
+    this.starvedHandler = fn
   }
 
   setIrcOnly(channels: string[]) {
@@ -763,6 +854,9 @@ export class TwitchClient {
           case 'join':
             log(`irc joined #${msg.channel}`)
             this.ircJoinedChannels.add(msg.channel)
+            // seed the silence clock here, not at zero — a fresh boot/rejoin shouldn't
+            // read as "5min silent" the instant the watchdog's next tick runs.
+            this.lastPrivmsgAt.set(msg.channel.toLowerCase(), Date.now())
             if (!this.ircReady) { this.ircReady = true; this.startIrcPing(); this.kickPacer() }
             break
           case 'auth_failure':
@@ -801,6 +895,16 @@ export class TwitchClient {
           case 'usernotice':
             this.dispatchUserNotice(msg)
             break
+          case 'clearchat':
+          case 'clearmsg':
+            try { this.moderationHandler?.(msg) } catch (e) { log('moderation handler error:', e) }
+            break
+          case 'reconnect':
+            // twitch asking us to reconnect (maintenance) — closing triggers the existing
+            // onclose->reconnectIrc path, same as any other drop.
+            log('irc RECONNECT requested by twitch — reconnecting now')
+            this.irc?.close()
+            break
         }
       }
       this.ircLastData = Date.now()
@@ -822,6 +926,12 @@ export class TwitchClient {
   // would otherwise be deaf during cooldown. Dedup by message id so dual-delivery
   // (EventSub + IRC both alive) only fires once per message.
   private dispatchPrivmsg(m: IrcPrivmsg) {
+    // channel-starvation bookkeeping: any real chat line proves this channel isn't
+    // silent, and clears a pending strike so the escalation timer restarts clean.
+    const channelKey = m.channel.toLowerCase()
+    this.lastPrivmsgAt.set(channelKey, Date.now())
+    this.starvedStrikeAt.delete(channelKey)
+
     let text = m.text
     if (m.replyParentUserLogin) {
       text = text.replace(new RegExp(`^@${m.replyParentUserLogin}\\s+`, 'i'), '')
@@ -829,8 +939,8 @@ export class TwitchClient {
     const replyParent: ReplyParent | undefined = m.replyParentUserLogin
       ? { login: m.replyParentUserLogin.toLowerCase(), body: m.replyParentBody }
       : undefined
-    const flags: MessageFlags | undefined = (m.firstMsg || m.returningChatter || m.badgeTags !== undefined || m.badgeInfoTags !== undefined)
-      ? { firstMsg: m.firstMsg, returningChatter: m.returningChatter, badges: m.badgeTags, badgeInfo: m.badgeInfoTags }
+    const flags: MessageFlags | undefined = (m.firstMsg || m.returningChatter || m.badgeTags !== undefined || m.badgeInfoTags !== undefined || m.bits !== undefined || m.highlighted || m.redeem)
+      ? { firstMsg: m.firstMsg, returningChatter: m.returningChatter, badges: m.badgeTags, badgeInfo: m.badgeInfoTags, bits: m.bits, highlighted: m.highlighted, redeem: m.redeem }
       : undefined
     this.dispatchMessage(m.channel, m.userId, m.login, text, m.badges, m.messageId, m.threadId, m.sentTs, replyParent, flags)
   }
@@ -884,11 +994,40 @@ export class TwitchClient {
     if (this.ircWatchdog) clearInterval(this.ircWatchdog)
     this.ircLastData = Date.now()
     this.ircWatchdog = setInterval(() => {
-      if (Date.now() - this.ircLastData > 360_000) {
+      const now = Date.now()
+      if (now - this.ircLastData > 360_000) {
         log('irc timeout (6min no data) — reconnecting')
         this.irc?.close()
+        return
       }
+      this.checkChannelStarvation(now)
     }, 60_000)
+  }
+
+  // a channel can look connected (PINGs answered, no watchdog timeout) while genuinely
+  // live chat goes nowhere — a stuck JOIN twitch never acks as failed. first strike
+  // retries the JOIN; if that hasn't cleared it after another 5min, hand off to the
+  // caller's alert instead of staying deaf indefinitely.
+  private checkChannelStarvation(now: number) {
+    if (!this.liveViewersResolver) return
+    for (const ch of this.config.channels) {
+      const channel = ch.name.toLowerCase()
+      const viewers = this.liveViewersResolver(channel)
+      if (viewers === undefined || viewers < 100) continue
+      const lastMsg = this.lastPrivmsgAt.get(channel) ?? now
+      if (now - lastMsg <= 5 * 60_000) continue
+      const strikeAt = this.starvedStrikeAt.get(channel)
+      if (!strikeAt) {
+        this.starvedStrikeAt.set(channel, now)
+        this.ircSend(`JOIN #${channel}`)
+        log(`irc #${channel}: live (${viewers} viewers) but silent 5min — rejoining`)
+      } else if (now - strikeAt >= 5 * 60_000) {
+        this.starvedHandler?.(channel, viewers)
+        // reset so this can't refire until either chat resumes (dispatchPrivmsg clears
+        // it) or another full 5min of silence passes after the next rejoin attempt.
+        this.starvedStrikeAt.delete(channel)
+      }
+    }
   }
 
   private async handleIrcAuthFailure() {
@@ -1099,7 +1238,9 @@ export class TwitchClient {
     }
   }
 
-  async say(channel: string, text: string, replyTo?: string) {
+  // returns the string actually put on the wire (after stripping + truncation) so a
+  // caller that logs/echoes its own reply doesn't drift from what chat really saw.
+  async say(channel: string, text: string, replyTo?: string): Promise<string> {
     // strip leading command prefixes (/ . ! \) to prevent the bot timing itself out
     text = stripOutgoingCommands(text)
     // count by code points, not utf-16 units: twitch's ~500-char limit counts each
@@ -1127,6 +1268,7 @@ export class TwitchClient {
     }
     this.ircQueue.push({ channel, text, replyTo })
     this.kickPacer()
+    return text
   }
 }
 

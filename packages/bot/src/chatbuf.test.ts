@@ -1,5 +1,9 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
-import { record, recordEvent, getThread, getRecent, getActiveThreads, restoreChat, cleanupChannel, setSummarizer, setLessonExtractor } from './chatbuf'
+import {
+  record, recordEvent, getThread, getRecent, getActiveThreads, restoreChat, cleanupChannel,
+  setSummarizer, setLessonExtractor, removeMessage, removeUser, removeBotLine, clearRing,
+  restoreSessionId, restoreSummary, getSummary,
+} from './chatbuf'
 
 // P1: getThread is how a bare "!b" reply-in-thread (and later, a mention's context) finds
 // the rest of a conversation. it must see every turn tagged to the root — including the
@@ -144,5 +148,95 @@ describe('chatbuf recordEvent', () => {
     record('event-test', 'alice', 'nice')
     const threads = getActiveThreads('event-test')
     expect(threads.some((t) => t.users.includes('*'))).toBe(false)
+  })
+})
+
+// CLEARMSG/CLEARCHAT: what a mod removes in twitch must vanish from the live ring too, or
+// the model keeps reading it in "Recent chat" long after sqlite already forgot it.
+describe('chatbuf mod-removal ops', () => {
+  beforeEach(() => cleanupChannel('mod-test'))
+
+  it('removeMessage drops the matching entry by messageId', () => {
+    record('mod-test', 'alice', 'keep me', 'keep-1')
+    record('mod-test', 'alice', 'delete me', 'del-1')
+    expect(removeMessage('mod-test', 'del-1')).toBe(true)
+    expect(getRecent('mod-test', 10).map((m) => m.text)).toEqual(['keep me'])
+  })
+
+  it('removeMessage returns false for an unknown id', () => {
+    record('mod-test', 'alice', 'hi', 'root-1')
+    expect(removeMessage('mod-test', 'does-not-exist')).toBe(false)
+  })
+
+  it("removeUser drops only that user's lines — the bot's threaded reply survives", () => {
+    record('mod-test', 'troll', 'spam 1')
+    record('mod-test', 'troll', 'spam 2', undefined, 'root-1')
+    record('mod-test', 'bazaarinfo', 'reply', undefined, 'root-1')
+    record('mod-test', 'alice', 'unrelated')
+    expect(removeUser('mod-test', 'TROLL')).toBe(2)
+    expect(getRecent('mod-test', 10).map((m) => m.user)).toEqual(['bazaarinfo', 'alice'])
+  })
+
+  it('removeBotLine removes only the newest matching bot line', () => {
+    record('mod-test', 'bazaarinfo', 'same text')
+    record('mod-test', 'alice', 'unrelated')
+    record('mod-test', 'bazaarinfo', 'same text')
+    expect(removeBotLine('mod-test', 'same text')).toBe(true)
+    const recent = getRecent('mod-test', 10)
+    expect(recent.filter((m) => m.text === 'same text').length).toBe(1)
+    expect(recent[recent.length - 1].user).toBe('alice')
+  })
+
+  it('removeBotLine returns false when no bot line matches', () => {
+    record('mod-test', 'alice', 'not the bot')
+    expect(removeBotLine('mod-test', 'not the bot')).toBe(false)
+  })
+
+  it('clearRing empties the ring but preserves session id and summary — contrast cleanupChannel', () => {
+    const realWrite = process.stdout.write.bind(process.stdout)
+    const lines: string[] = []
+    const realNow = Date.now
+    let now = 3_000_000_000_000
+    Date.now = () => now
+    try {
+      record('mod-test', 'alice', 'first')
+      restoreSessionId('mod-test', 5)
+      restoreSummary('mod-test', 'preserved summary')
+
+      clearRing('mod-test')
+      expect(getRecent('mod-test', 10)).toEqual([])
+      expect(getSummary('mod-test')).toBe('preserved summary')
+
+      now += 31 * 60_000 // past SESSION_GAP — a bump here proves the session id survived
+      process.stdout.write = ((chunk: unknown) => { lines.push(String(chunk)); return true }) as typeof process.stdout.write
+      record('mod-test', 'alice', 'second')
+      expect(lines.some((l) => l.includes('5 -> 6'))).toBe(true)
+    } finally {
+      Date.now = realNow
+      process.stdout.write = realWrite
+    }
+  })
+})
+
+describe('chatbuf restoreChat with a hydrated stream event', () => {
+  beforeEach(() => cleanupChannel('restore-event-test'))
+
+  it('an entry with kind "event" is pushed as a "*" sentinel — history, not a live collapse target', () => {
+    restoreChat('restore-event-test', [
+      { username: 'irrelevant', message: '* raid: someone arrived', created_at: '2026-01-01 00:00:00', kind: 'event' },
+    ])
+    expect(getRecent('restore-event-test', 10)[0]).toMatchObject({ user: '*', text: '* raid: someone arrived', kind: 'event' })
+  })
+})
+
+describe('chatbuf record tag', () => {
+  beforeEach(() => cleanupChannel('tag-test'))
+
+  it('stores tag when given, omits it otherwise', () => {
+    record('tag-test', 'alice', 'cheered', undefined, undefined, false, '500 bits')
+    record('tag-test', 'bob', 'plain message')
+    const recent = getRecent('tag-test', 10)
+    expect(recent[0].tag).toBe('500 bits')
+    expect(recent[1].tag).toBeUndefined()
   })
 })

@@ -770,6 +770,126 @@ describe('db', () => {
     expect(db.getUserEvents('oldevent', 10)).toEqual([])
     expect(db.getUserEvents('freshevent', 10).length).toBe(1)
   })
+
+  it('getChannelEvents rows carry the login', () => {
+    db.logUserEvent({ channel: 'events-chan2', login: 'gina', kind: 'raid', detail: 'raided with 10 viewers', count: 10 })
+    const rows = db.getChannelEvents('events-chan2', '-1 hours', 10)
+    expect(rows[0].login).toBe('gina')
+  })
+
+  // --- CLEARMSG/CLEARCHAT: what a mod removes must vanish from sqlite too ---
+
+  it('migration 31 adds message_id to chat_messages and deleted_by_mod to ask_queries', () => {
+    const chatCols = (db.getDb().query(`PRAGMA table_info(chat_messages)`).all() as { name: string }[]).map((c) => c.name)
+    const askCols = (db.getDb().query(`PRAGMA table_info(ask_queries)`).all() as { name: string }[]).map((c) => c.name)
+    expect(chatCols).toContain('message_id')
+    expect(askCols).toContain('deleted_by_mod')
+  })
+
+  it('logChat stores message_id when given, NULL otherwise', () => {
+    db.logChat('modtest', 'alice', 'has an id', 'msg-a')
+    db.logChat('modtest', 'bob', 'no id here')
+    db.flushWrites()
+    const rows = db.getDb().query(
+      `SELECT username, message_id FROM chat_messages WHERE channel = 'modtest' ORDER BY id`,
+    ).all() as { username: string; message_id: string | null }[]
+    expect(rows[0].message_id).toBe('msg-a')
+    expect(rows[1].message_id).toBeNull()
+  })
+
+  it('deleteChatMessage beats the debounced flush — a clearmsg for a not-yet-flushed message leaves nothing behind', () => {
+    db.logChat('modtest', 'alice', 'queued message', 'msg-q')
+    const removed = db.deleteChatMessage('modtest', 'msg-q', { login: 'alice', text: 'queued message' })
+    expect(removed).toBe(1)
+    db.flushWrites()
+    expect(db.getDb().query(`SELECT COUNT(*) as n FROM chat_messages WHERE channel = 'modtest'`).get()).toMatchObject({ n: 0 })
+  })
+
+  it('deleteChatMessage deletes a flushed row by message_id, and it disappears from FTS', () => {
+    db.logChat('modtest', 'alice', 'unique blorpword here', 'msg-1')
+    db.flushWrites()
+    expect(db.searchChatFTS('modtest', 'blorpword').length).toBe(1)
+
+    const removed = db.deleteChatMessage('modtest', 'msg-1', { login: 'alice', text: 'unique blorpword here' })
+    expect(removed).toBe(1)
+    expect(db.getDb().query(`SELECT COUNT(*) as n FROM chat_messages WHERE channel = 'modtest'`).get()).toMatchObject({ n: 0 })
+    expect(db.searchChatFTS('modtest', 'blorpword').length).toBe(0)
+  })
+
+  it('deleteChatMessage falls back to login+text when no message_id is known', () => {
+    db.logChat('modtest', 'alice', 'no id line')
+    db.flushWrites()
+    const removed = db.deleteChatMessage('modtest', undefined, { login: 'ALICE', text: 'no id line' })
+    expect(removed).toBe(1)
+    expect(db.getDb().query(`SELECT COUNT(*) as n FROM chat_messages WHERE channel = 'modtest'`).get()).toMatchObject({ n: 0 })
+  })
+
+  it('deleteUserChat purges a matching pending writeQueue row before it ever hits sqlite', () => {
+    db.logChat('modtest', 'frank', 'about to be banned')
+    const removed = db.deleteUserChat('modtest', 'frank', null)
+    expect(removed).toBe(1)
+    db.flushWrites()
+    expect(db.getDb().query(`SELECT COUNT(*) as n FROM chat_messages WHERE username = 'frank'`).get()).toMatchObject({ n: 0 })
+  })
+
+  it('deleteUserChat with sinceMs keeps an older row, deletes one inside the window', () => {
+    db.logChat('modtest', 'carl', 'old message')
+    db.flushWrites()
+    db.getDb().run(`UPDATE chat_messages SET created_at = datetime('now', '-2 hours') WHERE username = 'carl'`)
+    db.logChat('modtest', 'carl', 'fresh message')
+    db.flushWrites()
+
+    const sinceMs = Date.now() - 60 * 60_000 // 1 hour ago — older row predates this, fresh one doesn't
+    const removed = db.deleteUserChat('modtest', 'carl', sinceMs)
+    expect(removed).toBe(1)
+    const rows = db.getDb().query(`SELECT message FROM chat_messages WHERE username = 'carl'`).all() as { message: string }[]
+    expect(rows.map((r) => r.message)).toEqual(['old message'])
+  })
+
+  it('deleteUserChat with sinceMs=null (a ban) purges every row for that user in that channel, and no one else\'s', () => {
+    db.logChat('modtest', 'dave', 'line 1')
+    db.logChat('modtest', 'dave', 'line 2')
+    db.logChat('modtest', 'eve', 'unrelated')
+    db.logChat('otherchan', 'dave', 'other channel line')
+    db.flushWrites()
+
+    const removed = db.deleteUserChat('modtest', 'dave', null)
+    expect(removed).toBe(2)
+    expect(db.getDb().query(`SELECT COUNT(*) as n FROM chat_messages WHERE channel = 'modtest' AND username = 'dave'`).get()).toMatchObject({ n: 0 })
+    expect(db.getDb().query(`SELECT COUNT(*) as n FROM chat_messages WHERE channel = 'modtest' AND username = 'eve'`).get()).toMatchObject({ n: 1 })
+    expect(db.getDb().query(`SELECT COUNT(*) as n FROM chat_messages WHERE channel = 'otherchan' AND username = 'dave'`).get()).toMatchObject({ n: 1 })
+  })
+
+  it('markResponseDeleted flushes a still-queued ask row before matching', () => {
+    db.logAsk({ user: 'alice', channel: 'modtest' }, 'q3', 'queued reply')
+    expect(db.markResponseDeleted('modtest', 'queued reply')).toBe(true)
+  })
+
+  it('markResponseDeleted flags only the newest matching ask_queries row', () => {
+    db.logAsk({ user: 'alice', channel: 'modtest' }, 'q1', 'the bad reply')
+    db.flushWrites()
+    db.logAsk({ user: 'bob', channel: 'modtest' }, 'q2', 'the bad reply')
+    db.flushWrites()
+
+    expect(db.markResponseDeleted('modtest', 'the bad reply')).toBe(true)
+    const rows = db.getDb().query(
+      `SELECT query, deleted_by_mod FROM ask_queries WHERE channel = 'modtest' ORDER BY id`,
+    ).all() as { query: string; deleted_by_mod: number }[]
+    expect(rows.find((r) => r.query === 'q1')!.deleted_by_mod).toBe(0)
+    expect(rows.find((r) => r.query === 'q2')!.deleted_by_mod).toBe(1)
+  })
+
+  it('markResponseDeleted returns false when nothing matches', () => {
+    expect(db.markResponseDeleted('modtest', 'never said this')).toBe(false)
+  })
+
+  it('deleteRecentResponse removes a bot line from channel_recent_responses', () => {
+    db.logRecentResponse('modtest', 'a reply that got cleared')
+    db.logRecentResponse('modtest', 'a reply that survives')
+    const removed = db.deleteRecentResponse('modtest', 'a reply that got cleared')
+    expect(removed).toBe(1)
+    expect(db.loadRecentResponsesTimed('modtest', 10).map((r) => r.response)).toEqual(['a reply that survives'])
+  })
 })
 
 // Pasta recall used to return the wrong message entirely. Two ranking bugs compounded:

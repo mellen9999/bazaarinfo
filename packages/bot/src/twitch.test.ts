@@ -406,6 +406,121 @@ describe('dispatch forwards flags as the 10th arg', () => {
   })
 })
 
+// CLEARCHAT (timeout/ban/whole-clear) and CLEARMSG (single deletion) — rendered by
+// moderation.ts, this file only proves the parse.
+describe('parseIrcLine CLEARCHAT / CLEARMSG', () => {
+  test('timeout — durationSec + lowercased login', () => {
+    const line = '@ban-duration=600;room-id=1;target-user-id=2;tmi-sent-ts=1700000000000 :tmi.twitch.tv CLEARCHAT #chan :Alice'
+    const m = parseIrcLine(line)
+    expect(m).toMatchObject({ type: 'clearchat', channel: 'chan', login: 'alice', durationSec: 600, userId: '2' })
+  })
+
+  test('permanent ban — no ban-duration tag, durationSec undefined', () => {
+    const line = '@room-id=1;target-user-id=2;tmi-sent-ts=1700000000000 :tmi.twitch.tv CLEARCHAT #chan :alice'
+    const m = parseIrcLine(line)
+    expect(m).toMatchObject({ type: 'clearchat', login: 'alice' })
+    if (m.type === 'clearchat') expect(m.durationSec).toBeUndefined()
+  })
+
+  test('whole chat cleared — no trailing login', () => {
+    const line = '@room-id=1;tmi-sent-ts=1700000000000 :tmi.twitch.tv CLEARCHAT #chan'
+    const m = parseIrcLine(line)
+    expect(m).toMatchObject({ type: 'clearchat', channel: 'chan' })
+    if (m.type === 'clearchat') expect(m.login).toBeUndefined()
+  })
+
+  test('CLEARMSG carries the deleted text verbatim, including empty', () => {
+    const line = '@login=alice;room-id=1;target-msg-id=uuid-1;tmi-sent-ts=123 :tmi.twitch.tv CLEARMSG #chan :the deleted text'
+    const m = parseIrcLine(line)
+    expect(m).toMatchObject({ type: 'clearmsg', channel: 'chan', login: 'alice', targetMsgId: 'uuid-1', text: 'the deleted text' })
+
+    const emptyLine = '@login=alice;room-id=1;target-msg-id=uuid-2;tmi-sent-ts=123 :tmi.twitch.tv CLEARMSG #chan :'
+    const m2 = parseIrcLine(emptyLine)
+    expect(m2).toMatchObject({ type: 'clearmsg', text: '' })
+  })
+})
+
+describe('parseIrcLine RECONNECT', () => {
+  test('untagged RECONNECT parses to {type: reconnect}', () => {
+    expect(parseIrcLine(':tmi.twitch.tv RECONNECT')).toEqual({ type: 'reconnect' })
+  })
+
+  test('the word RECONNECT inside a tagged PRIVMSG body does not parse as reconnect', () => {
+    const line = '@id=1;user-id=2 :viewer!v@v.tmi.twitch.tv PRIVMSG #chan :please RECONNECT now'
+    const m = parseIrcLine(line)
+    expect(m.type).toBe('privmsg')
+  })
+})
+
+describe('parseIrcLine bits/highlighted/redeem flags', () => {
+  test('bits= tag sets bits as a number', () => {
+    const m = parseIrcLine('@bits=100;id=1;user-id=2 :v!v@v.tmi.twitch.tv PRIVMSG #chan :cheer100 nice')
+    expect(m).toMatchObject({ type: 'privmsg', bits: 100 })
+  })
+
+  test('bits absent or non-positive leaves bits undefined', () => {
+    const noBits = parseIrcLine('@id=1;user-id=2 :v!v@v.tmi.twitch.tv PRIVMSG #chan :hi')
+    expect(noBits).toMatchObject({ type: 'privmsg' })
+    if (noBits.type === 'privmsg') expect(noBits.bits).toBeUndefined()
+    const zeroBits = parseIrcLine('@bits=0;id=1;user-id=2 :v!v@v.tmi.twitch.tv PRIVMSG #chan :hi')
+    if (zeroBits.type === 'privmsg') expect(zeroBits.bits).toBeUndefined()
+  })
+
+  test('msg-id=highlighted-message sets highlighted', () => {
+    const m = parseIrcLine('@msg-id=highlighted-message;id=1;user-id=2 :v!v@v.tmi.twitch.tv PRIVMSG #chan :hi')
+    expect(m).toMatchObject({ type: 'privmsg', highlighted: true })
+  })
+
+  test('custom-reward-id present and non-empty sets redeem', () => {
+    const m = parseIrcLine('@custom-reward-id=abc-123;id=1;user-id=2 :v!v@v.tmi.twitch.tv PRIVMSG #chan :hi')
+    expect(m).toMatchObject({ type: 'privmsg', redeem: true })
+  })
+
+  test('absent tags leave highlighted/redeem undefined', () => {
+    const m = parseIrcLine('@id=1;user-id=2 :v!v@v.tmi.twitch.tv PRIVMSG #chan :hi')
+    expect(m).toMatchObject({ type: 'privmsg' })
+    if (m.type === 'privmsg') {
+      expect(m.highlighted).toBeUndefined()
+      expect(m.redeem).toBeUndefined()
+    }
+  })
+
+  test('dispatchPrivmsg forwards bits/highlighted/redeem in flags', () => {
+    const received: unknown[][] = []
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [] },
+      (...args: unknown[]) => { received.push(args) },
+    )
+    const c = client as unknown as { dispatchPrivmsg: (m: unknown) => void }
+    c.dispatchPrivmsg({
+      type: 'privmsg', channel: 'chan', login: 'viewer', text: 'cheer100 nice', userId: '2', messageId: 'm5',
+      badges: [], sentTs: 0, bits: 100, highlighted: true, redeem: true,
+    })
+    const flags = (received[0] as unknown[])[9]
+    expect(flags).toMatchObject({ bits: 100, highlighted: true, redeem: true })
+  })
+})
+
+describe('say() returns the transmitted text', () => {
+  test('truncates past 490 codepoints and strips a leading command prefix', async () => {
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [] },
+      () => {},
+    )
+    const c = client as unknown as { ircSend: (l: string) => boolean; ircReady: boolean; ircOnlyChannels: Set<string>; irc: { readyState: number } }
+    c.ircReady = true
+    c.irc = { readyState: 1 }
+    c.ircOnlyChannels = new Set(['chan'])
+    c.ircSend = () => true
+
+    const long = '/' + 'a'.repeat(600)
+    const result = await client.say('chan', long)
+    expect(result.startsWith('/')).toBe(false) // leading command prefix stripped
+    expect([...result].length).toBe(490) // 487 kept chars + '...'
+    expect(result.endsWith('...')).toBe(true)
+  })
+})
+
 describe('usernotice dedupe + routing', () => {
   test('dispatchUserNotice fires the handler once per messageId, dedupes a redelivery', () => {
     const received: unknown[] = []

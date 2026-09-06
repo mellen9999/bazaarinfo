@@ -21,7 +21,7 @@ import { homedir } from 'node:os'
 import { isDashClause, monotonyStreak, findUngroundedStats, deniesBoardSight } from '../packages/bot/src/ai-verify'
 import { OTHER_GAME_RE } from '../packages/bot/src/ai-context'
 
-interface Row { query: string; response: string; latency_ms: number | null }
+interface Row { query: string; response: string; latency_ms: number | null; deleted_by_mod?: number }
 
 // baselines measured 2026-08-12, before the streak-breaker shipped. beating them is the
 // point; drifting past them means something regressed.
@@ -44,14 +44,20 @@ if (jsonPath) {
 } else {
   const dbPath = arg('--db') ?? `${homedir()}/.bazaarinfo.db`
   const db = new Database(dbPath, { readonly: true })
+  // older DBs predate migration 31 — select the column only when it exists so this
+  // script keeps working against a db that hasn't been through it yet.
+  const hasModDeleted = (db.query(`PRAGMA table_info(ask_queries)`).all() as { name: string }[])
+    .some((c) => c.name === 'deleted_by_mod')
   rows = db.query(
-    `SELECT query, response, latency_ms FROM ask_queries
+    `SELECT query, response, latency_ms${hasModDeleted ? ', deleted_by_mod' : ''} FROM ask_queries
      WHERE response IS NOT NULL AND length(response) > 0
        AND (? IS NULL OR created_at >= ?)
      ORDER BY created_at DESC LIMIT ?`,
   ).all(since ?? null, since ?? null, limit) as Row[]
   db.close()
 }
+// normalize regardless of source (live db without the column yet, or an older json dump)
+rows = rows.map((r) => ({ ...r, deleted_by_mod: r.deleted_by_mod ?? 0 }))
 
 if (rows.length === 0) {
   console.log(since ? `no replies logged since ${since} yet — nothing to measure` : 'no replies logged yet — nothing to measure')
@@ -111,6 +117,10 @@ const mean = R.filter((r) => MEAN.test(r))
 const brush = R.filter((r) => BRUSHOFF.test(r))
 const blind = R.filter(deniesBoardSight).length
 
+// --- mod cleanup: not a rate anyone should tolerate — a mod deleting our own reply means
+// chat saw something bad enough to act on before we could measure it any other way ---
+const modDeleted = chrono.filter((r) => r.deleted_by_mod === 1)
+
 // --- accuracy: stat numbers with no source. needs the store, so it is best-effort ---
 let ungrounded = 0
 let statChecked = 0
@@ -153,6 +163,11 @@ console.log('\ntone')
 console.log(`  punch at asker   ${fmt(rate(mean.length)).padStart(6)}   ${fmt(BASELINE.meanRate)}${mark(rate(mean.length), BASELINE.meanRate)}`)
 console.log(`  brush-off        ${fmt(rate(brush.length)).padStart(6)}   ${fmt(BASELINE.brushRate)}${mark(rate(brush.length), BASELINE.brushRate)}`)
 console.log(`  "i can't see"    ${String(blind).padStart(6)}   (only correct with no board in context)`)
+console.log(`  mod-deleted bot lines: ${modDeleted.length} (${fmt(rate(modDeleted.length))})`)
+if (modDeleted.length) {
+  const trunc = (s: string) => s.length > 80 ? s.slice(0, 80) + '…' : s
+  for (const r of modDeleted) console.log(`    ${trunc(r.query)} → ${trunc(r.response)}`)
+}
 
 console.log('\naccuracy')
 console.log(`  game replies     ${String(statChecked).padStart(6)}`)
@@ -174,5 +189,6 @@ const regressed = worse(rate(dashClause), BASELINE.dashClause)
   || worse(rate(mean.length), BASELINE.meanRate)
   || worse(rate(brush.length), BASELINE.brushRate)
   || ungroundedRate > 1.0
+  || modDeleted.length > 0
 console.log(regressed ? '\nsomething regressed past its baseline\n' : '\nall tracked rates at or under baseline\n')
 process.exit(regressed ? 1 : 0)

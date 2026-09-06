@@ -95,7 +95,7 @@ function prepareStatements() {
     ),
     incrUserCommands: db.prepare('UPDATE users SET total_commands = total_commands + 1 WHERE id = ?'),
     insertChat: db.prepare(
-      'INSERT INTO chat_messages (channel, username, message) VALUES (?, ?, ?)',
+      'INSERT INTO chat_messages (channel, username, message, message_id) VALUES (?, ?, ?, ?)',
     ),
     hasChatted: db.prepare('SELECT 1 FROM chat_messages WHERE username = ? AND channel = ? LIMIT 1'),
     chattedSince: db.prepare(
@@ -345,7 +345,7 @@ const USER_CACHE_MAX = 10_000
 // --- deferred write queue ---
 
 type WriteOp =
-  | { type: 'chat'; channel: string; username: string; message: string }
+  | { type: 'chat'; channel: string; username: string; message: string; messageId: string | null }
   | { type: 'command'; userId: number | null; channel: string | null; cmdType: string; query: string | null; matchName: string | null; tier: string | null }
   | { type: 'ask'; userId: number | null; channel: string | null; query: string; contextSummary: string | null; response: string | null; tokens: number | null; latency: number | null }
   | { type: 'ask_miss'; userId: number | null; channel: string | null; query: string; reason: string }
@@ -380,7 +380,7 @@ export function flushWrites() {
       for (const op of batch) {
         switch (op.type) {
           case 'chat':
-            stmts.insertChat.run(op.channel, op.username, op.message)
+            stmts.insertChat.run(op.channel, op.username, op.message, op.messageId)
             break
           case 'command':
             stmts.insertCommand.run(op.userId, op.channel, op.cmdType, op.query, op.matchName, op.tier)
@@ -418,7 +418,7 @@ export function flushWrites() {
     for (const op of batch) {
       try {
         switch (op.type) {
-          case 'chat': stmts.insertChat.run(op.channel, op.username, op.message); break
+          case 'chat': stmts.insertChat.run(op.channel, op.username, op.message, op.messageId); break
           case 'command': stmts.insertCommand.run(op.userId, op.channel, op.cmdType, op.query, op.matchName, op.tier); break
           case 'ask': stmts.insertAsk.run(op.userId, op.channel, op.query, op.contextSummary, op.response, op.tokens, op.latency); break
           case 'ask_miss': stmts.insertAskMiss.run(op.userId, op.channel, op.query, op.reason); break
@@ -917,6 +917,17 @@ const migrations: (() => void)[] = [
   () => {
     db.run(`DELETE FROM channel_follows WHERE followed_at IS NULL`)
   },
+
+  // migration 31: CLEARMSG/CLEARCHAT need to find the exact row to hard-delete. message_id
+  // is twitch's per-message uuid, only known going forward — the 457k existing rows stay
+  // NULL forever, so the index is partial (costs nothing on them, serves every new row).
+  // deleted_by_mod flags an ask_queries row whose bot OUTPUT got clearmsg'd, so the quality
+  // report can gate on "did a mod have to clean up after us" instead of nobody ever knowing.
+  () => {
+    db.run(`ALTER TABLE chat_messages ADD COLUMN message_id TEXT`)
+    db.run(`CREATE INDEX idx_chat_msgid ON chat_messages(message_id) WHERE message_id IS NOT NULL`)
+    db.run(`ALTER TABLE ask_queries ADD COLUMN deleted_by_mod INTEGER NOT NULL DEFAULT 0`)
+  },
 ]
 
 function runMigrations() {
@@ -1049,9 +1060,108 @@ export function logCommand(
   scheduleFlush()
 }
 
-export function logChat(channel: string, username: string, message: string) {
-  writeQueue.push({ type: 'chat', channel, username: username.toLowerCase(), message })
+export function logChat(channel: string, username: string, message: string, messageId?: string) {
+  writeQueue.push({ type: 'chat', channel, username: username.toLowerCase(), message, messageId: messageId ?? null })
   scheduleFlush()
+}
+
+// CLEARMSG: a mod deleted one line. What they remove must vanish from sqlite too, or every
+// recall/pasta/voice/person-trivia read path keeps surfacing content the streamer just
+// pulled. Purges the writeQueue FIRST — the 100ms debounced flush means a fresh message can
+// still be sitting there, un-flushed, when the clearmsg for it arrives. Returns rows removed
+// (queue + db) so a caller can log "found nothing to delete" instead of assuming success.
+export function deleteChatMessage(channel: string, messageId: string | undefined, fallback: { login: string; text: string }): number {
+  const login = fallback.login.toLowerCase()
+  let queueRemoved = 0
+  for (let i = writeQueue.length - 1; i >= 0; i--) {
+    const op = writeQueue[i]
+    if (op.type !== 'chat' || op.channel !== channel) continue
+    const match = messageId ? op.messageId === messageId : op.username === login && op.message === fallback.text
+    if (!match) continue
+    writeQueue.splice(i, 1)
+    queueRemoved++
+  }
+  // count-then-delete, not delete-then-read-.changes: the chat_fts delete trigger does
+  // several shadow-table writes per row, and sqlite3_changes() counts THOSE too (verified:
+  // a single-row delete here reports changes=7) — .changes on this table is meaningless.
+  try {
+    let changes = 0
+    if (messageId) {
+      const before = (db.query('SELECT COUNT(*) as n FROM chat_messages WHERE channel = ? AND message_id = ?').get(channel, messageId) as { n: number }).n
+      if (before > 0) {
+        db.run('DELETE FROM chat_messages WHERE channel = ? AND message_id = ?', [channel, messageId])
+        changes = before
+      }
+    }
+    if (changes === 0) {
+      const sql = `chat_messages WHERE channel = ? AND LOWER(username) = ? AND message = ? AND created_at >= datetime('now', '-24 hours')`
+      const before = (db.query(`SELECT COUNT(*) as n FROM ${sql}`).get(channel, login, fallback.text) as { n: number }).n
+      if (before > 0) {
+        db.run(`DELETE FROM ${sql}`, [channel, login, fallback.text])
+        changes = before
+      }
+    }
+    return changes + queueRemoved
+  } catch (e) {
+    log(`delete chat message error: ${e}`)
+    return queueRemoved
+  }
+}
+
+// CLEARCHAT with a target user: a timeout/ban, or a mod's "clear this person's chat" — twitch
+// sends the same event for both, only sinceMs tells them apart (a ban carries no window, it's
+// everything). Same writeQueue-first purge as deleteChatMessage, for the same reason.
+export function deleteUserChat(channel: string, login: string, sinceMs: number | null): number {
+  const lower = login.toLowerCase()
+  let queueRemoved = 0
+  for (let i = writeQueue.length - 1; i >= 0; i--) {
+    const op = writeQueue[i]
+    if (op.type !== 'chat' || op.channel !== channel || op.username !== lower) continue
+    writeQueue.splice(i, 1)
+    queueRemoved++
+  }
+  // same count-then-delete reasoning as deleteChatMessage — the fts trigger poisons .changes
+  try {
+    const cond = sinceMs !== null ? `AND created_at >= datetime(?/1000, 'unixepoch')` : ''
+    const params: (string | number)[] = sinceMs !== null ? [channel, lower, sinceMs] : [channel, lower]
+    const before = (db.query(`SELECT COUNT(*) as n FROM chat_messages WHERE channel = ? AND LOWER(username) = ? ${cond}`).get(...params) as { n: number }).n
+    if (before > 0) db.run(`DELETE FROM chat_messages WHERE channel = ? AND LOWER(username) = ? ${cond}`, params)
+    return before + queueRemoved
+  } catch (e) {
+    log(`delete user chat error: ${e}`)
+    return queueRemoved
+  }
+}
+
+// a mod deleted the BOT's own reply — flag the ask_queries row so quality-report can surface
+// "chat had to clean up after us" as a regression signal, never silently. `ask` logging is
+// itself queued (logAsk), so flush first or the UPDATE can miss a row that landed a moment ago.
+export function markResponseDeleted(channel: string, text: string): boolean {
+  try {
+    flushWrites()
+    const result = db.run(
+      `UPDATE ask_queries SET deleted_by_mod = 1 WHERE id = (
+        SELECT id FROM ask_queries WHERE channel = ? AND response = ?
+        AND created_at >= datetime('now', '-24 hours') ORDER BY id DESC LIMIT 1
+      )`,
+      [channel, text],
+    )
+    return result.changes > 0
+  } catch (e) {
+    log(`mark response deleted error: ${e}`)
+    return false
+  }
+}
+
+// same bot-reply deletion, but for the channel_recent_responses variety memory — otherwise a
+// clearmsg'd line keeps blocking itself from being said again via the anti-repeat check.
+export function deleteRecentResponse(channel: string, text: string): number {
+  try {
+    return db.run('DELETE FROM channel_recent_responses WHERE channel = ? AND response = ?', [channel.toLowerCase(), text]).changes
+  } catch (e) {
+    log(`delete recent response error: ${e}`)
+    return 0
+  }
 }
 
 // Has this name ever chatted in this channel? Source of truth for "real user"
@@ -2024,7 +2134,7 @@ export function pruneOldTriviaGames(days = 180) {
 export interface UserEvent {
   channel: string
   login: string
-  kind: 'sub' | 'resub' | 'gift' | 'raid' | 'announce'
+  kind: 'sub' | 'resub' | 'gift' | 'raid' | 'announce' | 'cheer'
   detail: string
   months?: number
   count?: number
@@ -2032,6 +2142,7 @@ export interface UserEvent {
 
 export interface UserEventRow {
   channel: string
+  login: string
   kind: string
   detail: string
   months: number | null
@@ -2080,7 +2191,7 @@ export function getUserEvents(login: string, limit = 8): UserEventRow[] {
 export function getChannelEvents(channel: string, sinceExpr: string, limit = 50): UserEventRow[] {
   try {
     return db.query(
-      `SELECT channel, kind, detail, months, count, created_at FROM user_events
+      `SELECT channel, login, kind, detail, months, count, created_at FROM user_events
        WHERE channel = ? AND created_at >= datetime('now', ?) ORDER BY created_at DESC LIMIT ?`,
     ).all(channel.toLowerCase(), sinceExpr, limit) as UserEventRow[]
   } catch {

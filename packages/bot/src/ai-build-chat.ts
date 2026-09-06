@@ -125,7 +125,7 @@ export function buildChatStr(entries: ChatEntry[], botName?: string): string {
     // sentinel entry we ourselves recorded carries kind==='event'; theirs stays user-prefixed.
     if (m.kind === 'event') return count > 1 ? `> ${text} ×${count}` : `> ${text}`
     const isBotLine = !!botName && m.user.toLowerCase() === botName
-    const user = isBotLine ? 'you' : m.user.replace(/[:\n]/g, '') + (m.mod ? ' [mod]' : '')
+    const user = isBotLine ? 'you' : m.user.replace(/[:\n]/g, '') + (m.mod ? ' [mod]' : '') + (m.tag ? ` [${m.tag}]` : '')
     return count > 1 ? `> ${user}: ${text} ×${count}` : `> ${user}: ${text}`
   })
   const header = 'Recent chat:\n'

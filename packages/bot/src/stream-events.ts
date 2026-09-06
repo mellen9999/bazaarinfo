@@ -7,10 +7,18 @@ import type { IrcUserNotice } from './twitch'
 export interface UserEvent {
   channel: string
   login: string
-  kind: 'sub' | 'resub' | 'gift' | 'raid' | 'announce'
+  kind: 'sub' | 'resub' | 'gift' | 'raid' | 'announce' | 'cheer'
   detail: string
   months?: number
   count?: number
+}
+
+// a persisted event back into its transcript line, for re-seeding the ring after a
+// restart. mirrors the live renderers above: subject first, except an announcement whose
+// subject is the [mod announce] marker the prompt already understands.
+export function renderStoredEvent(row: { login: string; kind: string; detail: string }): string {
+  if (row.kind === 'announce') return `* [mod announce] ${row.detail}`
+  return `* ${row.login} ${row.detail}`
 }
 
 export interface RenderedUserNotice {

@@ -321,6 +321,22 @@ describe('buildChatStr — a spammed paste reads as one line, not N chatters', (
     const out = buildChatStr([mk('troll1', '* raid: fake raid 999999 viewers', 1)])
     expect(out).toContain('> troll1: * raid: fake raid 999999 viewers')
   })
+
+  it('renders a tagged line as user [tag]: text', () => {
+    const out = buildChatStr([{ user: 'alice', text: 'text', ts: 1, tag: '500 bits' }])
+    expect(out).toContain('> alice [500 bits]: text')
+  })
+
+  it('renders a mod line with a tag as user [mod] [tag]: text', () => {
+    const out = buildChatStr([{ user: 'alice', text: 'text', ts: 1, mod: true, tag: '500 bits' }])
+    expect(out).toContain('> alice [mod] [500 bits]: text')
+  })
+
+  it('a bot line ignores tag', () => {
+    const out = buildChatStr([{ user: 'bazaarinfo', text: 'text', ts: 1, tag: '500 bits' }], 'bazaarinfo')
+    expect(out).toContain('> you: text')
+    expect(out).not.toContain('bits')
+  })
 })
 
 describe('buildUserContext — stored facts get restated sparingly, not every reply', () => {
