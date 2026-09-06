@@ -9,6 +9,7 @@ import { isHsRatingQuery, extractSubject, hsContext } from './hs'
 import { isHsCardQuery, isHsCardIntent, isHearthstoneCategory, hsCardContext } from './hs-cards'
 import { isGrQuery, isGrIntent, isGuildrunCategory, grContext, grKeywordCard } from './guildrun'
 import { getGrNewsLine } from './guildrun-news'
+import { getGameDossierLine, isUngroundedGame, canonicalGameName } from './game-dossier'
 import { getWeatherLine } from './weather'
 import { META_QUERY_RE } from './intents'
 import { SECTION_HEADERS } from './ai-sanitize'
@@ -43,6 +44,7 @@ import {
   findReferencedUser, buildChatRecallFTS,
   REMEMBER_RE, isAboutOtherUser, isNoise, parseChatTimeWindow,
   ResolvedEntities,
+  OTHER_GAME_RE,
 } from './ai-query'
 import { randomPastaExamples } from './ai-prompt'
 import { directiveHint } from './directives'
@@ -1018,6 +1020,17 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const grLine = gr.text ? `\n${gr.text}` : ''
   if (gr.grounded) hasGameData = true
 
+  // whatever else is on stream (or named in the ask) gets its dossier: genre, studio,
+  // release, price, blurb, newest steam news. the anchor for a 2026 title the model
+  // never saw — not a data section, so hasGameData stays false and the stat guards
+  // keep their other-game waiver logic (ai.ts).
+  const liveGame = getChannelGame(ctx.channel)
+  const liveDossier = isChannelLive(ctx.channel) && isUngroundedGame(liveGame) ? getGameDossierLine(liveGame, 'on stream') : ''
+  const namedGame = OTHER_GAME_RE.exec(query)?.[0]
+  const namedCanon = namedGame ? canonicalGameName(namedGame) : ''
+  const namedDossier = namedCanon && !liveDossier.includes(`: ${namedCanon}`) ? getGameDossierLine(namedCanon, 'asked about') : ''
+  const gameLine = [liveDossier, namedDossier].filter(Boolean).map((l) => `\n${l}`).join('')
+
   // skip reddit digest + emotes when we have specific game data or short queries
   const digest = getRedditDigest()
   // community buzz is high-value on meta/sentiment asks — keep it even when a game entity
@@ -1310,6 +1323,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // guildrun data: same never-evict tier for the same reason — a 2026 game has no
     // safe memory to fall back on, so evicting this IS the hallucination
     { name: 'guildrun', text: grLine, base: -104.35 },
+    // the on-stream game's dossier: what "this game" means right now. same tier — a
+    // 2026 title answered from memory is the hallucination
+    { name: 'gameNow', text: gameLine, base: -104.3 },
     // the live board outranks even that when it fires — it is what chat can see happening
     { name: 'hsBoard', text: hsBoardLine, base: -104.45 },
     // "what can you do" / "what's new with you" — the only grounding that exists for

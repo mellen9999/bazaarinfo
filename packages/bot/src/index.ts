@@ -20,6 +20,7 @@ import { refreshRedditDigest, refreshBgRedditDigest, refreshGrRedditDigest } fro
 import { refreshGuildrunIfNeeded } from './guildrun'
 import { refreshGrNewsIfNeeded } from './guildrun-news'
 import { refreshHsCardsIfNeeded } from './hs-cards'
+import { prefetchGameDossier } from './game-dossier'
 import { setChannelIdResolver } from './board'
 import { setHsChannelIdResolver } from './hs-board'
 import { refreshTopicalDigest } from './topical'
@@ -595,12 +596,14 @@ async function pollStreams(initial = false) {
       if (prev === undefined) {
         log(`stream online: #${ch}${s.game_name ? ` [${s.game_name}]` : ''}${initial ? ' (already live at boot)' : ''}`)
         setChannelLive(ch, s.game_name)
+        prefetchGameDossier(s.game_name)
         // a channel already live when the bot (re)starts hasn't transitioned — seed state
         // silently. only a real offline->online flip mid-run fires the dnd announcement.
         if (!initial) dungeon.onStreamOnline(ch)
       } else if (prev !== s.game_name) {
         log(`channel update: #${ch} → ${s.game_name || '(no game)'}`)
         setChannelGame(ch, s.game_name)
+        prefetchGameDossier(s.game_name)
       }
       liveState.set(ch, s.game_name)
     }

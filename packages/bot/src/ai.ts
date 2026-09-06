@@ -29,6 +29,7 @@ import { isHsRatingQuery, refreshHsIfNeeded } from './hs'
 import { isHsCardQuery, isHearthstoneCategory, refreshHsCardsIfNeeded } from './hs-cards'
 import { isGrQuery, isGuildrunCategory, refreshGuildrunIfNeeded } from './guildrun'
 import { refreshGrNewsIfNeeded } from './guildrun-news'
+import { prefetchGameDossier, canonicalGameName, isUngroundedGame } from './game-dossier'
 import { refreshBoardIfNeeded } from './board'
 import { refreshHsBoardIfNeeded } from './hs-board'
 import { isScheduleQuery } from './schedule'
@@ -254,6 +255,12 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     refreshGuildrunIfNeeded()
     refreshGrNewsIfNeeded()
   }
+
+  // any other title named in the ask warms its dossier (steam/wikipedia, not awaited —
+  // the first ask may miss, the next lands warm). the on-stream game is warmed by the
+  // helix poll the moment it changes, so a live ask never waits.
+  const named = OTHER_GAME_RE.exec(query)?.[0]
+  if (named) prefetchGameDossier(canonicalGameName(named))
 
   // schedule asks: prefetch the target channel's title BEFORE building context — a
   // streamer-stated plan in the title ("NEXT STREAM WEDNESDAY") overrides the stats.
@@ -489,7 +496,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // NAME another title (OTHER_GAME_RE): inferring other-game from entity-resolution
       // failure waived the stat guards for pure-Bazaar questions whose terms just are not
       // entities ("do relics trigger on drones").
-      const isOtherGame = !hasGameData && OTHER_GAME_RE.test(query)
+      // …or the channel is live on a non-bazaar title and the ask isn't a bazaar term:
+      // "how much hp does the act 2 boss have" during a diablo stream is about diablo.
+      const liveOther = isUngroundedGame(getChannelGame(ctx.channel)) && !isGameTerm(query)
+      const isOtherGame = !hasGameData && (OTHER_GAME_RE.test(query) || liveOther)
       if (!hasGameData && hasHallucinatedStats(result.text, isCreative, isOtherGame)) {
         log(`ai: hallucinated stats without game data, retrying (attempt ${attempt + 1})`)
         if (attempt < MAX_RETRIES - 1) {
