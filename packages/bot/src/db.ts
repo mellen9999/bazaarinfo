@@ -67,6 +67,7 @@ let stmts: {
   voiceMessages: Statement
   insertRecentResponse: Statement
   getRecentResponses: Statement
+  getRecentResponsesTimed: Statement
   pruneRecentResponses: Statement
   insertLesson: Statement
   getTopLessons: Statement
@@ -276,6 +277,9 @@ function prepareStatements() {
     ),
     getRecentResponses: db.prepare(
       'SELECT response FROM channel_recent_responses WHERE channel = ? ORDER BY created_at DESC LIMIT ?',
+    ),
+    getRecentResponsesTimed: db.prepare(
+      'SELECT response, created_at FROM channel_recent_responses WHERE channel = ? ORDER BY created_at DESC, id DESC LIMIT ?',
     ),
     pruneRecentResponses: db.prepare(
       `DELETE FROM channel_recent_responses WHERE channel = ? AND id NOT IN (
@@ -1570,6 +1574,13 @@ export function getVoiceMessages(channel: string, limit = 500): { username: stri
 export function logRecentResponse(channel: string, response: string) {
   stmts.insertRecentResponse.run(channel.toLowerCase(), response)
   stmts.pruneRecentResponses.run(channel.toLowerCase(), channel.toLowerCase(), 20)
+}
+
+// same rows with their clock, for interleaving the bot's own lines back into the chat
+// buffer after a restart — the bot's outbound never lands in chat_messages.
+export function loadRecentResponsesTimed(channel: string, limit = 12): { response: string; created_at: string }[] {
+  const rows = stmts.getRecentResponsesTimed.all(channel.toLowerCase(), limit) as { response: string; created_at: string }[]
+  return rows.reverse()
 }
 
 export function loadRecentResponses(channel: string, limit = 12): string[] {

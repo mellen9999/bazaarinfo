@@ -735,12 +735,15 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const chatDepth = ctx.mention ? 25 : 15
   const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
   const recentEntries = getRecent(ctx.channel, chatDepth).filter((m) => !isNoise(m.text))
-  // mention mode keeps the bot's own lines (rendered as "you:") so a reply thread reads as
-  // a conversation the model was part of — chatters/profile context stays human-only either way.
-  const chatContext = ctx.mention ? recentEntries : recentEntries.filter((m) => m.user.toLowerCase() !== botName)
-  const chatStr = buildChatStr(chatContext, ctx.mention ? botName : undefined)
+  // the bot's own lines stay in the transcript, rendered as "you:", so a "lol bot is bricked"
+  // in chat has the line it's about. capped to the newest 3 — the full text of recent replies
+  // rides the recentResponses section already. chatters/profile context stays human-only.
+  const humanEntries = recentEntries.filter((m) => m.user.toLowerCase() !== botName)
+  const ownLines = recentEntries.filter((m) => m.user.toLowerCase() === botName).slice(-3)
+  const chatContext = recentEntries.filter((m) => m.user.toLowerCase() !== botName || ownLines.includes(m))
+  const chatStr = buildChatStr(chatContext, botName)
 
-  const chattersLine = buildChattersContext(recentEntries.filter((m) => m.user.toLowerCase() !== botName), ctx.user, ctx.channel)
+  const chattersLine = buildChattersContext(humanEntries, ctx.user, ctx.channel)
 
   const styleLine = getChannelStyle(ctx.channel)
   const contextLine = styleLine ? `\nChannel: ${styleLine}` : ''
@@ -1092,7 +1095,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // the newest. The old 12×200ch block was a budget whale that starved the tail.
   const injectResponses = deduped.slice(-8).reverse()
   const recentLine = injectResponses.length > 0
-    ? `\nYour recent responses (NEVER reuse specific phrases, punchlines, item combos, or scenarios from these — even if a similar question comes up, find a completely different angle. only continue a theme if [USER]'s message explicitly references it):\n${injectResponses.map((r) => `- "${r.length > 140 ? r.slice(0, 140) + '…' : r}"`).join('\n')}${burnedLine}`
+    ? `\nYour recent responses (never repeat a phrase, punchline, item combo or premise from these verbatim — a similar question gets a new angle. a callback to one is fine when [USER] or chat just referenced it):\n${injectResponses.map((r) => `- "${r.length > 140 ? r.slice(0, 140) + '…' : r}"`).join('\n')}${burnedLine}`
     : ''
 
   // copypasta few-shot examples. pasta RECALL (recite an existing chat pasta) is NOT
@@ -1261,7 +1264,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'redditGr', text: grRedditLine, base: 188, boost: redditMetaIntent ? 185 : 0 },
     // official beats community buzz for a news ask — slightly higher priority
     { name: 'grNews', text: grNewsLine, base: 187, boost: redditMetaIntent ? 190 : 0 },
-    { name: 'hotConvo', text: hotLine, base: 10 },
+    // a follow-up ("why?", a reply to the bot's line) is answered FROM this section — a fifth
+    // of all asks are one. pinned below the eviction line then; flavor-tier otherwise.
+    { name: 'hotConvo', text: hotLine, base: (isShortFollowup || ctx.mention) ? -50 : 10 },
     // ambient live board — unique, current, and short; sits with the flavor tier so a
     // tight budget can still evict it (a board-shaped ask rides gameBlock instead)
     { name: 'liveBoard', text: ambientBoardLine ? `\n${ambientBoardLine}` : '', base: 15 },

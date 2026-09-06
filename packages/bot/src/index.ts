@@ -373,7 +373,13 @@ for (const ch of channelNames) {
   if (sid > 0) chatbuf.restoreSessionId(ch, sid)
   const rows = db.getLatestSummaries(ch, 1)
   if (rows.length > 0) chatbuf.restoreSummary(ch, rows[0].summary)
-  const recent = db.getRecentChannelChat(ch, 100)
+  // the bot's own lines come from the persisted reply ring (never chat_messages, so no
+  // consumer of that table ever sees the bot as a chatter) and are interleaved by clock,
+  // so "Recent chat" reads as the real conversation from the first ask after a restart.
+  const recent = [
+    ...db.getRecentChannelChat(ch, 100),
+    ...db.loadRecentResponsesTimed(ch, 12).map((r) => ({ username: BOT_USERNAME, message: r.response, created_at: r.created_at })),
+  ].sort((a, b) => a.created_at.localeCompare(b.created_at))
   if (recent.length > 0) {
     chatbuf.restoreChat(ch, recent)
     log(`hydrated #${ch}: ${recent.length} chat msgs from db`)

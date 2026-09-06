@@ -15,16 +15,25 @@ const CH = '#mention-test'
 describe('mention-mode context (P1)', () => {
   beforeEach(() => chatbuf.cleanupChannel(CH))
 
-  it('the bot\'s own recent line renders as "you:" only under mention', () => {
+  // P2: the bot's own lines always sit in the transcript as "you:" (a "lol bot is
+  // bricked" in chat needs the line it's about), capped to the newest three.
+  it('the bot\'s own recent lines render as "you:", mention or not, newest 3 only', () => {
     chatbuf.record(CH, 'alice', 'is boomerang good')
+    chatbuf.record(CH, 'bazaarinfo', 'first old line')
+    chatbuf.record(CH, 'bazaarinfo', 'second old line')
+    chatbuf.record(CH, 'bazaarinfo', 'third line')
     chatbuf.record(CH, 'bazaarinfo', 'yeah it holds up')
+    chatbuf.record(CH, 'bob', 'lol bot is confident today')
 
     const mentioned = buildUserMessage('why though', { user: 'alice', channel: CH, mention: true } as any)
     expect(mentioned.text).toContain('> you: yeah it holds up')
 
     const plain = buildUserMessage('why though', { user: 'alice', channel: CH } as any)
-    expect(plain.text).not.toContain('> you:')
-    expect(plain.text).not.toContain('yeah it holds up')
+    expect(plain.text).toContain('> you: yeah it holds up')
+    expect(plain.text).toContain('> you: second old line')
+    expect(plain.text).not.toContain('first old line')
+    // the bot is never a "chatter" — profile context stays human-only
+    expect(plain.text).not.toMatch(/Chatters:[^\n]*bazaarinfo/)
   })
 
   it('framing cites the exact reply-parent body when this was a reply', () => {

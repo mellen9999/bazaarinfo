@@ -761,3 +761,26 @@ describe('pasta candidate ranking', () => {
     expect(isConfidentPasta({ message: 'x', reps: 2, coverage: 1 })).toBe(false)
   })
 })
+
+describe('loadRecentResponsesTimed', () => {
+  // own db lifecycle, like the pasta block above
+  let timedDbPath: string
+  beforeEach(() => {
+    timedDbPath = resolve(tmpdir(), `.bazaarinfo-timed-${Date.now()}-${Math.random().toString(36).slice(2)}.db`)
+    db.initDb(timedDbPath)
+  })
+  afterEach(() => {
+    db.closeDb()
+    try { unlinkSync(timedDbPath) } catch {}
+  })
+
+  it('returns the newest N bot replies oldest-first with their clock, per channel', () => {
+    db.logRecentResponse('#timed', 'first')
+    db.logRecentResponse('#timed', 'second')
+    db.logRecentResponse('#other', 'elsewhere')
+    const rows = db.loadRecentResponsesTimed('#timed', 12)
+    expect(rows.map((r) => r.response)).toEqual(['first', 'second'])
+    expect(rows.every((r) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(r.created_at))).toBe(true)
+    expect(db.loadRecentResponsesTimed('#TIMED', 1).map((r) => r.response)).toEqual(['second'])
+  })
+})
