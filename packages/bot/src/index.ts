@@ -16,6 +16,7 @@ import { isMuted } from './directives'
 import { isSuppressed } from './suppress'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
 import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamInfo, getStreamInfo, setModCheck } from './ai-cache'
+import { noteStreamThumb } from './shirt'
 import { refreshRedditDigest, refreshBgRedditDigest, refreshGrRedditDigest } from './reddit'
 import { refreshGuildrunIfNeeded } from './guildrun'
 import { refreshGrNewsIfNeeded } from './guildrun-news'
@@ -714,7 +715,7 @@ async function pollStreams(initial = false) {
       headers: { Authorization: `Bearer ${getAccessToken()}`, 'Client-Id': CLIENT_ID! },
       signal: AbortSignal.timeout(10_000),
     })
-    const parsed = await readJson<{ data: { user_login: string; game_name: string; started_at: string; title?: string; viewer_count?: number }[] }>(res)
+    const parsed = await readJson<{ data: { user_login: string; game_name: string; started_at: string; title?: string; viewer_count?: number; thumbnail_url?: string }[] }>(res)
     if (!parsed.ok || !parsed.data) return
     const data = parsed.data
     const now = Date.now()
@@ -729,6 +730,9 @@ async function pollStreams(initial = false) {
       // title/viewers ride along in the same payload as the game name — keep them, so the
       // bot knows what every other viewer can see on the channel page
       setStreamInfo(ch, { title: s.title, viewers: s.viewer_count, startedAt: Number.isFinite(startedMs) ? startedMs : undefined })
+      // the shirt bet: the same payload carries a live frame of the stream. shirt.ts decides
+      // for itself whether this broadcast still needs a look, and almost always does nothing.
+      if (Number.isFinite(startedMs) && s.thumbnail_url) noteStreamThumb(ch, startedMs, s.thumbnail_url)
       offlineMisses.delete(ch) // present again -> reset any pending offline countdown
       const prev = liveState.get(ch)
       if (prev === undefined) {

@@ -928,6 +928,21 @@ const migrations: (() => void)[] = [
     db.run(`CREATE INDEX idx_chat_msgid ON chat_messages(message_id) WHERE message_id IS NOT NULL`)
     db.run(`ALTER TABLE ask_queries ADD COLUMN deleted_by_mod INTEGER NOT NULL DEFAULT 0`)
   },
+  // migration 32: the shirt-colour read for a broadcast (shirt.ts). keyed on the same
+  // (channel, started_at) as stream_sessions so a restart mid-stream finds the existing
+  // read instead of paying for another vision call, and the rows accumulate into the
+  // history chat bets against.
+  () => {
+    db.run(`CREATE TABLE shirt_reads (
+      channel TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      color TEXT NOT NULL,
+      hex TEXT NOT NULL DEFAULT '',
+      confidence REAL NOT NULL,
+      captured_at INTEGER NOT NULL,
+      PRIMARY KEY (channel, started_at)
+    )`)
+  },
 ]
 
 function runMigrations() {
@@ -977,6 +992,47 @@ export function getStreamSessions(channel: string, sinceMs = 0): { startedAt: nu
       'SELECT started_at AS startedAt, last_seen AS lastSeenAt FROM stream_sessions WHERE channel = ? AND started_at >= ? ORDER BY started_at',
     )
     .all(channel.toLowerCase(), sinceMs) as { startedAt: number; lastSeenAt: number }[]
+}
+
+// shirt reads — one row per broadcast (shirt.ts). a later, better-lit look at the cam
+// upgrades the row; a worse one is ignored, so the stored read is the best one taken.
+export interface ShirtRow { startedAt: number; color: string; hex: string; confidence: number; capturedAt: number }
+
+export function recordShirtRead(
+  channel: string,
+  startedAt: number,
+  color: string,
+  hex: string,
+  confidence: number,
+  capturedAt: number,
+) {
+  db.query(
+    `INSERT INTO shirt_reads (channel, started_at, color, hex, confidence, captured_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(channel, started_at) DO UPDATE SET
+       color = excluded.color, hex = excluded.hex,
+       confidence = excluded.confidence, captured_at = excluded.captured_at
+     WHERE excluded.confidence > shirt_reads.confidence`,
+  ).run(channel.toLowerCase(), startedAt, color, hex, confidence, capturedAt)
+}
+
+export function getShirtRead(channel: string, startedAt: number): ShirtRow | null {
+  return (db
+    .query(
+      `SELECT started_at AS startedAt, color, hex, confidence, captured_at AS capturedAt
+       FROM shirt_reads WHERE channel = ? AND started_at = ?`,
+    )
+    .get(channel.toLowerCase(), startedAt) as ShirtRow | null) ?? null
+}
+
+/** most recent broadcasts first — the history the odds line is built from. */
+export function getShirtHistory(channel: string, limit = 20): ShirtRow[] {
+  return db
+    .query(
+      `SELECT started_at AS startedAt, color, hex, confidence, captured_at AS capturedAt
+       FROM shirt_reads WHERE channel = ? ORDER BY started_at DESC LIMIT ?`,
+    )
+    .all(channel.toLowerCase(), limit) as ShirtRow[]
 }
 
 // channels with any logged stream history — the set a schedule ask can name

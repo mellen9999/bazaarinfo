@@ -10,6 +10,7 @@ import { isGrQuery, isGrIntent, isGuildrunCategory, grContext, grKeywordCard } f
 import { getGrNewsLine } from './guildrun-news'
 import { getGameDossierLine, isUngroundedGame, canonicalGameName } from './game-dossier'
 import { getWeatherLine } from './weather'
+import { getShirtLine } from './shirt'
 import { META_QUERY_RE } from './intents'
 import { isPastaRecall } from './pasta'
 import { getTopicalDigest } from './topical'
@@ -396,6 +397,11 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // failure, '' otherwise — nothing to hallucinate from). refreshed in doAiCall.
   const weatherLine = getWeatherLine(query)
 
+  // what he's wearing — read off the live stream thumbnail once per broadcast (shirt.ts).
+  // chat bets on the colour, so every branch of this line is either a real read or an
+  // explicit "no look yet"; there is nothing here to guess from.
+  const shirtLine = getShirtLine(ctx.channel, query)
+
   // hearthstone battlegrounds standings — kripp's chat is a hearthstone chat, and a BG
   // rating ask used to get "THIS is bazaar chat not hearthstone's". official blizzard data
   // or nothing: the block states plainly when a player simply isn't on the ranked board.
@@ -757,6 +763,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'schedule', text: scheduleLine, base: -106 },
     // live weather is the direct answer when it fires — same never-evict tier
     { name: 'weather', text: weatherLine, base: -105 },
+    // the shirt bet is the direct answer when it fires — same never-evict tier
+    { name: 'shirt', text: shirtLine, base: -104.8 },
     // BG standings are the direct answer when they fire — same never-evict tier
     { name: 'hs', text: hsLine, base: -104.5 },
     // BG card text likewise: it IS the answer, and losing it means answering from memory
