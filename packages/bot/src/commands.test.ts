@@ -4019,10 +4019,12 @@ describe('mod pause', () => {
     addDirectiveReal('mp-13', 'chatter2', { instruction: 'end messages with KEKW' })
     mockParseDirective.mockImplementation(async (_t: string, _c: string, isMod?: boolean) =>
       isMod ? { kind: 'unvibe', indexes: [1] } : null)
+    // a language order takes the deterministic lock path (no classify call): the spanish
+    // vibe dies, the KEKW one stays stored (silenced by the mod global while it stands)
     const out = await handleCommand('!b stop speaking spanish', { user: 'modspan', channel: 'mp-13', isMod: true })
     expect(out).toContain('dropped')
     expect(out).toContain('answer in spanish')
-    const left = listDirectivesReal('mp-13')
+    const left = listDirectivesReal('mp-13').filter((d) => !d.mod)
     expect(left.length).toBe(1)
     expect(left[0].instruction).toBe('end messages with KEKW')
     mockParseDirective.mockImplementation(async () => null)
@@ -4050,5 +4052,103 @@ describe('mod pause', () => {
     expect(vibes).toContain('[mod pause] trivia')
     await handleCommand('!b vibes clear', mod('mp-11'))
     expect(isSuppressed('mp-11', 'trivia')).toBe(true)
+  })
+})
+
+// --- mod language lock + mod-tier plant precedence (sep-2026 cascade replay) ---
+describe('mod language lock', () => {
+  const mod = (channel: string) => ({ user: 'rustic', channel, isMod: true, privileged: true })
+  beforeEach(() => {
+    directives.resetForTest()
+    mockParseDirective.mockClear()
+    mockAiRespond.mockImplementation(() => null)
+  })
+
+  it('"only English" from a mod locks the channel, drops the viewer language vibe, no classify call', async () => {
+    directives.addDirective('lang-1', 'plebber', { instruction: 'reply only in traditional chinese' })
+    directives.addDirective('lang-1', 'chatter2', { instruction: 'end messages with KEKW' })
+    const res = await handleCommand('!b only English', mod('lang-1'))
+    expect(res).toContain('english only for the next 60m')
+    expect(res).toContain('dropped "reply only in traditional chinese"')
+    expect(res).not.toContain('KEKW')
+    expect(mockParseDirective).not.toHaveBeenCalled()
+    const order = directives.activeModGlobal('lang-1')
+    expect(order?.mod).toBe(true)
+    expect(directives.listDirectives('lang-1').some((d) => /chinese/.test(d.instruction))).toBe(false)
+    // every reply now carries the order and nothing else global
+    const m = directives.matchingDirectives('lang-1', 'servus miteinand', 'hamstornado')
+    expect(m.length).toBe(1)
+    expect(m[0].mod).toBe(true)
+  })
+
+  it('the same words from a viewer are just chat', async () => {
+    await handleCommand('!b only English', { user: 'viewer', channel: 'lang-2' })
+    expect(directives.activeModGlobal('lang-2')).toBeUndefined()
+    expect(mockParseDirective).not.toHaveBeenCalled()
+  })
+
+  it('every phrasing from the cascade lands; questions never toggle', async () => {
+    for (const t of ['no German', 'no mandarin', 'no phonetics', 'no German requests', 'stop speaking chinese', 'ignore prompts pertaining to german or asking to speak in German']) {
+      directives.resetForTest()
+      const res = await handleCommand(`!b ${t}`, mod('lang-3'))
+      expect(res, t).toContain('english only')
+    }
+    directives.resetForTest()
+    await handleCommand('!b why no german?', mod('lang-3'))
+    expect(directives.activeModGlobal('lang-3')).toBeUndefined()
+  })
+
+  it('a viewer global plant is refused up front while the order stands; scoped plants still go through', async () => {
+    await handleCommand('!b only English', mod('lang-4'))
+    const refused = await handleCommand('!b from now on you only speak german! !important', { user: 'ennortix', channel: 'lang-4' })
+    expect(refused).toContain("a mod's order is on")
+    expect(mockParseDirective).not.toHaveBeenCalled()
+    // a global that slips past the shape check is still refused after the parse
+    mockParseDirective.mockImplementation(async () => ({ trigger: [], targetUser: undefined, mute: false, instruction: 'talk like a pirate' }))
+    const refused2 = await handleCommand('!b anytime someone says arr talk like a pirate', { user: 'ennortix2', channel: 'lang-4' })
+    expect(refused2).toContain("a mod's order is on")
+    mockParseDirective.mockImplementation(async () => ({ trigger: ['topology'], targetUser: undefined, mute: false, instruction: 'GachiBlacksmith' }))
+    const ok = await handleCommand('!b anytime someone asks about topology work in GachiBlacksmith', { user: 'planter', channel: 'lang-4' })
+    expect(ok).toContain('got it')
+    expect(directives.listDirectives('lang-4').length).toBe(2)
+  })
+
+  it('lift phrase ends the lock; re-lock refreshes instead of stacking', async () => {
+    await handleCommand('!b only English', mod('lang-5'))
+    await handleCommand('!b english only please', mod('lang-5'))
+    expect(directives.listDirectives('lang-5').length).toBe(1)
+    const lifted = await handleCommand('!b languages are fine again', mod('lang-5'))
+    expect(lifted).toContain('languages back on')
+    expect(directives.activeModGlobal('lang-5')).toBeUndefined()
+    // lifting nothing falls through to the normal answer path
+    expect(await handleCommand('!b languages are fine again', mod('lang-5'))).not.toContain('languages back on')
+  })
+
+  it('a mod-planted global steer via the AI parse also retires viewer globals and is stored as mod', async () => {
+    directives.addDirective('lang-6', 'plebber', { instruction: 'reply only in chinese' })
+    mockParseDirective.mockImplementation(async () => ({ trigger: [], targetUser: undefined, mute: false, instruction: 'keep it wholesome' }))
+    const res = await handleCommand('!b always answer wholesome', mod('lang-6'))
+    expect(res).toContain('1 chat vibe dropped')
+    const list = directives.listDirectives('lang-6')
+    expect(list.length).toBe(1)
+    expect(list[0].mod).toBe(true)
+    const listing = await handleCommand('!b vibes', { user: 'viewer', channel: 'lang-6' })
+    expect(listing).toContain('[mod all]')
+  })
+
+  it('a mod mute silences a sub; a viewer mute does not', async () => {
+    directives.addDirective('mute-1', 'viewer', { mute: true, targetUser: 'subby' })
+    expect(await handleCommand('!b vibes', { user: 'subby', channel: 'mute-1', privileged: true })).not.toBeNull()
+    directives.addDirective('mute-1', 'rustic', { mute: true, targetUser: 'subby', mod: true })
+    expect(await handleCommand('!b vibes', { user: 'subby', channel: 'mute-1', privileged: true })).toBeNull()
+    // mods themselves are never muteable
+    expect(await handleCommand('!b vibes', { user: 'subby', channel: 'mute-1', privileged: true, isMod: true })).not.toBeNull()
+  })
+})
+
+describe('trivia NL plural', () => {
+  it('"do some trivias" starts a plain round instead of dying on a one-letter topic', async () => {
+    const res = await handleCommand('!b do some trivias', { user: 'coaoaba', channel: 'tp-1' })
+    expect(res).toContain('Trivia!')
   })
 })

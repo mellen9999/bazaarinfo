@@ -392,19 +392,22 @@ const client = new TwitchClient(
       const rxTs = Date.now()
       const inboundAgeMs = sentTs ? rxTs - sentTs : 0
 
+      // privilege/mute flags computed up here: the raw-message game paths (trivia answers,
+      // dungeon votes) run BEFORE handleCommand and must honor the SAME directive-mute as
+      // every other command — otherwise a muted troll escapes the mute by winning trivia.
+      // subs/vips dodge viewer-planted mutes only; a mod's mute bites them too.
+      const privileged = badges.some((b) => b === 'subscriber' || b === 'moderator' || b === 'broadcaster' || b === 'vip')
+      const isMod = badges.some((b) => b === 'moderator' || b === 'broadcaster')
+      const muted = !isMod && isMuted(channel, username, privileged)
+
       try { db.logChat(channel, username, text) } catch {}
-      chatbuf.record(channel, username, text, messageId, threadId)
+      // the mod flag rides into the buffer so a mod's earlier order in "Recent chat" reads
+      // as an order, not a random viewer's wish
+      chatbuf.record(channel, username, text, messageId, threadId, isMod)
 
       // pre-fetch Twitch user info + followage for every chatter (fire-and-forget)
       // so data is ready BEFORE they ask questions, not after
       maybeFetchTwitchInfo(username, channel)
-
-      // privilege/mute flags computed up here: the raw-message game paths (trivia answers,
-      // dungeon votes) run BEFORE handleCommand and must honor the SAME directive-mute as
-      // every other command — otherwise a muted troll escapes the mute by winning trivia.
-      const privileged = badges.some((b) => b === 'subscriber' || b === 'moderator' || b === 'broadcaster' || b === 'vip')
-      const isMod = badges.some((b) => b === 'moderator' || b === 'broadcaster')
-      const muted = !isMod && !privileged && isMuted(channel, username)
 
       // check trivia answers before command routing. isolated try so a throw here can
       // never silently kill answer detection (which would make a live round "go dead").

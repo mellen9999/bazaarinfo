@@ -6,6 +6,7 @@ export interface ChatEntry {
   ts: number
   messageId?: string
   threadId?: string
+  mod?: boolean // moderator/broadcaster badge on the line — rendered as a marker so the model can tell an order from a viewer's wish
 }
 
 const buffers = new Map<string, ChatEntry[]>()
@@ -198,7 +199,7 @@ function stripSurrogates(s: string): string {
     .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
 }
 
-export function record(channel: string, user: string, text: string, messageId?: string, threadId?: string) {
+export function record(channel: string, user: string, text: string, messageId?: string, threadId?: string, mod = false) {
   text = stripSurrogates(text)
   const now = Date.now()
   const last = lastMessageTime.get(channel) ?? 0
@@ -214,7 +215,7 @@ export function record(channel: string, user: string, text: string, messageId?: 
     buf = []
     buffers.set(channel, buf)
   }
-  buf.push({ user, text, ts: now, messageId, threadId })
+  buf.push({ user, text, ts: now, messageId, threadId, ...(mod ? { mod } : {}) })
   if (buf.length > MAX_SIZE) buf.shift()
   maybeSummarize(channel)
   maybeLearnLessons(channel)

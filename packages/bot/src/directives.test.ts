@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, setSystemTime } from 'bun:test'
-import { addDirective, matchingDirectives, isMuted, listDirectives, clearDirectives, directiveHint, resetForTest, MAX_INSTRUCTION } from './directives'
+import { addDirective, matchingDirectives, isMuted, listDirectives, clearDirectives, directiveHint, resetForTest, MAX_INSTRUCTION, activeModGlobal, dropViewerGlobals, removeByInstruction } from './directives'
 
 describe('directives', () => {
   beforeEach(() => resetForTest())
@@ -203,5 +203,90 @@ describe('directives', () => {
     const honored = matchingDirectives('ch', 'topology question', 'bob')
     expect(honored.length).toBe(2)
     expect(honored.every((d) => d.targetUser || d.trigger.length > 0)).toBe(true) // scoped won both slots
+  })
+})
+
+// mod tier — a mod's plant is an order: outranks viewer globals, survives viewer floods,
+// lives 60m, and its mutes bite subs/vips. the sep-2026 "only english" cascade.
+describe('directives: mod tier', () => {
+  beforeEach(() => resetForTest())
+  afterEach(() => setSystemTime())
+
+  it('a mod global silences every viewer global, newer or older', () => {
+    addDirective('ch', 'plebber', { instruction: 'reply only in chinese' })
+    addDirective('ch', 'rustic', { instruction: 'english only', mod: true })
+    addDirective('ch', 'ennortix', { instruction: 'only speak german' })
+    const m = matchingDirectives('ch', 'how is your day', 'anyone')
+    expect(m.length).toBe(1)
+    expect(m[0].mod).toBe(true)
+    expect(m[0].instruction).toBe('english only')
+  })
+
+  it('scoped viewer steers still ride next to a mod global, and the mod global is never squeezed out', () => {
+    addDirective('ch', 'a', { targetUser: 'bob', instruction: 'pirate speak' })
+    addDirective('ch', 'b', { trigger: ['topology'], instruction: 'GachiBlacksmith' })
+    addDirective('ch', 'mod', { instruction: 'english only', mod: true })
+    const m = matchingDirectives('ch', 'topology question', 'bob')
+    expect(m.some((d) => d.mod)).toBe(true)
+    expect(m.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('viewer flood never evicts a mod entry; mod lane has its own cap', () => {
+    addDirective('ch', 'mod', { instruction: 'english only', mod: true })
+    for (let i = 0; i < 8; i++) addDirective('ch', 'u', { instruction: `vibe ${i}` })
+    const list = listDirectives('ch')
+    expect(list.filter((d) => d.mod).length).toBe(1)
+    expect(list.filter((d) => !d.mod).length).toBe(4)
+    for (let i = 0; i < 3; i++) addDirective('ch', 'mod', { instruction: `order ${i}`, mod: true })
+    expect(listDirectives('ch').filter((d) => d.mod).length).toBe(2)
+    expect(listDirectives('ch').filter((d) => !d.mod).length).toBe(4)
+  })
+
+  it('mod entries live 60m, viewer entries 20m', () => {
+    const t0 = Date.now()
+    setSystemTime(new Date(t0))
+    addDirective('ch', 'mod', { instruction: 'english only', mod: true })
+    addDirective('ch', 'u', { instruction: 'uwu' })
+    setSystemTime(new Date(t0 + 21 * 60_000))
+    expect(listDirectives('ch').map((d) => d.instruction)).toEqual(['english only'])
+    setSystemTime(new Date(t0 + 61 * 60_000))
+    expect(listDirectives('ch').length).toBe(0)
+  })
+
+  it('a mod mute bites privileged askers; a viewer mute does not', () => {
+    addDirective('ch', 'viewer', { mute: true, targetUser: 'subby' })
+    expect(isMuted('ch', 'subby')).toBe(true)
+    expect(isMuted('ch', 'subby', true)).toBe(false)
+    addDirective('ch', 'mod', { mute: true, targetUser: 'subby', mod: true })
+    expect(isMuted('ch', 'subby', true)).toBe(true)
+  })
+
+  it('activeModGlobal + dropViewerGlobals + removeByInstruction', () => {
+    expect(activeModGlobal('ch')).toBeUndefined()
+    addDirective('ch', 'plebber', { instruction: 'reply only in chinese' })
+    addDirective('ch', 'b', { trigger: ['topology'], instruction: 'keep this' })
+    addDirective('ch', 'mod', { instruction: 'english only', mod: true })
+    expect(activeModGlobal('ch')?.instruction).toBe('english only')
+    expect(dropViewerGlobals('ch')).toEqual(['reply only in chinese'])
+    expect(listDirectives('ch').map((d) => d.instruction).sort()).toEqual(['english only', 'keep this'])
+    expect(removeByInstruction('ch', 'english only')).toBe(1)
+    expect(activeModGlobal('ch')).toBeUndefined()
+  })
+
+  it('vibes clear leaves mod orders standing', () => {
+    addDirective('ch', 'u', { instruction: 'uwu' })
+    addDirective('ch', 'mod', { instruction: 'english only', mod: true })
+    expect(clearDirectives('ch')).toBe(1)
+    expect(listDirectives('ch').map((d) => d.instruction)).toEqual(['english only'])
+  })
+
+  it('prompt hint renders mod orders under [MOD ORDER] ahead of viewer vibes', () => {
+    addDirective('ch', 'b', { trigger: ['topology'], instruction: 'GachiBlacksmith' })
+    addDirective('ch', 'rustic', { instruction: 'english only', mod: true })
+    const hint = directiveHint('ch', 'topology q', 'u')
+    expect(hint.indexOf('[MOD ORDER]')).toBeGreaterThanOrEqual(0)
+    expect(hint.indexOf('[MOD ORDER]')).toBeLessThan(hint.indexOf('[CHAT VIBES]'))
+    expect(hint).toContain('english only (mod rustic)')
+    expect(hint).toContain('GachiBlacksmith')
   })
 })

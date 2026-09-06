@@ -66,9 +66,10 @@ export function botStateReport(channel: string): string {
     const now = Date.now()
     const vl = vibes.map((d, i) => {
       const mins = Math.max(1, Math.round((d.expiresAt - now) / 60_000))
-      if (d.mute) return `${i + 1}. mute @${d.targetUser} (by ${d.planter}, ${mins}m left)`
+      const by = d.mod ? `mod order by ${d.planter}` : `by ${d.planter}`
+      if (d.mute) return `${i + 1}. mute @${d.targetUser} (${by}, ${mins}m left)`
       const scope = d.targetUser ? ` for @${d.targetUser}` : d.trigger.length ? ` on ${d.trigger.join('/')}` : ''
-      return `${i + 1}. "${d.instruction}"${scope} (by ${d.planter}, ${mins}m left)`
+      return `${i + 1}. "${d.instruction}"${scope} (${by}, ${mins}m left)`
     })
     lines.push(`vibes: ${vl.join(' · ')}`)
   }

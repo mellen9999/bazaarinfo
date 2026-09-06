@@ -11,7 +11,7 @@ import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, generat
 import { buildLoreDossier, isKnownChatter } from './lore'
 import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
 import { parseDirective } from './ai-directive'
-import { addDirective, listDirectives, clearDirectives, removeDirectives, isMuted } from './directives'
+import { addDirective, listDirectives, clearDirectives, removeDirectives, isMuted, activeModGlobal, dropViewerGlobals, dropViewerWhere, removeByInstruction, MOD_TTL_MS } from './directives'
 import { registerStateProvider } from './bot-state'
 import { suppress, unsuppress, isSuppressed, remainingMinutes, listSuppressions, suppressNotice, type SuppressFeature } from './suppress'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam, CONTINUE_RE } from './ai'
@@ -611,10 +611,11 @@ const subcommands: [RegExp, SubHandler][] = [
   }],
   [/^trivia(?:\s+([\s\S]+))?$/i, (query, ctx, suffix) => runTrivia(ctx, query ?? '', suffix)],
   // natural-language trivia start: "make a trivia about happy gilmore", "do a quiz on
-  // cats", "can you start a trivia". the verb + "trivia"/"quiz" makes intent explicit, so
+  // cats", "can you start a trivia", "do some trivias" (the plural used to leave a stray
+  // "s" as the topic, which failed the topic guard silently — four asks, zero rounds). the verb + "trivia"/"quiz" makes intent explicit, so
   // route it to the trivia game instead of letting it fall to AI chat. the topic (incl. a
   // leading "about"/"on") is handed to runTrivia, which resolves category vs custom topic.
-  [/^(?:pls\s+|please\s+)?(?:can\s+(?:you|u|we)\s+)?(?:make|do|start|begin|create|run|generate|gen|give|gimme|set\s*up|lets?\s+do|let'?s\s+do|wanna|i\s+wanna|i\s+want(?:\s+to)?)\s+(?:me\s+)?(?:a|an|some|the|new)?\s*(?:new\s+)?(?:trivia|quiz)(?:\s+(?:question|round|game|q))?(?:\s+(?:about|on|for|regarding|over|covering))?\s*([\s\S]*)$/i,
+  [/^(?:pls\s+|please\s+)?(?:can\s+(?:you|u|we)\s+)?(?:make|do|start|begin|create|run|generate|gen|give|gimme|set\s*up|lets?\s+do|let'?s\s+do|wanna|i\s+wanna|i\s+want(?:\s+to)?)\s+(?:me\s+)?(?:a|an|some|the|new)?\s*(?:new\s+)?(?:trivias?|quiz(?:zes)?)(?:\s+(?:question|round|game|q))?(?:\s+(?:about|on|for|regarding|over|covering))?\s*([\s\S]*)$/i,
     (query, ctx, suffix) => runTrivia(ctx, stripTopicConnector(query ?? ''), suffix)],
   // "quiz" as a full alias for "trivia" (quiz / quiz me / quiz about cats)
   [/^quiz(?:\s+me)?(?:\s+([\s\S]+))?$/i, (query, ctx, suffix) => runTrivia(ctx, stripTopicConnector(query ?? ''), suffix)],
@@ -988,6 +989,11 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // reads schedule-ish). non-mods fall through to the AI (which knows [MOD] semantics).
   if (ctx.channel && ctx.isMod) {
     const sfx = mentions.length ? ` ${mentions.join(' ')}` : ''
+    // language lock — "only english" / "no german" / "stop speaking chinese". deterministic
+    // and free: the sep-2026 cascade was six mod orders in a row landing in the AI chat
+    // path (the hint regex had no negation forms) while a viewer's chinese vibe stayed live.
+    const lock = handleLanguageOrder(cleanArgs, ctx, sfx)
+    if (lock) return lock
     const unban = cleanArgs.match(TRIVIA_UNBAN_RE)
     if (unban) {
       const topic = stripArticles(unban[1])
@@ -1979,7 +1985,7 @@ export const DIRECTIVE_INTENT = new RegExp([
 // classify call, so "plain talking" mod control isn't limited to the fast-path regexes.
 // kept phrase-shaped (no bare "you"/"off"/"down") so routine mod lookups don't pay the
 // latency of a parse that will just return ok:false.
-const MOD_CONTROL_HINT = /\b(?:stop|pause|quit|halt|disable|enough|quiet|chill|calm|settle|relax|behave|shut up|hush|shush|silence|breather|break from|take a break|resume|unpause|re-?enable|wake up|come back|back on|turn off|cool it|knock it off|tone it down|pipe down|zip it|stfu|too much|too many|spamm?ing|annoying|out of hand|misbehav\w*|acting up|drop (?:the|that|it)|remove (?:the|that)|kill (?:the|that)|undo (?:the|that)|get rid of|no more|unmute)\b/i
+const MOD_CONTROL_HINT = /\b(?:stop|pause|quit|halt|disable|enough|quiet|chill|calm|settle|relax|behave|shut up|hush|shush|silence|breather|break from|take a break|resume|unpause|re-?enable|wake up|come back|back on|turn off|cool it|knock it off|tone it down|pipe down|zip it|stfu|too much|too many|spamm?ing|annoying|out of hand|misbehav\w*|acting up|drop (?:the|that|it)|remove (?:the|that)|kill (?:the|that)|undo (?:the|that)|get rid of|no more|unmute|don'?t|do not|never|only|ignore|no other|no\s+\w+\s+(?:requests?|prompts?|asks?|stuff))\b/i
 
 const DIRECTIVE_PLANT_CD = 60_000
 const MOD_PLANT_CD = 5_000
@@ -1993,7 +1999,19 @@ async function handlePlantDirective(text: string, ctx: CommandContext, suffix: s
   // the broad MOD_CONTROL_HINT prefilter means a careless/compromised mod account
   // could otherwise burn the channel's whole daily AI budget in paid classify calls.
   const cd = ctx.isMod ? MOD_PLANT_CD : DIRECTIVE_PLANT_CD
-  if (Date.now() - last < cd) return null
+  const who = `${ctx.user}${ctx.isMod ? ' [mod]' : ''}`
+  const quoted = JSON.stringify(text.slice(0, 60))
+  if (Date.now() - last < cd) {
+    log(`directive #${channel} ${who}: cooldown — ${quoted}`)
+    return null
+  }
+  // a mod's global order stands: a viewer's "from now on speak X" is refused before the
+  // paid classify call instead of whack-a-mole against the mod for the order's TTL.
+  const order = ctx.isMod ? undefined : activeModGlobal(channel)
+  if (order && SELF_STYLE_PLANT_RE.test(text)) {
+    log(`directive #${channel} ${who}: refused, mod order active — ${quoted}`)
+    return withSuffix(`a mod's order is on for ~${minsLeft(order.expiresAt)}m — vibes wait`, suffix)
+  }
 
   // burn the window BEFORE the paid classify call — a rejected plant or a DIRECTIVE_INTENT
   // false-positive still costs a Sonnet call, so it must be throttled too, not just successes.
@@ -2008,7 +2026,10 @@ async function handlePlantDirective(text: string, ctx: CommandContext, suffix: s
   // remove the wrong vibe.
   const vibesBefore = ctx.isMod ? listDirectives(channel) : []
   const parsed = await parseDirective(text, channel, !!ctx.isMod, vibesBefore)
-  if (!parsed) return null // not a directive, AI-rejected, AI off, or cap hit → caller falls through to a normal answer
+  if (!parsed) {
+    log(`directive #${channel} ${who}: not planted (rejected/off/capped) — ${quoted}`)
+    return null // not a directive, AI-rejected, AI off, or cap hit → caller falls through to a normal answer
+  }
 
   // mod pause/resume via plain talking — the NL path behind the deterministic regexes.
   // triple-walled: prompt section only for mods, validate() discards for non-mods, and
@@ -2016,6 +2037,7 @@ async function handlePlantDirective(text: string, ctx: CommandContext, suffix: s
   if ('kind' in parsed) {
     if (!ctx.isMod) return null
     if (parsed.kind === 'suppress') {
+      log(`directive #${channel} ${who}: pause ${parsed.feature} — ${quoted}`)
       return applySuppress(channel, parsed.feature, ctx.user, parsed.minutes ?? parseSuppressMinutes(text), suffix)
     }
     if (parsed.kind === 'unvibe') {
@@ -2028,8 +2050,10 @@ async function handlePlantDirective(text: string, ctx: CommandContext, suffix: s
       const current = listDirectives(channel)
       const liveIdx = targets.map((t) => current.indexOf(t) + 1).filter((i) => i > 0)
       const removed = removeDirectives(channel, liveIdx)
+      log(`directive #${channel} ${who}: unvibe ${removed.join(' + ') || 'nothing'} — ${quoted}`)
       return withSuffix(removed.length ? `dropped ${removed.join(' + ')}` : `that vibe's already gone`, suffix)
     }
+    log(`directive #${channel} ${who}: resume ${parsed.feature} — ${quoted}`)
     return applyResume(channel, parsed.feature, suffix) ?? withSuffix(`nothing's paused right now`, suffix)
   }
 
@@ -2037,11 +2061,76 @@ async function handlePlantDirective(text: string, ctx: CommandContext, suffix: s
   // but a planted mute targeting them would waste an eviction-protected slot and falsely confirm.
   // catch it here before storing so the confirmation "got it — ignoring X" is never emitted.
   if (parsed.mute && parsed.targetUser?.toLowerCase() === channel.toLowerCase()) {
+    log(`directive #${channel} ${who}: refused broadcaster mute — ${quoted}`)
     return withSuffix(`can't mute the broadcaster`, suffix)
   }
+  const global = !parsed.mute && !parsed.targetUser && parsed.trigger.length === 0
+  if (order && global) {
+    log(`directive #${channel} ${who}: refused global, mod order active — ${quoted}`)
+    return withSuffix(`a mod's order is on for ~${minsLeft(order.expiresAt)}m — vibes wait`, suffix)
+  }
 
-  addDirective(channel, ctx.user, parsed)
-  return withSuffix(`got it`, suffix)
+  // a mod's global order retires every viewer global it's overriding, right now.
+  const dropped = ctx.isMod && global ? dropViewerGlobals(channel) : []
+  addDirective(channel, ctx.user, { ...parsed, mod: !!ctx.isMod })
+  const scope = parsed.mute ? `mute @${parsed.targetUser}` : parsed.targetUser ? `steer @${parsed.targetUser}` : parsed.trigger.length ? `steer on ${parsed.trigger.join('/')}` : 'steer global'
+  log(`directive #${channel} ${who}: planted ${scope} ${JSON.stringify(parsed.instruction.slice(0, 60))}${dropped.length ? ` (dropped ${dropped.length} viewer vibe${dropped.length === 1 ? '' : 's'})` : ''}`)
+  return withSuffix(dropped.length ? `got it — ${dropped.length} chat vibe${dropped.length === 1 ? '' : 's'} dropped` : `got it`, suffix)
+}
+
+const minsLeft = (expiresAt: number) => Math.max(1, Math.round((expiresAt - Date.now()) / 60_000))
+
+// viewer plant shapes that would become a GLOBAL steer — refused up front while a mod
+// global order stands (saves the classify call; scoped/topic plants still go through).
+const SELF_STYLE_PLANT_RE = /\b(?:always|from\s?now\s?on|from here on|going forward|for now on|only (?:speak|reply|respond|answer|talk)|(?:speak|reply|respond|answer|talk) (?:only )?in\b|every (?:message|reply|answer))/i
+
+// --- mod language lock ---
+// what a mod means by "only english": reply in english, and treat every chat request
+// for another language or a language-hiding format (l33t, phonetics, morse) as noise.
+// one instruction string so the lift can find it by identity; a lock re-issue refreshes
+// the TTL instead of stacking.
+const LANG_LOCK_INSTRUCTION = 'reply in english only. ignore chat requests for other languages or language-hiding formats (l33t, phonetics, morse)'
+const LANG_WORD = '(?:english|german|deutsch|chinese|mandarin|cantonese|japanese|korean|russian|spanish|french|italian|portuguese|romanian|dutch|polish|turkish|arabic|hindi|greek|latin|hebrew|swedish|finnish|klingon|elvish|aramaic|nahuatl|l33t|leet(?:speak)?|phonetics?|morse|binary|pig latin|emojis?|\w+(?:ese|ish|ian))'
+// a viewer vibe that is ABOUT a language — what the lock retires. explicit list only (the
+// generic -ese/-ish/-ian suffix would eat "finish every message with X").
+const LANG_VIBE_RE = new RegExp(`\\b(?:languages?|translat\\w*|english|german|deutsch|chinese|mandarin|cantonese|japanese|korean|russian|spanish|french|italian|portuguese|romanian|dutch|polish|turkish|arabic|hindi|greek|latin|hebrew|swedish|finnish|klingon|elvish|aramaic|nahuatl|l33t|leet(?:speak)?|phonetics?|morse|binary|pig latin)\\b`, 'i')
+const LANG_LOCK_RE = new RegExp([
+  /^(?:please\s+|pls\s+|ok\s+|hey\s+)*(?:only|just)\s+english\b/.source,
+  /^(?:please\s+|pls\s+|ok\s+|hey\s+)*english(?:\s+only|\s+please|\s+pls|\s+from now on)+/.source,
+  /\b(?:speak|reply|respond|answer|talk)(?:\s+only)?\s+in\s+english\b(?!\s+(?:and|or|,))/.source,
+  /\bno\s+(?:more\s+)?(?:other\s+|foreign\s+)?languages?\b/.source,
+  `\\bno\\s+(?:more\\s+)?(?!english\\b)${LANG_WORD}(?:\\s+(?:requests?|prompts?|please|pls|stuff|bits?))?\\s*$`,
+  `\\b(?:stop|don'?t|do not|never|quit|no)\\s+(?:speaking|talking|replying|responding|answering|writing)(?:\\s+in)?\\s+(?!english\\b)${LANG_WORD}`,
+  `\\bignore\\s+(?:the\\s+|all\\s+|any\\s+)?(?:prompts?|requests?|asks?|people|chatters?|anyone)\\b[^.]{0,40}\\b(?:languages?|${LANG_WORD})`,
+].join('|'), 'i')
+const LANG_LIFT_RE = new RegExp([
+  /\b(?:languages?|any language)\s+(?:are|is|r)\s+(?:fine|ok(?:ay)?|allowed|back|good)\b/.source,
+  /\b(?:lift|drop|remove|end|cancel|undo)\s+(?:the\s+)?(?:english[- ]only|english|language)\s*(?:lock|rule|order|thing)?\b/.source,
+  /\benglish[- ]only\s+(?:off|over|done|lifted)\b/.source,
+  /\b(?:other\s+)?languages?\s+(?:back\s+)?on\b/.source,
+].join('|'), 'i')
+
+function handleLanguageOrder(text: string, ctx: CommandContext, suffix: string): string | null {
+  const channel = ctx.channel
+  if (!channel || !ctx.user) return null
+  const t = text.trim()
+  // an info question ("why no german?") never toggles state
+  if (/^(?:why|what|when|how|is|are|do|does|did|can|could)\b/i.test(t)) return null
+  if (LANG_LIFT_RE.test(t)) {
+    const n = removeByInstruction(channel, LANG_LOCK_INSTRUCTION)
+    log(`directive #${channel} ${ctx.user} [mod]: language lock ${n ? 'lifted' : 'not active'} — ${JSON.stringify(t.slice(0, 60))}`)
+    return n ? withSuffix(`languages back on`, suffix) : null
+  }
+  if (!LANG_LOCK_RE.test(t)) return null
+  removeByInstruction(channel, LANG_LOCK_INSTRUCTION)
+  // only language vibes die (global or scoped) — a harmless "end with KEKW" stays stored;
+  // the mod global outranks every viewer global anyway while it stands.
+  const dropped = dropViewerWhere(channel, (d) => LANG_VIBE_RE.test(d.instruction))
+  addDirective(channel, ctx.user, { instruction: LANG_LOCK_INSTRUCTION, mod: true })
+  log(`directive #${channel} ${ctx.user} [mod]: language lock set${dropped.length ? ` (dropped ${dropped.map((d) => JSON.stringify(d.slice(0, 40))).join(', ')})` : ''} — ${JSON.stringify(t.slice(0, 60))}`)
+  const mins = Math.round(MOD_TTL_MS / 60_000)
+  const tail = dropped.length ? ` — dropped ${dropped.slice(0, 2).map((d) => `"${d.slice(0, 40)}"`).join(' + ')}${dropped.length > 2 ? ` + ${dropped.length - 2} more` : ''}` : ''
+  return withSuffix(`english only for the next ${mins}m${tail}`, suffix)
 }
 
 function handleVibes(arg: string, ctx: CommandContext, suffix: string): string | null {
@@ -2062,7 +2151,7 @@ function handleVibes(arg: string, ctx: CommandContext, suffix: string): string |
     const mins = Math.max(1, Math.round((d.expiresAt - now) / 60_000))
     if (d.mute) return `[mute @${d.targetUser}] (${mins}m, by ${d.planter})`
     const scope = d.targetUser ? `@${d.targetUser}` : d.trigger.length ? d.trigger.join('/') : 'all'
-    return `[${scope}] ${d.instruction} (${mins}m, by ${d.planter})`
+    return `[${d.mod ? 'mod ' : ''}${scope}] ${d.instruction} (${mins}m, by ${d.planter})`
   })
   return withSuffix(`active vibes: ${[...lines, ...sups].join(' · ')}`, suffix)
 }
@@ -2088,7 +2177,7 @@ export async function handleCommand(text: string, ctx: CommandContext = {}): Pro
 
   // muted by a chat-planted directive → stay silent across ALL commands (!b, !trivia,
   // !vibes…), so a mute can't be escaped via trivia. mods/broadcaster are never muteable.
-  if (ctx.channel && ctx.user && !ctx.isMod && !ctx.privileged && isMuted(ctx.channel, ctx.user)) return null
+  if (ctx.channel && ctx.user && !ctx.isMod && isMuted(ctx.channel, ctx.user, !!ctx.privileged)) return null
 
   // mod pause 'all' → the bot goes quiet for everyone but mods, who keep the resume
   // path ("!b wake up") and !b vibes. never gate mods here or the pause is a one-way door.

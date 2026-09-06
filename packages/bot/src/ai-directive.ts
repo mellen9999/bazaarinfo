@@ -84,9 +84,9 @@ export async function parseDirective(text: string, channel: string, isMod = fals
   if (isMod) {
     const vibes = vibesSnapshot ?? listDirectives(channel)
     if (vibes.length) {
-      const lines = vibes.map((d, i) => d.mute
+      const lines = vibes.map((d, i) => (d.mute
         ? `${i + 1}. mute @${d.targetUser}`
-        : `${i + 1}. "${d.instruction}"${d.targetUser ? ` for @${d.targetUser}` : ''}${d.trigger.length ? ` on ${d.trigger.join('/')}` : ''}`)
+        : `${i + 1}. "${d.instruction}"${d.targetUser ? ` for @${d.targetUser}` : ''}${d.trigger.length ? ` on ${d.trigger.join('/')}` : ''}`) + (d.mod ? ' (mod order)' : ''))
       content = `${clean}\n\nACTIVE VIBES:\n${lines.join('\n')}`
     }
   }

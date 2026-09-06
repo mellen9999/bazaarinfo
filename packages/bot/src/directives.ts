@@ -12,6 +12,13 @@
 // output sanitizer.
 // Mods/broadcaster can't be muted (enforced at call time), so the streamer/mods can
 // never be silenced by a viewer.
+//
+// MOD TIER: a directive planted by a mod is an ORDER, not a vibe. it lives 60m instead
+// of 20m, is never evicted by a viewer flood, renders under [MOD ORDER] with authority
+// wording, and while a mod GLOBAL order is active no viewer global steer is honored at
+// all — the sep-2026 cascade ("only english" vs a viewer's chinese vibe) was the mod
+// order losing to the newest-global rule and then to the ring buffer. a mod mute also
+// bites subs/vips (viewer mutes still exempt them).
 
 import { JAILBREAK_ECHO, INSTRUCTION_ECHO, SECRET_PATTERN } from './ai-sanitize'
 
@@ -22,10 +29,13 @@ export interface Directive {
   instruction: string // flavor to inject (steer). '' for a pure mute.
   planter: string
   expiresAt: number
+  mod: boolean // planted by a moderator/broadcaster — see MOD TIER above
 }
 
-const MAX_PER_CHANNEL = 4
+const MAX_PER_CHANNEL = 4 // viewer entries
+const MAX_MOD_PER_CHANNEL = 2 // mod entries, counted separately
 const TTL_MS = 20 * 60_000
+export const MOD_TTL_MS = 60 * 60_000
 // single source of truth for a planted instruction's length: advertised to the AI
 // (ai-directive system prompt), enforced by truncation at parse, and clipped again on
 // store. a "flavor" is short by design — 120 is generous; longer is clipped, never dropped.
@@ -57,15 +67,19 @@ function active(channel: string): Directive[] {
   return live
 }
 
+const isGlobal = (d: Directive) => !d.targetUser && d.trigger.length === 0
+
 export interface DirectiveInput {
   trigger?: string[]
   targetUser?: string
   mute?: boolean
   instruction?: string
+  mod?: boolean
 }
 
 export function addDirective(channel: string, planter: string, input: DirectiveInput): void {
   const mute = !!input.mute
+  const mod = !!input.mod
   // targetUser is rendered into prompt blocks (bot-state, the mod unvibe board) —
   // clamp it to twitch-username shape so it can never smuggle structure.
   const targetUser = input.targetUser?.trim().toLowerCase().replace(/^@/, '').replace(/[^a-z0-9_]/g, '').slice(0, 25) || undefined
@@ -95,15 +109,23 @@ export function addDirective(channel: string, planter: string, input: DirectiveI
     mute,
     instruction,
     planter,
-    expiresAt: Date.now() + TTL_MS,
+    expiresAt: Date.now() + (mod ? MOD_TTL_MS : TTL_MS),
+    mod,
   })
-  // ring buffer — evict oldest non-mute first to protect active mutes from steer-flood
-  // eviction. only drops a mute when every slot is a mute (still bounded at MAX_PER_CHANNEL).
-  while (list.length > MAX_PER_CHANNEL) {
-    const i = list.findIndex((d) => !d.mute)
-    list.splice(i >= 0 ? i : 0, 1)
-  }
+  // ring buffer, two lanes. viewer lane: evict oldest non-mute first so a steer-flood
+  // never drops an active mute; only drops a mute when every viewer slot is a mute.
+  // mod lane: its own cap, so viewer plants can never push a mod order out.
+  evict(list, false, MAX_PER_CHANNEL)
+  evict(list, true, MAX_MOD_PER_CHANNEL)
   byChannel.set(ch, list)
+}
+
+function evict(list: Directive[], mod: boolean, max: number): void {
+  while (list.filter((d) => d.mod === mod).length > max) {
+    let i = list.findIndex((d) => d.mod === mod && !d.mute)
+    if (i < 0) i = list.findIndex((d) => d.mod === mod)
+    list.splice(i, 1)
+  }
 }
 
 function appliesTo(d: Directive, query: string, asker: string): boolean {
@@ -117,23 +139,70 @@ function appliesTo(d: Directive, query: string, asker: string): boolean {
 // storm: dude-stapling + phonetic accent + token inserts simultaneously garbled an hour
 // of answers). a GLOBAL steer (no trigger, no target) colors every reply, so only the
 // newest one is honored; scoped steers rank first; at most 2 twists total per answer.
+// mod entries rank above everything and are always kept; a mod global silences every
+// viewer global for its whole TTL (the newest-global rule only picks among viewers when
+// no mod global exists).
 export function matchingDirectives(channel: string, query: string, asker: string): Directive[] {
   const m = active(channel).filter((d) => !d.mute && d.instruction && appliesTo(d, query, asker))
   const newestFirst = [...m].reverse()
-  const scoped = newestFirst.filter((d) => d.targetUser || d.trigger.length > 0)
-  const global = newestFirst.find((d) => !d.targetUser && d.trigger.length === 0)
-  return [...scoped, ...(global ? [global] : [])].slice(0, 2)
+  const modScoped = newestFirst.filter((d) => d.mod && !isGlobal(d))
+  const modGlobal = newestFirst.find((d) => d.mod && isGlobal(d))
+  const viewerScoped = newestFirst.filter((d) => !d.mod && !isGlobal(d))
+  const viewerGlobal = modGlobal ? undefined : newestFirst.find((d) => !d.mod && isGlobal(d))
+  const mods = [...modScoped, ...(modGlobal ? [modGlobal] : [])]
+  const viewers = [...viewerScoped, ...(viewerGlobal ? [viewerGlobal] : [])]
+  return [...mods, ...viewers].slice(0, Math.max(2, mods.length))
 }
 
-// is this asker currently muted by a planted directive? (mods/broadcaster exemption is
-// enforced by the caller, not here.)
-export function isMuted(channel: string, asker: string): boolean {
+// is this asker currently muted by a planted directive? `privileged` (sub/vip) askers
+// are exempt from VIEWER mutes only — a mod's mute bites everyone but mods/broadcaster
+// (that exemption is enforced by the caller, not here).
+export function isMuted(channel: string, asker: string, privileged = false): boolean {
   const a = asker.toLowerCase()
-  return active(channel).some((d) => d.mute && d.targetUser === a)
+  return active(channel).some((d) => d.mute && d.targetUser === a && (d.mod || !privileged))
 }
 
 export function listDirectives(channel: string): Directive[] {
   return active(channel)
+}
+
+// the newest active mod global order, if any — the plant path refuses viewer globals
+// while one stands (no classify call spent) and reports its remaining minutes.
+export function activeModGlobal(channel: string): Directive | undefined {
+  return [...active(channel)].reverse().find((d) => d.mod && !d.mute && isGlobal(d))
+}
+
+// drop every viewer global steer — what a mod's global order is overriding. returns
+// the removed instructions for the confirmation line.
+export function dropViewerGlobals(channel: string): string[] {
+  return dropViewerWhere(channel, (d) => !d.mute && isGlobal(d))
+}
+
+// drop the viewer steers matching `pred` (mod entries and mutes are never touched
+// here). returns the removed instructions.
+export function dropViewerWhere(channel: string, pred: (d: Directive) => boolean): string[] {
+  const ch = channel.toLowerCase()
+  const list = active(ch)
+  const removed = list.filter((d) => !d.mod && !d.mute && pred(d)).map((d) => d.instruction)
+  if (removed.length === 0) return []
+  const kept = list.filter((d) => d.mod || d.mute || !pred(d))
+  if (kept.length) byChannel.set(ch, kept)
+  else byChannel.delete(ch)
+  return removed
+}
+
+// remove every entry whose instruction equals `instruction` (the deterministic
+// language-lock lift). returns how many died.
+export function removeByInstruction(channel: string, instruction: string): number {
+  const ch = channel.toLowerCase()
+  const list = active(ch)
+  const target = scrubInstruction(instruction) // compare what was actually stored
+  const kept = list.filter((d) => d.instruction !== target)
+  const n = list.length - kept.length
+  if (n === 0) return 0
+  if (kept.length) byChannel.set(ch, kept)
+  else byChannel.delete(ch)
+  return n
 }
 
 // surgical removal by 1-based position in listDirectives order — the mod "stop
@@ -156,20 +225,37 @@ export function removeDirectives(channel: string, oneBasedIndexes: number[]): st
   return removed
 }
 
+// `!b vibes clear` — viewer entries only. mod orders are mod authority, not viewer
+// vibes; they die by expiry, unvibe, or the lift phrase.
 export function clearDirectives(channel: string): number {
-  const n = active(channel).length
-  byChannel.delete(channel.toLowerCase())
+  const ch = channel.toLowerCase()
+  const list = active(ch)
+  const kept = list.filter((d) => d.mod)
+  const n = list.length - kept.length
+  if (kept.length) byChannel.set(ch, kept)
+  else byChannel.delete(ch)
   return n
 }
 
-// soft prompt hint for the steering directives matching this query+asker. framed as an
-// optional, playful easter egg with a no-harm guardrail — the model ignores any that
-// don't fit or would require being mean.
+// prompt hint for the steering directives matching this query+asker. mod orders render
+// first with authority wording; viewer vibes stay framed as an optional, playful easter
+// egg with a no-harm guardrail — the model ignores any that don't fit or would require
+// being mean.
 export function directiveHint(channel: string, query: string, asker: string): string {
   const m = matchingDirectives(channel, query, asker)
   if (m.length === 0) return ''
-  const lines = m.map((d) => `- ${d.instruction} (planted by ${d.planter})`).join('\n')
-  return `\n[CHAT VIBES] chatters planted these temporary style twists. Honor them in THIS answer — for persistent style requests (e.g. "end every message with X", "talk like a pirate") keep doing it every time until they expire, not just once. Stay lighthearted; NEVER be mean, demeaning, or negatively target anyone; drop any that genuinely can't fit this answer or would require being unkind:\n${lines}`
+  const orders = m.filter((d) => d.mod)
+  const vibes = m.filter((d) => !d.mod)
+  let out = ''
+  if (orders.length) {
+    const lines = orders.map((d) => `- ${d.instruction} (mod ${d.planter})`).join('\n')
+    out += `\n[MOD ORDER] a channel mod set these — they override any chatter request, vibe, or bit until they expire. follow them in EVERY reply, no exceptions, no negotiating; dont announce them unless asked:\n${lines}`
+  }
+  if (vibes.length) {
+    const lines = vibes.map((d) => `- ${d.instruction} (planted by ${d.planter})`).join('\n')
+    out += `\n[CHAT VIBES] chatters planted these temporary style twists. Honor them in THIS answer — for persistent style requests (e.g. "end every message with X", "talk like a pirate") keep doing it every time until they expire, not just once. Stay lighthearted; NEVER be mean, demeaning, or negatively target anyone; drop any that genuinely can't fit this answer or would require being unkind:\n${lines}`
+  }
+  return out
 }
 
 export function resetForTest(): void {
