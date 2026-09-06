@@ -20,6 +20,14 @@ const BACKGROUND_SPEND_CHANNEL = '_background'
 
 // --- rolling summary ---
 
+// the model echoed the old "note any commitments" instruction back verbatim as its own
+// sentence (494 stored summaries ended with this) even after the prompt stopped asking for
+// it outright — a stubborn belt-and-suspenders strip on top of the reworded prompt.
+const NO_BOT_COMMITMENTS = /\s*(?:no\s+bot\s+commitments(?:\s+(?:were\s+)?made)?|bot\s+made\s+no\s+commitments)\.?\s*$/i
+export function stripNoBotCommitments(text: string): string {
+  return text.replace(NO_BOT_COMMITMENTS, '').trim()
+}
+
 async function summarizeChat(channel: string, recent: ChatEntry[], prev: string): Promise<string> {
   if (!API_KEY) return prev
   if (!AI_CHANNELS.has(channel.toLowerCase())) return prev
@@ -29,7 +37,7 @@ async function summarizeChat(channel: string, recent: ChatEntry[], prev: string)
     `Recent chat in #${channel}:\n${chatLines}\n`,
     'Write a 1-2 sentence summary of what\'s happening in this stream/chat.',
     'Include: topics discussed, jokes/memes, notable moments, mood.',
-    'IMPORTANT: note any promises or commitments the bot made (e.g., "bot agreed to stop X", "bot promised to Y").',
+    'If the bot promised or agreed to something, say so. Otherwise do not mention the bot at all.',
     'Be specific — names, items, events. Under 200 chars. No markdown.',
   ].join('')
 
@@ -45,8 +53,9 @@ async function summarizeChat(channel: string, recent: ChatEntry[], prev: string)
       system: EXTRACT_SYSTEM,
       content: prompt,
     }))?.trim()
-    if (text) log(`summary #${channel}: ${text}`)
-    return text || prev
+    const cleaned = text ? stripNoBotCommitments(text) : text
+    if (cleaned) log(`summary #${channel}: ${cleaned}`)
+    return cleaned || prev
   } catch {
     return prev
   }
