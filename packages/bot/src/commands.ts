@@ -16,7 +16,7 @@ import { registerStateProvider } from './bot-state'
 import { suppress, unsuppress, isSuppressed, remainingMinutes, listSuppressions, suppressNotice, type SuppressFeature } from './suppress'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam, CONTINUE_RE } from './ai'
 import { aiUnavailableReason, aiTriviaEnabled, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest, getChannelGame } from './ai-cache'
-import { isLowValue } from './ai-query'
+import { isLowValue, isNoise } from './ai-query'
 import { META_QUERY_RE } from './intents'
 import { isEmote, findEmote } from './emotes'
 import { detectSpamIntent } from './spam-intent'
@@ -325,6 +325,10 @@ export interface CommandContext {
   isMod?: boolean
   messageId?: string
   threadId?: string
+  // set true only by handleCommand's addressedQuery routing (reply-to-bot or @botname) —
+  // never construct this by hand.
+  mention?: boolean
+  replyParent?: { login: string; body?: string }
 }
 
 type CommandHandler = (args: string, ctx: CommandContext) => string | null | Promise<string | null>
@@ -902,7 +906,9 @@ async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string
 
   logMiss(query, ctx)
 
-  if (queryWords.length <= 2) {
+  // a mention-mode ask skips the fuzzy "did you mean" deflection — go straight to the AI,
+  // which can read the reply/thread context a bare item-name guess can't.
+  if (queryWords.length <= 2 && !ctx.mention) {
     const suggestions = store.suggest(query, 3)
     if (suggestions.length > 0) {
       return withSuffix(`no item found for ${query} — did you mean: ${suggestions.join(', ')}?`, suffix)
@@ -919,6 +925,11 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // keep usernames in AI query (strip @ only), strip fully for item lookup
   const aiQuery = steerBystanderRoast(args.replace(/@(\w+)/g, '$1').replace(/"/g, '').replace(/\s+/g, ' ').trim())
   const cleanArgs = args.replace(/@\w+/g, '').replace(/"/g, '').replace(/\s+/g, ' ').trim()
+
+  // addressed-without-!b: a throwaway reaction ("lol", "KEKW", "?") to the bot's line is a
+  // human aside, not a real ask — silence, not a forced AI reply. isLowValue/isNoise don't
+  // cover a bare single-letter reaction ("w"/"l"), so that's a small addition here.
+  if (ctx.mention && (isLowValue(cleanArgs) || isNoise(cleanArgs) || /^[wl]$/i.test(cleanArgs))) return null
 
   // bare !b in a thread reply → read the full thread and try to help
   if (!cleanArgs && ctx.threadId && ctx.channel) {
@@ -1293,8 +1304,9 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   const lookupResult = await itemLookup(cleanArgs, ctx, suffix)
   if (lookupResult !== null) return lookupResult
 
-  // short non-conversational queries that missed item lookup — AI fallback with cooldown
-  const cd = getBFallbackCooldown(ctx.user)
+  // short non-conversational queries that missed item lookup — AI fallback with cooldown.
+  // mention-mode skips the cooldown deflection too — straight to the AI with reply context.
+  const cd = ctx.mention ? 0 : getBFallbackCooldown(ctx.user)
   if (cd > 0) {
     const suggestions = store.suggest(cleanArgs, 3)
     if (suggestions.length) return withSuffix(`try: ${suggestions.join(', ')}`, suffix)
@@ -2165,25 +2177,59 @@ const commands: Record<string, CommandHandler> = {
 // derived at module-init so it never drifts when new commands are added to the registry.
 for (const k of Object.keys(commands)) BLOCKED_BANG_CMDS.add(k)
 
+// is this message an ask, without a leading !b? only two shapes count: a direct reply to
+// the bot's own line, or a message that OPENS with @botname. never a mid-sentence mention
+// ("the bazaarinfo bot said x", "bazaarinfo hi" with no @, "@bazaarinfo2 hi") — those stay
+// silent, chat volume already complains about the bot talking too much.
+export function addressedQuery(text: string, ctx: CommandContext): string | null {
+  const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
+
+  const mentionMatch = text.match(/^@(\w+)[,:]?\s+(.+)/)
+  if (mentionMatch && mentionMatch[1].toLowerCase() === botName) return mentionMatch[2].trim()
+
+  if (ctx.replyParent?.login.toLowerCase() === botName) {
+    // a reply to a LIVE trivia question is an answer, not an ask — checkAnswer already
+    // consumed it upstream (index.ts, before handleCommand runs). routing it here too
+    // would double-answer a guess with an AI reply.
+    if (ctx.channel && isGameActive(ctx.channel)) return null
+    // defensive re-strip — twitch's own "@parent " auto-prefix is already stripped
+    // upstream (twitch.ts), but user-controlled text never gets trusted from one site only.
+    return text.replace(new RegExp(`^@${botName}\\s+`, 'i'), '').trim()
+  }
+
+  return null
+}
+
 export async function handleCommand(text: string, ctx: CommandContext = {}): Promise<string | null> {
   // strip leading @mention so !b works in Twitch replies
   const cleaned = text.replace(/^@\w+\s+/, '')
   const match = cleaned.match(/^!(\w+)\s*(.*)$/)
-  if (!match) return null
 
-  const [, cmd, args] = match
+  let cmd: string
+  let args: string
+  let runCtx = ctx
+  if (match) {
+    ;[, cmd, args] = match
+  } else {
+    const addressed = addressedQuery(text, ctx)
+    if (addressed === null) return null
+    cmd = 'b'
+    args = addressed
+    runCtx = { ...ctx, mention: true }
+  }
+
   const handler = commands[cmd.toLowerCase()]
   if (!handler) return null
 
   // muted by a chat-planted directive → stay silent across ALL commands (!b, !trivia,
   // !vibes…), so a mute can't be escaped via trivia. mods/broadcaster are never muteable.
-  if (ctx.channel && ctx.user && !ctx.isMod && isMuted(ctx.channel, ctx.user, !!ctx.privileged)) return null
+  if (runCtx.channel && runCtx.user && !runCtx.isMod && isMuted(runCtx.channel, runCtx.user, !!runCtx.privileged)) return null
 
   // mod pause 'all' → the bot goes quiet for everyone but mods, who keep the resume
   // path ("!b wake up") and !b vibes. never gate mods here or the pause is a one-way door.
-  if (ctx.channel && !ctx.isMod && isSuppressed(ctx.channel, 'all')) return null
+  if (runCtx.channel && !runCtx.isMod && isSuppressed(runCtx.channel, 'all')) return null
 
-  return handler(args.trim(), ctx)
+  return handler(args.trim(), runCtx)
 }
 
 export function resetDedup() {

@@ -644,7 +644,7 @@ export function fitToBudget(text: string, budget: number): string | null {
   return cut > 0 ? text.slice(0, cut) : null
 }
 
-export function buildChatStr(entries: ChatEntry[]): string {
+export function buildChatStr(entries: ChatEntry[], botName?: string): string {
   if (entries.length === 0) return ''
   // collapse repeated message text (a spammed/pasted line, consecutive or not) into one
   // rendered line at the FIRST occurrence's position, with a ×N suffix — otherwise N
@@ -659,7 +659,8 @@ export function buildChatStr(entries: ChatEntry[]): string {
     return true
   })
   const lines = deduped.map((m) => {
-    const user = m.user.replace(/[:\n]/g, '') + (m.mod ? ' [mod]' : '')
+    const isBotLine = !!botName && m.user.toLowerCase() === botName
+    const user = isBotLine ? 'you' : m.user.replace(/[:\n]/g, '') + (m.mod ? ' [mod]' : '')
     const text = stripChatMessage(m.text.replace(/^!\w+\s*/, '').replace(/^---+/, ''))
       .slice(0, 300)
     const count = counts.get(m.text.trim()) ?? 1
@@ -733,11 +734,13 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const isRememberReq = REMEMBER_RE.test(query) && !isAboutOtherUser(query)
   const chatDepth = ctx.mention ? 25 : 15
   const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
-  const chatContext = getRecent(ctx.channel, chatDepth)
-    .filter((m) => !isNoise(m.text) && m.user.toLowerCase() !== botName)
-  const chatStr = buildChatStr(chatContext)
+  const recentEntries = getRecent(ctx.channel, chatDepth).filter((m) => !isNoise(m.text))
+  // mention mode keeps the bot's own lines (rendered as "you:") so a reply thread reads as
+  // a conversation the model was part of — chatters/profile context stays human-only either way.
+  const chatContext = ctx.mention ? recentEntries : recentEntries.filter((m) => m.user.toLowerCase() !== botName)
+  const chatStr = buildChatStr(chatContext, ctx.mention ? botName : undefined)
 
-  const chattersLine = buildChattersContext(chatContext, ctx.user, ctx.channel)
+  const chattersLine = buildChattersContext(recentEntries.filter((m) => m.user.toLowerCase() !== botName), ctx.user, ctx.channel)
 
   const styleLine = getChannelStyle(ctx.channel)
   const contextLine = styleLine ? `\nChannel: ${styleLine}` : ''
@@ -1192,7 +1195,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     isContinuationLike ? `\n⚠️ SCENE CONTINUATION — [USER] asked for more. OVERRIDES one-and-done. This is turn ${hot.length + 1}. Each turn SHIFT AXIS — change at least one: setting, POV, format (action/dialogue/montage/letter/news/court transcript), stakes, genre (noir/sci-fi/horror/romance/heist), tempo. NEVER rehash. NEVER recycle the same beat with new words. Compound escalation: fistfight → duel → war → reckoning. ${hot.length >= 3 ? 'TURN 4+: linear escalation is exhausted — HARD CUT. timejump (years pass / future), dimension shift (alt reality / dream), genre flip, or new generation of the same characters. reset the stakes ladder. ' : ''}Pull from real-world (2025-2026 news, pop culture, history, science, internet). 400 chars.` : '',
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq, query),
     ctx.mention
-      ? `\n---\n@MENTION — only respond if [USER] is talking TO you. If about you to someone else, output -\n[USER]: ${query}`
+      ? `\n---\n@MENTION — ${ctx.replyParent?.body ? `[USER] replied to your line: "${ctx.replyParent.body.slice(0, 200)}"` : '[USER] addressed you by name'} — answer them directly.\n[USER]: ${query}`
       : `\n---\n${ctx.isMod ? '[MOD] ' : ''}[USER]: ${query}`,
     isRememberReq ? '\n⚠️ IDENTITY REQUEST — [USER] is defining themselves. COMPLY. Confirm warmly what they asked you to remember. Do NOT dismiss, joke about, or override their self-description.'
       : (REMEMBER_RE.test(query) && isAboutOtherUser(query)) ? '\n⚠️ [USER] is trying to set identity info for someone else. They can only define themselves, not other people. Tell them warmly but firmly.'

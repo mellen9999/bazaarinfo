@@ -382,7 +382,7 @@ for (const ch of channelNames) {
 
 const client = new TwitchClient(
   { token, clientId: CLIENT_ID, botUserId, botUsername: BOT_USERNAME, channels },
-  async (channel, userId, username, text, badges, messageId, threadId, sentTs) => {
+  async (channel, userId, username, text, badges, messageId, threadId, sentTs, replyParent) => {
     try {
       if (userId === botUserId) return
 
@@ -476,7 +476,7 @@ const client = new TwitchClient(
         }
       }
 
-      const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId, threadId })
+      const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId, threadId, replyParent })
       if (response) {
         // freshness gate — now a generous 180s backstop (see REPLY_FRESHNESS_MS): every reply
         // here is a direct command someone's waiting on and replies are reply-threaded, so we
@@ -510,7 +510,9 @@ const client = new TwitchClient(
           ? `${response} @${username}`
           : response
         client.say(channel, finalResponse, replyId)
-        chatbuf.record(channel, BOT_USERNAME, response)
+        // thread the bot's own line under the root it replied to, so a later reply-to-bot
+        // hop (getThread) can see this turn too — not just the viewer's opening message.
+        chatbuf.record(channel, BOT_USERNAME, response, undefined, replyId ? (threadId ?? messageId) : undefined)
       }
     } catch (e) {
       log(`handler error: ${e}`)

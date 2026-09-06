@@ -218,3 +218,76 @@ describe('drop notices', () => {
     expect(DROP.test('[msg_followersonly] #chan: this room is in followers-only mode')).toBe(false)
   })
 })
+
+// P1: "is this a reply to the bot?" = parent login === botname. twitch delivers the direct
+// parent's login + body on every reply tag, so no message-id capture / pacer surgery needed.
+describe('reply-parent parsing (P1 addressed-without-!b)', () => {
+  test('parseIrcLine extracts reply-parent-user-login and unescapes reply-parent-msg-body', () => {
+    const line = '@reply-parent-user-login=BotName;reply-parent-msg-body=hi\\sthere;id=1;user-id=2 :viewer!v@v.tmi.twitch.tv PRIVMSG #chan :@BotName hi there'
+    const m = parseIrcLine(line)
+    expect(m).toMatchObject({ type: 'privmsg', replyParentUserLogin: 'BotName', replyParentBody: 'hi there' })
+  })
+
+  test('a privmsg with no reply tags carries no replyParent fields', () => {
+    const m = parseIrcLine('@id=1;user-id=2 :viewer!v@v.tmi.twitch.tv PRIVMSG #chan :just chatting')
+    expect(m).toMatchObject({ type: 'privmsg' })
+    if (m.type === 'privmsg') {
+      expect(m.replyParentUserLogin).toBeUndefined()
+      expect(m.replyParentBody).toBeUndefined()
+    }
+  })
+
+  test('dispatchPrivmsg forwards {login, body} as replyParent (login lowercased) and strips the auto @-prefix', () => {
+    const received: unknown[][] = []
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [] },
+      (...args: unknown[]) => { received.push(args) },
+    )
+    const c = client as unknown as { dispatchPrivmsg: (m: unknown) => void }
+    c.dispatchPrivmsg({
+      type: 'privmsg', channel: 'chan', login: 'viewer', text: '@Bot hi there', userId: '2', messageId: 'm1',
+      badges: [], sentTs: 0, replyParentUserLogin: 'Bot', replyParentBody: 'question text',
+    })
+    expect(received.length).toBe(1)
+    const [, , , text, , , , , replyParent] = received[0] as unknown[]
+    expect(text).toBe('hi there')
+    expect(replyParent).toEqual({ login: 'bot', body: 'question text' })
+  })
+
+  test('dispatchPrivmsg carries no replyParent when the message is not a reply', () => {
+    const received: unknown[][] = []
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [] },
+      (...args: unknown[]) => { received.push(args) },
+    )
+    const c = client as unknown as { dispatchPrivmsg: (m: unknown) => void }
+    c.dispatchPrivmsg({
+      type: 'privmsg', channel: 'chan', login: 'viewer', text: 'just chatting', userId: '2', messageId: 'm2',
+      badges: [], sentTs: 0,
+    })
+    const replyParent = (received[0] as unknown[])[8]
+    expect(replyParent).toBeUndefined()
+  })
+
+  test('EventSub notification lowercases the reply parent login and carries the body', async () => {
+    const received: unknown[][] = []
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [] },
+      (...args: unknown[]) => { received.push(args) },
+    )
+    const c = client as unknown as { handleEventSub: (msg: unknown) => Promise<void> }
+    await c.handleEventSub({
+      metadata: { message_type: 'notification', subscription_type: 'channel.chat.message', message_timestamp: new Date().toISOString() },
+      payload: {
+        event: {
+          broadcaster_user_login: 'chan', chatter_user_id: '9', chatter_user_login: 'viewer',
+          message_id: 'evt1', message: { text: '@Bot hi there' },
+          reply: { parent_user_login: 'Bot', parent_message_body: 'q' },
+        },
+      },
+    })
+    expect(received.length).toBe(1)
+    const replyParent = (received[0] as unknown[])[8]
+    expect(replyParent).toEqual({ login: 'bot', body: 'q' })
+  })
+})

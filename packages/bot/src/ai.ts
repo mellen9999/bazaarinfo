@@ -122,6 +122,7 @@ export interface AiContext {
   privileged?: boolean
   isMod?: boolean
   mention?: boolean
+  replyParent?: { login: string; body?: string }
   direct?: boolean
   // What the user actually TYPED, when `query` is something we built for the model
   // (the bare-!b nudge, an identity prompt, a steering suffix). Everything that gets

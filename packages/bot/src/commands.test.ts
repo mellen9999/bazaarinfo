@@ -235,7 +235,7 @@ mock.module('./emotes', () => ({
 }))
 
 const { handleCommand, parseArgs, salvageQuery, resetDedup, resetProxyCooldowns, resetTriviaTopicBans, PROXY_COOLDOWN, buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES, stripTopicConnector, DIRECTIVE_INTENT, __queueDepthForTest, __clearTopicQueueForTest } = await import('./commands')
-const { isSuppressed, resetForTest: resetSuppressState } = await import('./suppress')
+const { isSuppressed, suppress, resetForTest: resetSuppressState } = await import('./suppress')
 const { addDirective: addDirectiveReal, listDirectives: listDirectivesReal, resetForTest: resetDirectivesState } = await import('./directives')
 const chatbuf = await import('./chatbuf')
 const directives = await import('./directives')
@@ -4150,5 +4150,133 @@ describe('trivia NL plural', () => {
   it('"do some trivias" starts a plain round instead of dying on a one-letter topic', async () => {
     const res = await handleCommand('!b do some trivias', { user: 'coaoaba', channel: 'tp-1' })
     expect(res).toContain('Trivia!')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P1 — talk to it without !b: a direct reply to the bot's own line, or a message
+// that OPENS with @botname, is an ask. never a mid-sentence mention.
+// ---------------------------------------------------------------------------
+describe('addressed without !b', () => {
+  beforeEach(() => {
+    mockIsGameActive.mockReset()
+    mockIsGameActive.mockImplementation(() => false)
+  })
+
+  it('@botname followed by text routes with mention set', async () => {
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
+    const result = await handleCommand('@bazaarinfo boomerang', { user: 'chatter', channel: 'ch' })
+    expect(mockExact).toHaveBeenCalledWith('boomerang')
+    expect(result).toContain('Boomerang')
+  })
+
+  it('case-insensitive, comma after the name', async () => {
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
+    const result = await handleCommand('@BAZAARINFO, boomerang', { user: 'chatter', channel: 'ch' })
+    expect(result).toContain('Boomerang')
+  })
+
+  it('mid-sentence mentions, wrong target, and a bare @name never trigger', async () => {
+    expect(await handleCommand('@otheruser hi', { user: 'chatter', channel: 'ch' })).toBeNull()
+    expect(await handleCommand('bot is bricked', { user: 'chatter', channel: 'ch' })).toBeNull()
+    expect(await handleCommand('bazaarinfo hi', { user: 'chatter', channel: 'ch' })).toBeNull()
+    expect(await handleCommand('@bazaarinfo2 hi', { user: 'chatter', channel: 'ch' })).toBeNull()
+    expect(await handleCommand('@bazaarinfo', { user: 'chatter', channel: 'ch' })).toBeNull()
+    expect(mockExact).not.toHaveBeenCalled()
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  it('a direct reply to the bot routes, carrying the parent body into the ai context', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'because thats how burn works', mentions: [] }))
+    const result = await handleCommand('why did that even happen', {
+      user: 'chatter', channel: 'ch',
+      replyParent: { login: 'bazaarinfo', body: 'burn deals damage over time' },
+    })
+    expect(result).toBe('because thats how burn works')
+    expect(mockAiRespond).toHaveBeenCalled()
+    const ctxArg = mockAiRespond.mock.calls[0][1]
+    expect(ctxArg.mention).toBe(true)
+    expect(ctxArg.replyParent).toEqual({ login: 'bazaarinfo', body: 'burn deals damage over time' })
+  })
+
+  it('a reply to another chatter (not the bot) never triggers', async () => {
+    const result = await handleCommand('why did that even happen', {
+      user: 'chatter', channel: 'ch',
+      replyParent: { login: 'alice', body: 'some claim' },
+    })
+    expect(result).toBeNull()
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  it('a throwaway reaction reply to the bot goes silent — no lookup, no AI', async () => {
+    for (const reaction of ['lol', 'KEKW', 'W', '?']) {
+      const result = await handleCommand(reaction, { user: 'chatter', channel: 'ch', replyParent: { login: 'bazaarinfo' } })
+      expect(result).toBeNull()
+    }
+    expect(mockExact).not.toHaveBeenCalled()
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  it('a reply-to-bot fuzzy miss goes straight to the AI, never "did you mean"', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'aw thanks', mentions: [] }))
+    mockSuggest.mockImplementation(() => ['Nice Try'])
+    const result = await handleCommand('good bot', { user: 'chatter', channel: 'ch', replyParent: { login: 'bazaarinfo' } })
+    expect(result).toBe('aw thanks')
+  })
+
+  it('!b inside a bot thread keeps ordinary item-lookup behaviour', async () => {
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
+    const result = await handleCommand('!b boomerang', { user: 'chatter', channel: 'ch', threadId: 'root-1' })
+    expect(result).toContain('Boomerang')
+  })
+
+  it('bare !b in a thread reads the thread and routes the followup context to the AI', async () => {
+    chatbuf.cleanupChannel('thread-ch')
+    chatbuf.record('thread-ch', 'alice', 'is the loadout any good', undefined, 'root-2')
+    chatbuf.record('thread-ch', 'alice', 'specifically for vanessa', undefined, 'root-2')
+    mockAiRespond.mockImplementation(() => ({ text: 'yeah it holds up', mentions: [] }))
+    const result = await handleCommand('!b', { user: 'alice', channel: 'thread-ch', threadId: 'root-2' })
+    expect(result).toBe('yeah it holds up')
+    expect(mockAiRespond).toHaveBeenCalled()
+    expect(mockAiRespond.mock.calls[0][0]).toContain('followup:')
+    chatbuf.cleanupChannel('thread-ch')
+  })
+
+  it('a reply-to-bot answer during a live round is silent — checkAnswer already has it', async () => {
+    mockIsGameActive.mockImplementation((ch: string) => ch === 'live-ch')
+    const result = await handleCommand('Vanessa', { user: 'chatter', channel: 'live-ch', replyParent: { login: 'bazaarinfo' } })
+    expect(result).toBeNull()
+    expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  it('an explicit @mention still routes during a live round — only the reply-only path defers', async () => {
+    mockIsGameActive.mockImplementation((ch: string) => ch === 'live-ch')
+    mockAiRespond.mockImplementation(() => ({ text: 'burn stacks, thats the hint', mentions: [] }))
+    const result = await handleCommand('@bazaarinfo whats the hint', { user: 'chatter', channel: 'live-ch' })
+    expect(result).toBe('burn stacks, thats the hint')
+  })
+
+  it('a planted mute silences the addressed path the same as !b', async () => {
+    directives.addDirective('mute-mention', 'someviewer', { mute: true, targetUser: 'mutedviewer' })
+    const result = await handleCommand('why though is that broken', {
+      user: 'mutedviewer', channel: 'mute-mention',
+      replyParent: { login: 'bazaarinfo' },
+    })
+    expect(result).toBeNull()
+  })
+
+  it('mod pause "all" silences the addressed path for non-mods', async () => {
+    suppress('pause-mention', 'all', 'somemod')
+    const result = await handleCommand('@bazaarinfo boomerang', { user: 'chatter', channel: 'pause-mention' })
+    expect(result).toBeNull()
+  })
+
+  it('the same addressed ask twice inside 30s dedupes', async () => {
+    mockExact.mockImplementation((name) => name === 'boomerang' ? boomerang : undefined)
+    const ctx = { user: 'chatter', channel: 'dedupe-mention', replyParent: { login: 'bazaarinfo' } }
+    const first = await handleCommand('boomerang', ctx)
+    expect(first).toContain('Boomerang')
+    const second = await handleCommand('boomerang', ctx)
+    expect(second).toContain('posted that just now')
   })
 })
