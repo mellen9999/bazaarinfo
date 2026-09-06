@@ -1345,7 +1345,9 @@ function endTrivia(channel: string, expectedGameId?: number): string | null {
   return `time's up! answer: ${revealAnswer(game)}${emote ? ` ${emote}` : ''}`
 }
 
-// called on every message to check for trivia answers
+// called on every message to check for trivia answers. returns true only when the line
+// WON the round — a wrong attempt is not "consumed": an "@bot whats the weather" typed
+// mid-round is scored as a miss and still gets its answer.
 export function checkAnswer(
   channel: string,
   username: string,
@@ -1444,7 +1446,7 @@ export function checkAnswer(
       say(channel, `${phrase}${emote ? ` ${emote}` : ''}`)
     }
   }
-  return true
+  return isCorrect
 }
 
 export function skipTrivia(channel: string, username?: string): string | null {

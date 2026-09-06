@@ -410,7 +410,9 @@ describe('startTrivia', () => {
   it('no cooldown — a new round can start immediately after one ends', () => {
     startTrivia('#test')
     const game = getActiveGameForTest('#test')!
-    checkAnswer('#test', 'winner', game.acceptedAnswers[0], mockSay)
+    // only the win reads as consumed — a miss is still someone's message
+    expect(checkAnswer('#test', 'loser', 'definitely not this one', mockSay)).toBe(false)
+    expect(checkAnswer('#test', 'winner', game.acceptedAnswers[0], mockSay)).toBe(true)
     const result = startTrivia('#test')
     expect(result).toContain('Trivia!')
   })

@@ -2310,6 +2310,11 @@ describe('findUnansweredQuestion', () => {
     expect(q?.text).toContain('vanessa')
   })
 
+  it('a stream event is never an unanswered question — a resub note ending in ? stays out of bare !b', () => {
+    chatbuf.recordEvent('q-ch', '* mellen resubbed (14 months): "should i buy the pass?"')
+    expect(findUnansweredQuestion('q-ch')).toBeNull()
+  })
+
   it('detects interrogative-word start without question mark', () => {
     chatbuf.record('q-ch', 'alice', 'how does crit chance work')
     const q = findUnansweredQuestion('q-ch')
@@ -4298,12 +4303,15 @@ describe('addressed without !b', () => {
     expect(result).toBe('burn stacks, thats the hint')
   })
 
-  it('a line checkAnswer already scored as a guess never also gets an AI reply', async () => {
+  it('a line checkAnswer already scored as the win never also gets an AI reply; a miss keeps its ask', async () => {
     mockIsGameActive.mockImplementation((ch: string) => ch === 'live-ch')
     mockAiRespond.mockImplementation(() => ({ text: 'should not fire', mentions: [] }))
     const result = await handleCommand('@bazaarinfo is it burn', { user: 'chatter', channel: 'live-ch', triviaGuess: true })
     expect(result).toBeNull()
     expect(mockAiRespond).not.toHaveBeenCalled()
+    mockAiRespond.mockImplementation(() => ({ text: 'cloudy', mentions: [] }))
+    const miss = await handleCommand('@bazaarinfo whats the weather like', { user: 'chatter2', channel: 'live-ch', triviaGuess: false })
+    expect(miss).toBe('cloudy')
   })
 
   it('a planted mute silences the addressed path the same as !b', async () => {

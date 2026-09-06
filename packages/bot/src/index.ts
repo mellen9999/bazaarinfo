@@ -422,8 +422,8 @@ const client = new TwitchClient(
 
       // check trivia answers before command routing. isolated try so a throw here can
       // never silently kill answer detection (which would make a live round "go dead").
-      // consumed-as-guess rides into the command ctx so an "@bot is it X?" mid-round is
-      // scored once, not scored AND answered by the AI.
+      // a WINNING line rides into the command ctx so an "@bot is it X?" that took the round
+      // is scored once, not scored AND answered by the AI. a miss still routes as an ask.
       let triviaGuess = false
       if (isGameActive(channel) && !muted) {
         try {
@@ -579,7 +579,9 @@ client.setUserNoticeHandler((n) => {
     handleCommand(n.text!, { user: n.login, channel: n.channel, privileged: true, isMod })
       .then((response) => {
         if (!response) return
-        client.say(n.channel, `@${n.login} ${response}`)
+        // same shape as the privmsg path: a relayed !command keeps its prefix, the
+        // @mention goes after it; anything else is addressed up front
+        client.say(n.channel, /^[!\\/.]/.test(response) ? `${response} @${n.login}` : `@${n.login} ${response}`)
         chatbuf.record(n.channel, BOT_USERNAME, response)
       })
       .catch((e) => log(`usernotice ask error: ${e}`))

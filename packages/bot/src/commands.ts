@@ -163,6 +163,7 @@ function recentEligible(channel: string): { user: string; text: string }[] {
     const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
     return getRecent(channel, 15)
       .filter((m) =>
+        m.kind !== 'event' &&
         m.user.toLowerCase() !== botName &&
         !/^!\w/.test(m.text.trim()) &&
         m.text.trim().length > 3,
@@ -1466,7 +1467,7 @@ const KRIPP_TOPIC_RE = /^(?:the\s+)?(?:nl[_\s]?)?(?:kripp(?:a|arrian|arian|erria
 function recentChatLines(channel: string): string[] {
   const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
   return getRecent(channel, 40)
-    .filter((m) => m.user.toLowerCase() !== botName)
+    .filter((m) => m.kind !== 'event' && m.user.toLowerCase() !== botName)
     .map((m) => `${m.user}: ${m.text.replace(/^!\w+\s*/, '').replace(/\n/g, ' ').trim()}`)
     .filter((l) => l.split(': ').slice(1).join(': ').trim().length > 0)
 }
@@ -2219,8 +2220,8 @@ for (const k of Object.keys(commands)) BLOCKED_BANG_CMDS.add(k)
 // silent, chat volume already complains about the bot talking too much.
 export function addressedQuery(text: string, ctx: CommandContext): { text: string; shape: 'at' | 'reply' } | null {
   const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
-  // a line checkAnswer already scored as a guess is done — either shape routed here too
-  // would answer the guess twice (once as points, once as an AI reply).
+  // a line checkAnswer already scored as the WIN is done — routing it here too would answer
+  // it twice (once as points, once as an AI reply). a miss keeps its ask.
   if (ctx.triviaGuess) return null
 
   const mentionMatch = text.match(/^@(\w+)[,:]?\s+(.+)/)
