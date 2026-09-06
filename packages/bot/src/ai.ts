@@ -30,6 +30,8 @@ import { isHsCardQuery, isHearthstoneCategory, refreshHsCardsIfNeeded } from './
 import { isGrQuery, isGuildrunCategory, refreshGuildrunIfNeeded } from './guildrun'
 import { refreshGrNewsIfNeeded } from './guildrun-news'
 import { prefetchGameDossier, canonicalGameName, isUngroundedGame } from './game-dossier'
+import { isStreamerAsk, FOLLOW_ASK_RE, channelNamedIn, maybeFetchChannelSnapshot, maybeFetchFollowageFor } from './twitch-profile'
+import { findReferencedUser } from './ai-query'
 import { refreshBoardIfNeeded } from './board'
 import { refreshHsBoardIfNeeded } from './hs-board'
 import { isScheduleQuery } from './schedule'
@@ -261,6 +263,18 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // helix poll the moment it changes, so a live ask never waits.
   const named = OTHER_GAME_RE.exec(query)?.[0]
   if (named) prefetchGameDossier(canonicalGameName(named))
+
+  // a chatter's own channel ("does X stream", "what does X play") and their followage on
+  // another channel the bot moderates ("how long has X followed rogue") — helix reads,
+  // not awaited, warm for the next ask. the subject is the named chatter, else the asker.
+  if (ctx.channel && (isStreamerAsk(query) || FOLLOW_ASK_RE.test(query))) {
+    const subject = findReferencedUser(query, ctx.channel) ?? ctx.user
+    if (subject) {
+      if (isStreamerAsk(query)) maybeFetchChannelSnapshot(subject)
+      const other = channelNamedIn(query, ctx.channel)
+      if (other && FOLLOW_ASK_RE.test(query)) maybeFetchFollowageFor(subject, other)
+    }
+  }
 
   // schedule asks: prefetch the target channel's title BEFORE building context — a
   // streamer-stated plan in the title ("NEXT STREAM WEDNESDAY") overrides the stats.

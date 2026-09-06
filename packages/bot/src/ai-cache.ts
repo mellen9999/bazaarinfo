@@ -174,6 +174,7 @@ export function setChannelInfos(channels: ChannelInfo[]) { channelInfos = channe
 export function getChannelId(channel: string): string | undefined {
   return channelInfos.find((c) => c.name === channel.toLowerCase())?.userId
 }
+export function getJoinedChannels(): string[] { return channelInfos.map((c) => c.name) }
 
 // --- emote cooldowns ---
 

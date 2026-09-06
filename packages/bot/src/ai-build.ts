@@ -10,6 +10,7 @@ import { isHsCardQuery, isHsCardIntent, isHearthstoneCategory, hsCardContext } f
 import { isGrQuery, isGrIntent, isGuildrunCategory, grContext, grKeywordCard } from './guildrun'
 import { getGrNewsLine } from './guildrun-news'
 import { getGameDossierLine, isUngroundedGame, canonicalGameName } from './game-dossier'
+import { getChannelSnapshotLine, isStreamerAsk, FOLLOW_ASK_RE, channelNamedIn } from './twitch-profile'
 import { getWeatherLine } from './weather'
 import { META_QUERY_RE } from './intents'
 import { SECTION_HEADERS } from './ai-sanitize'
@@ -267,6 +268,33 @@ function isFactEchoed(fact: string, channel: string): boolean {
   return getChannelRecentResponses(channel).some((r) => r.toLowerCase().includes(probe))
 }
 
+// "does X stream" / "how long has X followed rogue": the named chatter's twitch-readable
+// facts — account age, followage here and on the named channel, their own channel. only
+// on those ask shapes, only when X is a real chatter here, never for the asker (their
+// own block already carries it).
+export function buildAboutUserLine(query: string, asker: string, channel: string): string {
+  if (!isStreamerAsk(query) && !FOLLOW_ASK_RE.test(query)) return ''
+  const ref = findReferencedUser(query, channel)
+  if (!ref || ref === asker.toLowerCase()) return ''
+  const bits: string[] = []
+  try {
+    const tu = db.getCachedTwitchUser(ref)
+    if (tu?.account_created_at) bits.push(`account ${db.formatAccountAge(tu.account_created_at)}`)
+    const here = db.getCachedFollowage(ref, channel)
+    if (here?.followed_at) bits.push(`following #${channel} since ${db.formatAccountAge(here.followed_at).replace(' old', '')}`)
+    const other = FOLLOW_ASK_RE.test(query) ? channelNamedIn(query, channel) : null
+    if (other) {
+      const of = db.getCachedFollowage(ref, other)
+      if (of) bits.push(of.followed_at ? `following #${other} since ${db.formatAccountAge(of.followed_at).replace(' old', '')}` : `not following #${other}`)
+    }
+  } catch {}
+  const snap = isStreamerAsk(query) ? getChannelSnapshotLine(ref) : ''
+  if (snap) bits.push(snap)
+  if (bits.length === 0) return ''
+  const limit = FOLLOW_ASK_RE.test(query) ? ` followage is only readable on channels i moderate — for any other channel say so plainly, never guess a date.` : ''
+  return `\nAbout ${ref} (twitch, real): ${bits.join('; ')}.${limit}`
+}
+
 export function buildUserContext(user: string, channel: string, skipAsks = false, suppressMemo = false, query = ''): string {
   // kick off background Twitch data fetch (non-blocking)
   maybeFetchTwitchInfo(user, channel)
@@ -312,14 +340,25 @@ export function buildUserContext(user: string, channel: string, skipAsks = false
     profile = parts.join(', ')
   }
 
-  // followage line
+  // followage line — this channel, plus another joined channel the ask names ("how long
+  // have i followed rogue") when its followage is cached (twitch-profile prefetches it)
   let followLine = ''
   try {
     const follow = db.getCachedFollowage(user, channel)
     if (follow?.followed_at) {
       followLine = `following #${channel} since ${db.formatAccountAge(follow.followed_at).replace(' old', '')}`
     }
+    const other = FOLLOW_ASK_RE.test(query) ? channelNamedIn(query, channel) : null
+    if (other) {
+      const of = db.getCachedFollowage(user, other)
+      const line = of ? (of.followed_at ? `following #${other} since ${db.formatAccountAge(of.followed_at).replace(' old', '')}` : `not following #${other}`) : ''
+      if (line) followLine = followLine ? `${followLine}, ${line}` : line
+    }
   } catch {}
+
+  // their own channel — only ever fetched on a streamer-shaped ask, so this is '' for
+  // the ordinary chatter and never spends budget
+  const streamsLine = isStreamerAsk(query) ? getChannelSnapshotLine(user) : ''
 
   // persistent AI memory memo (suppressed on identity requests to avoid stale echoes)
   let memoLine = ''
@@ -360,7 +399,7 @@ export function buildUserContext(user: string, channel: string, skipAsks = false
     }
   } catch {}
 
-  const sections = [profile, followLine, memoLine, factsLine, asksLine].filter(Boolean)
+  const sections = [profile, followLine, streamsLine, memoLine, factsLine, asksLine].filter(Boolean)
   if (sections.length === 0) return ''
   return `[${user}] ${sections.join('. ')}`
 }
@@ -1210,6 +1249,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     shapeLine(getChannelRecentResponses(ctx.channel)),
     isContinuationLike ? `\n⚠️ SCENE CONTINUATION — [USER] asked for more. OVERRIDES one-and-done. This is turn ${hot.length + 1}. Each turn SHIFT AXIS — change at least one: setting, POV, format (action/dialogue/montage/letter/news/court transcript), stakes, genre (noir/sci-fi/horror/romance/heist), tempo. NEVER rehash. NEVER recycle the same beat with new words. Compound escalation: fistfight → duel → war → reckoning. ${hot.length >= 3 ? 'TURN 4+: linear escalation is exhausted — HARD CUT. timejump (years pass / future), dimension shift (alt reality / dream), genre flip, or new generation of the same characters. reset the stakes ladder. ' : ''}Pull from real-world (2025-2026 news, pop culture, history, science, internet). 400 chars.` : '',
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq, query),
+    buildAboutUserLine(query, ctx.user, ctx.channel),
     ctx.mention
       ? `\n---\n@MENTION — ${ctx.replyParent?.body ? `[USER] replied to your line: "${ctx.replyParent.body.slice(0, 200)}"` : '[USER] addressed you by name'} — answer them directly.\n[USER]: ${query}`
       : `\n---\n${ctx.isMod ? '[MOD] ' : ''}[USER]: ${query}`,
