@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { isNullFact, stripNoBotCommitments, isSlopMemo } from './ai-background'
+import { isNullFact, stripNoBotCommitments, isSlopMemo, trimMemoPrefix } from './ai-background'
 
 describe('isNullFact', () => {
   it('drops the extractor\'s "nothing to extract" answer in every observed shape', () => {
@@ -62,5 +62,18 @@ describe('isSlopMemo', () => {
 
   it('keeps a concrete, observable memo', () => {
     expect(isSlopMemo('mains pyg, asks for tour bus stats a lot, runs the buh zar bit, sometimes writes in german')).toBe(false)
+  })
+})
+
+describe('trimMemoPrefix', () => {
+  it('drops the "User" subject line the prompt bans, keeps the note', () => {
+    expect(trimMemoPrefix('User asks about game seasons and new classes; plays with coaoaba')).toBe('asks about game seasons and new classes; plays with coaoaba')
+    expect(trimMemoPrefix('User zanderwill: Makes jokes about eating cars when hungry')).toBe('makes jokes about eating cars when hungry')
+    expect(trimMemoPrefix('The user eats whatever is available')).toBe('eats whatever is available')
+  })
+  it('leaves a memo that already reads like a note alone', () => {
+    expect(trimMemoPrefix('mains pyg, asks for tour bus stats a lot')).toBe('mains pyg, asks for tour bus stats a lot')
+    expect(trimMemoPrefix('uses the LICK emote for efficiency')).toBe('uses the LICK emote for efficiency')
+    expect(trimMemoPrefix('')).toBe('')
   })
 })
