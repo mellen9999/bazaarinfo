@@ -1492,6 +1492,24 @@ export function getUserFactCount(username: string): number {
   return row.cnt
 }
 
+// the extractor's "i found nothing" answer, in the shapes it's shipped in prod (mirrors
+// ai-background.ts's NULL_FACT regex — kept as a LIKE set here, not a shared import, since
+// db.ts can't depend on ai-background.ts without a cycle). one-shot at every boot: cheap
+// once the backlog is gone, and safe to run twice.
+const NULL_FACT_LIKE = ['no facts%', 'there are no%', 'there is no%', 'nothing%', 'none%', 'output:%', 'n/a%', '(%', '*%']
+
+export function pruneNullFacts(): void {
+  try {
+    let changes = 0
+    for (const pattern of NULL_FACT_LIKE) {
+      changes += db.run(`DELETE FROM user_facts WHERE fact LIKE ?`, [pattern]).changes
+    }
+    if (changes > 0) log(`pruned ${changes} null-sentinel facts`)
+  } catch (e) {
+    log(`null fact prune error: ${e}`)
+  }
+}
+
 // --- twitch user cache helpers ---
 
 export interface CachedTwitchUser {

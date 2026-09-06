@@ -191,6 +191,14 @@ export async function maybeUpdateMemo(user: string, force = false) {
 const factInFlight = new Set<string>()
 const FACT_INTERVAL = 3
 
+// the extractor's "i found nothing" answer, in every shape it ships one — these were
+// getting stored as facts (39% of user_facts in prod). db.ts reuses the same shapes for
+// a one-shot cleanup of what already landed.
+export const NULL_FACT = /^(no facts|there (?:are|is) no|nothing|none|output:|n\/a|\(|\*)/i
+export function isNullFact(s: string): boolean {
+  return NULL_FACT.test(s.trim())
+}
+
 export async function maybeExtractFacts(user: string, query: string, response: string, force = false) {
   if (!API_KEY) return
   if (factInFlight.has(user)) return
@@ -231,6 +239,7 @@ export async function maybeExtractFacts(user: string, query: string, response: s
       const facts = text.split('\n')
         .map(l => l.replace(/^[-•*]\s*/, '').trim())
         .filter(l => l.length >= 5 && l.length <= 60)
+        .filter(l => !isNullFact(l))
         .slice(0, 3)
       const INSTRUCTION_FACT = /\b(needs? to (know|respond|answer|be|act|sound|say|learn|have)|just (respond|be|act|sound|talk|answer)|don'?t (sound|act|be|look|seem) like|don'?t be (a |so |too )|should (know|respond|answer|be|sound)|always (respond|say|act|speak|answer|use)|never (respond|say|act|speak|answer|use)|when (asked|talking|responding)|ignore (all|previous|prior|your)|override|system:?\s|INST[:\]])\b/i
       for (const fact of facts) {

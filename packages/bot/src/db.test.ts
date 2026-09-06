@@ -657,6 +657,36 @@ describe('db', () => {
     db.recordAiSpend('nocache', 10, 5)
     expect(db.getDailyAiSpend('nocache').cache_read_tokens).toBe(0)
   })
+
+  it('prunes the extractor\'s null-sentinel facts, keeping real ones', () => {
+    const garbage = [
+      'No facts to extract.',
+      'No facts about X found in the provided text.',
+      'There are no facts to extract.',
+      'No facts extracted.',
+      'Output: (nothing to extract)',
+      'Output: *(nothing to extract)*',
+    ]
+    for (const fact of garbage) db.insertUserFact('nullfactuser', fact)
+    db.insertUserFact('nullfactuser', 'favorite item is tour bus')
+    db.insertUserFact('nullfactuser', "doesn't play bazaar")
+    db.flushWrites()
+    expect(db.getUserFactCount('nullfactuser')).toBe(8)
+
+    db.pruneNullFacts()
+
+    const remaining = db.getUserFacts('nullfactuser', 10)
+    expect(remaining.sort()).toEqual(['favorite item is tour bus', "doesn't play bazaar"].sort())
+  })
+
+  it('is idempotent — a second prune pass finds nothing left to delete', () => {
+    db.insertUserFact('nullfactuser2', 'No facts to extract.')
+    db.insertUserFact('nullfactuser2', 'mains vanessa')
+    db.flushWrites()
+    db.pruneNullFacts()
+    expect(() => db.pruneNullFacts()).not.toThrow()
+    expect(db.getUserFacts('nullfactuser2', 10)).toEqual(['mains vanessa'])
+  })
 })
 
 // Pasta recall used to return the wrong message entirely. Two ranking bugs compounded:

@@ -209,6 +209,7 @@ try {
 
 // init db
 db.initDb()
+db.pruneNullFacts() // one-shot cleanup of the extractor's stored "nothing to extract" facts
 raid.setDb(db.getDb())
 
 const doRefresh = () => refreshToken(CLIENT_ID, CLIENT_SECRET)
