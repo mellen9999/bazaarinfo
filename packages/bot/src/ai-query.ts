@@ -424,6 +424,20 @@ export function isAboutOtherUser(query: string): boolean {
 
 export const REMEMBER_RE = /\b(remember|call me|my name is|i('m| am) (a |an |the |from )|know that i|i go by|refer to me|don'?t forget)\b/i
 
+// a reply to the bot's own line that is a human aside, not an ask: reactions ("lol",
+// "true"), thanks ("ty"), bare yes/no, a single letter ("w"/"l"), emote-shaped tokens,
+// punctuation. silence beats a forced AI line under every "KEKW". a yes/no WITH a tail
+// ("yes but why") is an ask and routes.
+const YES_NO = /^(yes|no|yup|nope|sure|yessir|nah|ya|yea+h?|correct|wrong|exactly|right|ok+|okay|alright)!*$/i
+export function isThrowawayReply(text: string): boolean {
+  const t = text.trim()
+  if (!t) return true
+  if (isLowValue(t) || isNoise(t)) return true
+  if (/^\p{L}$/u.test(t)) return true
+  if (YES_NO.test(t) || GRATITUDE.test(t)) return true
+  return false
+}
+
 export function isNoise(text: string): boolean {
   const stripped = text.replace(/^!\w+\s*/, '').trim()
   if (!stripped) return true

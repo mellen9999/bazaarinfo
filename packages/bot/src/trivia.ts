@@ -1351,21 +1351,21 @@ export function checkAnswer(
   username: string,
   text: string,
   say: (channel: string, text: string) => void,
-) {
+): boolean {
   const game = activeGames.get(channel)
-  if (!game) return
+  if (!game) return false
 
   const trimmed = text.trim()
-  if (!trimmed) return
+  if (!trimmed) return false
 
   // filter non-answers before cleaning/counting as attempt
-  if (!looksLikeAnswer(trimmed, game)) return
+  if (!looksLikeAnswer(trimmed, game)) return false
 
   // #7: when norm strips everything (emoji/symbol/CJK guess), fall back to raw trim+lower
   // so it can still match a symbol accepted list built by the same fallback in launchRound.
   const normed = norm(trimmed)
   const cleaned = normed || trimmed.toLowerCase()
-  if (!cleaned) return
+  if (!cleaned) return false
 
   const userId = db.getOrCreateUser(username)
   game.participants.add(username)
@@ -1405,7 +1405,7 @@ export function checkAnswer(
 
   if (isCorrect) {
     // re-check game is still active (another correct answer could have won in same tick)
-    if (!activeGames.has(channel)) return
+    if (!activeGames.has(channel)) return true
     const secs = answerTimeMs / 1000
     // points = difficulty base × speed multiplier + streak bonus (min 1). this is the
     // real leaderboard currency — knowing a hard answer fast beats spamming easy wins.
@@ -1444,6 +1444,7 @@ export function checkAnswer(
       say(channel, `${phrase}${emote ? ` ${emote}` : ''}`)
     }
   }
+  return true
 }
 
 export function skipTrivia(channel: string, username?: string): string | null {

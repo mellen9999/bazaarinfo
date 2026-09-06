@@ -4195,7 +4195,7 @@ describe('addressed without !b', () => {
     expect(result).toBe('because thats how burn works')
     expect(mockAiRespond).toHaveBeenCalled()
     const ctxArg = mockAiRespond.mock.calls[0][1]
-    expect(ctxArg.mention).toBe(true)
+    expect(ctxArg.mention).toBe('reply')
     expect(ctxArg.replyParent).toEqual({ login: 'bazaarinfo', body: 'burn deals damage over time' })
   })
 
@@ -4209,12 +4209,34 @@ describe('addressed without !b', () => {
   })
 
   it('a throwaway reaction reply to the bot goes silent — no lookup, no AI', async () => {
-    for (const reaction of ['lol', 'KEKW', 'W', '?']) {
+    for (const reaction of ['lol', 'KEKW', 'W', '?', 'ty', 'thanks!', 'yes', 'nah', 'ok', 'true', 'k']) {
       const result = await handleCommand(reaction, { user: 'chatter', channel: 'ch', replyParent: { login: 'bazaarinfo' } })
       expect(result).toBeNull()
     }
     expect(mockExact).not.toHaveBeenCalled()
     expect(mockAiRespond).not.toHaveBeenCalled()
+  })
+
+  it('a yes/no with a tail is an ask, not a throwaway', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'because burn ticks per second', mentions: [] }))
+    const result = await handleCommand('yes but why', { user: 'chatter', channel: 'ch', replyParent: { login: 'bazaarinfo' } })
+    expect(result).toBe('because burn ticks per second')
+  })
+
+  it('an @mention carries the at shape; a reply carries the reply shape', async () => {
+    mockAiRespond.mockImplementation(() => ({ text: 'sure', mentions: [] }))
+    await handleCommand('@bazaarinfo why is that', { user: 'chatter', channel: 'ch' })
+    expect(mockAiRespond.mock.calls[0][1].mention).toBe('at')
+    await handleCommand('and how does it stack', { user: 'other', channel: 'ch', replyParent: { login: 'bazaarinfo' } })
+    expect(mockAiRespond.mock.calls[1][1].mention).toBe('reply')
+  })
+
+  it('a reply-to-bot that the AI cannot answer is silence, an @mention gets the honest line', async () => {
+    mockAiRespond.mockImplementation(() => null)
+    const reply = await handleCommand('why is that even', { user: 'chatter', channel: 'ch', replyParent: { login: 'bazaarinfo' } })
+    expect(reply).toBeNull()
+    const at = await handleCommand('@bazaarinfo why is that even', { user: 'chatter', channel: 'ch' })
+    expect(at).not.toBeNull()
   })
 
   it('a reply-to-bot fuzzy miss goes straight to the AI, never "did you mean"', async () => {
@@ -4254,6 +4276,14 @@ describe('addressed without !b', () => {
     mockAiRespond.mockImplementation(() => ({ text: 'burn stacks, thats the hint', mentions: [] }))
     const result = await handleCommand('@bazaarinfo whats the hint', { user: 'chatter', channel: 'live-ch' })
     expect(result).toBe('burn stacks, thats the hint')
+  })
+
+  it('a line checkAnswer already scored as a guess never also gets an AI reply', async () => {
+    mockIsGameActive.mockImplementation((ch: string) => ch === 'live-ch')
+    mockAiRespond.mockImplementation(() => ({ text: 'should not fire', mentions: [] }))
+    const result = await handleCommand('@bazaarinfo is it burn', { user: 'chatter', channel: 'live-ch', triviaGuess: true })
+    expect(result).toBeNull()
+    expect(mockAiRespond).not.toHaveBeenCalled()
   })
 
   it('a planted mute silences the addressed path the same as !b', async () => {

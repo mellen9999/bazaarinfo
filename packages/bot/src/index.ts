@@ -418,9 +418,12 @@ const client = new TwitchClient(
 
       // check trivia answers before command routing. isolated try so a throw here can
       // never silently kill answer detection (which would make a live round "go dead").
+      // consumed-as-guess rides into the command ctx so an "@bot is it X?" mid-round is
+      // scored once, not scored AND answered by the AI.
+      let triviaGuess = false
       if (isGameActive(channel) && !muted) {
         try {
-          checkAnswer(channel, username, text, (ch, msg) => client.say(ch, msg, messageId))
+          triviaGuess = checkAnswer(channel, username, text, (ch, msg) => botSay(ch, msg, messageId))
         } catch (e) {
           log(`trivia checkAnswer error #${channel} [${username}]: ${e}`)
         }
@@ -482,7 +485,7 @@ const client = new TwitchClient(
         }
       }
 
-      const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId, threadId, replyParent })
+      const response = await handleCommand(text, { user: username, channel, privileged, isMod, messageId, threadId, replyParent, triviaGuess })
       if (response) {
         // freshness gate — now a generous 180s backstop (see REPLY_FRESHNESS_MS): every reply
         // here is a direct command someone's waiting on and replies are reply-threaded, so we
@@ -534,15 +537,24 @@ setChannelIdResolver(channelIdFor)
 // how "how much health does Surly Mechanic have" got answers between 3 and 11
 setLiveGameResolver((ch) => getChannelGame(ch) ?? null)
 setHsChannelIdResolver(channelIdFor)
-setSay((ch, msg) => client.say(ch, msg))
+// every game-loop line (trivia question/hint/answer, dungeon, raid game, world cup) goes
+// out through here so the bot can see its own broadcast as `you:` in Recent chat — a
+// viewer replying to a trivia reveal used to hit a bot with no memory of posting it.
+// deliberately NOT logged to channel_recent_responses: that 20-row variety memory is for
+// AI prose, and four game lines a round would flush it.
+function botSay(ch: string, msg: string, replyTo?: string) {
+  client.say(ch, msg, replyTo)
+  chatbuf.record(ch, BOT_USERNAME!, msg)
+}
+setSay(botSay)
 announceToLobby = (msg) => {
   try { client.say(BOT_USERNAME.toLowerCase(), msg) } catch (e) { log(`lobby announce failed: ${e}`) }
 }
-raid.initEngine((ch, msg) => client.say(ch, msg))
+raid.initEngine(botSay)
 raid.setIsLive((ch) => getLiveChannels().includes(ch.toLowerCase()))
 raid.restoreFromDb()
 dungeon.initDungeonDb()
-dungeon.initDungeon((ch, msg) => client.say(ch, msg))
+dungeon.initDungeon(botSay)
 dungeon.setIsLive((ch) => getLiveChannels().includes(ch.toLowerCase()))
 dungeon.restoreFromDb()
 
@@ -625,7 +637,7 @@ setInterval(() => pollStreams(), 60_000)
 // stream never gets soccer spam; other channels never get it at all.
 const WORLDCUP_CHANNEL = 'nl_kripp'
 startGoalWatch(
-  (ch, msg) => client.say(ch, msg),
+  botSay,
   () => client.getChannels()
     .map((c) => c.name.toLowerCase())
     .filter((ch) => ch === WORLDCUP_CHANNEL && !liveState.has(ch)),

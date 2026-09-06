@@ -122,7 +122,7 @@ export interface AiContext {
   channel?: string
   privileged?: boolean
   isMod?: boolean
-  mention?: boolean
+  mention?: 'at' | 'reply'
   replyParent?: { login: string; body?: string }
   direct?: boolean
   // What the user actually TYPED, when `query` is something we built for the model
@@ -160,14 +160,14 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   // passive/background lines stay silent.
   if (!isVip && isOverDailyCap(ctx.channel)) {
     log(`ai: daily cap hit for ${ctx.channel}, dropping`)
-    return ctx.direct ? { text: 'tapped out my daily brain budget — back tomorrow', mentions: [] } : null
+    return ctx.direct && ctx.mention !== 'reply' ? { text: 'tapped out my daily brain budget — back tomorrow', mentions: [] } : null
   }
   // per-user daily budget — a spam loop from one account dies here, long before the
   // channel cap or the console wall. honest line for a direct ask, silence for passive.
   if (!isVip && isUserOverDailyAiCap(ctx.user)) {
     log(`ai: user daily ai cap hit for ${ctx.user}, dropping`)
     try { db.logAskMiss(ctx, ctx.displayQuery ?? query, 'user_daily_cap') } catch {}
-    return ctx.direct ? { text: `that's all the ai you get today — lookups still work, fresh budget tomorrow`, mentions: [] } : null
+    return ctx.direct && ctx.mention !== 'reply' ? { text: `that's all the ai you get today — lookups still work, fresh budget tomorrow`, mentions: [] } : null
   }
   // repeat-query abuse — silent drop (VIP exempt). continuation asks ("continue",
   // "keep going", "more"…) are LEGITIMATELY repeated — each one extends the story with

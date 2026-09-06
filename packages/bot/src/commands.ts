@@ -16,7 +16,7 @@ import { registerStateProvider } from './bot-state'
 import { suppress, unsuppress, isSuppressed, remainingMinutes, listSuppressions, suppressNotice, type SuppressFeature } from './suppress'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam, CONTINUE_RE } from './ai'
 import { aiUnavailableReason, aiTriviaEnabled, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest, getChannelGame } from './ai-cache'
-import { isLowValue, isNoise } from './ai-query'
+import { isLowValue, isThrowawayReply } from './ai-query'
 import { META_QUERY_RE } from './intents'
 import { isEmote, findEmote } from './emotes'
 import { detectSpamIntent } from './spam-intent'
@@ -325,10 +325,14 @@ export interface CommandContext {
   isMod?: boolean
   messageId?: string
   threadId?: string
-  // set true only by handleCommand's addressedQuery routing (reply-to-bot or @botname) —
-  // never construct this by hand.
-  mention?: boolean
+  // set only by handleCommand's addressedQuery routing — never construct this by hand.
+  // 'at' = the message opened with @botname (they summoned it: honest non-answers are ok);
+  // 'reply' = a twitch reply to the bot's own line (a canned excuse there reads bot-ish,
+  // so a non-answer is silence).
+  mention?: 'at' | 'reply'
   replyParent?: { login: string; body?: string }
+  // the line was already consumed as a live-trivia guess upstream (index.ts checkAnswer)
+  triviaGuess?: boolean
 }
 
 type CommandHandler = (args: string, ctx: CommandContext) => string | null | Promise<string | null>
@@ -929,7 +933,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // addressed-without-!b: a throwaway reaction ("lol", "KEKW", "?") to the bot's line is a
   // human aside, not a real ask — silence, not a forced AI reply. isLowValue/isNoise don't
   // cover a bare single-letter reaction ("w"/"l"), so that's a small addition here.
-  if (ctx.mention && (isLowValue(cleanArgs) || isNoise(cleanArgs) || /^[wl]$/i.test(cleanArgs))) return null
+  if (ctx.mention && isThrowawayReply(cleanArgs)) return null
 
   // bare !b in a thread reply → read the full thread and try to help
   if (!cleanArgs && ctx.threadId && ctx.channel) {
@@ -1291,6 +1295,9 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     // not a transient failure — stay silent rather than lie with a "glitched, run it back"
     // line that invites a doomed retry. aiBusyLine is strictly for real-query transient misses.
     if (isLowValue(cleanArgs)) return null
+    // a reply to the bot's own line never earns a canned excuse — the viewer didn't type
+    // !b, and "servers lagging" under their reply reads as a bot talking to itself.
+    if (ctx.mention === 'reply') return null
     // AI switched off here (no key, channel never enabled) is PERMANENT, not a hiccup.
     // "servers are lagging, give it a few seconds" would be a lie inviting a retry that can
     // never succeed — but going quiet breaks the answer-every-!b contract. So: say the true
@@ -2181,20 +2188,23 @@ for (const k of Object.keys(commands)) BLOCKED_BANG_CMDS.add(k)
 // the bot's own line, or a message that OPENS with @botname. never a mid-sentence mention
 // ("the bazaarinfo bot said x", "bazaarinfo hi" with no @, "@bazaarinfo2 hi") — those stay
 // silent, chat volume already complains about the bot talking too much.
-export function addressedQuery(text: string, ctx: CommandContext): string | null {
+export function addressedQuery(text: string, ctx: CommandContext): { text: string; shape: 'at' | 'reply' } | null {
   const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
+  // a line checkAnswer already scored as a guess is done — either shape routed here too
+  // would answer the guess twice (once as points, once as an AI reply).
+  if (ctx.triviaGuess) return null
 
   const mentionMatch = text.match(/^@(\w+)[,:]?\s+(.+)/)
-  if (mentionMatch && mentionMatch[1].toLowerCase() === botName) return mentionMatch[2].trim()
+  if (mentionMatch && mentionMatch[1].toLowerCase() === botName) return { text: mentionMatch[2].trim(), shape: 'at' }
 
   if (ctx.replyParent?.login.toLowerCase() === botName) {
-    // a reply to a LIVE trivia question is an answer, not an ask — checkAnswer already
-    // consumed it upstream (index.ts, before handleCommand runs). routing it here too
-    // would double-answer a guess with an AI reply.
+    // a reply to a LIVE trivia question is an answer, not an ask — even one checkAnswer
+    // didn't score (a non-answer shape). routing it would talk over the round.
     if (ctx.channel && isGameActive(ctx.channel)) return null
     // defensive re-strip — twitch's own "@parent " auto-prefix is already stripped
     // upstream (twitch.ts), but user-controlled text never gets trusted from one site only.
-    return text.replace(new RegExp(`^@${botName}\\s+`, 'i'), '').trim()
+    const at = new RegExp(`^@${botName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+`, 'i')
+    return { text: text.replace(at, '').trim(), shape: 'reply' }
   }
 
   return null
@@ -2214,8 +2224,8 @@ export async function handleCommand(text: string, ctx: CommandContext = {}): Pro
     const addressed = addressedQuery(text, ctx)
     if (addressed === null) return null
     cmd = 'b'
-    args = addressed
-    runCtx = { ...ctx, mention: true }
+    args = addressed.text
+    runCtx = { ...ctx, mention: addressed.shape }
   }
 
   const handler = commands[cmd.toLowerCase()]
