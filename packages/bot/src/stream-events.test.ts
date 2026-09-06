@@ -84,12 +84,12 @@ describe('renderUserNotice', () => {
 
   it('anonymous gifter — login sentinel (mystery gift)', () => {
     const n = mk({ msgId: 'submysterygift', login: 'ananonymousgifter', displayName: 'AnAnonymousGifter', params: { 'msg-param-mass-gift-count': '5' } })
-    expect(renderUserNotice(n)?.text).toBe('* an anonymous gifter gifted 5 subs')
+    expect(renderUserNotice(n)?.text).toBe('* 5 subs gifted anonymously')
   })
 
   it('anonymous gifter — display-name sentinel (solo subgift)', () => {
     const n = mk({ msgId: 'subgift', login: 'ananonymousgifter', displayName: 'An Anonymous Gifter', params: { 'msg-param-recipient-user-name': 'bob', 'msg-param-recipient-display-name': 'bob' } })
-    expect(renderUserNotice(n)?.text).toBe('* an anonymous gifter gifted a sub to bob')
+    expect(renderUserNotice(n)?.text).toBe('* a sub gifted anonymously to bob')
   })
 
   it('announcement', () => {

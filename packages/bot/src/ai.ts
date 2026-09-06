@@ -112,6 +112,8 @@ const MIN_ATTEMPT_BUDGET = 2_000
 
 // data-ref → verb (within 30 chars after) OR verb → data-ref (within 40 chars after)
 // catches both "the data shows X" and "X is in the data pull alongside Y"
+// the asker means themselves — the only case their own channel/followage is the subject
+const SELF_RE = /\b(?:i|me|my|mine|myself|i'?m)\b/i
 const FAKE_DATA_PATTERN = /\b(game data|the data|the db|the database|the wiki|the tooltip|in my data|in the data|the data pull|in the data pull)\b.{0,30}\b(has|says?|shows?|contains?|literally|includes|lists|reads?|exactly|hints?|points? to|under|tagged|listed|labeled|marked|categor\w*)\b|\b(has|says?|shows?|reads?|listed|tagged|appears?|found|showed up|popped up|just (showed|popped|appeared))\b.{0,40}\b(in (?:the )?(?:game )?data(?: pull)?|in the (?:db|database|wiki|tooltip))\b|\b(based on|according to|looking at)\s+(the|my)\s+(data|records|stats|search|database)\b|\bitems?\s+tagged\b|\btagged\s+(as|in)\s+["“]?\w/i
 
 function hasFabricatedDataRef(text: string, hasGameData: boolean): boolean {
@@ -271,8 +273,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // a chatter's own channel ("does X stream", "what does X play") and their followage on
   // another channel the bot moderates ("how long has X followed rogue") — helix reads,
   // not awaited, warm for the next ask. the subject is the named chatter, else the asker.
+  // the asker is the subject only when they mean themselves ("do i stream", "my followage") —
+  // "is he live" / "when's the stream" is about the streamer, not a reason to read the asker.
   if (ctx.channel && (isStreamerAsk(query) || FOLLOW_ASK_RE.test(query))) {
-    const subject = findReferencedUser(query, ctx.channel) ?? ctx.user
+    const subject = findReferencedUser(query, ctx.channel) ?? (SELF_RE.test(query) ? ctx.user : null)
     if (subject) {
       if (isStreamerAsk(query)) maybeFetchChannelSnapshot(subject)
       const other = channelNamedIn(query, ctx.channel)

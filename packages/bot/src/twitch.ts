@@ -162,7 +162,7 @@ type IrcMessage =
   | { type: 'join'; channel: string }
   | { type: 'auth_failure' }
   | { type: 'notice'; raw?: string }
-  | { type: 'userstate'; channel: string; privileged: boolean }
+  | { type: 'userstate'; channel: string; privileged: boolean; mod: boolean }
   | IrcPrivmsg
   | IrcUserNotice
   | { type: 'other' }
@@ -206,8 +206,9 @@ export function parseIrcLine(line: string): IrcMessage {
     const usMatch = rest.match(/^:tmi\.twitch\.tv USERSTATE #(\S+)/)
     if (usMatch) {
       const badges = (tags['badges'] || '').split(',').map((b) => b.split('/')[0])
-      const privileged = tags['mod'] === '1' || badges.includes('vip') || badges.includes('moderator') || badges.includes('broadcaster')
-      return { type: 'userstate', channel: usMatch[1], privileged }
+      const mod = tags['mod'] === '1' || badges.includes('moderator') || badges.includes('broadcaster')
+      const privileged = mod || badges.includes('vip')
+      return { type: 'userstate', channel: usMatch[1], privileged, mod }
     }
     // USERNOTICE: sub/resub/raid/gift-sub/announcement. no nick!user@host prefix (it's
     // tmi.twitch.tv acting on the channel's behalf), and the text (if any) is the trailing
@@ -255,8 +256,9 @@ export function parseIrcLine(line: string): IrcMessage {
       threadId: tags['reply-thread-parent-msg-id'] || tags['reply-parent-msg-id'] || undefined,
       firstMsg: tags['first-msg'] === '1' ? true : undefined,
       returningChatter: tags['returning-chatter'] === '1' ? true : undefined,
-      badgeTags: tags['badges'] || undefined,
-      badgeInfoTags: tags['badge-info'] || undefined,
+      // '' is a real value here: a chatter with NO badges must clear a stale snapshot
+      badgeTags: tags['badges'],
+      badgeInfoTags: tags['badge-info'],
     }
   }
   return { type: 'other' }
@@ -308,6 +310,9 @@ export class TwitchClient {
   // channels where we're vip/mod/broadcaster — learned live from USERSTATE. default
   // (unknown) = non-privileged, so we never assume a firehose we weren't granted.
   private privilegedChannels = new Set<string>()
+  // channels where we're mod/broadcaster specifically — vip is enough for the send bucket,
+  // not for the moderator-scoped helix reads (followers).
+  private modChannels = new Set<string>()
   private eventsubBackoff = BACKOFF_BASE
   private eventsubConsecutiveFailures = 0
   eventsubEverConnected = false
@@ -783,6 +788,8 @@ export class TwitchClient {
             const was = this.privilegedChannels.has(msg.channel)
             if (msg.privileged) this.privilegedChannels.add(msg.channel)
             else this.privilegedChannels.delete(msg.channel)
+            if (msg.mod) this.modChannels.add(msg.channel)
+            else this.modChannels.delete(msg.channel)
             if (was !== msg.privileged) {
               log(`irc #${msg.channel}: ${msg.privileged ? 'privileged (vip/mod) — 100/30s send bucket' : 'non-privileged — 20/30s send bucket'}`)
             }
@@ -822,7 +829,7 @@ export class TwitchClient {
     const replyParent: ReplyParent | undefined = m.replyParentUserLogin
       ? { login: m.replyParentUserLogin.toLowerCase(), body: m.replyParentBody }
       : undefined
-    const flags: MessageFlags | undefined = (m.firstMsg || m.returningChatter || m.badgeTags || m.badgeInfoTags)
+    const flags: MessageFlags | undefined = (m.firstMsg || m.returningChatter || m.badgeTags !== undefined || m.badgeInfoTags !== undefined)
       ? { firstMsg: m.firstMsg, returningChatter: m.returningChatter, badges: m.badgeTags, badgeInfo: m.badgeInfoTags }
       : undefined
     this.dispatchMessage(m.channel, m.userId, m.login, text, m.badges, m.messageId, m.threadId, m.sentTs, replyParent, flags)
@@ -993,6 +1000,12 @@ export class TwitchClient {
     return channel === this.config.botUsername.toLowerCase() || this.privilegedChannels.has(channel)
   }
 
+  /** mod or broadcaster there, per the last USERSTATE — what moderator-scoped helix reads need. */
+  isModIn(channel: string): boolean {
+    const c = channel.toLowerCase()
+    return c === this.config.botUsername.toLowerCase() || this.modChannels.has(c)
+  }
+
   private trimBuckets() {
     const cutoff = Date.now() - this.SEND_WINDOW
     while (this.modSendTimes.length > 0 && this.modSendTimes[0] < cutoff) this.modSendTimes.shift()
@@ -1148,17 +1161,19 @@ export async function getFollowage(
   clientId: string,
   userId: string,
   broadcasterId: string,
-): Promise<string | null> {
+): Promise<string | null | undefined> {
+  // null = not following (a 200 with no row); undefined = unreadable (missing scope, not a
+  // mod there, network) — never cache that, or "not following" becomes a lie.
   try {
     const res = await fetchWithTimeout(
       `${HELIX_URL}/channels/followers?broadcaster_id=${broadcasterId}&user_id=${userId}`,
       { headers: { Authorization: `Bearer ${token}`, 'Client-Id': clientId } },
     )
-    if (!res.ok) return null // 403 = missing scope, degrade gracefully
+    if (!res.ok) return undefined
     const data = await res.json() as { data: { followed_at: string }[] }
     return data.data[0]?.followed_at ?? null
   } catch {
-    return null
+    return undefined
   }
 }
 

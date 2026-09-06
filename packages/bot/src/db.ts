@@ -80,6 +80,8 @@ let stmts: {
   totalAiSpend: Statement
   bumpUserAiUnits: Statement
   selectUserAiUnits: Statement
+  upsertBadges: Statement
+  deleteBadges: Statement
 }
 
 function prepareStatements() {
@@ -254,6 +256,11 @@ function prepareStatements() {
        VALUES (?, ?, ?, ?, datetime('now'))
        ON CONFLICT(username) DO UPDATE SET twitch_id = excluded.twitch_id, display_name = excluded.display_name, account_created_at = excluded.account_created_at, cached_at = datetime('now')`,
     ),
+    upsertBadges: db.prepare(
+      `INSERT INTO user_badges (username, channel, snapshot) VALUES (?, ?, ?)
+       ON CONFLICT(username, channel) DO UPDATE SET snapshot = excluded.snapshot, updated_at = datetime('now')`,
+    ),
+    deleteBadges: db.prepare('DELETE FROM user_badges WHERE username = ? AND channel = ?'),
     getCachedFollowage: db.prepare('SELECT followed_at, cached_at FROM channel_follows WHERE username = ? AND channel = ?'),
     setCachedFollowage: db.prepare(
       `INSERT INTO channel_follows (username, channel, followed_at, cached_at)
@@ -346,6 +353,8 @@ type WriteOp =
   | { type: 'incr_asks'; userId: number }
   | { type: 'summary'; channel: string; sessionId: number; summary: string; msgCount: number }
   | { type: 'user_fact'; username: string; fact: string }
+  | { type: 'badges'; username: string; channel: string; snapshot: string }
+  | { type: 'badges_clear'; username: string; channel: string }
 
 const writeQueue: WriteOp[] = []
 const MAX_QUEUE = 10_000
@@ -394,6 +403,12 @@ export function flushWrites() {
           case 'user_fact':
             stmts.insertUserFact.run(op.username, op.fact)
             break
+          case 'badges':
+            stmts.upsertBadges.run(op.username, op.channel, op.snapshot)
+            break
+          case 'badges_clear':
+            stmts.deleteBadges.run(op.username, op.channel)
+            break
         }
       }
     })()
@@ -411,6 +426,8 @@ export function flushWrites() {
           case 'incr_asks': stmts.incrUserAsks.run(op.userId); break
           case 'summary': stmts.insertSummary.run(op.channel, op.sessionId, op.summary, op.msgCount); break
           case 'user_fact': stmts.insertUserFact.run(op.username, op.fact); break
+          case 'badges': stmts.upsertBadges.run(op.username, op.channel, op.snapshot); break
+          case 'badges_clear': stmts.deleteBadges.run(op.username, op.channel); break
         }
       } catch (e2) {
         log(`flush retry failed (${op.type}): ${e2}`)
@@ -883,6 +900,22 @@ const migrations: (() => void)[] = [
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (username, channel)
     )`)
+  },
+
+  // migration 29: every per-user chat read is `LOWER(username) = ? AND channel = ? ORDER BY
+  // created_at` — the old single-column index made sqlite sort the user's whole history
+  // per lookup (a 100k-row chatter = ~180ms of sync stall on the reply path). the composite
+  // serves those reads, the username-only counts, and the two chat-profile aggregates.
+  () => {
+    db.run(`DROP INDEX IF EXISTS idx_chat_username`)
+    db.run(`CREATE INDEX idx_chat_user_channel_time ON chat_messages(LOWER(username), channel, created_at)`)
+  },
+
+  // migration 30: every cached followage was null — the token never had
+  // moderator:read:followers, so each read 401'd and the null got stored as "not following".
+  // drop them; the fetchers now skip unreadable channels and never cache an unreadable result.
+  () => {
+    db.run(`DELETE FROM channel_follows WHERE followed_at IS NULL`)
   },
 ]
 
@@ -2066,15 +2099,14 @@ export function pruneOldUserEvents(days = 90): void {
 
 // --- badge snapshots (badges.ts parses; index.ts writes on change) ---
 
+// deferred like every other per-message write — rides the 100ms batch, never its own commit.
+// an empty snapshot deletes the row: no badges is nothing to store, and a stale row would
+// keep calling an ex-sub a sub.
 export function upsertUserBadges(username: string, channel: string, snapshotJson: string): void {
-  try {
-    db.query(
-      `INSERT INTO user_badges (username, channel, snapshot) VALUES (?, ?, ?)
-       ON CONFLICT(username, channel) DO UPDATE SET snapshot = excluded.snapshot, updated_at = datetime('now')`,
-    ).run(username.toLowerCase(), channel.toLowerCase(), snapshotJson)
-  } catch (e) {
-    log(`user badges upsert error: ${e}`)
-  }
+  const u = username.toLowerCase(), c = channel.toLowerCase()
+  if (snapshotJson === '{}') writeQueue.push({ type: 'badges_clear', username: u, channel: c })
+  else writeQueue.push({ type: 'badges', username: u, channel: c, snapshot: snapshotJson })
+  scheduleFlush()
 }
 
 export function getUserBadges(username: string, channel: string): Record<string, unknown> | null {

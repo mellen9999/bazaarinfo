@@ -35,6 +35,14 @@ async function saveTokens(store: TokenStore) {
   await writeAtomic(TOKEN_PATH, JSON.stringify(store, null, 2))
 }
 
+// what the token is allowed to read, from the last successful validate. a helix call the
+// token can't make is skipped up front instead of 401ing per user (followage did that
+// 28k times before anyone noticed).
+let scopes = new Set<string>()
+export function hasScope(scope: string): boolean {
+  return scopes.has(scope)
+}
+
 async function validate(accessToken: string): Promise<number> {
   try {
     const res = await fetch(VALIDATE_URL, {
@@ -42,7 +50,8 @@ async function validate(accessToken: string): Promise<number> {
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
     })
     if (!res.ok) return 0
-    const data = (await res.json()) as { expires_in: number }
+    const data = (await res.json()) as { expires_in: number; scopes?: string[] }
+    if (Array.isArray(data.scopes)) scopes = new Set(data.scopes)
     return data.expires_in
   } catch (e) {
     log('token validation failed:', e)
@@ -100,6 +109,11 @@ export async function ensureValidToken(clientId: string, clientSecret: string): 
 
   log('token expired or expiring soon, refreshing...')
   return refreshToken(clientId, clientSecret)
+}
+
+/** test seam */
+export function __setTokensForTest(t: { accessToken: string; refreshToken: string } | null): void {
+  tokens = t
 }
 
 export function getAccessToken(): string {

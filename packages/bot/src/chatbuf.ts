@@ -46,7 +46,7 @@ export function restoreChat(channel: string, entries: { username: string; messag
   for (const e of entries) {
     const ts = new Date(e.created_at + 'Z').getTime()
     buf.push({ user: e.username, text: e.message, ts })
-    if (buf.length > MAX_SIZE) buf.shift()
+    trim(channel, buf)
   }
   const last = buf[buf.length - 1]
   if (last) lastMessageTime.set(channel, last.ts)
@@ -222,9 +222,23 @@ export function record(channel: string, user: string, text: string, messageId?: 
     buffers.set(channel, buf)
   }
   buf.push({ user, text, ts: now, messageId, threadId, ...(mod ? { mod } : {}) })
-  if (buf.length > MAX_SIZE) buf.shift()
+  trim(channel, buf)
   maybeSummarize(channel)
   maybeLearnLessons(channel)
+}
+
+// the one eviction path for every push: a collapse key must die with its ring entry, or a
+// later gift from the same gifter would rewrite a line nobody can see any more.
+function trim(channel: string, buf: ChatEntry[]) {
+  while (buf.length > MAX_SIZE) {
+    const dropped = buf.shift()
+    if (dropped?.kind !== 'event') continue
+    const chanMap = eventCollapseMap.get(channel)
+    if (!chanMap) continue
+    for (const [k, v] of chanMap) {
+      if (v === dropped) { chanMap.delete(k); break }
+    }
+  }
 }
 
 // A stream event (raid/sub/gift/announce) rendered into the transcript as a sentinel-user
@@ -249,17 +263,7 @@ export function recordEvent(channel: string, text: string, collapseKey?: string)
   }
   const entry: ChatEntry = { user: '*', text, ts: Date.now(), kind: 'event' }
   buf.push(entry)
-  if (buf.length > MAX_SIZE) {
-    const dropped = buf.shift()
-    if (dropped?.kind === 'event') {
-      const chanMap = eventCollapseMap.get(channel)
-      if (chanMap) {
-        for (const [k, v] of chanMap) {
-          if (v === dropped) { chanMap.delete(k); break }
-        }
-      }
-    }
-  }
+  trim(channel, buf)
   if (collapseKey) {
     let chanMap = eventCollapseMap.get(channel)
     if (!chanMap) { chanMap = new Map(); eventCollapseMap.set(channel, chanMap) }

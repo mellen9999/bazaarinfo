@@ -59,7 +59,7 @@ export function isGameTerm(query: string): boolean {
 // section: GAME_TERMS matches plenty of pure-Bazaar words that resolve to no entity
 // ("do relics trigger on drones"), and treating those as "other game" disabled the
 // hallucinated-stat guards for exactly the questions that need them most.
-export const OTHER_GAME_RE = /\b(poe|path of exile|diablo|d[234]|wow|world of warcraft|warcraft|hearthstone|lol|league(?: of legends)?|dota ?2?|dark souls|elden ring|souls(?:like|borne)?|sekiro|bloodborne|runescape|osrs|minecraft|terraria|hades|slay the spire|balatro|tft|teamfight tactics|valorant|cs2|csgo|counter.?strike|overwatch|fortnite|apex|starcraft|sc2|factorio|stardew|zelda|pokemon|mario|skyrim|elder scrolls|fallout|witcher|cyberpunk|gta|baldur'?s gate|bg3|final fantasy|ff ?(?:xiv|14|7)|monster hunter|last epoch|grim dawn|vampire survivors|mtg|magic the gathering|yugioh|chess)\b/i
+export const OTHER_GAME_RE = /\b(poe|path of exile|diablo(?: ?(?:iv|iii|ii|[234]))?|d[234]|wow|world of warcraft|warcraft|hearthstone|lol|league(?: of legends)?|dota ?2?|dark souls|elden ring|souls(?:like|borne)?|sekiro|bloodborne|runescape|osrs|minecraft|terraria|hades|slay the spire|balatro|tft|teamfight tactics|valorant|cs2|csgo|counter.?strike|overwatch|fortnite|apex|starcraft|sc2|factorio|stardew|zelda|pokemon|mario|skyrim|elder scrolls|fallout|witcher|cyberpunk|gta|baldur'?s gate|bg3|final fantasy|ff ?(?:xiv|14|7)|monster hunter|last epoch|grim dawn|vampire survivors|mtg|magic the gathering|yugioh|chess)\b/i
 
 export const ENTITY_SKIP = new Set([
   'skill', 'from', 'fight', 'monster', 'dead', 'good', 'best', 'worst',

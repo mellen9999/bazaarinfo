@@ -70,11 +70,14 @@ export function isUngroundedGame(game: string | null | undefined): boolean {
 // ai-query.ts is the trigger; this maps its captures to a searchable name.
 const ALIASES: Record<string, string> = {
   poe: 'Path of Exile', 'poe2': 'Path of Exile 2', d2: 'Diablo II', d3: 'Diablo III', d4: 'Diablo IV', diablo: 'Diablo IV',
+  'diablo 2': 'Diablo II', 'diablo ii': 'Diablo II', 'diablo 3': 'Diablo III', 'diablo iii': 'Diablo III',
+  'diablo 4': 'Diablo IV', 'diablo iv': 'Diablo IV',
   wow: 'World of Warcraft', warcraft: 'World of Warcraft', lol: 'League of Legends', league: 'League of Legends',
   dota: 'Dota 2', 'dota 2': 'Dota 2', 'dota2': 'Dota 2', tft: 'Teamfight Tactics', bg3: "Baldur's Gate 3",
   cs2: 'Counter-Strike 2', csgo: 'Counter-Strike 2', sc2: 'StarCraft II', osrs: 'Old School RuneScape',
   'ff14': 'Final Fantasy XIV', 'ffxiv': 'Final Fantasy XIV', 'ff7': 'Final Fantasy VII', mtg: 'Magic: The Gathering',
-  souls: 'Dark Souls', soulslike: 'Dark Souls', soulsborne: 'Dark Souls', hs: 'Hearthstone',
+  // genre words, not titles: '' = no dossier (the ask still routes as other-game)
+  souls: '', soulslike: '', soulsborne: '', hs: 'Hearthstone',
 }
 
 export function canonicalGameName(raw: string): string {
@@ -224,8 +227,11 @@ async function build(name: string): Promise<void> {
 
 /** non-blocking warmup — the helix poll calls this on every game change, asks call it for a named title. */
 export function prefetchGameDossier(name: string | null | undefined): void {
-  if (!name || !isGameCategory(name)) return
+  if (!name) return
   const canon = canonicalGameName(name)
+  // the three with dumps ground themselves — a wikipedia blurb beside live card data would
+  // outrank it at this tier and could contradict it
+  if (!isUngroundedGame(canon)) return
   const key = keyOf(canon)
   if (!key || inflight.has(key)) return
   loadDisk()
@@ -241,8 +247,13 @@ export function prefetchGameDossier(name: string | null | undefined): void {
 
 export function getGameDossier(name: string | null | undefined): GameDossier | null {
   if (!name) return null
+  const canon = canonicalGameName(name)
+  if (!isUngroundedGame(canon)) return null
   loadDisk()
-  const d = cache![keyOf(canonicalGameName(name))]
+  const d = cache![keyOf(canon)]
+  // read-through refresh: a title streamed for weeks would otherwise serve day-0 news
+  // forever (the helix poll only warms on a game CHANGE). no-op while fresh, never awaited.
+  if (d) prefetchGameDossier(canon)
   return d && d.source !== 'none' ? d : null
 }
 

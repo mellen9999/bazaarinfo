@@ -4,6 +4,7 @@ import type { ChatEntry } from './chatbuf'
 import { getUserInfo, getFollowage } from './twitch'
 import { getAccessToken } from './auth'
 import { AI_CHANNELS, getChannelId } from './ai-cache'
+import { canReadFollowage } from './twitch-profile'
 import { anthropicCall } from './ai-http'
 import { log } from './log'
 
@@ -316,18 +317,18 @@ export function maybeFetchTwitchInfo(user: string, channel: string) {
           db.setCachedTwitchUser(user, info.id, info.display_name, info.created_at)
 
           const broadcasterId = getChannelId(channel)
-          if (broadcasterId && !db.getCachedFollowage(user, channel)) {
+          if (broadcasterId && canReadFollowage(channel) && !db.getCachedFollowage(user, channel)) {
             const followedAt = await getFollowage(token, clientId, info.id, broadcasterId)
-            db.setCachedFollowage(user, channel, followedAt)
+            if (followedAt !== undefined) db.setCachedFollowage(user, channel, followedAt)
           }
         }
       } else {
         const broadcasterId = getChannelId(channel)
-        if (broadcasterId && !db.getCachedFollowage(user, channel)) {
+        if (broadcasterId && canReadFollowage(channel) && !db.getCachedFollowage(user, channel)) {
           const cached = db.getCachedTwitchUser(user)
           if (cached) {
             const followedAt = await getFollowage(token, clientId, cached.twitch_id, broadcasterId)
-            db.setCachedFollowage(user, channel, followedAt)
+            if (followedAt !== undefined) db.setCachedFollowage(user, channel, followedAt)
           }
         }
       }

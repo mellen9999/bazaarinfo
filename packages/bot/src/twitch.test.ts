@@ -7,12 +7,13 @@ import { parseIrcLine, TwitchClient } from './twitch'
 describe('parseIrcLine USERSTATE privilege detection', () => {
   test('vip badge -> privileged', () => {
     const m = parseIrcLine('@badge-info=;badges=vip/1;mod=0;display-name=Bot :tmi.twitch.tv USERSTATE #nl_kripp')
-    expect(m).toEqual({ type: 'userstate', channel: 'nl_kripp', privileged: true })
+    expect(m).toEqual({ type: 'userstate', channel: 'nl_kripp', privileged: true, mod: false })
   })
 
-  test('moderator badge -> privileged', () => {
+  test('moderator badge -> privileged AND mod (vip alone is not mod: no moderator-scoped reads)', () => {
     const m = parseIrcLine('@badges=moderator/1;mod=1 :tmi.twitch.tv USERSTATE #somechan')
-    expect(m).toMatchObject({ type: 'userstate', channel: 'somechan', privileged: true })
+    expect(m).toMatchObject({ type: 'userstate', channel: 'somechan', privileged: true, mod: true })
+    expect(parseIrcLine('@badges=broadcaster/1;mod=0 :tmi.twitch.tv USERSTATE #bot')).toMatchObject({ mod: true })
   })
 
   test('mod=1 tag without badge -> privileged', () => {
@@ -27,7 +28,7 @@ describe('parseIrcLine USERSTATE privilege detection', () => {
 
   test('no privileged badges -> NOT privileged', () => {
     const m = parseIrcLine('@badges=;mod=0 :tmi.twitch.tv USERSTATE #randomchan')
-    expect(m).toEqual({ type: 'userstate', channel: 'randomchan', privileged: false })
+    expect(m).toEqual({ type: 'userstate', channel: 'randomchan', privileged: false, mod: false })
   })
 
   test('subscriber-only badge is not a send-rate privilege', () => {

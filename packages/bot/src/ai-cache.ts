@@ -176,6 +176,12 @@ export function getChannelId(channel: string): string | undefined {
 }
 export function getJoinedChannels(): string[] { return channelInfos.map((c) => c.name) }
 
+// whether we're a mod/broadcaster in a channel, answered by the irc client (USERSTATE).
+// default false: a moderator-scoped read is never attempted on a guess.
+let modCheck: (channel: string) => boolean = () => false
+export function setModCheck(fn: (channel: string) => boolean): void { modCheck = fn }
+export function isBotModIn(channel: string): boolean { return modCheck(channel.toLowerCase()) }
+
 // --- emote cooldowns ---
 
 export const EMOTE_COOLDOWN_MS = 7 * 60_000

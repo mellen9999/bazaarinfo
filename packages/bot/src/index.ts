@@ -15,7 +15,7 @@ import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, c
 import { isMuted } from './directives'
 import { isSuppressed } from './suppress'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
-import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamInfo } from './ai-cache'
+import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamInfo, setModCheck } from './ai-cache'
 import { refreshRedditDigest, refreshBgRedditDigest, refreshGrRedditDigest } from './reddit'
 import { refreshGuildrunIfNeeded } from './guildrun'
 import { refreshGrNewsIfNeeded } from './guildrun-news'
@@ -535,6 +535,7 @@ const client = new TwitchClient(
 
 client.setAuthRefresh(doRefresh)
 client.setIrcOnly(['nl_kripp'])
+setModCheck((ch) => client.isModIn(ch))
 // stream events (raid/sub/resub/gift/announce) — context only. renders into the chat
 // transcript (chatbuf) and the per-user event log; zero unprompted speech except the one
 // route below (a resub/sub note that itself opens with "!b"/"@bot").
@@ -543,13 +544,17 @@ client.setIrcOnly(['nl_kripp'])
 // is thousands of lines a day and the snapshot moves once a month.
 const lastBadgeKey = new Map<string, string>()
 function noteBadges(channel: string, username: string, badges?: string, badgeInfo?: string) {
-  if (!badges && !badgeInfo) return
+  // undefined = the message carried no tags (eventsub path); '' = tags present, no badges,
+  // which must clear whatever we stored (an unsub / de-mod would otherwise stick forever)
+  if (badges === undefined && badgeInfo === undefined) return
   try {
     const snap = parseBadges(badges, badgeInfo)
     const key = badgeKey(snap)
     const k = `${username.toLowerCase()}@${channel.toLowerCase()}`
-    if (lastBadgeKey.get(k) === key) return
+    const seen = lastBadgeKey.get(k)
+    if (seen !== undefined) lastBadgeKey.delete(k) // re-insert = lru: regulars stay, drive-bys age out
     lastBadgeKey.set(k, key)
+    if (seen === key) return
     if (lastBadgeKey.size > 5000) {
       const first = lastBadgeKey.keys().next().value
       if (first) lastBadgeKey.delete(first)

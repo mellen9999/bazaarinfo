@@ -49,5 +49,9 @@ describe('badge tags on a privmsg', () => {
     const plain = parseIrcLine('@id=x;user-id=2 :bob!bob@bob.tmi.twitch.tv PRIVMSG #ch :yo') as any
     expect(plain.badgeTags).toBeUndefined()
     expect(plain.badgeInfoTags).toBeUndefined()
+    // an empty badges tag is a statement ("none now") — it must survive so a stale row gets cleared
+    const none = parseIrcLine('@badge-info=;badges=;id=y;user-id=3 :cat!cat@cat.tmi.twitch.tv PRIVMSG #ch :yo') as any
+    expect(none.badgeTags).toBe('')
+    expect(none.badgeInfoTags).toBe('')
   })
 })

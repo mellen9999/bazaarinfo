@@ -81,6 +81,10 @@ function fallback(n: IrcUserNotice): RenderedUserNotice | null {
   return n.systemMsg ? { text: `* ${capText(n.systemMsg)}` } : null
 }
 
+function giftTrainLine(anon: boolean, name: string, count: number): string {
+  return anon ? `* ${formatCount(count)} subs gifted anonymously` : `* ${name} gifted ${formatCount(count)} subs`
+}
+
 export function renderUserNotice(n: IrcUserNotice): RenderedUserNotice | null {
   const now = Date.now()
   const p = n.params
@@ -122,8 +126,9 @@ export function renderUserNotice(n: IrcUserNotice): RenderedUserNotice | null {
     case 'submysterygift': {
       const giftCount = Number(p['msg-param-mass-gift-count'])
       if (!Number.isFinite(giftCount) || giftCount <= 0) return fallback(n)
+      // every anonymous gift shares one login, so one train — the render must not credit
+      // "an anonymous gifter" with what may be several people's gifts
       const anon = isAnonGifter(n.login, n.displayName)
-      const gifterLabel = anon ? 'an anonymous gifter' : name
       const key = `${n.channel}:${n.login.toLowerCase()}`
       let train = trains.get(key)
       if (!train || now - train.startedAt > TRAIN_WINDOW_MS) {
@@ -135,7 +140,7 @@ export function renderUserNotice(n: IrcUserNotice): RenderedUserNotice | null {
       evictTrains(now)
       const detail = `gifted ${train.count} subs`
       return {
-        text: `* ${gifterLabel} gifted ${formatCount(train.count)} subs`,
+        text: giftTrainLine(anon, name, train.count),
         collapseKey: key,
         event: { channel: n.channel, login: n.login, kind: 'gift', detail, count: train.count },
       }
@@ -145,7 +150,6 @@ export function renderUserNotice(n: IrcUserNotice): RenderedUserNotice | null {
       const recipientLogin = p['msg-param-recipient-user-name']
       const recipientName = p['msg-param-recipient-display-name'] || recipientLogin
       const anon = isAnonGifter(n.login, n.displayName)
-      const gifterLabel = anon ? 'an anonymous gifter' : name
       const key = `${n.channel}:${n.login.toLowerCase()}`
       const train = trains.get(key)
       if (train && now - train.startedAt <= TRAIN_WINDOW_MS) {
@@ -158,7 +162,7 @@ export function renderUserNotice(n: IrcUserNotice): RenderedUserNotice | null {
         train.count += 1
         const detail = `gifted ${train.count} subs`
         return {
-          text: `* ${gifterLabel} gifted ${formatCount(train.count)} subs`,
+          text: giftTrainLine(anon, name, train.count),
           collapseKey: key,
           event: { channel: n.channel, login: n.login, kind: 'gift', detail, count: train.count },
         }
@@ -170,7 +174,7 @@ export function renderUserNotice(n: IrcUserNotice): RenderedUserNotice | null {
       evictTrains(now)
       const detail = `gifted a sub to ${recipientLogin.toLowerCase()}`
       return {
-        text: `* ${gifterLabel} gifted a sub to ${recipientName}`,
+        text: anon ? `* a sub gifted anonymously to ${recipientName}` : `* ${name} gifted a sub to ${recipientName}`,
         collapseKey: key,
         event: { channel: n.channel, login: n.login, kind: 'gift', detail, count: 1 },
       }

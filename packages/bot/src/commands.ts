@@ -1537,9 +1537,13 @@ function buildPersonDossier(username: string, channel: string): string | null {
     if (standing) lines.push(`twitch standing: ${standing}`)
     const chat = db.getUserChatProfile(username, channel)
     if (chat) {
-      const since = chat.firstSeen.slice(0, 7)
-      const peak = chat.peakHourUtc === null ? '' : `, most active around ${String(chat.peakHourUtc).padStart(2, '0')}:00 UTC`
-      lines.push(`chat history: ${chat.messages} messages logged here since ${since}${peak}`)
+      // chat_messages is pruned at 180 days: an old regular's "first seen" is the prune
+      // horizon, not their arrival — say the window, not a false start date. peak hour needs
+      // a real sample or it's noise.
+      const ageDays = (Date.now() - new Date(chat.firstSeen + 'Z').getTime()) / 86_400_000
+      const span = ageDays > 170 ? 'in the last 6 months (older lines are pruned)' : `since ${chat.firstSeen.slice(0, 7)}`
+      const peak = chat.peakHourUtc === null || chat.messages < 30 ? '' : `, most active around ${String(chat.peakHourUtc).padStart(2, '0')}:00 UTC`
+      lines.push(`chat history: ${chat.messages} messages logged here ${span}${peak}`)
     }
     const own = getChannelSnapshotLine(username)
     if (own) lines.push(`their channel: ${own}`)

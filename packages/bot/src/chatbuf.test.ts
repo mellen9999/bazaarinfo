@@ -85,6 +85,15 @@ describe('chatbuf recordEvent', () => {
     expect(recent[1]).toMatchObject({ text: '* carl gifted 2 subs', kind: 'event' })
   })
 
+  it('a collapse key dies with its ring entry — a later gift renders a NEW visible line, not a write into the void', () => {
+    recordEvent('event-test', '* carl gifted 1 subs', 'chan:carl')
+    for (let i = 0; i < 120; i++) record('event-test', 'alice', `line ${i}`)
+    expect(getRecent('event-test', 200).some((e) => e.kind === 'event')).toBe(false)
+    recordEvent('event-test', '* carl gifted 2 subs', 'chan:carl')
+    const recent = getRecent('event-test', 200)
+    expect(recent[recent.length - 1]).toMatchObject({ text: '* carl gifted 2 subs', kind: 'event' })
+  })
+
   it('a different collapseKey starts its own entry alongside an existing one', () => {
     recordEvent('event-test', '* alice gifted 1 subs', 'chan:alice')
     recordEvent('event-test', '* bob gifted 1 subs', 'chan:bob')

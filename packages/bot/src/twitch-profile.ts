@@ -11,9 +11,9 @@
 // Fail-soft: every export returns null/'' on any failure, nothing here is awaited by a
 // reply — asks prefetch in the background and the next ask lands warm.
 
-import { getAccessToken } from './auth'
+import { getAccessToken, hasScope } from './auth'
 import { getUserInfo, getFollowage } from './twitch'
-import { getChannelId, getJoinedChannels, formatAge } from './ai-cache'
+import { getChannelId, getJoinedChannels, formatAge, isBotModIn } from './ai-cache'
 import * as db from './db'
 import { log } from './log'
 
@@ -39,10 +39,33 @@ export interface ChannelSnapshot {
 
 const snapshots = new Map<string, ChannelSnapshot>()
 const inflight = new Set<string>()
+// a failed or empty read is not retried per ask — helix 429s would otherwise make the bot
+// retry harder. keyed like inflight; the entry expires on its own.
+const MISS_TTL_MS = 10 * 60 * 1000
+const missUntil = new Map<string, number>()
+function missed(key: string): boolean {
+  const until = missUntil.get(key)
+  if (until === undefined) return false
+  if (Date.now() < until) return true
+  missUntil.delete(key)
+  return false
+}
+function noteMiss(key: string): void {
+  missUntil.set(key, Date.now() + MISS_TTL_MS)
+  if (missUntil.size > MAX_ENTRIES) {
+    const first = missUntil.keys().next().value
+    if (first) missUntil.delete(first)
+  }
+}
 
 // an ask about someone's own streaming, not the channel we're in
 export const STREAMER_ASK_RE = /\b(?:stream(?:s|ing|er|ed)?|channel|vods?|broadcasts?|partner(?:ed)?|affiliate|live)\b/i
 export const FOLLOW_ASK_RE = /\bfollow(?:age|ing|ed|ers?|s)?\b/i
+
+/** followers is a moderator-scoped read: the token needs the scope AND we must be a mod there. */
+export function canReadFollowage(channel: string): boolean {
+  return hasScope('moderator:read:followers') && isBotModIn(channel)
+}
 
 export function isStreamerAsk(query: string): boolean {
   return STREAMER_ASK_RE.test(query)
@@ -91,9 +114,12 @@ async function fetchSnapshot(login: string): Promise<ChannelSnapshot | null> {
     helix<HelixStream[]>(`streams?user_id=${u.id}`),
     helix<HelixVideo[]>(`videos?user_id=${u.id}&first=1&type=archive`),
   ])
-  const c = channels?.[0]
-  const s = streams?.[0]
-  const v = videos?.[0]
+  // a failed read (null) is not "no data" ([]): asserting "has never streamed" or "not
+  // live" off a timeout would be a lie about a real streamer. miss instead, retry later.
+  if (!channels || !streams || !videos) return null
+  const c = channels[0]
+  const s = streams[0]
+  const v = videos[0]
   const bt = u.broadcaster_type === 'affiliate' || u.broadcaster_type === 'partner' ? u.broadcaster_type : ''
   return {
     login: login.toLowerCase(),
@@ -124,18 +150,20 @@ export function maybeFetchChannelSnapshot(login: string): void {
   const key = login.toLowerCase()
   const have = snapshots.get(key)
   if (have && Date.now() - have.fetchedAt < TTL_MS) return
-  if (inflight.has(key)) return
+  if (inflight.has(key) || missed(key)) return
   inflight.add(key)
   fetchSnapshot(key)
     .then((snap) => {
-      if (!snap) return
+      if (!snap) { noteMiss(key); return }
       snapshots.set(key, snap)
       if (snapshots.size > MAX_ENTRIES) {
-        const oldest = [...snapshots.entries()].sort((a, b) => a[1].fetchedAt - b[1].fetchedAt)[0]?.[0]
+        let oldest: string | undefined
+        let oldestAt = Infinity
+        for (const [k, v] of snapshots) if (v.fetchedAt < oldestAt) { oldestAt = v.fetchedAt; oldest = k }
         if (oldest) snapshots.delete(oldest)
       }
     })
-    .catch((e) => log(`twitch-profile: ${key} failed: ${e}`))
+    .catch((e) => { noteMiss(key); log(`twitch-profile: ${key} failed: ${e}`) })
     .finally(() => { inflight.delete(key) })
 }
 
@@ -174,12 +202,14 @@ export function getChannelSnapshotLine(login: string): string {
  */
 export function maybeFetchFollowageFor(user: string, channel: string): void {
   const key = `${user.toLowerCase()}@${channel.toLowerCase()}`
-  if (inflight.has(key)) return
+  if (!canReadFollowage(channel)) return
+  if (inflight.has(key) || missed(key)) return
   const broadcasterId = getChannelId(channel)
   if (!broadcasterId) return
   if (db.getCachedFollowage(user, channel)) return
   inflight.add(key)
   ;(async () => {
+    let done = false
     try {
       let token: string
       try { token = getAccessToken() } catch { return }
@@ -189,10 +219,13 @@ export function maybeFetchFollowageFor(user: string, channel: string): void {
       const userId = cached?.twitch_id ?? (await getUserInfo(token, clientId, user))?.id
       if (!userId) return
       const followedAt = await getFollowage(token, clientId, userId, broadcasterId)
+      if (followedAt === undefined) return
       db.setCachedFollowage(user, channel, followedAt)
+      done = true
     } catch (e) {
       log(`twitch-profile: followage ${key} failed: ${e}`)
     } finally {
+      if (!done) noteMiss(key)
       inflight.delete(key)
     }
   })()

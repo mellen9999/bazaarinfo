@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
+import { OTHER_GAME_RE } from './ai-query'
 import {
   isGameCategory, isUngroundedGame, canonicalGameName, pickSteamHit,
-  formatGameDossier, getGameDossierLine, __setGameDossierForTest, type GameDossier,
+  formatGameDossier, getGameDossierLine, getGameDossier, prefetchGameDossier, __setGameDossierForTest, type GameDossier,
 } from './game-dossier'
 
 const diablo: GameDossier = {
@@ -37,6 +38,20 @@ describe('game-dossier', () => {
     expect(canonicalGameName('D4')).toBe('Diablo IV')
     expect(canonicalGameName('bg3')).toBe("Baldur's Gate 3")
     expect(canonicalGameName('Elden Ring')).toBe('Elden Ring')
+    // a numbered entry is that entry, never the newest; a genre word is no title at all
+    expect(canonicalGameName('diablo 2')).toBe('Diablo II')
+    expect(canonicalGameName('Diablo III')).toBe('Diablo III')
+    expect(canonicalGameName('soulslike')).toBe('')
+    expect(OTHER_GAME_RE.exec('have you played diablo 2')?.[0]).toBe('diablo 2')
+    expect(OTHER_GAME_RE.exec('is diablo good')?.[0]).toBe('diablo')
+  })
+
+  it('a grounded game never gets a dossier, even when named or prefetched', () => {
+    __setGameDossierForTest({ Hearthstone: { ...diablo, name: 'Hearthstone' } })
+    expect(getGameDossier('hs')).toBeNull()
+    expect(getGameDossier('Hearthstone')).toBeNull()
+    expect(getGameDossierLine('The Bazaar', 'on stream')).toBe('')
+    prefetchGameDossier('Hearthstone') // must not throw or fetch
   })
 
   it('picks the store hit that IS the title, never a soundtrack or dlc', () => {
