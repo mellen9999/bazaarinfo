@@ -636,7 +636,7 @@ export function capEmoteTotal(text: string, channel?: string, max = EMOTE_CAP_PE
 export function dedupeUserEmote(text: string, user: string, channel?: string): string {
   if (!channel) return text
   const emoteSet = new Set(getEmotesForChannel(channel))
-  const hot = getHotExchanges(user)
+  const hot = getHotExchanges(user, channel)
   if (hot.length < 2) return text
 
   // count emote frequency in user's recent responses

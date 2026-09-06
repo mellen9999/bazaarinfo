@@ -23,11 +23,18 @@ const HOT_EXCHANGE_TTL = 3_600_000 // 1h
 const channelRecentResponses = new Map<string, string[]>()
 const CHANNEL_RESPONSE_MAX = 12
 
+// keyed on channel:user, not just user — a follow-up in #kripp must never surface an
+// exchange from #someoneelsestream just because the same name asked in both.
+function hotKey(user: string, channel?: string): string {
+  return `${(channel ?? '').toLowerCase()}:${user.toLowerCase()}`
+}
+
 export function cacheExchange(user: string, query: string, response: string, channel?: string) {
-  const list = hotExchanges.get(user) ?? []
+  const key = hotKey(user, channel)
+  const list = hotExchanges.get(key) ?? []
   list.push({ query, response, ts: Date.now() })
   if (list.length > HOT_EXCHANGE_MAX) list.shift()
-  hotExchanges.set(user, list)
+  hotExchanges.set(key, list)
   if (hotExchanges.size > USER_HISTORY_MAX) {
     const first = hotExchanges.keys().next().value!
     hotExchanges.delete(first)
@@ -54,8 +61,8 @@ export function getChannelRecentResponses(channel: string): string[] {
   return channelRecentResponses.get(channel) ?? []
 }
 
-export function getHotExchanges(user: string): HotExchange[] {
-  const list = hotExchanges.get(user)
+export function getHotExchanges(user: string, channel?: string): HotExchange[] {
+  const list = hotExchanges.get(hotKey(user, channel))
   if (!list) return []
   const now = Date.now()
   return list.filter((e) => now - e.ts < HOT_EXCHANGE_TTL)

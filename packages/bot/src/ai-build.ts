@@ -1038,7 +1038,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getRecentEmotes(ctx.channel))
 
   // hot exchange cache
-  const hot = getHotExchanges(ctx.user)
+  const hot = getHotExchanges(ctx.user, ctx.channel)
   const isShortFollowup = query.split(/\s+/).length <= 5 && hot.length > 0
   let hotLine = ''
   if (hot.length > 0) {
