@@ -132,6 +132,17 @@ export function initLearner() {
 
 const MEMO_INTERVAL = 5
 const memoInFlight = new Set<string>()
+const MEMO_MAX_CHARS = 160
+
+// the memo prompt used to ask for "warm and appreciative, like a friend you genuinely
+// like" and got HR-blurb slop back: 73% em-dash, half reusing the same handful of
+// personality adjectives for every single user. this is the fingerprint of that slop —
+// checked after generation so a stubborn model gets one retry before the memo is dropped
+// (never stored slop) rather than shipped.
+const SLOP_ADJECTIVES = /\b(playful|witty|dry wit|chaos agent|delightful|genuinely|enthusiast|quick-witted|curious|creative|mischievous|energy)\b/i
+export function isSlopMemo(memo: string): boolean {
+  return memo.includes('—') || SLOP_ADJECTIVES.test(memo)
+}
 
 export async function maybeUpdateMemo(user: string, force = false) {
   if (!API_KEY) return
@@ -160,31 +171,39 @@ export async function maybeUpdateMemo(user: string, force = false) {
       return `"${q}" → "${r}"`
     }).join('\n')
 
-    const prompt = [
+    const basePrompt = [
       existing ? `Current memo: ${existing.memo}\n\n` : '',
       factsStr,
       `Recent exchanges with ${user}:\n${exchanges}\n\n`,
-      'Write a 1-sentence personality memo for this user (<200 chars). ',
-      'Capture: humor style, recurring interests, running jokes, personality traits. ',
-      'TONE: warm and appreciative — describe them like a friend you genuinely like. NEVER frame them as annoying, difficult, or adversarial. If they challenge you, frame it as wit or creativity. ',
-      'NEVER mention how often they use the bot, how long they\'ve been around, account age, or any stats/numbers. No stats, no dates, no "they". Write like a friend\'s mental note. ',
+      `Write a 1-sentence memo for this user (<=${MEMO_MAX_CHARS} chars), concrete and observable only: `,
+      'what they ask about, what they play or main, their bits and running jokes, languages they use, opinions they have stated — things you could quote back. ',
+      'No personality adjectives (playful, witty, dry wit, chaos agent, delightful, genuinely, enthusiast, quick-witted, curious, creative, mischievous, energy). No em dash. ',
+      'If they push back or challenge you, do not frame it as annoying or adversarial. ',
+      'NEVER mention how often they use the bot, how long they\'ve been around, account age, or any stats/numbers. No stats, no dates, no "they". ',
       force
         ? 'The user just defined/redefined their identity. REWRITE the memo to reflect what they said about themselves. Their self-description overrides your prior impression. Incorporate their stated facts.'
         : existing ? 'Update the existing memo — keep what\'s still true, add new patterns.' : '',
     ].join('')
 
-    const memo = (await anthropicCall({
+    const requestMemo = (prompt: string) => anthropicCall({
       tag: 'memo',
       channel: BACKGROUND_SPEND_CHANNEL,
       model: MODEL,
-      // ceiling, not reservation: a truncated memo fails the <=200-char gate and wastes
-      // the call. headroom is free — billed on actual output.
+      // ceiling, not reservation: a truncated memo fails the length gate and wastes the
+      // call. headroom is free — billed on actual output.
       maxTokens: 200,
       timeoutMs: 10_000,
       system: EXTRACT_SYSTEM,
       content: prompt,
-    }))?.trim()
-    if (memo && memo.length <= 200) {
+    })
+
+    let memo = (await requestMemo(basePrompt))?.trim()
+    // one retry on slop (em-dash / personality adjective) — a stubborn model gets a
+    // second chance with a pointed hint, but a slop memo is never stored.
+    if (memo && isSlopMemo(memo)) {
+      memo = (await requestMemo(`${basePrompt}\n\nThat was too generic — no personality adjectives, no em dash, just a concrete observable detail.`))?.trim()
+    }
+    if (memo && memo.length <= MEMO_MAX_CHARS && !isSlopMemo(memo)) {
       db.upsertUserMemo(user, memo, askCount)
       log(`memo: ${user} → ${memo}`)
     }
