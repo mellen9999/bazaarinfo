@@ -666,17 +666,22 @@ describe('db', () => {
       'No facts extracted.',
       'Output: (nothing to extract)',
       'Output: *(nothing to extract)*',
+      '1. The user never identifies themselves as "mellen"',
+      '# Facts about iloveice987',
+      "To extract facts about a person, I'd need",
+      'Since no facts about the user were stated',
     ]
     for (const fact of garbage) db.insertUserFact('nullfactuser', fact)
     db.insertUserFact('nullfactuser', 'favorite item is tour bus')
     db.insertUserFact('nullfactuser', "doesn't play bazaar")
+    db.insertUserFact('nullfactuser', 'i got 30k gems')
     db.flushWrites()
-    expect(db.getUserFactCount('nullfactuser')).toBe(8)
+    expect(db.getUserFactCount('nullfactuser')).toBe(13)
 
     db.pruneNullFacts()
 
     const remaining = db.getUserFacts('nullfactuser', 10)
-    expect(remaining.sort()).toEqual(['favorite item is tour bus', "doesn't play bazaar"].sort())
+    expect(remaining.sort()).toEqual(['favorite item is tour bus', "doesn't play bazaar", 'i got 30k gems'].sort())
   })
 
   it('is idempotent — a second prune pass finds nothing left to delete', () => {

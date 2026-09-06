@@ -1500,14 +1500,19 @@ export function getUserFactCount(username: string): number {
 // ai-background.ts's NULL_FACT regex — kept as a LIKE set here, not a shared import, since
 // db.ts can't depend on ai-background.ts without a cycle). one-shot at every boot: cheap
 // once the backlog is gone, and safe to run twice.
-const NULL_FACT_LIKE = ['no facts%', 'there are no%', 'there is no%', 'nothing%', 'none%', 'output:%', 'n/a%', '(%', '*%']
+// mirrors NULL_FACT in ai-background.ts (LIKE has no alternation, so one pattern per shape)
+const NULL_FACT_LIKE = ['no facts%', 'there are no%', 'there is no%', 'nothing%', 'none%', 'output:%', 'n/a%', '(%', '*%', '#%',
+  'to extract%', 'to complete%', 'since no%', 'based on%', '%the user%', '%the bot%', '%this task%', '%provided chat%',
+  '%provided text%', '%would need%', "%'d need%", '%facts extracted%', '%facts stated%', '%facts about%', '%request from%']
 
 export function pruneNullFacts(): void {
   try {
-    let changes = 0
-    for (const pattern of NULL_FACT_LIKE) {
-      changes += db.run(`DELETE FROM user_facts WHERE fact LIKE ?`, [pattern]).changes
-    }
+    // counted by rows, not run().changes — the fts triggers inflate that figure
+    const count = () => (db.query('SELECT COUNT(*) AS n FROM user_facts').get() as { n: number }).n
+    const before = count()
+    for (const pattern of NULL_FACT_LIKE) db.run(`DELETE FROM user_facts WHERE fact LIKE ?`, [pattern])
+    db.run(`DELETE FROM user_facts WHERE fact GLOB '[0-9]*'`)
+    const changes = before - count()
     if (changes > 0) log(`pruned ${changes} null-sentinel facts`)
   } catch (e) {
     log(`null fact prune error: ${e}`)

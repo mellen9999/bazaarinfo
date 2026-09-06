@@ -222,7 +222,10 @@ const FACT_INTERVAL = 3
 // the extractor's "i found nothing" answer, in every shape it ships one — these were
 // getting stored as facts (39% of user_facts in prod). db.ts reuses the same shapes for
 // a one-shot cleanup of what already landed.
-export const NULL_FACT = /^(no facts|there (?:are|is) no|nothing|none|output:|n\/a|\(|\*)/i
+// two families: the "i found nothing" answer in every shape, and haiku's chatter about
+// the task itself ("1. The user never identifies...", "# Facts about x", "To extract facts
+// I'd need"). a real fact about a person never mentions the user, the bot or facts.
+export const NULL_FACT = /^(?:no facts|there (?:are|is) no|nothing|none|output:|n\/a|\(|\*|#|\d+[.)]|\d+ facts|to (?:extract|complete)|since no|based on)|\b(?:the user|the bot|this task|provided (?:chat|text)|i'?d need|would need|facts? (?:extracted|stated|about)|request from)\b/i
 export function isNullFact(s: string): boolean {
   return NULL_FACT.test(s.trim())
 }

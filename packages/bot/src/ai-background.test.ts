@@ -11,9 +11,26 @@ describe('isNullFact', () => {
     expect(isNullFact('Output: *(nothing to extract)*')).toBe(true)
   })
 
-  it('keeps real facts', () => {
+  // the second family, seen in prod after the first prune: haiku narrating the task
+  it('drops the extractor talking about the task instead of the person', () => {
+    for (const s of [
+      '1. The user never identifies themselves as "mellen"',
+      '2. The bot response does not mention askittlez',
+      '# Facts about iloveice987',
+      "To extract facts about a person, I'd need",
+      'To complete this task, I would need:',
+      'Since no facts about the user were stated',
+      '0 facts extracted.',
+      'An explicit request from nevekk87 to remember some',
+    ]) expect(isNullFact(s)).toBe(true)
+  })
+
+  it('keeps real facts, first-person ones included', () => {
     expect(isNullFact('favorite item is tour bus')).toBe(false)
     expect(isNullFact("doesn't play bazaar")).toBe(false)
+    expect(isNullFact('i got 30k gems')).toBe(false)
+    expect(isNullFact('i feel very canadian today')).toBe(false)
+    expect(isNullFact('has 2 cats')).toBe(false)
   })
 })
 
