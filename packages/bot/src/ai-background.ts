@@ -121,7 +121,7 @@ export function initLearner() {
 
 // --- background memo generation ---
 
-const MEMO_INTERVAL = 3
+const MEMO_INTERVAL = 5
 const memoInFlight = new Set<string>()
 
 export async function maybeUpdateMemo(user: string, force = false) {
@@ -136,7 +136,7 @@ export async function maybeUpdateMemo(user: string, force = false) {
       if (existing && askCount - existing.ask_count_at < MEMO_INTERVAL) return
     }
 
-    const asks = db.getAsksForMemo(user, 15)
+    const asks = db.getAsksForMemo(user, 8)
     if (asks.length < 1) return
 
     memoInFlight.add(user)

@@ -214,7 +214,7 @@ interface Usage {
 const LONG_CACHE_TTL = '1h'
 let useLongTtl = true
 
-function cacheControl() {
+export function cacheControl() {
   return useLongTtl
     ? { type: 'ephemeral' as const, ttl: LONG_CACHE_TTL }
     : { type: 'ephemeral' as const }
@@ -224,6 +224,19 @@ function cacheControl() {
 // than about our actual request content.
 function isTtlRejection(status: number, body: string): boolean {
   return status === 400 && /ttl|cache_control/i.test(body)
+}
+
+/**
+ * Shared fallback: if this response is a ttl rejection and the long ttl is still on,
+ * flip it off (permanently, process-wide) and tell the caller to retry once with the
+ * now-default cacheControl(). Every call site — this module's own anthropicCall and the
+ * chat path in ai.ts — shares the one flag so a rejection anywhere disables it everywhere.
+ */
+export function handleTtlRejection(status: number, body: string, tag: string): boolean {
+  if (!useLongTtl || !isTtlRejection(status, body)) return false
+  useLongTtl = false
+  log(`${tag}: API rejected the ${LONG_CACHE_TTL} cache ttl — falling back to the default and retrying`)
+  return true
 }
 
 /**
@@ -278,9 +291,7 @@ export async function anthropicCall(o: AnthropicCallOpts): Promise<string | null
       let body = res.status === 429 ? '' : await res.text().catch(() => '')
       // the long TTL is the one request field we could not verify against the live API.
       // if it is what upstream objects to, drop it permanently and retry this call once.
-      if (useLongTtl && isTtlRejection(res.status, body)) {
-        useLongTtl = false
-        log(`${o.tag}: API rejected the ${LONG_CACHE_TTL} cache ttl — falling back to the default and retrying`)
+      if (handleTtlRejection(res.status, body, o.tag)) {
         res = await send()
         if (!res.ok) body = res.status === 429 ? '' : await res.text().catch(() => '')
       }

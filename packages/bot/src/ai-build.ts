@@ -250,7 +250,22 @@ export function buildGameContext(entities: ResolvedEntities, channel?: string): 
 
 // --- user context builder ---
 
-export function buildUserContext(user: string, channel: string, skipAsks = false, suppressMemo = false): string {
+// self-referential query — "my facts", "do I like X", "am I a regular" — worth restating
+// every time it's actually asked about. anything else only earns the Facts line if none
+// of them has already been said in this channel recently (see the facts block below).
+const SELF_REF_RE = /\b(my|me|i|i'm|im|mine|myself)\b/i
+
+// a fact counts as already-said when a recent bot response in this channel contains a
+// ≥6-char lowercase substring of it — the fact's first long-enough word, or (for a short
+// fact with none) the whole fact. too-short facts can't be checked and are never flagged.
+function isFactEchoed(fact: string, channel: string): boolean {
+  const lower = fact.trim().toLowerCase()
+  const probe = lower.split(/\s+/).find((w) => w.length >= 6) ?? (lower.length >= 6 ? lower : '')
+  if (!probe) return false
+  return getChannelRecentResponses(channel).some((r) => r.toLowerCase().includes(probe))
+}
+
+export function buildUserContext(user: string, channel: string, skipAsks = false, suppressMemo = false, query = ''): string {
   // kick off background Twitch data fetch (non-blocking)
   maybeFetchTwitchInfo(user, channel)
 
@@ -331,11 +346,16 @@ export function buildUserContext(user: string, channel: string, skipAsks = false
     } catch {}
   }
 
-  // extracted facts (long-term memory)
+  // extracted facts (long-term memory) — a callback once is warm, every reply is a tic.
+  // a self-referential ask always gets them; otherwise drop any fact this channel has
+  // already heard back recently so the bot doesn't restate the same fact every message.
   let factsLine = ''
   try {
     const facts = db.getUserFacts(user, 5)
-    if (facts.length > 0) factsLine = `Facts: ${facts.join(', ')}`
+    if (facts.length > 0) {
+      const kept = SELF_REF_RE.test(query) ? facts : facts.filter((f) => !isFactEchoed(f, channel))
+      if (kept.length > 0) factsLine = `Facts: ${kept.join(', ')}`
+    }
   } catch {}
 
   const sections = [profile, followLine, memoLine, factsLine, asksLine].filter(Boolean)
@@ -624,13 +644,26 @@ export function fitToBudget(text: string, budget: number): string | null {
   return cut > 0 ? text.slice(0, cut) : null
 }
 
-function buildChatStr(entries: ChatEntry[]): string {
+export function buildChatStr(entries: ChatEntry[]): string {
   if (entries.length === 0) return ''
-  const lines = entries.map((m) => {
-    const user = m.user.replace(/[:\n]/g, '')
+  // collapse repeated message text (a spammed/pasted line, consecutive or not) into one
+  // rendered line at the FIRST occurrence's position, with a ×N suffix — otherwise N
+  // copies of the same paste eat the whole chat budget and read as N different chatters.
+  const counts = new Map<string, number>()
+  for (const m of entries) counts.set(m.text.trim(), (counts.get(m.text.trim()) ?? 0) + 1)
+  const seen = new Set<string>()
+  const deduped = entries.filter((m) => {
+    const key = m.text.trim()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  const lines = deduped.map((m) => {
+    const user = m.user.replace(/[:\n]/g, '') + (m.mod ? ' [mod]' : '')
     const text = stripChatMessage(m.text.replace(/^!\w+\s*/, '').replace(/^---+/, ''))
       .slice(0, 300)
-    return `> ${user}: ${text}`
+    const count = counts.get(m.text.trim()) ?? 1
+    return count > 1 ? `> ${user}: ${text} ×${count}` : `> ${user}: ${text}`
   })
   const header = 'Recent chat:\n'
   let total = header.length + 1
@@ -1157,7 +1190,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     streamLine(ctx.channel),
     shapeLine(getChannelRecentResponses(ctx.channel)),
     isContinuationLike ? `\n⚠️ SCENE CONTINUATION — [USER] asked for more. OVERRIDES one-and-done. This is turn ${hot.length + 1}. Each turn SHIFT AXIS — change at least one: setting, POV, format (action/dialogue/montage/letter/news/court transcript), stakes, genre (noir/sci-fi/horror/romance/heist), tempo. NEVER rehash. NEVER recycle the same beat with new words. Compound escalation: fistfight → duel → war → reckoning. ${hot.length >= 3 ? 'TURN 4+: linear escalation is exhausted — HARD CUT. timejump (years pass / future), dimension shift (alt reality / dream), genre flip, or new generation of the same characters. reset the stakes ladder. ' : ''}Pull from real-world (2025-2026 news, pop culture, history, science, internet). 400 chars.` : '',
-    buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq),
+    buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq, query),
     ctx.mention
       ? `\n---\n@MENTION — only respond if [USER] is talking TO you. If about you to someone else, output -\n[USER]: ${query}`
       : `\n---\n${ctx.isMod ? '[MOD] ' : ''}[USER]: ${query}`,

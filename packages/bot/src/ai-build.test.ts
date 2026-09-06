@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'bun:test'
-import { fitToBudget, nowLine, streamLine, shapeLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE, statsTarget } from './ai-build'
-import { markLiveStateKnown, setChannelLive, setChannelOffline, setStreamInfo } from './ai-cache'
+import { fitToBudget, nowLine, streamLine, shapeLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE, statsTarget, buildChatStr, buildUserContext } from './ai-build'
+import { markLiveStateKnown, setChannelLive, setChannelOffline, setStreamInfo, cacheExchange } from './ai-cache'
 import { META_QUERY_RE } from './intents'
+import type { ChatEntry } from './chatbuf'
+import * as db from './db'
+
+// facts/dedupe tests below hit a real (in-memory) db, same pattern as ai-user-budget.test.ts
+db.initDb(':memory:')
 
 describe('nowLine — the bot can state the weekday instead of deriving it', () => {
   it('names the weekday, date and UTC time', () => {
@@ -267,5 +272,69 @@ describe('META_QUERY_RE — live patch/event questions route to the bazaardb pat
     for (const q of [
       'eyepatch', 'patchwork', 'vanessa', 'fiery boomerang', 'diamond heart', 'whats subscraper',
     ]) expect(META_QUERY_RE.test(q)).toBe(false)
+  })
+})
+
+describe('buildChatStr — a spammed paste reads as one line, not N chatters', () => {
+  const mk = (user: string, text: string, ts: number): ChatEntry => ({ user, text, ts })
+
+  it('collapses a repeated message into one line at the first occurrence, with a ×N suffix', () => {
+    const out = buildChatStr([
+      mk('raif4', '我的一天不錯', 1),
+      mk('other1', 'hello world', 2),
+      mk('raif4', '我的一天不錯', 3),
+      mk('raif4', '我的一天不錯', 4),
+    ])
+    const lines = out.split('\n')
+    expect(lines.filter((l) => l.includes('我的一天不錯')).length).toBe(1)
+    expect(out).toContain('raif4: 我的一天不錯 ×3')
+  })
+
+  it('marks a moderator line so an order reads as an order, not a viewer wish', () => {
+    const out = buildChatStr([{ ...mk('rustic', 'only english', 1), mod: true }, mk('ennortix', 'german now', 2)])
+    expect(out).toContain('> rustic [mod]: only english')
+    expect(out).toContain('> ennortix: german now')
+  })
+
+  it('leaves a non-repeated line untouched', () => {
+    const out = buildChatStr([mk('raif4', '我的一天不錯', 1), mk('other1', 'hello world', 2)])
+    expect(out).toContain('> other1: hello world')
+    expect(out).not.toContain('hello world ×')
+  })
+
+  it('marks a moderator/broadcaster line with [mod], leaving viewer lines plain', () => {
+    const out = buildChatStr([
+      { user: 'modguy', text: 'settle down chat', ts: 1, mod: true },
+      mk('viewer1', 'hello world', 2),
+    ])
+    expect(out).toContain('> modguy [mod]: settle down chat')
+    expect(out).toContain('> viewer1: hello world')
+  })
+})
+
+describe('buildUserContext — stored facts get restated sparingly, not every reply', () => {
+  it('injects facts on a self-referential ask', () => {
+    db.insertUserFact('factuser1', 'loves ranked wolf')
+    db.flushWrites()
+    const out = buildUserContext('factuser1', 'factchannel1', false, false, 'what do you know about my build')
+    expect(out).toContain('Facts: loves ranked wolf')
+  })
+
+  it('drops a fact the channel has already heard back recently on an unrelated ask', () => {
+    db.insertUserFact('factuser2', 'plays ranked wolf')
+    db.flushWrites()
+    cacheExchange('someoneelse', 'q', 'yeah ranked wolf is busted rn', 'factchannel2')
+    const out = buildUserContext('factuser2', 'factchannel2', false, false, 'what should factuser2 try next')
+    expect(out).not.toContain('Facts:')
+  })
+
+  it('keeps a fact that has not been echoed while still dropping one that has', () => {
+    db.insertUserFact('factuser3', 'plays ranked wolf')
+    db.insertUserFact('factuser3', 'collects fireworks')
+    db.flushWrites()
+    cacheExchange('someoneelse', 'q', 'yeah ranked wolf is busted rn', 'factchannel3')
+    const out = buildUserContext('factuser3', 'factchannel3', false, false, 'what should factuser3 try next')
+    expect(out).toContain('collects fireworks')
+    expect(out).not.toContain('ranked wolf')
   })
 })

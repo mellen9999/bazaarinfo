@@ -20,7 +20,7 @@ import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOp
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE, formatContextSummary } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
-import { isHardStopped, noteHardStop, hardStopResumeAt, safeStringify } from './ai-http'
+import { isHardStopped, noteHardStop, hardStopResumeAt, safeStringify, cacheControl, handleTtlRejection } from './ai-http'
 import { detectFancyStyle, toFancy } from './fancy'
 import { matchingDirectives } from './directives'
 import { isWorldCupQuery, refreshWorldCupIfNeeded } from './worldcup'
@@ -326,6 +326,12 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   type ApiResult = { status: number; data?: ApiData }
   const isUsable = (r: ApiResult) => r.status === 200 && !!r.data
 
+  // reapply the current (possibly just-fallen-back) ttl to a request body's system block —
+  // used for the one-time retry below, same contract as ai-http's own send() retry.
+  function withCacheControl(b: any) {
+    return b?.system?.[0] ? { ...b, system: [{ ...b.system[0], cache_control: cacheControl() }] } : b
+  }
+
   async function fetchOnce(body: unknown, timeoutMs: number, extSignal?: AbortSignal): Promise<ApiResult> {
     // caller (hedge) can abort the loser via extSignal; distinguish that from a real
     // timeout so a cancelled-but-fine attempt doesn't log a spurious "timed out".
@@ -334,24 +340,34 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     const timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
     const onExt = () => controller.abort()
     extSignal?.addEventListener('abort', onExt)
+    const send = (b: unknown) => fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY!,
+        'anthropic-version': '2023-06-01',
+      },
+      body: safeStringify(b),
+      signal: controller.signal,
+    })
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': API_KEY!,
-          'anthropic-version': '2023-06-01',
-        },
-        body: safeStringify(body),
-        signal: controller.signal,
-      })
+      let res = await send(body)
       if (!res.ok) {
-        const errBody = res.status === 429 ? '' : await res.text().catch(() => '')
-        if (errBody) log(`ai: API ${res.status} ${errBody}`)
-        // a rejected key or an exhausted spend ceiling is permanent for the day — latch it
-        // so the retry loop, the hedge, and every other AI path stop firing doomed requests.
-        noteHardStop(res.status, errBody)
-        return { status: res.status }
+        let errBody = res.status === 429 ? '' : await res.text().catch(() => '')
+        // the long TTL is the one request field we could not verify against the live API —
+        // same fallback as ai-http.ts, sharing its flag so a rejection anywhere disables it
+        // everywhere. drop it and retry this attempt once.
+        if (handleTtlRejection(res.status, errBody, 'ai')) {
+          res = await send(withCacheControl(body))
+          if (!res.ok) errBody = res.status === 429 ? '' : await res.text().catch(() => '')
+        }
+        if (!res.ok) {
+          if (errBody) log(`ai: API ${res.status} ${errBody}`)
+          // a rejected key or an exhausted spend ceiling is permanent for the day — latch it
+          // so the retry loop, the hedge, and every other AI path stop firing doomed requests.
+          noteHardStop(res.status, errBody)
+          return { status: res.status }
+        }
       }
       const parsed = await readJson<ApiData>(res)
       // 200 with an empty/truncated body — upstream dropped mid-stream. surface as
@@ -425,7 +441,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         model,
         max_tokens: effectiveMaxTokens,
         thinking: { type: 'disabled' as const },
-        system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
+        system: [{ type: 'text' as const, text: systemPrompt, cache_control: cacheControl() }],
         messages,
       }
 
