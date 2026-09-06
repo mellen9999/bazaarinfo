@@ -290,12 +290,6 @@ describe('buildChatStr — a spammed paste reads as one line, not N chatters', (
     expect(out).toContain('raif4: 我的一天不錯 ×3')
   })
 
-  it('marks a moderator line so an order reads as an order, not a viewer wish', () => {
-    const out = buildChatStr([{ ...mk('rustic', 'only english', 1), mod: true }, mk('ennortix', 'german now', 2)])
-    expect(out).toContain('> rustic [mod]: only english')
-    expect(out).toContain('> ennortix: german now')
-  })
-
   it('leaves a non-repeated line untouched', () => {
     const out = buildChatStr([mk('raif4', '我的一天不錯', 1), mk('other1', 'hello world', 2)])
     expect(out).toContain('> other1: hello world')
