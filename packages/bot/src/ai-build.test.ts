@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { nowLine, streamLine, shapeLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE, statsTarget, PUSHBACK_RE, PUSHBACK_SOFT_RE } from './ai-build'
 import { fitToBudget, buildChatStr, buildChattersContext } from './ai-build-chat'
 import { buildUserContext } from './ai-build-user'
-import { markLiveStateKnown, setChannelLive, setChannelOffline, setStreamInfo, cacheExchange } from './ai-cache'
+import { markLiveStateKnown, setChannelLive, setChannelOffline, setStreamInfo, cacheExchange, resetLiveStateForTests } from './ai-cache'
 import { META_QUERY_RE } from './intents'
 import type { ChatEntry } from './chatbuf'
 import * as db from './db'
@@ -29,7 +29,9 @@ describe('nowLine — the bot can state the weekday instead of deriving it', () 
 
 describe('streamLine — the bot knows whether the stream is live, like everyone else in chat', () => {
   it('says nothing until the first Helix poll lands', () => {
-    // a fresh process has an empty live set; that is "not asked yet", not "offline"
+    // a fresh process has an empty live set; that is "not asked yet", not "offline".
+    // other test files in the same process may already have marked it known — reset.
+    resetLiveStateForTests()
     expect(streamLine('nl_kripp')).toBe('')
   })
 

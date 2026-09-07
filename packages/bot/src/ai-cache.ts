@@ -155,6 +155,14 @@ export function isLiveStateKnown(): boolean { return liveStateKnown }
 // API call buys any of this.
 export interface StreamInfo { title?: string; viewers?: number; startedAt?: number }
 const streamInfo = new Map<string, StreamInfo>()
+
+/** back to "no poll has landed yet". test files share one process and bun does not promise an order. */
+export function resetLiveStateForTests(): void {
+  liveChannels.clear()
+  channelGames.clear()
+  streamInfo.clear()
+  liveStateKnown = false
+}
 export function setStreamInfo(channel: string, info: StreamInfo): void {
   streamInfo.set(channel.toLowerCase(), info)
 }
