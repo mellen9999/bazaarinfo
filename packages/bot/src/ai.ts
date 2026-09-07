@@ -38,11 +38,10 @@ import { refreshBoardIfNeeded } from './board'
 import { refreshHsBoardIfNeeded } from './hs-board'
 import { isScheduleQuery } from './schedule'
 import { resolveScheduleChannel } from './schedule-query'
-import { refreshChannelTitle } from './channel-title'
+import { refreshChannelTitle, getCachedChannelTitle, TITLE_RE } from './channel-title'
 
 // tool turns in flight right now — a 45s search must never park more than two AI slots.
 let inFlightSearches = 0
-const TITLE_RE = /\btitle\b/i
 
 // strip orphan UTF-16 surrogate halves — twitch chat / 7TV emote names occasionally
 // inject lone D800-DBFF or DC00-DFFF code units. anthropic's JSON parser rejects them
@@ -295,6 +294,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // 2026-09-07: "write your own title"). TTL-cached 5 min, 2s timeout, fail-soft.
   if (TITLE_RE.test(query) || (isLiveStateKnown() && !isChannelLive(ctx.channel))) {
     await refreshChannelTitle(ctx.channel).catch(() => {})
+    if (TITLE_RE.test(query) && !getCachedChannelTitle(ctx.channel)) log(`ai: title ask for #${ctx.channel} with no title cached`)
   }
 
   // live board: pull the latest companion frame from the EBS BEFORE building context —

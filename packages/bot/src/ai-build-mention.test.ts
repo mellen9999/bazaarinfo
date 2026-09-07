@@ -102,3 +102,21 @@ describe('pushback hint (P3)', () => {
     expect(buildUserMessage('is boomerang good', { user: 'dong', channel: CH3 } as any).text).not.toContain('PUSHBACK:')
   })
 })
+
+// P4: a title ask gets the cached channel title as its own section — the store must be loaded
+// (buildUserMessage resolves entities), which this file already does.
+
+describe('title ask (P4)', () => {
+  it('quotes the cached title on a title ask and stays out otherwise', async () => {
+    const { __setTitleCacheForTest } = await import('./channel-title')
+    const { buildUserMessage } = await import('./ai-build')
+    __setTitleCacheForTest('titletest', 'NEW BAZAAR SEASON! | !IRL')
+    const asked = buildUserMessage('title', { user: 'h', channel: 'titletest' } as any)
+    expect(asked.text).toContain('Channel title (REAL')
+    expect(asked.text).toContain('"NEW BAZAAR SEASON! | !IRL"')
+    const other = buildUserMessage('is boomerang good', { user: 'h', channel: 'titletest' } as any)
+    expect(other.text).not.toContain('Channel title (REAL')
+    __setTitleCacheForTest('titletest', null)
+    expect(buildUserMessage('title', { user: 'h', channel: 'titletest' } as any).text).not.toContain('Channel title (REAL')
+  })
+})

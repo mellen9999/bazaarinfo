@@ -30,7 +30,7 @@ import {
   SCHEDULE_METHOD,
   TITLE_SCHEDULE_RE,
 } from './schedule'
-import { getCachedChannelTitle } from './channel-title'
+import { getCachedChannelTitle, TITLE_RE } from './channel-title'
 import { isBoardQuery, getBoardLine } from './board'
 import { isHsBoardQuery, getHsBoardLine, HS_NO_BOARD } from './hs-board'
 import type { AiContext } from './ai'
@@ -417,6 +417,13 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // failure, '' otherwise — nothing to hallucinate from). refreshed in doAiCall.
   const weatherLine = getWeatherLine(query)
 
+  // the channel title, when that is what they asked for. the Stream line carries it too, but a
+  // bare "title" reads as "write me a title" without an explicit pointer (live 2026-09-07,
+  // twice: the bot improvised one). '' when no title is cached — the Stream line then says
+  // nothing about it and the model has nothing to quote.
+  const askedTitle = TITLE_RE.test(query) ? getCachedChannelTitle(ctx.channel) : null
+  const channelTitleLine = askedTitle ? `\nChannel title (REAL, read from twitch — this is what [USER] is asking for; quote it): "${askedTitle}"` : ''
+
   // what he's wearing — read off the live stream thumbnail once per broadcast (shirt.ts).
   // chat bets on the colour, so every branch of this line is either a real read or an
   // explicit "no look yet"; there is nothing here to guess from.
@@ -790,6 +797,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'weather', text: weatherLine, base: -105 },
     // the shirt bet is the direct answer when it fires — same never-evict tier
     { name: 'shirt', text: shirtLine, base: -104.8 },
+    // the title IS the answer to "title" — same never-evict tier
+    { name: 'channelTitle', text: channelTitleLine, base: -104.7 },
     // BG standings are the direct answer when they fire — same never-evict tier
     { name: 'hs', text: hsLine, base: -104.5 },
     // BG card text likewise: it IS the answer, and losing it means answering from memory
