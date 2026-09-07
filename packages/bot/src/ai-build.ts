@@ -654,7 +654,10 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // a game question we can't ground is answered honestly (the gates below), but a
   // SUBJECT that keeps coming up ungrounded is a hole in the data — count it so the
   // next Tempo surfaces on its own instead of waiting for someone to read chat.
-  const noGameData = entities.isGame && !hasGameData
+  // a NAMED other game ("which hero in deadlock") is not a bazaar gap: "hero" is a game
+  // term, but the bazaar "do NOT state the mechanic" nudge would only fight the answer
+  // (and, with web search offered, the search). its dossier line anchors it instead.
+  const noGameData = entities.isGame && !hasGameData && !namedGame
   const noVerifiedDefinition = entities.isGame && DEFINITIONAL_INTENT.test(query)
     && !/\b(best|worst|good|bad|meta|tier|build|strong|weak|viable|worth|better|op|broken|heroes?|comp|loadout|strat|counter)\b/i.test(query)
     && !gr.grounded // a guildrun-grounded answer is a verified definition, not a gap

@@ -966,6 +966,15 @@ const migrations: (() => void)[] = [
             SELECT channel, started_at, captured_at, color, hex, confidence FROM shirt_reads`)
     db.run(`DROP TABLE IF EXISTS shirt_reads`)
   },
+  // migration 34: web_search_spend — web searches bill per request ($10/1k), outside the
+  // token ledger. one row per PT day; the chat search gate (ai-search-gate.ts) closes at
+  // WEB_SEARCH_DAILY_CAP, and a cap that forgets on restart is not a cap.
+  () => {
+    db.run(`CREATE TABLE web_search_spend (
+      day TEXT PRIMARY KEY,
+      searches INTEGER NOT NULL DEFAULT 0
+    )`)
+  },
 ]
 
 function runMigrations() {
@@ -2002,6 +2011,19 @@ export function recordAiSpend(
 }
 
 // which SUBSYSTEM spent it, not which channel. `source` is the call-site tag.
+// web searches this PT day — the counter behind the chat search cap. returns the new total.
+export function bumpWebSearches(n: number, day = ptDay()): number {
+  db.query(
+    `INSERT INTO web_search_spend (day, searches) VALUES (?, ?)
+     ON CONFLICT(day) DO UPDATE SET searches = searches + excluded.searches`,
+  ).run(day, n)
+  return getWebSearchesToday(day)
+}
+
+export function getWebSearchesToday(day = ptDay()): number {
+  return (db.query(`SELECT searches FROM web_search_spend WHERE day = ?`).get(day) as { searches: number } | null)?.searches ?? 0
+}
+
 export function recordAiSpendBySource(
   source: string,
   inputTokens: number,

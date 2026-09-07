@@ -29,6 +29,19 @@ const NEVER_A_STAT = /^(?:19|20)\d\d$/
  * standings, the patch notes and chat all carry legitimate numbers, and a false positive
  * here costs a good answer. precision over recall by design.
  */
+// a reply citing a source it never had: "the data shows", "according to my database" with
+// no Game data section in the prompt. catches both "the data shows X" and "X is in the data
+// pull alongside Y". a REAL web search is the one exception — "according to my search" is
+// then the truth, so only that alternative is waived, never "the data says".
+export const FAKE_DATA_PATTERN = /\b(game data|the data|the db|the database|the wiki|the tooltip|in my data|in the data|the data pull|in the data pull)\b.{0,30}\b(has|says?|shows?|contains?|literally|includes|lists|reads?|exactly|hints?|points? to|under|tagged|listed|labeled|marked|categor\w*)\b|\b(has|says?|shows?|reads?|listed|tagged|appears?|found|showed up|popped up|just (showed|popped|appeared))\b.{0,40}\b(in (?:the )?(?:game )?data(?: pull)?|in the (?:db|database|wiki|tooltip))\b|\b(based on|according to|looking at)\s+(the|my)\s+(data|records|stats|search|database)\b|\bitems?\s+tagged\b|\btagged\s+(as|in)\s+["“]?\w/i
+const REAL_SEARCH_REF = /\b(based on|according to|looking at)\s+(the|my)\s+search(?:es| results?)?\b/gi
+
+export function hasFabricatedDataRef(text: string, hasGameData: boolean, searched = false): boolean {
+  if (hasGameData) return false
+  const t = searched ? text.replace(REAL_SEARCH_REF, '') : text
+  return FAKE_DATA_PATTERN.test(t)
+}
+
 export function findUngroundedStats(reply: string, context: string): string[] {
   const grounded = new Set((context.match(/\d+(?:\.\d+)?/g) ?? []))
   const bad = new Set<string>()

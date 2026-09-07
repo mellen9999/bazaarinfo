@@ -284,6 +284,8 @@ describe('shirt: stored looks', () => {
     raw.run(`CREATE TABLE shirt_reads (channel TEXT NOT NULL, started_at INTEGER NOT NULL, color TEXT NOT NULL, hex TEXT NOT NULL DEFAULT '', confidence REAL NOT NULL, captured_at INTEGER NOT NULL, PRIMARY KEY (channel, started_at))`)
     raw.run(`INSERT INTO shirt_reads VALUES ('old', 100, 'black', '#111111', 0.9, 160)`)
     raw.run(`DROP TABLE shirt_looks`)
+    // every table a later migration creates has to go too, or re-running them collides
+    raw.run(`DROP TABLE IF EXISTS web_search_spend`)
     raw.run(`UPDATE schema_version SET version = 32`)
     raw.close()
     db.initDb(path)

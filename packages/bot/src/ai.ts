@@ -14,9 +14,11 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 // --- local imports from sub-modules ---
 
 import { sanitize, plainDashes, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL } from './ai-sanitize'
-import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak } from './ai-verify'
+import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak, hasFabricatedDataRef } from './ai-verify'
+import { searchEligible, finalText, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, SEARCH_HINT, SEARCH_FAILED_HINT } from './ai-search-gate'
+import { notify } from './notify'
 import { repairTruncation, isStub } from './ai-truncate'
-import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, isUserOverDailyAiCap, noteUserAiRequest, getChannelRecentResponses } from './ai-cache'
+import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, isUserOverDailyAiCap, noteUserAiRequest, getChannelRecentResponses, isLiveStateKnown, isChannelLive } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE, formatContextSummary } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
@@ -37,6 +39,10 @@ import { refreshHsBoardIfNeeded } from './hs-board'
 import { isScheduleQuery } from './schedule'
 import { resolveScheduleChannel } from './schedule-query'
 import { refreshChannelTitle } from './channel-title'
+
+// tool turns in flight right now — a 45s search must never park more than two AI slots.
+let inFlightSearches = 0
+const TITLE_RE = /\btitle\b/i
 
 // strip orphan UTF-16 surrogate halves — twitch chat / 7TV emote names occasionally
 // inject lone D800-DBFF or DC00-DFFF code units. anthropic's JSON parser rejects them
@@ -111,14 +117,8 @@ const MIN_ATTEMPT_BUDGET = 2_000
 // --- hallucination detection ---
 
 // data-ref → verb (within 30 chars after) OR verb → data-ref (within 40 chars after)
-// catches both "the data shows X" and "X is in the data pull alongside Y"
 // the asker means themselves — the only case their own channel/followage is the subject
 const SELF_RE = /\b(?:i|me|my|mine|myself|i'?m)\b/i
-const FAKE_DATA_PATTERN = /\b(game data|the data|the db|the database|the wiki|the tooltip|in my data|in the data|the data pull|in the data pull)\b.{0,30}\b(has|says?|shows?|contains?|literally|includes|lists|reads?|exactly|hints?|points? to|under|tagged|listed|labeled|marked|categor\w*)\b|\b(has|says?|shows?|reads?|listed|tagged|appears?|found|showed up|popped up|just (showed|popped|appeared))\b.{0,40}\b(in (?:the )?(?:game )?data(?: pull)?|in the (?:db|database|wiki|tooltip))\b|\b(based on|according to|looking at)\s+(the|my)\s+(data|records|stats|search|database)\b|\bitems?\s+tagged\b|\btagged\s+(as|in)\s+["“]?\w/i
-
-function hasFabricatedDataRef(text: string, hasGameData: boolean): boolean {
-  return !hasGameData && FAKE_DATA_PATTERN.test(text)
-}
 
 // --- interfaces ---
 
@@ -290,6 +290,12 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   if (isScheduleQuery(query)) {
     await refreshChannelTitle(resolveScheduleChannel(query, ctx.channel)).catch(() => {})
   }
+  // offline, the /channels title is the only thing the bot can know about the stream — and
+  // it used to fetch it for schedule asks alone, so "!b title" got an improvised one (live
+  // 2026-09-07: "write your own title"). TTL-cached 5 min, 2s timeout, fail-soft.
+  if (TITLE_RE.test(query) || (isLiveStateKnown() && !isChannelLive(ctx.channel))) {
+    await refreshChannelTitle(ctx.channel).catch(() => {})
+  }
 
   // live board: pull the latest companion frame from the EBS BEFORE building context —
   // unconditional, because the board is ambient context for ANY message (a joke about
@@ -304,7 +310,13 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     await refreshHsBoardIfNeeded(ctx.channel)
   }
 
-  const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq, hasStats, contextSections } = buildUserMessage(query, ctx)
+  const build = buildUserMessage(query, ctx)
+  const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq, hasStats, contextSections } = build
+  // web search: offered on a knowledge-shaped ask with no data behind it (ai-search-gate.ts).
+  // the model still decides whether to use it; the hint rides in the user message so the
+  // cached system prompt is untouched.
+  const searchesToday = (() => { try { return db.getWebSearchesToday() } catch { return WEB_SEARCH_DAILY_CAP } })()
+  const offerSearch = searchEligible(query, build, inFlightSearches, searchesToday)
   // compact "section:chars,section:chars" record of what the model actually saw —
   // names and sizes only, never content (see formatContextSummary in ai-build.ts).
   const contextSummary = formatContextSummary(contextSections)
@@ -331,8 +343,8 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   const fancyDirective = fancyStyle
     ? `${userMessage}\n\n[Write the reply in PLAIN ASCII letters and digits only — no unicode, fancy, or special characters. A fancy font is applied automatically afterward, so do not stylize it yourself.]`
     : userMessage
-  const messages: unknown[] = [{ role: 'user', content: fancyDirective }]
-  const start = Date.now()
+  const messages: unknown[] = [{ role: 'user', content: offerSearch ? `${fancyDirective}\n\n${SEARCH_HINT}` : fancyDirective }]
+  let start = Date.now()
   // hard cap on one request's total time. this is THE latency lever: when Anthropic is slow,
   // all AI_MAX_CONCURRENT slots sit at this deadline and a queue builds — every queued request
   // then waits (deadline × queue_pos / concurrency) for a slot, which is what inflates a reply's
@@ -340,6 +352,13 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // the queue drains faster and downstream waits shrink. safe: successful replies are ~p90 3.6s,
   // so 9s still lets a legit slow-but-real generation finish while shedding stalls faster.
   const REQUEST_DEADLINE = 9_000
+  // a tool turn gets its own budget on top: the search round-trips the web. when the search
+  // attempt dies the clock and the deadline reset to the plain shape below.
+  let deadline = offerSearch ? REQUEST_DEADLINE + SEARCH_TIMEOUT : REQUEST_DEADLINE
+  let searchFellBack = false
+  // web searches actually run across this request's attempts — waives the fabricated-source
+  // and bare-stat guards, since the numbers and "according to my search" are then real.
+  let searched = 0
 
   type ApiData = {
     content: { type: string; text?: string }[]
@@ -351,6 +370,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       output_tokens: number
       cache_creation_input_tokens?: number
       cache_read_input_tokens?: number
+      server_tool_use?: { web_search_requests?: number }
     }
   }
 
@@ -363,7 +383,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     return b?.system?.[0] ? { ...b, system: [{ ...b.system[0], cache_control: cacheControl() }] } : b
   }
 
-  async function fetchOnce(body: unknown, timeoutMs: number, extSignal?: AbortSignal): Promise<ApiResult> {
+  async function fetchOnce(body: unknown, timeoutMs: number, extSignal?: AbortSignal, source = 'chat'): Promise<ApiResult> {
     // caller (hedge) can abort the loser via extSignal; distinguish that from a real
     // timeout so a cancelled-but-fine attempt doesn't log a spurious "timed out".
     const controller = new AbortController()
@@ -421,7 +441,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         const cr = u?.cache_read_input_tokens ?? 0
         if (u) {
           db.recordAiSpend(ctx.channel, u.input_tokens ?? 0, u.output_tokens ?? 0, cr, cw)
-          db.recordAiSpendBySource('chat', u.input_tokens ?? 0, u.output_tokens ?? 0, cr, cw)
+          db.recordAiSpendBySource(source, u.input_tokens ?? 0, u.output_tokens ?? 0, cr, cw)
         }
         if (cw || cr) log(`ai: cache read=${cr} write=${cw} uncached=${u?.input_tokens ?? 0}`)
       } catch {}
@@ -462,21 +482,62 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // budget the per-attempt timeout to what's LEFT of the deadline so a late attempt
       // can't overrun it (previously only checked at attempt start → 7s attempts started
       // near the line ran to ~18s; now the whole request stays within REQUEST_DEADLINE).
-      const remaining = REQUEST_DEADLINE - (Date.now() - start)
+      const remaining = deadline - (Date.now() - start)
       if (remaining < MIN_ATTEMPT_BUDGET) { log('ai: request deadline exceeded'); cbRecordFailure(); return miss('deadline') }
       const model = CHAT_MODEL
       // sonnet 5 rejects non-default temperature; thinking off keeps chat replies snappy
       // (omitting it would run adaptive thinking by default). variety comes from the default
       // temp (1.0) + per-attempt prompt, not a sampling knob.
+      // the tool is offered on the first attempt only; a guard retry re-asks without it and
+      // with the searched answer already in the messages, so the facts carry over. no hedge on
+      // a tool turn — a hedge would run the search twice.
+      const useTools = offerSearch && attempt === 0 && !searchFellBack
       const body = {
         model,
-        max_tokens: effectiveMaxTokens,
+        max_tokens: useTools ? SEARCH_MAX_TOKENS : effectiveMaxTokens,
         thinking: { type: 'disabled' as const },
         system: [{ type: 'text' as const, text: systemPrompt, cache_control: cacheControl() }],
+        ...(useTools ? { tools: WEB_SEARCH_TOOL } : {}),
         messages,
       }
 
-      const single = await fetchHedged(body, Math.min(TIMEOUT, remaining))
+      let single: ApiResult
+      if (useTools) {
+        inFlightSearches++
+        const t0 = Date.now()
+        try {
+          single = await fetchOnce(body, SEARCH_TIMEOUT, undefined, 'chat-search')
+        } finally {
+          inFlightSearches--
+        }
+        const ran = single.data?.usage?.server_tool_use?.web_search_requests ?? 0
+        if (ran > 0) {
+          searched += ran
+          log(`ai: web search x${ran} — ${((Date.now() - t0) / 1000).toFixed(1)}s`)
+          // a searched ask is ~10x a plain one: bill the asker harder, count the day, and
+          // say so once when the day's budget is gone.
+          noteUserAiRequest(ctx.user, 3)
+          try {
+            const total = db.bumpWebSearches(ran)
+            if (total >= WEB_SEARCH_DAILY_CAP && total - ran < WEB_SEARCH_DAILY_CAP) {
+              void notify(`web-search-cap:${db.ptDay()}`, 'web search cap reached', `${total} searches today — chat answers from memory until tomorrow`)
+            }
+          } catch {}
+        }
+        // the tool attempt died (timeout, upstream, a pause_turn with no answer): fall back to
+        // the plain hedged path on a fresh clock — but never silently to memory.
+        if (!isUsable(single) || !finalText(single.data!.content)) {
+          log(`ai: search attempt ${single.status === 200 ? 'returned no answer' : `failed (${single.status})`}, plain retry`)
+          searchFellBack = true
+          start = Date.now()
+          deadline = REQUEST_DEADLINE
+          messages[0] = { role: 'user', content: `${fancyDirective}\n\n${SEARCH_FAILED_HINT}` }
+          attempt = -1 // the plain path gets its full retry budget
+          continue
+        }
+      } else {
+        single = await fetchHedged(body, Math.min(TIMEOUT, remaining))
+      }
       // 429 (rate limited) and 503 (empty/truncated body) are both transient — retry.
       if ((single.status === 429 || single.status === 503) && attempt < MAX_RETRIES - 1) {
         const delay = (single.status === 503 ? 1_000 : 3_000) * (attempt + 1)
@@ -492,8 +553,9 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const data: ApiData = single.data
       const latency = Date.now() - start
 
-      const textBlock = data.content?.find((b) => b.type === 'text')
-      if (!textBlock?.text) return miss('empty_response')
+      // the answer is the text AFTER any tool blocks — a tool turn opens with preamble.
+      const replyText = finalText(data.content)
+      if (!replyText) return miss('empty_response')
 
       // build known-user set for fake @mention stripping
       const knownUsers = new Set<string>()
@@ -503,7 +565,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       for (const m of query.matchAll(/@(\w+)/g)) knownUsers.add(m[1].toLowerCase())
 
       // isRealUser falls back to the channel chat log for anyone outside the recent window
-      const result = sanitize(textBlock.text, ctx.user, ctx.isMod, knownUsers, data.stop_reason === 'max_tokens', (n) => db.userHasChatted(n, ctx.channel), hasStats)
+      const result = sanitize(replyText, ctx.user, ctx.isMod, knownUsers, data.stop_reason === 'max_tokens', (n) => db.userHasChatted(n, ctx.channel), hasStats)
       // strip injection echo (model parroting user's injected instructions)
       result.text = stripInputEcho(result.text, query)
       // strip per-user signature emote repetition — but NOT for creative writing, where an
@@ -522,10 +584,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // "how much hp does the act 2 boss have" during a diablo stream is about diablo.
       const liveOther = isUngroundedGame(getChannelGame(ctx.channel)) && !isGameTerm(query)
       const isOtherGame = !hasGameData && (OTHER_GAME_RE.test(query) || liveOther)
-      if (!hasGameData && hasHallucinatedStats(result.text, isCreative, isOtherGame)) {
+      if (!hasGameData && hasHallucinatedStats(result.text, isCreative, isOtherGame || searched > 0)) {
         log(`ai: hallucinated stats without game data, retrying (attempt ${attempt + 1})`)
         if (attempt < MAX_RETRIES - 1) {
-          messages.push({ role: 'assistant', content: textBlock.text })
+          messages.push({ role: 'assistant', content: replyText })
           messages.push({ role: 'user', content: 'You invented specific game numbers without data. Answer without citing specific damage/HP/percentage values.' })
           continue
         }
@@ -533,10 +595,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         return miss('hallucination_blocked')
       }
       // reject fabricated data references ("the data has", "tagged as" etc) when no game data present
-      if (hasFabricatedDataRef(result.text, hasGameData)) {
+      if (hasFabricatedDataRef(result.text, hasGameData, searched > 0)) {
         log(`ai: fabricated data reference, retrying (attempt ${attempt + 1})`)
         if (attempt < MAX_RETRIES - 1) {
-          messages.push({ role: 'assistant', content: textBlock.text })
+          messages.push({ role: 'assistant', content: replyText })
           messages.push({ role: 'user', content: 'You claimed data/db contains something it doesnt. No "Game data:" section was provided. Answer without referencing game data or search results.' })
           continue
         }
@@ -558,7 +620,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         if (ungrounded.length > 0) {
           log(`ai: ungrounded stat ${ungrounded.join('/')} against injected data, retrying (attempt ${attempt + 1})`)
           if (attempt < MAX_RETRIES - 1) {
-            messages.push({ role: 'assistant', content: textBlock.text })
+            messages.push({ role: 'assistant', content: replyText })
             messages.push({ role: 'user', content: `You wrote ${ungrounded.join(' and ')}, which is not in the Game data section. Use only numbers that appear there, or drop the number and answer in words.` })
             continue
           }
@@ -576,7 +638,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         if (deniesBoardSight(result.text)) {
           log(`ai: denied board sight while holding a live board, retrying (attempt ${attempt + 1})`)
           if (attempt < MAX_RETRIES - 1) {
-            messages.push({ role: 'assistant', content: textBlock.text })
+            messages.push({ role: 'assistant', content: replyText })
             messages.push({ role: 'user', content: 'You DO have the live board this time — the "Live board" section lists what is on it right now. Answer from it like any viewer watching the stream. Card names only; you still do not know tiers or enchantments.' })
             continue
           }
@@ -586,7 +648,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         if (tierClaims.length > 0 && !hasGameData) {
           log(`ai: tier claim on live board card ${tierClaims.join('/')}, retrying (attempt ${attempt + 1})`)
           if (attempt < MAX_RETRIES - 1) {
-            messages.push({ role: 'assistant', content: textBlock.text })
+            messages.push({ role: 'assistant', content: replyText })
             messages.push({ role: 'user', content: `You gave ${tierClaims.join(' and ')} a tier or enchantment. The board only reports card names — nobody told you the tier. Say it without one.` })
             continue
           }
@@ -601,7 +663,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         && monotonyStreak(getChannelRecentResponses(ctx.channel)) >= 2) {
         styleRetried = true
         log('ai: third clause—clause in a row, asking for a different shape')
-        messages.push({ role: 'assistant', content: textBlock.text })
+        messages.push({ role: 'assistant', content: replyText })
         messages.push({ role: 'user', content: 'Same content, different shape: your last few replies all used "<clause> — <clause>". Rewrite this one without an em-dash — a plain sentence, a fragment, or a question. Keep the voice.' })
         continue
       }
@@ -633,7 +695,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // nothing to salvage, so spend a retry rather than ship "for".
       if (cutShort && isStub(result.text) && attempt < MAX_RETRIES - 1) {
         log(`ai: reply cut to a stub "${result.text}", retrying (attempt ${attempt + 1})`)
-        messages.push({ role: 'assistant', content: textBlock.text })
+        messages.push({ role: 'assistant', content: replyText })
         messages.push({ role: 'user', content: 'Your reply was cut off to a fragment. Say the whole thing in fewer words — one complete sentence that finishes its thought.' })
         continue
       }
@@ -643,7 +705,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         const askedToRank = /\bwho'?s? (your|the) (favorite|favourite|best|top)\b|favorite (chatter|person|user|viewer)|\b(rank|pick|choose|name)\b.{0,20}\b(favorite|favourite|chatter|user|viewer|people|us)\b/i.test(query)
         if (isModelRefusal(result.text, askedToRank) && attempt < MAX_RETRIES - 1) {
           log(`ai: terse refusal "${result.text}", retrying (attempt ${attempt + 1})`)
-          messages.push({ role: 'assistant', content: textBlock.text })
+          messages.push({ role: 'assistant', content: replyText })
           messages.push({ role: 'user', content: 'Don\'t dodge with diplomacy — pick actual names, give real opinions. Stay within your rules.' })
           continue
         }
@@ -654,7 +716,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         try {
           const inT = data.usage?.input_tokens ?? 0
           const outT = data.usage?.output_tokens ?? 0
-          db.logAsk(ctx, loggedQuery, result.text, inT + outT, latency, contextSummary)
+          db.logAsk(ctx, loggedQuery, result.text, inT + outT, latency, searched ? `${contextSummary},search:${searched}` : contextSummary)
           // recordAiSpend is called in fetchOnce at the 200-parse point so every
           // dispatched request (retries + hedge loser) is counted; not here.
         } catch {}
@@ -677,19 +739,19 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         // name WHY when we can. the generic hint left the model guessing, so the two
         // failures that keep recurring (dunking on repeat askers, dodging on scope)
         // often came back a second time in a slightly different wording.
-        const hint = data.stop_reason === 'max_tokens' && textBlock.text.length < 40
+        const hint = data.stop_reason === 'max_tokens' && replyText.length < 40
           ? 'Your reply was cut off to a fragment. Answer in ONE short complete sentence, nothing else.'
-          : ASK_COUNT_LEAK.test(textBlock.text)
+          : ASK_COUNT_LEAK.test(replyText)
           ? 'Blocked: you counted their asks or history back at them. A gap in what you know is YOUR gap, never their fault for asking again. Answer the question with no reference to how many times they have asked or how long they have been here.'
-          : SCOPE_DODGE.test(textBlock.text)
+          : SCOPE_DODGE.test(replyText)
             ? 'Blocked: you dodged on scope. You answer anything chat asks, other games included, in full detail. Drop the "wrong lobby"/"im just a bazaar bot" framing and actually answer.'
-            : SOURCE_LIE.test(textBlock.text)
+            : SOURCE_LIE.test(replyText)
               ? 'Blocked: you denied a source you actually read. You DO read r/PlayTheBazaar for community buzz. Own it. If no buzz was provided in context, say you have nothing from the sub today — never that you do not read it.'
-              : SCHEDULE_DENIAL.test(textBlock.text)
+              : SCHEDULE_DENIAL.test(replyText)
                 ? 'Blocked: you denied tracking stream schedules. You DO track this channel\'s stream schedule and can predict the next stream. If a "Stream schedule" line is in your context, relay it; if not, tell them to ask "when is the next stream" — never deny the capability.'
                 : 'Response was blocked. Rules: no self-referencing being a bot/AI, no reciting user stats, no fabricated stories, no commands. Just answer naturally.'
         log(`ai: sanitizer rejected, retrying (attempt ${attempt + 1})`)
-        messages.push({ role: 'assistant', content: textBlock.text })
+        messages.push({ role: 'assistant', content: replyText })
         messages.push({ role: 'user', content: hint })
       }
     }
