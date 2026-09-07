@@ -943,6 +943,29 @@ const migrations: (() => void)[] = [
       PRIMARY KEY (channel, started_at)
     )`)
   },
+  // migration 33: shirt_looks replaces shirt_reads — EVERY look at the cam is a row (shirt.ts).
+  // shirt_reads kept one best-confidence row per broadcast, so a mid-stream change (the intro
+  // robe -> the actual shirt) was invisible and the lock captured the robe for the whole
+  // stream. rows are never pruned (~10 a broadcast). the colour family is derived at read time
+  // (shirt-colour.ts), so it is deliberately not a column.
+  () => {
+    db.run(`CREATE TABLE shirt_looks (
+      channel TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      captured_at INTEGER NOT NULL,
+      color TEXT NOT NULL,
+      garment TEXT NOT NULL DEFAULT '',
+      hex TEXT NOT NULL DEFAULT '',
+      confidence REAL NOT NULL,
+      cam TEXT NOT NULL DEFAULT '',
+      frame_hash TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (channel, captured_at)
+    )`)
+    db.run(`CREATE INDEX idx_shirt_looks_broadcast ON shirt_looks(channel, started_at)`)
+    db.run(`INSERT INTO shirt_looks (channel, started_at, captured_at, color, hex, confidence)
+            SELECT channel, started_at, captured_at, color, hex, confidence FROM shirt_reads`)
+    db.run(`DROP TABLE IF EXISTS shirt_reads`)
+  },
 ]
 
 function runMigrations() {
@@ -994,45 +1017,64 @@ export function getStreamSessions(channel: string, sinceMs = 0): { startedAt: nu
     .all(channel.toLowerCase(), sinceMs) as { startedAt: number; lastSeenAt: number }[]
 }
 
-// shirt reads — one row per broadcast (shirt.ts). a later, better-lit look at the cam
-// upgrades the row; a worse one is ignored, so the stored read is the best one taken.
-export interface ShirtRow { startedAt: number; color: string; hex: string; confidence: number; capturedAt: number }
+// shirt looks — every look at the cam is a row (shirt.ts). the outfit, its changes and the
+// per-broadcast colour are all DERIVED from these rows at read time; nothing here decides.
+export interface ShirtLook {
+  startedAt: number
+  capturedAt: number
+  color: string
+  garment: string
+  hex: string
+  confidence: number
+  cam: string
+  frameHash: string
+}
 
-export function recordShirtRead(
-  channel: string,
-  startedAt: number,
-  color: string,
-  hex: string,
-  confidence: number,
-  capturedAt: number,
-) {
+const SHIRT_COLS = `started_at AS startedAt, captured_at AS capturedAt, color, garment, hex, confidence, cam, frame_hash AS frameHash`
+
+export function recordShirtLook(channel: string, look: ShirtLook) {
   db.query(
-    `INSERT INTO shirt_reads (channel, started_at, color, hex, confidence, captured_at)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(channel, started_at) DO UPDATE SET
-       color = excluded.color, hex = excluded.hex,
-       confidence = excluded.confidence, captured_at = excluded.captured_at
-     WHERE excluded.confidence > shirt_reads.confidence`,
-  ).run(channel.toLowerCase(), startedAt, color, hex, confidence, capturedAt)
+    `INSERT INTO shirt_looks (channel, started_at, captured_at, color, garment, hex, confidence, cam, frame_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(channel.toLowerCase(), look.startedAt, look.capturedAt, look.color, look.garment, look.hex, look.confidence, look.cam, look.frameHash)
 }
 
-export function getShirtRead(channel: string, startedAt: number): ShirtRow | null {
-  return (db
-    .query(
-      `SELECT started_at AS startedAt, color, hex, confidence, captured_at AS capturedAt
-       FROM shirt_reads WHERE channel = ? AND started_at = ?`,
-    )
-    .get(channel.toLowerCase(), startedAt) as ShirtRow | null) ?? null
+/** one broadcast's looks, oldest first. */
+export function getShirtLooks(channel: string, startedAt: number): ShirtLook[] {
+  return db
+    .query(`SELECT ${SHIRT_COLS} FROM shirt_looks WHERE channel = ? AND started_at = ? ORDER BY captured_at`)
+    .all(channel.toLowerCase(), startedAt) as ShirtLook[]
 }
 
-/** most recent broadcasts first — the history the odds line is built from. */
-export function getShirtHistory(channel: string, limit = 20): ShirtRow[] {
+/** every look of the last N broadcasts, oldest first — the history the odds are built from. */
+export function getRecentShirtLooks(channel: string, broadcasts = 20): ShirtLook[] {
+  const ch = channel.toLowerCase()
   return db
     .query(
-      `SELECT started_at AS startedAt, color, hex, confidence, captured_at AS capturedAt
-       FROM shirt_reads WHERE channel = ? ORDER BY started_at DESC LIMIT ?`,
+      `SELECT ${SHIRT_COLS} FROM shirt_looks
+       WHERE channel = ? AND started_at IN (
+         SELECT DISTINCT started_at FROM shirt_looks WHERE channel = ? ORDER BY started_at DESC LIMIT ?
+       )
+       ORDER BY started_at, captured_at`,
     )
-    .all(channel.toLowerCase(), limit) as ShirtRow[]
+    .all(ch, ch, broadcasts) as ShirtLook[]
+}
+
+/**
+ * frame hashes of the last N broadcasts. a bot restarted between streams has no memory of
+ * yesterday's thumbnail, and the CDN keeps serving it for minutes after go-live — these are
+ * what stop that frame from being read as today's shirt.
+ */
+export function getSeenFrameHashes(channel: string, broadcasts = 2): string[] {
+  const ch = channel.toLowerCase()
+  return (db
+    .query(
+      `SELECT frame_hash AS h FROM shirt_looks
+       WHERE channel = ? AND frame_hash != '' AND started_at IN (
+         SELECT DISTINCT started_at FROM shirt_looks WHERE channel = ? ORDER BY started_at DESC LIMIT ?
+       )`,
+    )
+    .all(ch, ch, broadcasts) as { h: string }[]).map((r) => r.h)
 }
 
 // channels with any logged stream history — the set a schedule ask can name

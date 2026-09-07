@@ -16,7 +16,7 @@ import { isMuted } from './directives'
 import { isSuppressed } from './suppress'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
 import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamInfo, getStreamInfo, setModCheck } from './ai-cache'
-import { noteStreamThumb } from './shirt'
+import { noteStreamThumb, noteStreamOffline, onShirtChange } from './shirt'
 import { refreshRedditDigest, refreshBgRedditDigest, refreshGrRedditDigest } from './reddit'
 import { refreshGuildrunIfNeeded } from './guildrun'
 import { refreshGrNewsIfNeeded } from './guildrun-news'
@@ -763,6 +763,7 @@ async function pollStreams(initial = false) {
       log(`stream offline: #${ch}`)
       setChannelOffline(ch)
       dungeon.onStreamOffline(ch)
+      noteStreamOffline(ch)
       chatbuf.recordEvent(ch, '* stream ended')
       liveState.delete(ch)
       offlineMisses.delete(ch)
@@ -772,6 +773,9 @@ async function pollStreams(initial = false) {
     if (initial) log(`live channels: ${data.data.map((s) => `${s.user_login}[${s.game_name}]`).join(', ') || 'none'}`)
   } catch (e) { log(`stream poll failed: ${e}`) }
 }
+// a confirmed mid-stream shirt change lands in the transcript like a game change does —
+// transcript only, the bot never posts it unprompted.
+onShirtChange((ch, text) => chatbuf.recordEvent(ch, text))
 await pollStreams(true)
 setInterval(() => pollStreams(), 60_000)
 
