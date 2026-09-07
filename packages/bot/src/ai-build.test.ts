@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { nowLine, streamLine, shapeLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE, statsTarget } from './ai-build'
+import { nowLine, streamLine, shapeLine, TRIVIA_REF_RE, STANDINGS_RE, COMPARISON_RE, statsTarget, PUSHBACK_RE, PUSHBACK_SOFT_RE } from './ai-build'
 import { fitToBudget, buildChatStr, buildChattersContext } from './ai-build-chat'
 import { buildUserContext } from './ai-build-user'
 import { markLiveStateKnown, setChannelLive, setChannelOffline, setStreamInfo, cacheExchange } from './ai-cache'
@@ -411,5 +411,34 @@ describe('buildChattersContext — skips stream-event sentinel entries', () => {
     )
     expect(out).not.toContain('*(')
     expect(out).toContain('chatterprofileuser')
+  })
+})
+
+describe('PUSHBACK_RE — a chatter disputing the bot\'s own line', () => {
+  it('catches the strong shapes on their own', () => {
+    for (const q of [
+      "you're wrong", 'ur wrong lol', 'thats not right', "that's not a thing", 'this is incorrect',
+      'nobody mentioned overwatch till now', 'no one said that', 'stop making mistakes',
+      'stop making stuff up', 'you made that up', 'you dont make sense. try again', 'that makes no sense',
+      'wrong game bud',
+    ]) expect(PUSHBACK_RE.test(q)).toBe(true)
+  })
+
+  it('leaves ordinary chat alone', () => {
+    for (const q of [
+      'is boomerang good', 'what did i miss', 'whats wrong with this build', 'im wrong about a lot of things',
+      'sense of humor check', 'the game is bs sometimes', 'who is the strongest hero',
+    ]) expect(PUSHBACK_RE.test(q)).toBe(false)
+  })
+
+  it('soft shapes are only a dispute in a thread with the bot', () => {
+    for (const q of [
+      'it doesnt have stun, but maybe it should', "i dont think theres a familiar hero like mcginnis in overwatch",
+      'are you sure', 'u sure?', 'source?', 'she doesnt exist',
+    ]) {
+      expect(PUSHBACK_SOFT_RE.test(q)).toBe(true)
+      expect(PUSHBACK_RE.test(q)).toBe(false)
+    }
+    expect(PUSHBACK_SOFT_RE.test('what shirt is he wearing')).toBe(false)
   })
 })

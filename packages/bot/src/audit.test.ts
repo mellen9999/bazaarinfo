@@ -165,16 +165,20 @@ describe('system prompt', () => {
   // as a CATEGORY not one sample string (it still said "wrong lobby, thats hearthstone"
   // with "thats a diablo Q" already banned), and owning the reddit source (it told chat
   // "my relationship with reddit is nonexistent" while reading r/PlayTheBazaar).
-  it('is under 8800 chars (runaway-growth guard)', () => {
+  // ->9400 for the certainty rules (2026-09-07, the mcginnis thread): "full nerd mode w/
+  // real numbers" on other games had the model stating a hero's ult as a stun it doesn't
+  // have, then — told it was wrong — inventing a replacement fact to agree. other-games now
+  // carries a "only what you actually know" clause and CORRECTIONS covers the memory case.
+  it('is under 9400 chars (runaway-growth guard)', () => {
     const prompt = buildSystemPrompt()
-    expect(prompt.length).toBeLessThan(8800)
+    expect(prompt.length).toBeLessThan(9400)
   })
 
   // the guard has to hold on patch day too, when a newly announced hero adds a line
   // the dump can't back yet — that path is exactly when nobody is watching the tests
   it('still fits with a pending-hero line on patch day', () => {
     const worstCase = buildSystemPrompt().length + ' new: The Dragons (17.0) — no card data yet, never invent their items.'.length
-    expect(worstCase).toBeLessThan(8800)
+    expect(worstCase).toBeLessThan(9400)
   })
 
   it('contains core identity', () => {

@@ -127,6 +127,12 @@ interface Sec { name: string; text: string; base: number; boost?: number; trunc?
 // fires when a chatter references the just-played trivia round so the real Q+A is injected.
 // every alternative requires an explicit trivia/round anchor — generic doubt phrases like
 // "is that real" or "that question about builds" must NOT match and inject stale context.
+// "you're wrong" aimed at the bot. strong shapes fire whenever the bot has a recent line in
+// the transcript; soft shapes (a bare "it doesnt have stun", "are you sure") only when the
+// exchange is with the bot (see buildUserMessage) — they are ordinary chat otherwise.
+export const PUSHBACK_RE = /\b(?:(?:you'?re|youre|ur|u r|that'?s|thats|this is|it'?s|its)\s+(?:wrong|incorrect|not\s+(?:right|true|correct|a\s+thing|real)|made\s+up|bs)|(?:nobody|no\s*one)\s+(?:said|mentioned|asked|brought\s+up)|stop\s+making\s+(?:mistakes|(?:stuff|things|shit)\s+up)|(?:you|u)\s+(?:made|make)\s+(?:that|this|it)\s+up|making\s+(?:stuff|things|shit)\s+up|(?:you\s+)?(?:dont|don'?t)\s+make\s+sense|makes\s+no\s+sense|hallucinat|wrong\s+game)\b/i
+export const PUSHBACK_SOFT_RE = /\b(?:(?:doesn'?t|does\s+not|don'?t|dont)\s+(?:exist|have\s+(?:a\s+|an\s+)?\w+|do\s+that|work\s+like\s+that)|i\s+(?:dont|don'?t)\s+think\s+(?:there'?s|theres|that'?s|thats|it|he|she|they)|are\s+(?:you|u)\s+sure|(?:you|u)\s+sure\?|source\?|not\s+(?:in|a)\s+(?:the\s+)?bazaar\b)/i
+
 export const TRIVIA_REF_RE = /\b(fact[\s-]?check\s+(?:that|the|this)?\s*(?:trivia\s+)?(?:answer|question|round)|(?:that|the|your|last|previous|prior)\s+trivia\s+(?:answer|question)|trivia\s+(?:answer|question|round)|(?:last|previous)\s+(?:trivia\s+)?round|(?:trivia\s+)?answer\s+(?:was|is)\s+(?:right|wrong|correct|true|legit))\b/i
 
 // trivia standings intent — fires when any part of the query mentions standings/leaderboard/ranking
@@ -341,6 +347,20 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
       }
     } catch {}
   }
+
+  // a chatter disputing the bot's last line. live 2026-09-07 (mcginnis): told it was wrong,
+  // the model agreed by INVENTING a replacement fact ("my mistake, she's a Bazaar hero") and a
+  // reason ("my brain went to overwatch"), three replies running. the hint names the two
+  // honest paths — data-backed claim: hold it; memory claim: concede and stop asserting — and
+  // fires only when there IS a bot line to dispute. soft shapes ("it doesnt have stun") need
+  // the exchange to actually be with the bot: its line is the newest in the transcript, or
+  // the ask is a reply/@mention to it.
+  const lastIsBot = recentEntries.length > 0 && recentEntries[recentEntries.length - 1].user.toLowerCase() === botName
+  const talkingToBot = lastIsBot || !!ctx.mention || ctx.replyParent?.login?.toLowerCase() === botName
+  const pushback = ownLines.length > 0 && !triviaRefLine && (PUSHBACK_RE.test(query) || (talkingToBot && PUSHBACK_SOFT_RE.test(query)))
+  const pushbackLine = pushback
+    ? '\nPUSHBACK: [USER] disputes your previous line ("you:" in Recent chat). Claim came from a context section (Game data/Live board/Recent chat/etc)? hold it, restate once. From memory, or you cant tell? concede in one clause, then ONLY what you are certain of. Never invent a replacement fact, a reason, or an excuse to agree.'
+    : ''
 
   // activity context
   const activityLine = getActivityFor(query)
@@ -753,6 +773,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // (recentChat base -100, gameBlock base -90) so the budget loop never evicts them.
     { name: 'triviaStandings', text: standingsLine, base: -110 },
     { name: 'triviaRef', text: triviaRefLine, base: -109 },
+    // a dispute of the bot's own line: the honest-path hint must survive any budget
+    { name: 'pushback', text: pushbackLine, base: -108.8 },
     // live patch/event line is the direct answer to "what's new" — keep it ahead of primaryPair
     { name: 'patch', text: patchLine, base: -108 },
     // the actual "what changed" bullets sit right behind the version line, same tier

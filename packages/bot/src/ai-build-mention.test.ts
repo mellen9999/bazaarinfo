@@ -68,3 +68,37 @@ describe('mention-mode context (P1)', () => {
     expect(r.text).toContain('> * [mod announce] raffle starting in 5 minutes')
   })
 })
+
+// P3: a chatter disputing the bot's own line gets the PUSHBACK hint — the two honest paths
+// (data-backed: hold; memory: concede, no invented replacement) — and only when there is a
+// bot line to dispute. soft shapes need the exchange to actually be with the bot.
+describe('pushback hint (P3)', () => {
+  const CH3 = '#pushback-test'
+  beforeEach(() => chatbuf.cleanupChannel(CH3))
+
+  it('fires on a strong dispute when the bot has a recent line', () => {
+    chatbuf.record(CH3, 'bazaarinfo', "ult's the panic button - full stun on a cluster")
+    chatbuf.record(CH3, 'dong', 'lol')
+    const r = buildUserMessage('nobody mentioned overwatch till now', { user: 'dong', channel: CH3 } as any)
+    expect(r.text).toContain('PUSHBACK:')
+    expect(r.text).toContain('Never invent a replacement fact')
+  })
+
+  it('a soft dispute counts only when the bot spoke last or is addressed', () => {
+    chatbuf.record(CH3, 'bazaarinfo', "ult's the panic button - full stun on a cluster")
+    const direct = buildUserMessage('it doesnt have stun, but maybe it should', { user: 'dong', channel: CH3 } as any)
+    expect(direct.text).toContain('PUSHBACK:')
+    chatbuf.record(CH3, 'alice', 'anyone else lagging')
+    const drifted = buildUserMessage('it doesnt have stun, but maybe it should', { user: 'dong', channel: CH3 } as any)
+    expect(drifted.text).not.toContain('PUSHBACK:')
+    const replied = buildUserMessage('are you sure', { user: 'dong', channel: CH3, mention: true, replyParent: { login: 'bazaarinfo', body: 'x' } } as any)
+    expect(replied.text).toContain('PUSHBACK:')
+  })
+
+  it('never fires without a bot line to dispute, or on an ordinary ask', () => {
+    chatbuf.record(CH3, 'alice', 'thats wrong')
+    expect(buildUserMessage("you're wrong", { user: 'dong', channel: CH3 } as any).text).not.toContain('PUSHBACK:')
+    chatbuf.record(CH3, 'bazaarinfo', 'boomerang is filler')
+    expect(buildUserMessage('is boomerang good', { user: 'dong', channel: CH3 } as any).text).not.toContain('PUSHBACK:')
+  })
+})

@@ -44,6 +44,20 @@ describe('game-dossier', () => {
     expect(canonicalGameName('soulslike')).toBe('')
     expect(OTHER_GAME_RE.exec('have you played diablo 2')?.[0]).toBe('diablo 2')
     expect(OTHER_GAME_RE.exec('is diablo good')?.[0]).toBe('diablo')
+    // the live-service titles chat brings up: a dossier anchors genre + studio so the
+    // model can't drift into the wrong game's roster (live 2026-09-07: deadlock -> overwatch)
+    expect(OTHER_GAME_RE.exec('which hero would you recommend in deadlock')?.[0]).toBe('deadlock')
+    expect(OTHER_GAME_RE.exec('marvel rivals meta?')?.[0]).toBe('marvel rivals')
+    expect(OTHER_GAME_RE.exec('overwatch 2 is dead')?.[0]).toBe('overwatch 2')
+    expect(canonicalGameName('deadlock')).toBe('deadlock')
+  })
+
+  it('the anchor line always ends with the certainty rule, even on a long blurb', () => {
+    const long = { ...diablo, blurb: 'x'.repeat(900) }
+    const line = formatGameDossier(long, 'asked about')
+    expect(line).toContain('never contradict them. beyond them say only what you actually know')
+    expect(line.endsWith('never invented.')).toBe(true)
+    expect(line.length).toBeLessThan(560)
   })
 
   it('a grounded game never gets a dossier, even when named or prefetched', () => {

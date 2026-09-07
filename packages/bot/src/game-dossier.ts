@@ -267,8 +267,14 @@ export function formatGameDossier(d: GameDossier, label: 'on stream' | 'asked ab
   if (typeof d.metacritic === 'number') meta.push(`metacritic ${d.metacritic}`)
   const head = `Game ${label}: ${d.name}${meta.length ? ` (${meta.join('; ')})` : ''}`
   const news = d.news.length ? ` steam news: ${d.news.map((n) => `"${n.title}"${n.date ? ` (${n.date})` : ''}`).join('; ')}.` : ''
-  const line = `${head}${d.blurb ? ` — ${d.blurb}` : ''}${news} answer questions about it with real knowledge; these facts are the anchor, never contradict them.`
-  return clip(line, MAX_LINE)
+  // the rule rides OUTSIDE the clip so a long blurb can never truncate it away. it is the
+  // whole point for a live-service title: the blurb anchors genre and studio, but heroes,
+  // abilities and patch history are exactly what the model half-remembers and states as fact
+  // (live 2026-09-07: a hero's ult given a stun it does not have, then "mains have been
+  // begging valve since beta").
+  const rule = ' these facts are the anchor, never contradict them. beyond them say only what you actually know — heroes/abilities/numbers/patch history you cant vouch for: "not sure", never invented.'
+  const line = clip(`${head}${d.blurb ? ` — ${d.blurb}` : ''}${news}`, MAX_LINE - rule.length)
+  return `${line}${rule}`
 }
 
 export function getGameDossierLine(name: string | null | undefined, label: 'on stream' | 'asked about'): string {
