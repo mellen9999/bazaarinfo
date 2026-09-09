@@ -1,8 +1,11 @@
 [Unit]
-Description=Run BazaarInfo backup daily at 04:00
+# 23:00, not 04:00, and that ordering is load-bearing: backup-restic.timer fires
+# at 00:00-00:30 and copies the dump this unit produces. Run after it and the
+# offsite copy is always a day staler than the local ones.
+Description=Run BazaarInfo backup daily at 23:00
 
 [Timer]
-OnCalendar=*-*-* 04:00:00
+OnCalendar=*-*-* 23:00:00
 Persistent=true
 RandomizedDelaySec=600
 
