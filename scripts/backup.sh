@@ -40,13 +40,18 @@ fi
 # holds the only copy of the bot's twitch refresh token, and the env files hold the
 # api keys. kept 0700/0600 — these are secrets sitting on disk.
 ROTATIONS_PATH="${ROTATIONS_PATH:-$HOME/.bazaarinfo-rotations.json}"
+# the bot is not always run out of ~/projects/bazaarinfo (a temporary host runs it
+# from its own checkout), and the .env is the one state file that lives beside the
+# code rather than in $HOME. missing it silently would mean a backup that restores
+# everything except the api keys.
+ENV_PATH="${ENV_PATH:-$HOME/projects/bazaarinfo/.env}"
 STATE_DIR="$BACKUP_DIR/state"
 STATE_FILES=(
   "$ROTATIONS_PATH:rotations.json"
   "$HOME/.bazaarinfo-tokens.json:tokens.json"
   "$HOME/.bazaarinfo-channels.json:channels.json"
   "$HOME/.bazaarinfo-ebs.env:ebs.env"
-  "$HOME/projects/bazaarinfo/.env:bot.env"
+  "$ENV_PATH:bot.env"
 )
 (
   umask 077
