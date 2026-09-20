@@ -134,6 +134,11 @@ fail modes: "items tagged", "the data points to", "based on my records", any sta
 | `!b when did the stream start` | from logged Helix data |
 | `!b is he live` | correct live state |
 | `!b when does <other channel> stream` | cross-channel ask still answers |
+| ask about the schedule, then ask something unrelated | ⚠ the unrelated reply does **not** carry the stream title |
+| `!b title` while offline | the real title, quoted — ⚠ never an invented one |
+| `!b whats the title track` / `!b title screen` | ⚠ not the stream title; that's someone else's title |
+| `!b everything on <other streamer>` | ⚠ never hands them **this** channel's title |
+| `!b who has <item> as their favorite` (asker is the answer) | ⚠ names them — never a headless " has \<item\>…" |
 
 ## 5. trivia
 

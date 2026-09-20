@@ -150,6 +150,21 @@ describe('sanitize', () => {
     expect(r.text).toBe('been spamming commands')
   })
 
+  // "who has proboscis?" was answered "PassTheMustard has proboscis as their favorite item"
+  // and shipped as " has proboscis as their favorite item." — the answer's subject lifted out
+  // (live 2026-09-20). the name IS the answer when it opens the sentence as its subject.
+  it('keeps the asker name when it is the subject of the answer', () => {
+    expect(sanitize('passthemustard has proboscis as their favorite item', 'passthemustard').text)
+      .toBe('passthemustard has proboscis as their favorite item')
+    expect(sanitize('@passthemustard has proboscis', 'passthemustard').text)
+      .toBe('@passthemustard has proboscis')
+    // a vocative opener still goes — it carries a separator
+    expect(sanitize('passthemustard, welcome back.', 'passthemustard').text).toBe('welcome back')
+    // and a later vocative in the same line still goes
+    expect(sanitize('passthemustard has proboscis, nice one passthemustard', 'passthemustard').text)
+      .toBe('passthemustard has proboscis, nice one')
+  })
+
   it('extracts @mentions but leaves them in text', () => {
     const r = sanitize('nice one @kripp and @mellen')
     expect(r.mentions).toEqual(['@kripp', '@mellen'])
@@ -1024,6 +1039,11 @@ describe('live-log regressions', () => {
       'asked this yesterday too — still not on the list, still condiment',
       'adblocker discourse and your 6th "what did i miss" this month',
       "13 years on this account and you're still testing chatbots at 2am",
+      // shipped live 2026-09-20: one adjective between the count and "times" walked the dunk
+      // straight past the guard
+      "proboscis. you've asked me your own favorite three separate times now, ask a harder one",
+      'you typed that four different times, i heard you the first',
+      'asked two straight times and the answer has not moved',
     ]) it(`blocks ${JSON.stringify(line.slice(0, 46))}`, () => expect(blocked(line)).toBe(true))
 
     // the same shapes describing the GAME are how tooltips read — they must survive
@@ -1031,6 +1051,8 @@ describe('live-log regressions', () => {
       'Stop That! triggers the first time you drop below half health',
       'burn ticks 4 times over the fight',
       'multicast procs two times in a row if you crit',
+      // the adjective list is closed so ordinary game counting still reads as counting
+      'it hits three separate times before the cooldown resets',
     ]) it(`keeps ${JSON.stringify(line.slice(0, 46))}`, () => expect(blocked(line)).toBe(false))
   })
 

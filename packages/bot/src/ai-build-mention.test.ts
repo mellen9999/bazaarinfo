@@ -112,11 +112,68 @@ describe('title ask (P4)', () => {
     const { buildUserMessage } = await import('./ai-build')
     __setTitleCacheForTest('titletest', 'NEW BAZAAR SEASON! | !IRL')
     const asked = buildUserMessage('title', { user: 'h', channel: 'titletest' } as any)
-    expect(asked.text).toContain('Channel title (REAL')
+    expect(asked.text).toContain('Channel title for titletest (REAL')
     expect(asked.text).toContain('"NEW BAZAAR SEASON! | !IRL"')
     const other = buildUserMessage('is boomerang good', { user: 'h', channel: 'titletest' } as any)
-    expect(other.text).not.toContain('Channel title (REAL')
+    expect(other.text).not.toContain('Channel title for')
     __setTitleCacheForTest('titletest', null)
-    expect(buildUserMessage('title', { user: 'h', channel: 'titletest' } as any).text).not.toContain('Channel title (REAL')
+    // nothing cached is not silence: the Stream line is then the only title in context, and
+    // the model handed it to whoever was named. say the lookup failed instead.
+    const missed = buildUserMessage('title', { user: 'h', channel: 'titletest' } as any).text
+    expect(missed).not.toContain('(REAL')
+    expect(missed).toContain('the twitch lookup came back with nothing')
+  })
+
+  // the gate used to be the bare word /\btitles?\b/i, which fired on anything that merely
+  // contained it — and then ORDERED the model to quote the channel title.
+  it('only fires on an ask about the stream title', async () => {
+    const { isTitleQuery } = await import('./channel-title')
+    for (const q of ['title', 'title?', '!b title', 'whats the title', "what's his title", 'stream title', 'whats the channel title', 'kripps title']) {
+      expect(isTitleQuery(q)).toBe(true)
+    }
+    for (const q of ['title screen', 'whats the title track', 'what are the item titles', 'best card title', 'title fight', 'whats a good title for my build']) {
+      expect(isTitleQuery(q)).toBe(false)
+    }
+  })
+
+  it('reads the chatter\'s words, not our scaffolding', async () => {
+    const { __setTitleCacheForTest } = await import('./channel-title')
+    const { buildUserMessage } = await import('./ai-build')
+    __setTitleCacheForTest('titletest', 'NEW BAZAAR SEASON! | !IRL')
+    // bare-!b synthesises a query out of a chat snippet: "[USER] is asking for" must be true
+    const bare = buildUserMessage('answer the unanswered question. anchor: bob: whats the title of that item', {
+      user: 'h', channel: 'titletest', displayQuery: '!b',
+    } as any)
+    expect(bare.text).not.toContain('Channel title for')
+    __setTitleCacheForTest('titletest', null)
+  })
+})
+
+// P5: a schedule-shaped line in RECENT CHAT pulls the schedule block into every ask for the
+// next six messages. it used to arrive with the title's "relay the title's plan" order
+// attached, and a title matching TITLE_SCHEDULE_RE on the bare word "back" had the bot
+// answering "you ok?" with the stream title (live 2026-09-19).
+describe('schedule context from chat (P5)', () => {
+  const SCH = '#sched-title-test'
+  beforeEach(() => chatbuf.cleanupChannel(SCH))
+
+  it('never carries the title order when the ASK was not about the schedule', async () => {
+    const { __setTitleCacheForTest } = await import('./channel-title')
+    __setTitleCacheForTest(SCH, 'got sick / back when better')
+    chatbuf.record(SCH, 'alice', 'when is the next stream')
+    const off = buildUserMessage('you ok?', { user: 'bob', channel: SCH } as any).text
+    expect(off).toContain('Stream schedule')
+    expect(off).not.toContain('CURRENT TITLE')
+    expect(off).toContain('[USER] did not')
+    __setTitleCacheForTest(SCH, null)
+  })
+
+  it('still relays the title plan to someone who asked about the schedule', async () => {
+    const { __setTitleCacheForTest } = await import('./channel-title')
+    __setTitleCacheForTest(SCH, 'got sick / back when better')
+    const asked = buildUserMessage('when is the next stream', { user: 'bob', channel: SCH } as any).text
+    expect(asked).toContain('CURRENT TITLE')
+    expect(asked).not.toContain('[USER] did not')
+    __setTitleCacheForTest(SCH, null)
   })
 })

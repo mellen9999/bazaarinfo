@@ -30,7 +30,7 @@ import {
   SCHEDULE_METHOD,
   TITLE_SCHEDULE_RE,
 } from './schedule'
-import { getCachedChannelTitle, TITLE_RE } from './channel-title'
+import { getCachedChannelTitle, isTitleQuery } from './channel-title'
 import { isBoardQuery, getBoardLine } from './board'
 import { isHsBoardQuery, getHsBoardLine, HS_NO_BOARD } from './hs-board'
 import type { AiContext } from './ai'
@@ -77,7 +77,7 @@ export function streamLine(channel: string, at = Date.now()): string {
   // offline: the title is still worth carrying. streamers park the plan in it
   // ("NEXT STREAM WEDNESDAY"), which is why channel-title.ts fetches it at all.
   if (!isChannelLive(channel)) {
-    return `\nStream: ${channel} is offline right now.${title ? ` Channel title still reads "${title}".` : ''}\n`
+    return `\nStream: ${channel} is offline right now.${title ? ` Channel title still reads "${title}" — state it if asked, never open with it unprompted.` : ''}\n`
   }
   const info = getStreamInfo(channel)
   const bits = [`${channel} is LIVE right now`]
@@ -389,13 +389,17 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // also fires when a RECENT CHAT line is schedule-shaped and the query merely relays it
   // ("do you have an answer for @X?") — the model can see the question in chat context, so
   // it needs the real numbers there too, or it deflects with "i don't track schedules".
-  const schedShaped = isScheduleQuery(query) || getRecent(ctx.channel, 6).some((m) => isScheduleQuery(m.text))
+  const askedSchedule = isScheduleQuery(query)
+  const schedShaped = askedSchedule || getRecent(ctx.channel, 6).some((m) => isScheduleQuery(m.text))
   // the ask may name another tracked channel ("when kripp getting on" in #mellen)
   const schedTarget = schedShaped ? resolveScheduleChannel(query, ctx.channel) : ctx.channel
   const sched = schedShaped ? snapshotSchedule(schedTarget, Date.now()) : null
   // streamer-stated schedule in the title outranks the stats — surface it when it
   // looks schedule-shaped (title prefetched by ai.ts; cached getter is sync-safe here)
-  const schedTitle = sched && !sched.live.isLive ? getCachedChannelTitle(schedTarget) : null
+  // only for someone who actually asked about the schedule. the title carries an imperative
+  // ("relay the title's plan"), and a title matching TITLE_SCHEDULE_RE on the bare word "back"
+  // had the bot relaying it to people who said "you ok?" (live 2026-09-19).
+  const schedTitle = askedSchedule && sched && !sched.live.isLive ? getCachedChannelTitle(schedTarget) : null
   const titleLine = schedTitle && TITLE_SCHEDULE_RE.test(schedTitle)
     ? ` ${schedTarget}'s CURRENT TITLE: "${schedTitle}" — if the title states when the stream returns, that OVERRIDES the prediction; relay the title's plan.`
     : ''
@@ -403,8 +407,13 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // count once read to the model as "a rolling window of 15 starts, oldest drops off",
   // which it then explained to a mod as fact. costs nothing on a normal schedule ask.
   const methodLine = sched && isScheduleMethodQuery(query) ? `\n${SCHEDULE_METHOD}` : ''
+  // pulled in by a chat line rather than the ask itself: real numbers for a relay, but the
+  // model must not answer a question nobody put to it.
+  const schedBackground = sched && !askedSchedule
+    ? ' (background — a chat line asked this, [USER] did not; use it only if it answers them.)'
+    : ''
   const scheduleLine = sched
-    ? `\n${isPastStreamQuery(query) ? lastStreamContext(schedTarget, sched.sessions, Date.now(), sched.live) : scheduleContext(schedTarget, sched.pred, Date.now(), sched.live)}${titleLine}${methodLine}`
+    ? `\n${isPastStreamQuery(query) ? lastStreamContext(schedTarget, sched.sessions, Date.now(), sched.live) : scheduleContext(schedTarget, sched.pred, Date.now(), sched.live)}${titleLine}${methodLine}${schedBackground}`
     : ''
 
   // live world cup scores — real ESPN data, injected only on world-cup-shaped queries
@@ -421,8 +430,20 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // bare "title" reads as "write me a title" without an explicit pointer (live 2026-09-07,
   // twice: the bot improvised one). '' when no title is cached — the Stream line then says
   // nothing about it and the model has nothing to quote.
-  const askedTitle = TITLE_RE.test(query) ? getCachedChannelTitle(ctx.channel) : null
-  const channelTitleLine = askedTitle ? `\nChannel title (REAL, read from twitch — this is what [USER] is asking for; quote it): "${askedTitle}"` : ''
+  // the gate reads the chatter's own words: `query` may be scaffolding we wrote (bare-!b builds
+  // one out of a chat snippet), and "[USER] is asking for" must be true of a real person.
+  const titleAsk = isTitleQuery(ctx.displayQuery ?? query)
+  // the ask may name another tracked channel — answer about that one, and say whose it is.
+  // reading ctx.channel blindly handed one streamer's title to another (live 2026-09-20).
+  const titleTarget = titleAsk ? resolveScheduleChannel(query, ctx.channel) : ctx.channel
+  const askedTitle = titleAsk ? getCachedChannelTitle(titleTarget) : null
+  const channelTitleLine = askedTitle
+    ? `\nChannel title for ${titleTarget} (REAL, read from twitch — this is ${titleTarget}'s title and nobody else's; quote it as-is): "${askedTitle}"`
+    // asked for a title the lookup could not produce. saying nothing left the Stream line as the
+    // only title in context, and the model handed THIS channel's title to the streamer they named.
+    : titleAsk
+      ? `\nChannel title for ${titleTarget}: the twitch lookup came back with nothing. say you couldn't pull it${titleTarget !== ctx.channel ? ` — and never answer with ${ctx.channel}'s title instead` : ''}. never invent one.`
+      : ''
 
   // what he's wearing — read off the live stream thumbnail once per broadcast (shirt.ts).
   // chat bets on the colour, so every branch of this line is either a real read or an

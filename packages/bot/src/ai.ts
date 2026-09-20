@@ -38,7 +38,7 @@ import { refreshBoardIfNeeded } from './board'
 import { refreshHsBoardIfNeeded } from './hs-board'
 import { isScheduleQuery } from './schedule'
 import { resolveScheduleChannel } from './schedule-query'
-import { refreshChannelTitle, getCachedChannelTitle, TITLE_RE } from './channel-title'
+import { refreshChannelTitle, getCachedChannelTitle, isTitleQuery } from './channel-title'
 
 // tool turns in flight right now — a 45s search must never park more than two AI slots.
 let inFlightSearches = 0
@@ -292,9 +292,16 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // offline, the /channels title is the only thing the bot can know about the stream — and
   // it used to fetch it for schedule asks alone, so "!b title" got an improvised one (live
   // 2026-09-07: "write your own title"). TTL-cached 5 min, 2s timeout, fail-soft.
-  if (TITLE_RE.test(query) || (isLiveStateKnown() && !isChannelLive(ctx.channel))) {
-    await refreshChannelTitle(ctx.channel).catch(() => {})
-    if (TITLE_RE.test(query) && !getCachedChannelTitle(ctx.channel)) log(`ai: title ask for #${ctx.channel} with no title cached`)
+  // the gate reads what the chatter TYPED — `query` can be scaffolding we wrote (bare-!b
+  // builds one out of a chat snippet), and "[USER] is asking for the title" must be true.
+  const titleAsk = isTitleQuery(ctx.displayQuery ?? query)
+  // a title ask can name another tracked channel ("whats ssg's title" in #nl_kripp) — fetch
+  // the one they asked about, so the builder has a real title to attribute to the right owner.
+  const titleTarget = titleAsk ? resolveScheduleChannel(query, ctx.channel) : ctx.channel
+  if (titleAsk || (isLiveStateKnown() && !isChannelLive(ctx.channel))) {
+    await refreshChannelTitle(titleTarget).catch(() => {})
+    if (titleTarget !== ctx.channel) await refreshChannelTitle(ctx.channel).catch(() => {})
+    if (titleAsk && !getCachedChannelTitle(titleTarget)) log(`ai: title ask for #${titleTarget} with no title cached`)
   }
 
   // live board: pull the latest companion frame from the EBS BEFORE building context —

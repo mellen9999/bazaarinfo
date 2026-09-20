@@ -32,10 +32,14 @@ export const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you
 const ORD = '(?:\\d+(?:st|nd|rd|th)|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)'
 const COUNT = `(?:${ORD}|\\d+|one|two|three|four|five|six|seven|eight|nine|ten)`
 const ASK_VERB = 'ask|asks|asking|asked|typed|type|typing|posted|posting|sent|said|spammed|command|message'
+// the dunk counts the repeats, and it padded the count to slip the guard: "three SEPARATE
+// times" shipped live 2026-09-20. one repetition adjective is allowed between the two, and
+// the list is closed so game talk ("burn ticks 4 times") still reads as ordinary counting.
+const REP_ADJ = '(?:separate|different|distinct|straight|whole|individual|consecutive|other)\\s+'
 export const ASK_COUNT_LEAK = new RegExp(
-  `\\b${COUNT}\\s+asks?\\b` +
-  `|\\b${COUNT}\\s+times?\\b(?=[^.!?]{0,30}\\b(?:${ASK_VERB})\\b)` +
-  `|\\b(?:asked|typed|posted|sent|spammed|repeated)\\b[^.!?]{0,40}\\b${COUNT}\\s+times?\\b` +
+  `\\b${COUNT}\\s+(?:${REP_ADJ})?asks?\\b` +
+  `|\\b${COUNT}\\s+(?:${REP_ADJ})?times?\\b(?=[^.!?]{0,30}\\b(?:${ASK_VERB})\\b)` +
+  `|\\b(?:asked|typed|posted|sent|spammed|repeated)\\b[^.!?]{0,40}\\b${COUNT}\\s+(?:${REP_ADJ})?times?\\b` +
   // "third time's not the charm", "sixth time's the standing order". The POSSESSIVE is the
   // whole signal — it is only ever the repeat-dunk idiom. Bare "two times" stays legal
   // because that is how the game gets described ("burn ticks 4 times over the fight").
@@ -299,6 +303,16 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
 
   // strip asker's name from body — they get auto-tagged by reply threading
   if (asker) {
+    // ...unless the name OPENS the answer as its subject. "who has proboscis?" was answered
+    // "PassTheMustard has proboscis as their favorite item" and shipped headless, as
+    // " has proboscis as their favorite item." (live 2026-09-20). a vocative always carries a
+    // separator ("bob, welcome back") or sits mid-sentence, and a possessive opener is still
+    // narration about them — so only a bare name followed straight by a word is spared, and
+    // only that one leading occurrence: a later vocative in the same line still goes.
+    const esc = asker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const subjectLead = new RegExp(`^@?${esc}(?=\\s+\\w)`, 'i').exec(s)
+    const lead = subjectLead && !new RegExp(`^@?${esc}['\u2019]s\\b`, 'i').test(s) ? subjectLead[0] : ''
+    if (lead) s = s.slice(lead.length)
     const beforeStrip = s
     // the name is often the object of a preposition ("solid tuesday for @asker."). removing
     // just the name strands the preposition and ships "solid tuesday for." — take the
@@ -314,6 +328,7 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
     // were shipping as ", text" / ": text". only repaired when a name actually came out,
     // so a deliberate em-dash opener ("— stop, actually stop") is left alone.
     if (s !== beforeStrip) s = s.replace(/^\s*[,;:—–-]+\s*/, '')
+    if (lead) s = lead + s
   }
 
   // strip fake @mentions (model invents @you, @asking, etc.) — keep only real usernames.

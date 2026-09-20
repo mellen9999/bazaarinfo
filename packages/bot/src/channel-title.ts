@@ -8,7 +8,19 @@ import { getAccessToken } from './auth'
 import { log } from './log'
 
 // an ask for the title itself — the one ask where a missing title is a visible failure.
-export const TITLE_RE = /\btitles?\b/i
+// the bare word is not enough: cards carry a Title field, and "title screen"/"title track"/
+// "item titles" are all somebody else's title. a loose gate injected the channel title with
+// "quote it" on asks that were about none of that (live 2026-09-19). shape mirrors
+// isShirtQuery: the word, minus the other owners, plus a subject or a bare ask.
+const TITLE_WORD_RE = /\btitles?\b/i
+const OTHER_TITLE_RE = /\btitles?\s+(?:screen|card|track|belt|fight|defen[cs]e|shot|holder|match|sequence)\b|\b(?:item|card|hero|song|album|video|clip|book|movie|anime|manga|episode|game|job)\s+titles?\b/i
+const TITLE_SUBJECT_RE = /\b(?:stream|channel|he|his|him|kripp\w*|krip|streamer|nl_?kripp)\b/i
+const BARE_TITLE_RE = /^\W*(?:!\w+\s+)?(?:whats?\s+(?:the\s+)?)?titles?\W*$/i // the command prefix is stripped upstream; tolerated here so the gate never depends on that
+
+export function isTitleQuery(q: string): boolean {
+  if (!TITLE_WORD_RE.test(q) || OTHER_TITLE_RE.test(q)) return false
+  return BARE_TITLE_RE.test(q) || TITLE_SUBJECT_RE.test(q)
+}
 
 const TITLE_TTL_MS = 5 * 60_000
 const FETCH_TIMEOUT_MS = 2_000
