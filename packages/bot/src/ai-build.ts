@@ -30,7 +30,7 @@ import {
   SCHEDULE_METHOD,
   TITLE_SCHEDULE_RE,
 } from './schedule'
-import { getCachedChannelTitle, isTitleQuery } from './channel-title'
+import { getCachedChannelTitle, isTitleQuery, displayTitle } from './channel-title'
 import { isBoardQuery, getBoardLine } from './board'
 import { isHsBoardQuery, getHsBoardLine, HS_NO_BOARD } from './hs-board'
 import type { AiContext } from './ai'
@@ -401,7 +401,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // only for someone who actually asked about the schedule. the title carries an imperative
   // ("relay the title's plan"), and a title matching TITLE_SCHEDULE_RE on the bare word "back"
   // had the bot relaying it to people who said "you ok?" (live 2026-09-19).
-  const schedTitle = askedSchedule && sched && !sched.live.isLive ? getCachedChannelTitle(schedTarget) : null
+  const schedTitle = askedSchedule && sched && !sched.live.isLive ? displayTitle(getCachedChannelTitle(schedTarget)) : null
   const titleLine = schedTitle && TITLE_SCHEDULE_RE.test(schedTitle)
     ? ` ${schedTarget}'s CURRENT TITLE: "${schedTitle}" — if the title states when the stream returns, that OVERRIDES the prediction; relay the title's plan.`
     : ''
@@ -440,7 +440,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const titleTarget = titleAsk ? resolveScheduleChannel(query, ctx.channel) : ctx.channel
   // the /helix/streams poll carries the title free every ~60s while a channel is live, so it
   // backs up the /channels cache — a title ask must never miss on a stream chat can see.
-  const askedTitle = titleAsk ? (getCachedChannelTitle(titleTarget) ?? getStreamInfo(titleTarget)?.title ?? null) : null
+  const askedTitle = titleAsk ? displayTitle(getCachedChannelTitle(titleTarget) ?? getStreamInfo(titleTarget)?.title) : null
   const channelTitleLine = askedTitle
     ? `\nChannel title for ${titleTarget} (REAL, read from twitch — this is ${titleTarget}'s title and nobody else's; quote it as-is): "${askedTitle}"`
     // asked for a title the lookup could not produce. saying nothing left the Stream line as the

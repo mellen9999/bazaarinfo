@@ -72,6 +72,22 @@ export async function refreshChannelTitle(login: string): Promise<void> {
   }
 }
 
+// a title as it can actually be POSTED. streamers park a link in the title, the bot is only
+// allowed to post bazaardb/github links, so the model dropped the link out of the middle of
+// its own quotation and shipped an unclosed one: title: "Got Sick / ... Retro Tokyo!
+// handing it a quotable string beats telling it to edit one mid-quote.
+export function displayTitle(title: string | null | undefined): string | null {
+  if (!title) return null
+  const clean = title
+    .replace(/\bhttps?:\/\/\S+/gi, '')
+    .replace(/\b(?:www\.|youtu\.be\/)\S+/gi, '')
+    .replace(/\s+/g, ' ')
+    // a link at the end leaves the separator that introduced it behind ("… tokyo! |")
+    .replace(/[\s|\-–—,:;]+$/, '')
+    .trim()
+  return clean || null
+}
+
 export function getCachedChannelTitle(login: string): string | null {
   const hit = titleCache.get(login.toLowerCase())
   if (!hit || Date.now() - hit.at > TITLE_TTL_MS) return null

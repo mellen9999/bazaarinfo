@@ -124,6 +124,23 @@ describe('title ask (P4)', () => {
     expect(missed).toContain('the twitch lookup came back with nothing')
   })
 
+  // the bot may only post bazaardb/github links, so the model edited the streamer's link out
+  // of the middle of its own quotation and shipped an unclosed quote. hand it a postable string.
+  it('hands over a title the bot can actually quote, link and all removed', async () => {
+    const { __setTitleCacheForTest, displayTitle } = await import('./channel-title')
+    const { buildUserMessage } = await import('./ai-build')
+    expect(displayTitle('Got Sick / Back When Better | !IRL - YANAKA! https://youtu.be/9o72fxesff8'))
+      .toBe('Got Sick / Back When Better | !IRL - YANAKA!')
+    expect(displayTitle('day 7 — www.example.com/x')).toBe('day 7')
+    expect(displayTitle('https://youtu.be/only')).toBe(null)
+    expect(displayTitle('NEW BAZAAR SEASON! | !IRL')).toBe('NEW BAZAAR SEASON! | !IRL')
+    __setTitleCacheForTest('titletest', 'bazaar grind | !irl https://youtu.be/abc')
+    const t = buildUserMessage('title', { user: 'h', channel: 'titletest' } as any).text
+    expect(t).toContain('"bazaar grind | !irl"')
+    expect(t).not.toContain('youtu.be')
+    __setTitleCacheForTest('titletest', null)
+  })
+
   // the gate used to be the bare word /\btitles?\b/i, which fired on anything that merely
   // contained it — and then ORDERED the model to quote the channel title.
   it('only fires on an ask about the stream title', async () => {
