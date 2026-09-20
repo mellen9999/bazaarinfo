@@ -114,6 +114,10 @@ describe('title ask (P4)', () => {
     const asked = buildUserMessage('title', { user: 'h', channel: 'titletest' } as any)
     expect(asked.text).toContain('Channel title for titletest (REAL')
     expect(asked.text).toContain('"NEW BAZAAR SEASON! | !IRL"')
+    // the phrasing chat actually used, which used to miss the gate entirely (live 2026-09-20)
+    const plain = buildUserMessage('what is current title', { user: 'h', channel: 'titletest' } as any)
+    expect(plain.text).toContain('Channel title for titletest (REAL')
+    expect(plain.text).toContain('"NEW BAZAAR SEASON! | !IRL"')
     const other = buildUserMessage('is boomerang good', { user: 'h', channel: 'titletest' } as any)
     expect(other.text).not.toContain('Channel title for')
     __setTitleCacheForTest('titletest', null)
@@ -148,7 +152,16 @@ describe('title ask (P4)', () => {
     for (const q of ['title', 'title?', '!b title', 'whats the title', "what's his title", 'stream title', 'whats the channel title', 'kripps title']) {
       expect(isTitleQuery(q)).toBe(true)
     }
+    // then it was tight enough to miss the plainest thing chat says (live 2026-09-20): no
+    // subject word, no bare ask, so a real title ask got answered off RECENT CHAT.
+    for (const q of ['what is current title', 'what is the current title', 'current title?', 'what title is it', 'which title is this', 'todays title?']) {
+      expect(isTitleQuery(q)).toBe(true)
+    }
     for (const q of ['title screen', 'whats the title track', 'what are the item titles', 'best card title', 'title fight', 'whats a good title for my build']) {
+      expect(isTitleQuery(q)).toBe(false)
+    }
+    // the owner can trail the word too, and the determiner form must not swallow those
+    for (const q of ['whats the title of that item', 'whats the title of that song', 'whats the title of this game', 'what is his job title']) {
       expect(isTitleQuery(q)).toBe(false)
     }
   })

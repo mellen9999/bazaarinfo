@@ -13,13 +13,24 @@ import { log } from './log'
 // "quote it" on asks that were about none of that (live 2026-09-19). shape mirrors
 // isShirtQuery: the word, minus the other owners, plus a subject or a bare ask.
 const TITLE_WORD_RE = /\btitles?\b/i
-const OTHER_TITLE_RE = /\btitles?\s+(?:screen|card|track|belt|fight|defen[cs]e|shot|holder|match|sequence)\b|\b(?:item|card|hero|song|album|video|clip|book|movie|anime|manga|episode|game|job)\s+titles?\b/i
+const OTHER_OWNERS = 'item|card|hero|song|album|video|clip|book|movie|film|show|series|anime|manga|episode|game|track|job|build'
+const OTHER_TITLE_RE = new RegExp(
+  `\\btitles?\\s+(?:screen|card|track|belt|fight|defen[cs]e|shot|holder|match|sequence)\\b` +
+    `|\\b(?:${OTHER_OWNERS})\\s+titles?\\b` +
+    // "the title of that item" — the owner trails the word instead of leading it
+    `|\\btitles?\\s+(?:of|for)\\s+(?:the|this|that|a|an|my|your|his|their)?\\s*(?:${OTHER_OWNERS})\\b`,
+  'i',
+)
 const TITLE_SUBJECT_RE = /\b(?:stream|channel|he|his|him|kripp\w*|krip|streamer|nl_?kripp)\b/i
 const BARE_TITLE_RE = /^\W*(?:!\w+\s+)?(?:whats?\s+(?:the\s+)?)?titles?\W*$/i // the command prefix is stripped upstream; tolerated here so the gate never depends on that
+// the ask's own head noun: "what is current title", "whats the title", "which title is this".
+// the gate used to need a subject word, so the plainest phrasing chat actually uses missed and
+// the bot answered a title ask off RECENT CHAT instead (live 2026-09-20).
+const TITLE_HEAD_RE = /\b(?:wh(?:at|ich)(?:'?s|s)?|the|this|that|current|todays?|latest|new)\s+(?:is\s+)?(?:the\s+)?(?:current\s+|todays?\s+|latest\s+|new\s+)?titles?\b/i
 
 export function isTitleQuery(q: string): boolean {
   if (!TITLE_WORD_RE.test(q) || OTHER_TITLE_RE.test(q)) return false
-  return BARE_TITLE_RE.test(q) || TITLE_SUBJECT_RE.test(q)
+  return BARE_TITLE_RE.test(q) || TITLE_SUBJECT_RE.test(q) || TITLE_HEAD_RE.test(q)
 }
 
 const TITLE_TTL_MS = 5 * 60_000
