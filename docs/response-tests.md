@@ -25,6 +25,13 @@ bun test packages/bot/src/audit.test.ts       # system prompt size guard (<8800)
 bun test packages/bot/src/trivia.test.ts packages/bot/src/trivia-game-topic.test.ts
 ```
 
+after any change to what sits in the prompt on EVERY ask, also run the leak probe — real
+model, real db copy, one scenario per process (costs a few cents, exit 1 = a fact leaked):
+
+```
+bun scripts/leak-probe.ts
+```
+
 then confirm the bot is actually running the code you just tested:
 
 ```
@@ -301,6 +308,14 @@ two harnesses worth re-running against a fresh dump before changing any guard:
   and brush-off rates over the whole dump. this is what found the 43% / run-of-17 monotony;
   tone was already fine at 0.8% each, which is why no tone guard was added. re-run it before
   touching voice, and don't fix what the numbers say isn't broken.
+- **leak** (`scripts/leak-probe.ts`) — the one harness a unit test cannot stand in for. a
+  fact carried in every prompt gets used no matter what instruction rides with it: the
+  stream title shipped with "state it if asked, never open with it unprompted" and still
+  opened an unrelated answer, so the fix was to take the string out of the ambient tier,
+  not to reword it. a leak is probabilistic, so an all-pass run is evidence and any FAIL is
+  proof. after fixing one, the bot's own pre-fix replies keep echoing out of `ask_queries`
+  and `channel_recent_responses` — purge those rows (the FTS delete trigger keeps the index
+  straight) and restart, or wait for them to age out of the window.
 
 ## why not an LLM verifier
 

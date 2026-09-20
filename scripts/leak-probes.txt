@@ -1,0 +1,25 @@
+# ambient-context leak scenarios — see scripts/leak-probe.ts
+#
+# "query :: expectation". default is -ambient (no stream fact may appear).
+# every line here is a real failure that reached chat, or the ask that must still work.
+
+# --- the asks that must carry NO ambient stream fact -----------------------------------
+# a schedule-shaped line in chat used to drag the title in behind an imperative, and the
+# bot answered a wellbeing check with the stream title (2026-09-19)
+you ok? :: -ambient
+# answered with the title instead of asking what "this" was (2026-09-19)
+explain what this is plz :: -ambient
+# "title" as somebody else's noun — a music term, not the stream's title
+whats the title track :: -ambient
+# named another streamer and got THIS channel's title attributed to them (2026-09-20)
+everything on ssg :: -ambient
+# an ordinary game ask has no business carrying stream facts
+whats a hard item? :: -ambient
+# a greeting is the cheapest possible leak surface
+gm :: -ambient
+
+# --- the ask the title IS the answer to -------------------------------------------------
+# the regression this all has to stay compatible with: a bare "title" once got an
+# improvised one, which is why the gated section exists at all (2026-09-07)
+title :: +title
+whats the title :: +title
