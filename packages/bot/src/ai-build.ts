@@ -71,19 +71,21 @@ export function nowLine(at: Date = new Date()): string {
 // — check nl_kripp directly". silent until the first poll lands: an empty live set at boot
 // means "not asked yet", and a confident "he's offline" over a live stream is worse than
 // saying nothing.
+// the title is deliberately NOT here. as an always-present line it was a standing invitation:
+// the bot opened an answer to "explain what this is plz" with it, handed one streamer's title
+// to another, and quoted it at a question about a title TRACK — a prose "only if asked" clause
+// did not hold (probe 2026-09-20). the title reaches the model through the gated sections that
+// exist for it — channelTitle on a title ask, the schedule override on a schedule ask — and
+// nowhere else, so there is nothing ambient to reach for.
 export function streamLine(channel: string, at = Date.now()): string {
   if (!isLiveStateKnown()) return ''
-  const title = getCachedChannelTitle(channel)
-  // offline: the title is still worth carrying. streamers park the plan in it
-  // ("NEXT STREAM WEDNESDAY"), which is why channel-title.ts fetches it at all.
   if (!isChannelLive(channel)) {
-    return `\nStream: ${channel} is offline right now.${title ? ` Channel title still reads "${title}" — state it if asked, never open with it unprompted.` : ''}\n`
+    return `\nStream: ${channel} is offline right now.\n`
   }
   const info = getStreamInfo(channel)
   const bits = [`${channel} is LIVE right now`]
   const game = getChannelGame(channel)
   if (game) bits.push(`playing ${game}`)
-  if (info?.title || title) bits.push(`stream title "${info?.title ?? title}"`)
   if (info?.startedAt) bits.push(`live for ${uptime(at - info.startedAt)}`)
   if (typeof info?.viewers === 'number') bits.push(`${formatViewers(info.viewers)} watching`)
   // the viewer count is the one field that can be turned into a weapon ("only 4k today").
@@ -436,7 +438,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // the ask may name another tracked channel — answer about that one, and say whose it is.
   // reading ctx.channel blindly handed one streamer's title to another (live 2026-09-20).
   const titleTarget = titleAsk ? resolveScheduleChannel(query, ctx.channel) : ctx.channel
-  const askedTitle = titleAsk ? getCachedChannelTitle(titleTarget) : null
+  // the /helix/streams poll carries the title free every ~60s while a channel is live, so it
+  // backs up the /channels cache — a title ask must never miss on a stream chat can see.
+  const askedTitle = titleAsk ? (getCachedChannelTitle(titleTarget) ?? getStreamInfo(titleTarget)?.title ?? null) : null
   const channelTitleLine = askedTitle
     ? `\nChannel title for ${titleTarget} (REAL, read from twitch — this is ${titleTarget}'s title and nobody else's; quote it as-is): "${askedTitle}"`
     // asked for a title the lookup could not produce. saying nothing left the Stream line as the

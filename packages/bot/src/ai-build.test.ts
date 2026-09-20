@@ -44,13 +44,16 @@ describe('streamLine — the bot knows whether the stream is live, like everyone
     setChannelOffline('nl_kripp')
   })
 
-  it('carries everything the channel page shows: title, uptime, viewers', () => {
+  it('carries what the channel page shows — minus the title, which has its own gate', () => {
     markLiveStateKnown()
     setChannelLive('nl_kripp', 'The Bazaar')
     const start = Date.UTC(2026, 7, 12, 14, 0)
     setStreamInfo('nl_kripp', { title: 'dragons or bust', viewers: 8234, startedAt: start })
     const l = streamLine('nl_kripp', start + (3 * 60 + 12) * 60_000)
-    expect(l).toContain('"dragons or bust"')
+    // an always-present title is a standing invitation to quote it at an unrelated ask
+    // (live 2026-09-19/20) — it reaches the model only through the sections gated on a
+    // title ask or a schedule ask
+    expect(l).not.toContain('dragons or bust')
     expect(l).toContain('live for 3h12m')
     expect(l).toContain('8.2k watching')
     // the count is public, but moving it into a jab is not
@@ -75,6 +78,12 @@ describe('streamLine — the bot knows whether the stream is live, like everyone
     setStreamInfo('nl_kripp', { title: 'no timestamp here' })
     expect(streamLine('nl_kripp')).not.toContain('live for')
     setChannelOffline('nl_kripp')
+  })
+
+  it('says nothing about the title while offline either', () => {
+    markLiveStateKnown()
+    setChannelOffline('nl_kripp')
+    expect(streamLine('nl_kripp')).toBe('\nStream: nl_kripp is offline right now.\n')
   })
 })
 
