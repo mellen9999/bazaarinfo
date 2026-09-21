@@ -198,6 +198,18 @@ describe('schedule context from chat (P5)', () => {
     __setTitleCacheForTest(SCH, null)
   })
 
+  // a title states PLANS. "when was last stream" is history, so the title answers
+  // nothing — it rode along on the past-stream reply anyway (live 2026-09-20).
+  it('leaves the title out of a past-stream ask', async () => {
+    const { __setTitleCacheForTest } = await import('./channel-title')
+    __setTitleCacheForTest(SCH, 'got sick / back when better')
+    for (const q of ['when was last stream', 'when did he stream last', 'when was the last time he was live']) {
+      const out = buildUserMessage(q, { user: 'bob', channel: SCH } as any).text
+      expect(out).not.toContain('CURRENT TITLE')
+    }
+    __setTitleCacheForTest(SCH, null)
+  })
+
   it('still relays the title plan to someone who asked about the schedule', async () => {
     const { __setTitleCacheForTest } = await import('./channel-title')
     __setTitleCacheForTest(SCH, 'got sick / back when better')

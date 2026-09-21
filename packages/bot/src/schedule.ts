@@ -35,7 +35,7 @@ export interface StreamSession {
 }
 
 export type Prediction =
-  | { kind: 'insufficient'; sessions: number; needed: number }
+  | { kind: 'insufficient'; sessions: number; needed: number; reason: 'count' | 'span'; spanDays?: number }
   | { kind: 'irregular'; sessions: number; medianGapMs: number | null }
   | { kind: 'streak'; at: number; confidenceMs: number; loose: boolean; samples: number }
   | { kind: 'weekday'; at: number; confidenceMs: number; loose: boolean; samples: number }
@@ -117,9 +117,11 @@ function tidy(raw: StreamSession[]): StreamSession[] {
 // predict the next stream start. pure: no clock reads, no i/o — `now` is passed in.
 export function predictNextStream(raw: StreamSession[], now: number): Prediction {
   const s = tidy(raw)
-  if (s.length < MIN_SESSIONS) return { kind: 'insufficient', sessions: s.length, needed: MIN_SESSIONS }
+  if (s.length < MIN_SESSIONS) return { kind: 'insufficient', sessions: s.length, needed: MIN_SESSIONS, reason: 'count' }
   const spanDays = (s[s.length - 1].startedAt - s[0].startedAt) / DAY
-  if (spanDays < MIN_SPAN_DAYS) return { kind: 'insufficient', sessions: s.length, needed: MIN_SESSIONS }
+  // enough starts, but all crammed into a few days — saying "8/6 starts logged" claims a
+  // shortfall that isn't there. the missing thing is history length, so say that instead.
+  if (spanDays < MIN_SPAN_DAYS) return { kind: 'insufficient', sessions: s.length, needed: MIN_SESSIONS, reason: 'span', spanDays }
 
   // timezone-agnostic frame: we don't know the streamer's tz, so we derive a shift that
   // moves the typical start to local-noon. that keeps each stream day's start cluster far
@@ -278,7 +280,9 @@ export function formatSchedule(channel: string, pred: Prediction, now: number, l
   }
   switch (pred.kind) {
     case 'insufficient':
-      return `still learning ${channel}'s schedule — ${pred.sessions}/${pred.needed} starts logged.`
+      return pred.reason === 'span'
+        ? `still learning ${channel}'s schedule — ${pred.sessions} starts logged, but only across ${Math.max(1, Math.round(pred.spanDays ?? 0))}d.`
+        : `still learning ${channel}'s schedule — ${pred.sessions}/${pred.needed} starts logged.`
     case 'irregular':
       return pred.medianGapMs
         ? `${channel}'s too irregular to call — roughly one stream every ${humanizeDelta(pred.medianGapMs)}, no reliable pattern.`
@@ -349,7 +353,7 @@ export function scheduleContext(channel: string, pred: Prediction, now: number, 
   if (live.isLive) return `Stream schedule for ${channel}: LIVE right now${live.liveSince ? ` (up ${humanizeDelta(now - live.liveSince)})` : ''}.`
   switch (pred.kind) {
     case 'insufficient':
-      return `Stream schedule for ${channel}: not enough data yet (${pred.sessions}/${pred.needed} starts logged). Do not guess a time.`
+      return `Stream schedule for ${channel}: not enough data yet (${pred.reason === 'span' ? `${pred.sessions} starts, only ~${Math.max(1, Math.round(pred.spanDays ?? 0))}d of history` : `${pred.sessions}/${pred.needed} starts logged`}). Do not guess a time.`
     case 'irregular':
       return `Stream schedule for ${channel}: too irregular to predict${pred.medianGapMs ? ` (~1 every ${humanizeDelta(pred.medianGapMs)})` : ''}. Do not guess a specific time.`
     case 'streak':

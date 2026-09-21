@@ -402,12 +402,12 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     // the ask may name another tracked channel ("when kripp getting on" in #mellen)
     const target = resolveScheduleChannel(cleanArgs, ctx.channel)
     const { pred, live, sessions } = snapshotSchedule(target, now)
-    let body = isPastStreamQuery(cleanArgs)
-      ? formatLastStream(target, sessions, now, live)
-      : formatSchedule(target, pred, now, live)
+    const past = isPastStreamQuery(cleanArgs)
+    let body = past ? formatLastStream(target, sessions, now, live) : formatSchedule(target, pred, now, live)
     // streamer-stated schedule in the title outranks the stats ("kripps title says
-    // next stream wednesday" must never get the same canned prediction again)
-    if (!live.isLive) body = withTitleOverride(body, target, await getChannelTitle(target), live)
+    // next stream wednesday" must never get the same canned prediction again) — but a
+    // title states PLANS, so it answers nothing about a stream that already happened.
+    if (!live.isLive && !past) body = withTitleOverride(body, target, await getChannelTitle(target), live)
     return withSuffix(body, sfx)
   }
 

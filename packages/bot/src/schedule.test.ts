@@ -17,6 +17,7 @@ import {
   type StreamSession,
 } from './schedule'
 import { resolveScheduleChannel } from './schedule-query'
+import { readFileSync } from 'node:fs'
 
 const HOUR = 3_600_000
 const DAY = 86_400_000
@@ -449,6 +450,33 @@ describe('title override', () => {
     expect(withTitleOverride('base.', 'x', 'chill bazaar grind', offline)).toBe('base.')
     expect(withTitleOverride('base.', 'x', 'back WEDNESDAY', { isLive: true })).toBe('base.')
     expect(withTitleOverride('base.', 'x', null, offline)).toBe('base.')
+  })
+  // the deterministic reply built the title in ahead of the last-stream line ("title
+  // says: back when better ... last stream started sun") — a title is a plan, it says
+  // nothing about a stream that already ended (live 2026-09-20). source-scanned because
+  // the gate lives at the call site, not inside withTitleOverride.
+  test('the deterministic path gates the title on a forward-looking ask', () => {
+    const src = readFileSync(new URL('./commands.ts', import.meta.url), 'utf8')
+    expect(src).toContain('!live.isLive && !past')
+    expect(/const past = isPastStreamQuery\(cleanArgs\)/.test(src)).toBe(true)
+  })
+  test('enough starts but too little history says so, not "8/6 logged"', () => {
+    const now = Date.UTC(2026, 8, 20, 12)
+    const sessions = Array.from({ length: 8 }, (_, i) => ({ startedAt: now - (8 - i) * 864e5 - 36e5, lastSeenAt: now - (8 - i) * 864e5 + 4 * 36e5 }))
+    const pred = predictNextStream(sessions, now)
+    expect(pred.kind).toBe('insufficient')
+    const out = formatSchedule('nl_kripp', pred, now, { isLive: false })
+    expect(out).not.toContain('8/6')
+    expect(out).toContain('8 starts logged')
+    expect(scheduleContext('nl_kripp', pred, now, { isLive: false })).not.toContain('8/6')
+  })
+  test('past-stream asks are recognised as past', () => {
+    for (const q of ['when was last stream', 'when did kripp stream last', 'when was the last time kripp was live', 'when did he go live yesterday']) {
+      expect(isPastStreamQuery(q)).toBe(true)
+    }
+    for (const q of ['when is the next stream', 'when is kripp live', 'when does he stream']) {
+      expect(isPastStreamQuery(q)).toBe(false)
+    }
   })
   test('TITLE_SCHEDULE_RE catches the real shapes', () => {
     expect(TITLE_SCHEDULE_RE.test('NEXT STREAM WEDNESDAY')).toBe(true)

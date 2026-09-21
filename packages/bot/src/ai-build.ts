@@ -401,7 +401,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // only for someone who actually asked about the schedule. the title carries an imperative
   // ("relay the title's plan"), and a title matching TITLE_SCHEDULE_RE on the bare word "back"
   // had the bot relaying it to people who said "you ok?" (live 2026-09-19).
-  const schedTitle = askedSchedule && sched && !sched.live.isLive ? displayTitle(getCachedChannelTitle(schedTarget)) : null
+  // a past-stream ask ("when was last stream") is about history; a title is about plans.
+  const schedTitle = askedSchedule && sched && !sched.live.isLive && !isPastStreamQuery(query) ? displayTitle(getCachedChannelTitle(schedTarget)) : null
   const titleLine = schedTitle && TITLE_SCHEDULE_RE.test(schedTitle)
     ? ` ${schedTarget}'s CURRENT TITLE: "${schedTitle}" — if the title states when the stream returns, that OVERRIDES the prediction; relay the title's plan.`
     : ''
