@@ -44,6 +44,8 @@ import * as dungeon from './dungeon'
 import { backfillVods } from './vod-backfill'
 import { renderUserNotice, routesAsAsk, renderStoredEvent } from './stream-events'
 import { renderModeration, noteTimeout, isTimedOut, noteDeletedMessage, wasDeleted, noteSentLine, storedLineFor } from './moderation'
+import { setControlSender, setControlChannelOps } from './control'
+import { startPanel } from './panel-server'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
 const CLIENT_ID = process.env.TWITCH_CLIENT_ID
@@ -269,8 +271,9 @@ setEmoteRefreshHandler(async () => {
   }
 })
 
-// admin !b join/part <channel> from any chat
-setJoinHandler(async (target, requester) => {
+// admin !b join/part <channel> from any chat — also the panel's join/part action
+// (setControlChannelOps below), so a mod hitting the button and !b join do the same thing.
+const joinChannelAsAdmin = async (target: string, _by: string): Promise<string> => {
   if (client.hasChannel(target)) return `already in #${target}`
   try {
     const targetId = await getUserId(getAccessToken(), CLIENT_ID, target, doRefresh)
@@ -287,7 +290,8 @@ setJoinHandler(async (target, requester) => {
   } catch (e) {
     return `failed to join #${target}: ${e instanceof Error ? e.message : e}`
   }
-})
+}
+setJoinHandler(joinChannelAsAdmin)
 
 // single source of truth for leaving a channel — every subsystem with per-channel state or
 // timers must be torn down here, or a !part leaks them (the raid auto-resolve loop kept
@@ -304,12 +308,13 @@ async function partChannel(target: string) {
   await channelStore.remove(target)
 }
 
-setPartHandler(async (target, _requester) => {
+const partChannelAsAdmin = async (target: string, _by: string): Promise<string> => {
   if (envChannels.includes(target)) return `can't leave hardcoded channel #${target}`
   if (!client.hasChannel(target)) return `not in #${target}`
   await partChannel(target)
   return `left #${target}`
-})
+}
+setPartHandler(partChannelAsAdmin)
 
 // admin !b status
 const startedAt = Date.now()
@@ -555,6 +560,12 @@ const client = new TwitchClient(
 client.setAuthRefresh(doRefresh)
 client.setIrcOnly(['nl_kripp'])
 setModCheck((ch) => client.isModIn(ch))
+
+// mods-only web control panel — chat plain-talk and the panel both land on control.ts,
+// so a pause from the web and a pause from chat are the same pause.
+setControlSender((ch, text) => client.say(ch, text))
+setControlChannelOps(joinChannelAsAdmin, partChannelAsAdmin)
+const panelServer = startPanel()
 // stream events (raid/sub/resub/gift/announce) — context only. renders into the chat
 // transcript (chatbuf) and the per-user event log; zero unprompted speech except the one
 // route below (a resub/sub note that itself opens with "!b"/"@bot").
@@ -948,6 +959,7 @@ function shutdown(code = 0) {
   log('shutting down...')
   setTimeout(() => { log('hard kill — cleanup hung'); process.exit(1) }, 5_000)
   try { emoteEvents.close() } catch {}
+  try { panelServer?.stop() } catch {}
   try { db.closeDb() } catch {}
   try { client.close() } catch {}
   process.exit(code)

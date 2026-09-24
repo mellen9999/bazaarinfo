@@ -21,6 +21,7 @@
 // bites subs/vips (viewer mutes still exempt them).
 
 import { JAILBREAK_ECHO, INSTRUCTION_ECHO, SECRET_PATTERN } from './ai-sanitize'
+import { isIgnored } from './ignore'
 
 export interface Directive {
   trigger: string[] // query keyword triggers (ANY match). empty = no keyword constraint.
@@ -156,9 +157,11 @@ export function matchingDirectives(channel: string, query: string, asker: string
 
 // is this asker currently muted by a planted directive? `privileged` (sub/vip) askers
 // are exempt from VIEWER mutes only — a mod's mute bites everyone but mods/broadcaster
-// (that exemption is enforced by the caller, not here).
+// (that exemption is enforced by the caller, not here). persistent ignores (ignore.ts) too.
 export function isMuted(channel: string, asker: string, privileged = false): boolean {
   const a = asker.toLowerCase()
+  // a mod's persistent ignore rides the same gate, so every mute-honoring path honors it
+  if (isIgnored(channel, a)) return true
   return active(channel).some((d) => d.mute && d.targetUser === a && (d.mod || !privileged))
 }
 

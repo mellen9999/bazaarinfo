@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'">
+<title>bazaarinfo panel</title>
+<link rel="stylesheet" href="panel.css">
+</head>
+<body>
+<div id="app">
+
+  <div id="login-screen" class="screen" hidden>
+    <div class="login-box">
+      <div class="login-title">bazaarinfo</div>
+      <div class="login-sub">mods only</div>
+      <a id="login-link" class="btn login-link" href="/auth/login">log in with twitch</a>
+    </div>
+  </div>
+
+  <div id="main-screen" class="screen" hidden>
+
+    <header id="header" class="header">
+      <div class="header-group">
+        <span class="brand">bazaarinfo</span>
+        <nav id="channel-tabs" class="channel-tabs"></nav>
+      </div>
+      <div id="stream-info" class="header-group stream-info">
+        <span id="live-dot" class="dot"></span>
+        <span id="stream-game" class="stream-game"></span>
+        <span id="stream-viewers" class="stream-viewers"></span>
+        <span id="stream-uptime" class="stream-uptime"></span>
+        <span id="stale-flag" class="stale-flag" hidden>stale</span>
+      </div>
+      <div class="header-group header-right">
+        <span id="whoami" class="whoami"></span>
+        <button id="logout-btn" class="btn" type="button">logout</button>
+      </div>
+    </header>
+
+    <div id="cmdbar" class="cmdbar">
+      <span class="cmdbar-prefix">:</span>
+      <input id="cmd-input" class="cmd-input" type="text" autocomplete="off" spellcheck="false"
+        placeholder="plain english, e.g. pause trivia for an hour">
+      <span id="cmd-preview" class="cmd-preview"></span>
+    </div>
+
+    <div id="grid" class="grid">
+      <section class="pane" id="pane-pauses" data-pane="pauses">
+        <h2 class="pane-title">pauses</h2>
+        <div class="pane-body" id="pauses-body"></div>
+      </section>
+
+      <section class="pane" id="pane-vibes" data-pane="vibes">
+        <h2 class="pane-title">vibes</h2>
+        <div class="pane-body" id="vibes-body"></div>
+      </section>
+
+      <section class="pane" id="pane-trivia" data-pane="trivia">
+        <h2 class="pane-title">trivia</h2>
+        <div class="pane-body" id="trivia-body"></div>
+      </section>
+
+      <section class="pane" id="pane-asks" data-pane="asks">
+        <h2 class="pane-title">asks</h2>
+        <div class="pane-body" id="asks-body"></div>
+      </section>
+
+      <section class="pane" id="pane-audit" data-pane="audit">
+        <h2 class="pane-title">audit</h2>
+        <div class="pane-body" id="audit-body"></div>
+      </section>
+
+      <section class="pane" id="pane-ignored" data-pane="ignored">
+        <h2 class="pane-title">ignored</h2>
+        <div class="pane-body" id="ignored-body"></div>
+      </section>
+
+      <section class="pane" id="pane-raid" data-pane="raid">
+        <h2 class="pane-title">raid</h2>
+        <div class="pane-body" id="raid-body"></div>
+      </section>
+
+      <section class="pane" id="pane-ai" data-pane="ai">
+        <h2 class="pane-title">ai</h2>
+        <div class="pane-body" id="ai-body"></div>
+      </section>
+
+      <section class="pane" id="pane-depths" data-pane="depths">
+        <h2 class="pane-title">depths</h2>
+        <div class="pane-body" id="depths-body"></div>
+      </section>
+    </div>
+
+    <div id="admin-strip" class="admin-strip" hidden>
+      <span class="admin-label">admin</span>
+      <input id="join-input" class="admin-input" type="text" placeholder="channel to join" autocomplete="off" spellcheck="false">
+      <button id="join-btn" class="btn" type="button">join</button>
+      <button id="part-btn" class="btn" type="button">leave current</button>
+    </div>
+
+    <div id="say-row" class="say-row">
+      <span class="say-prefix">say</span>
+      <input id="say-input" class="say-input" type="text" placeholder="message to chat" autocomplete="off" spellcheck="false" maxlength="450">
+      <button id="say-btn" class="btn" type="button">send</button>
+    </div>
+
+    <div id="status-line" class="status-line"></div>
+  </div>
+
+  <div id="help-overlay" class="help-overlay" hidden></div>
+
+</div>
+<script type="module" src="panel.js"></script>
+</body>
+</html>

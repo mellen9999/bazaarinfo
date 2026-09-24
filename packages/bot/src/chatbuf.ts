@@ -1,4 +1,5 @@
 import { log } from './log'
+import { isIgnored } from './ignore'
 
 export interface ChatEntry {
   user: string
@@ -210,6 +211,8 @@ function stripSurrogates(s: string): string {
 }
 
 export function record(channel: string, user: string, text: string, messageId?: string, threadId?: string, mod = false, tag?: string) {
+  // an ignored chatter never reaches the ai's view of chat — no steering by proxy
+  if (!mod && isIgnored(channel, user)) return
   text = stripSurrogates(text)
   const now = Date.now()
   const last = lastMessageTime.get(channel) ?? 0

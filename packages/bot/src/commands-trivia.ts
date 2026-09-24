@@ -246,6 +246,10 @@ function queueTopic(channel: string, topic: string, user: string): string | null
     : `a round is already running — "${topic.slice(0, 30)}" is queued (#${q.length})`
 }
 
+export function listTopicQueue(channel: string): { topic: string; user: string }[] {
+  return liveQueue(channel).map(({ topic, user }) => ({ topic, user }))
+}
+
 export function __queueDepthForTest(channel: string): number {
   return liveQueue(channel).length
 }

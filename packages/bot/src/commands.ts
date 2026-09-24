@@ -27,6 +27,10 @@ import { ALIAS_ADMINS, selfTimeoutDodge, proxyWithCooldown, proxyCooldowns, PROX
 import { itemLookup, resolveSkills, heroPoolReply, suggestTags, capitalize, TRIVIA_RESULT_RE, TRAILING_TRIVIA_BAIL, TRIVIA_STANDINGS_RE, BARE_STANDINGS_RE, EMBEDDED_STANDINGS_RE, isStandingsTypo } from './commands-lookup'
 import { runTrivia, stripTopicConnector, triviaCommand } from './commands-trivia'
 import { DIRECTIVE_INTENT, MOD_CONTROL_HINT, handlePlantDirective, handleLanguageOrder, handleVibes, TRIVIA_UNBAN_RE, TRIVIA_BAN_RE, unbanTriviaTopic, banTriviaTopic, normTopic, stripArticles, featureOf, applySuppress, applyResume, parseSuppressMinutes, SUPPRESS_RE, SUPPRESS_ALL_RE, RESUME_RE } from './commands-mod'
+import { matchControlIntent } from './control-intent'
+import { act, type ActionKind } from './control'
+
+const CHAT_CONTROL_KINDS: ReadonlySet<ActionKind> = new Set(['trivia-start', 'trivia-skip', 'raid', 'raid-pace', 'ai', 'depths-reset', 'queue-clear', 'vibe-drop', 'vibe-clear', 'ignore', 'unignore'])
 
 export interface CommandContext {
   user?: string
@@ -388,6 +392,17 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     }
     if (!isQuestion && SUPPRESS_ALL_RE.test(cleanArgs)) {
       return applySuppress(ctx.channel, 'all', ctx.user ?? 'mod', parseSuppressMinutes(cleanArgs), sfx)
+    }
+
+    // richer NL mod control — game/ai/vibe-index/queue/depths/trivia/ignore phrasing beyond
+    // the fast-paths above (pause/resume/topic-ban phrasing already returned there). same
+    // act() the panel uses; announce=false so the result is this reply, never a double post.
+    // "say" is panel-only, never dispatched from chat.
+    const nlAction = matchControlIntent(cleanArgs)
+    if (nlAction && CHAT_CONTROL_KINDS.has(nlAction.kind)) {
+      const res = await act(ctx.channel, ctx.user ?? 'mod', nlAction, false)
+      // a failed trivia start/skip falls through to a normal answer, as it always did
+      if (res.ok || !nlAction.kind.startsWith('trivia-')) return withSuffix(res.msg, sfx)
     }
   }
 

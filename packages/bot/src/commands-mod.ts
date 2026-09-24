@@ -34,6 +34,13 @@ export function banTriviaTopic(channel: string, topic: string): string {
   return key
 }
 
+export function listTriviaTopicBans(channel: string): { topic: string; minutes: number }[] {
+  const now = Date.now()
+  return [...(triviaTopicBans.get(channel) ?? [])]
+    .filter(([, exp]) => exp > now)
+    .map(([topic, exp]) => ({ topic, minutes: Math.max(1, Math.round((exp - now) / 60_000)) }))
+}
+
 export function unbanTriviaTopic(channel: string, topic: string): boolean {
   return triviaTopicBans.get(channel)?.delete(normTopic(topic)) ?? false
 }

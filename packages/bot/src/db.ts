@@ -975,6 +975,31 @@ const migrations: (() => void)[] = [
       searches INTEGER NOT NULL DEFAULT 0
     )`)
   },
+  // migration 35: panel_audit — every control-panel action, who did it, where. shown in
+  // the panel so each mod sees what the others changed.
+  () => {
+    db.run(`CREATE TABLE panel_audit (
+      id INTEGER PRIMARY KEY,
+      ts INTEGER NOT NULL,
+      login TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      action TEXT NOT NULL,
+      detail TEXT NOT NULL DEFAULT ''
+    )`)
+    db.run(`CREATE INDEX idx_panel_audit_channel ON panel_audit(channel, ts DESC)`)
+  },
+  // migration 36: ignored_users — a mod's "stop responding to X". unlike a directive mute
+  // it survives restarts; expires_at NULL = until a mod lifts it.
+  () => {
+    db.run(`CREATE TABLE ignored_users (
+      channel TEXT NOT NULL,
+      login TEXT NOT NULL,
+      by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      PRIMARY KEY (channel, login)
+    )`)
+  },
 ]
 
 function runMigrations() {
@@ -2374,4 +2399,42 @@ export function getUserChatProfile(username: string, channel: string): UserChatP
   } catch {
     return null
   }
+}
+
+// --- control panel ---
+
+export interface PanelAuditRow { ts: number; login: string; action: string; detail: string }
+
+export function logPanelAction(login: string, channel: string, action: string, detail = ''): void {
+  db.query(`INSERT INTO panel_audit (ts, login, channel, action, detail) VALUES (?, ?, ?, ?, ?)`)
+    .run(Date.now(), login, channel.toLowerCase(), action, detail.slice(0, 200))
+}
+
+export function recentPanelActions(channel: string, n = 15): PanelAuditRow[] {
+  return db.query(`SELECT ts, login, action, detail FROM panel_audit WHERE channel = ? ORDER BY ts DESC LIMIT ?`)
+    .all(channel.toLowerCase(), n) as PanelAuditRow[]
+}
+
+export interface RecentAsk { user: string; query: string; response: string; at: string }
+
+export function recentAsks(channel: string, n = 20): RecentAsk[] {
+  return db.query(
+    `SELECT u.username AS user, aq.query, aq.response, aq.created_at AS at FROM ask_queries aq
+     JOIN users u ON u.id = aq.user_id WHERE aq.channel = ? ORDER BY aq.id DESC LIMIT ?`,
+  ).all(channel.toLowerCase(), n) as RecentAsk[]
+}
+
+export interface IgnoreRow { channel: string; login: string; by: string; created_at: number; expires_at: number | null }
+
+export function loadIgnores(): IgnoreRow[] {
+  return db.query(`SELECT channel, login, by, created_at, expires_at FROM ignored_users`).all() as IgnoreRow[]
+}
+
+export function saveIgnore(r: IgnoreRow): void {
+  db.query(`INSERT OR REPLACE INTO ignored_users (channel, login, by, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(r.channel, r.login, r.by, r.created_at, r.expires_at)
+}
+
+export function deleteIgnore(channel: string, login: string): void {
+  db.query(`DELETE FROM ignored_users WHERE channel = ? AND login = ?`).run(channel, login)
 }
