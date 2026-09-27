@@ -172,16 +172,17 @@ a:hover { background: #ffffff; color: #000000; }
     overflow-y: hidden;
   }
   .pane { min-height: 0; }
+  /* named areas only where a template defines them: outside it every named pane lands in
+     the same implicit cell and the boxes pile on top of each other */
+  #pane-switches { grid-area: switches; }
+  #pane-chatrules { grid-area: chatrules; }
+  #pane-trivia { grid-area: trivia; }
+  #pane-questions { grid-area: questions; }
+  #pane-activity { grid-area: activity; }
+  #pane-people { grid-area: people; }
+  #pane-raidgeon { grid-area: raidgeon; }
+  #pane-log { grid-area: log; }
 }
-
-#pane-switches { grid-area: switches; }
-#pane-chatrules { grid-area: chatrules; }
-#pane-trivia { grid-area: trivia; }
-#pane-questions { grid-area: questions; }
-#pane-activity { grid-area: activity; }
-#pane-people { grid-area: people; }
-#pane-raidgeon { grid-area: raidgeon; }
-#pane-log { grid-area: log; }
 
 .pane {
   position: relative;
