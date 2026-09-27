@@ -546,38 +546,46 @@ function renderStatusLine(): void {
   clear(statusLine)
   const snap = state.snap
   if (!snap) { statusLine.append(el('span', { class: 'dim', text: 'connecting…' })); return }
-  const seg = (node: Node): void => { statusLine.append(el('span', { class: 'status-seg' }, node)) }
-  const sep = (): void => statusLine.append(el('span', { class: 'status-sep', text: '│' }))
+
+  // built as a list of present chunks, joined with │ only BETWEEN them — a field that
+  // isn't available yet (health, before index.ts wires it up) must never leave a
+  // dangling separator with nothing after it.
+  const chunks: HTMLElement[] = []
 
   const s = snap.stream
-  seg(el('span', {}, el('span', { class: `dot${s.live ? ' live' : ''}` }),
+  chunks.push(el('span', { class: 'status-seg' }, el('span', { class: `dot${s.live ? ' live' : ''}` }),
     document.createTextNode(s.live ? 'live' : 'offline'),
     ...(s.live && s.viewers != null ? [document.createTextNode(` ${compactNum(s.viewers)}`)] : []),
     ...(s.game ? [document.createTextNode(` · ${s.game}`)] : []),
     ...(s.live && s.startedAt ? [document.createTextNode(` · ${formatUptime((snap.now - s.startedAt) / 1000)}`)] : [])))
-  sep()
 
   const h = snap.health
-  seg(el('span', { title: h?.irc ? 'the bot can currently send and receive chat' : 'the bot has lost its chat connection' },
+  chunks.push(el('span', { class: 'status-seg', title: h?.irc ? 'the bot can currently send and receive chat' : 'the bot has lost its chat connection' },
     el('span', { class: `dot${h?.irc ? ' live' : ' danger'}` }), document.createTextNode('chat link')))
-  sep()
 
   const brain = brainLabel(snap.ai)
-  seg(el('span', { class: brain.cls, title: 'whether the bot can currently think (call the ai)' }, document.createTextNode(brain.text)))
-  seg(el('span', { class: 'dim', title: 'rounds being generated right now · rounds waiting their turn' },
-    document.createTextNode(`thinking ${snap.ai.slots} · waiting ${snap.ai.queue}/${snap.ai.queueMax}`)))
-  sep()
+  chunks.push(el('span', { class: 'status-seg' },
+    el('span', { class: brain.cls, title: 'whether the bot can currently think (call the ai)' }, document.createTextNode(brain.text)),
+    document.createTextNode(' · '),
+    el('span', { class: 'dim', title: 'rounds being generated right now · rounds waiting their turn' },
+      document.createTextNode(`thinking ${snap.ai.slots} · waiting ${snap.ai.queue}/${snap.ai.queueMax}`))))
 
-  seg(el('span', { class: 'dim', title: 'real-world facts looked up today, out of the daily cap' }, document.createTextNode(`web searches ${snap.ai.searchesToday}/${snap.ai.searchCap}`)))
-  sep()
+  chunks.push(el('span', { class: 'status-seg dim', title: 'real-world facts looked up today, out of the daily cap' },
+    document.createTextNode(`web searches ${snap.ai.searchesToday}/${snap.ai.searchCap}`)))
 
   if (h) {
-    seg(el('span', { class: 'dim', title: 'chat messages sent in the last 30 seconds, out of the limit' }, document.createTextNode(`messages ${h.sends.used}/${h.sends.limit}`)))
-    seg(el('span', { class: h.privileged ? 'ok-dim' : 'warn', title: h.privileged ? 'the bot is a mod here — full speed' : 'the bot is not a mod here — slower message limit' },
-      document.createTextNode(h.privileged ? 'bot is mod ✓' : 'bot is not mod (slow lane)')))
-    sep()
-    seg(el('span', { class: 'dim', title: 'how long the bot has been running without a restart' }, document.createTextNode(`up ${formatUptime(h.uptimeSec)}`)))
+    chunks.push(el('span', { class: 'status-seg' },
+      el('span', { class: 'dim', title: 'chat messages sent in the last 30 seconds, out of the limit' }, document.createTextNode(`messages ${h.sends.used}/${h.sends.limit}`)),
+      document.createTextNode(' · '),
+      el('span', { class: h.privileged ? 'ok-dim' : 'warn', title: h.privileged ? 'the bot is a mod here — full speed' : 'the bot is not a mod here — slower message limit' },
+        document.createTextNode(h.privileged ? 'bot is mod ✓' : 'bot is not mod (slow lane)'))))
+    chunks.push(el('span', { class: 'status-seg dim', title: 'how long the bot has been running without a restart' }, document.createTextNode(`up ${formatUptime(h.uptimeSec)}`)))
   }
+
+  chunks.forEach((c, i) => {
+    if (i > 0) statusLine.append(el('span', { class: 'status-sep', text: '│' }))
+    statusLine.append(c)
+  })
   if (isStale()) statusLine.append(el('span', { class: 'warn', title: 'the live connection to the bot dropped — this may be out of date' }, document.createTextNode(' · stale')))
 }
 
@@ -595,36 +603,40 @@ function switchDefs(snap: Snapshot): SwitchDef[] {
   ]
 }
 
+const PAUSE_CHIPS: [string, number][] = [['15m', 15], ['30m', 30], ['1h', 60]]
+
+// one line per switch: label · state dot+text · buttons. `stateOn: null` renders the
+// paused (yellow) dot — a pause is neither "on" nor "off", it's a timer.
+function switchRow(label: string, tip: string, stateOn: boolean | null, stateText: string, buttons: HTMLElement[]): HTMLDivElement {
+  const row = el('div', { class: 'row switch-row' })
+  row.append(el('span', { class: 'switch-label', text: label, title: tip }))
+  row.append(el('span', { class: 'switch-state' },
+    el('span', { class: `dot${stateOn === null ? ' warn' : stateOn ? ' live' : ' danger'}` }),
+    document.createTextNode(stateText)))
+  row.append(el('div', { class: 'switch-btns' }, ...buttons))
+  return row
+}
+
 function renderSwitches(snap: Snapshot): void {
   const body = boxBody.switches
   clear(body)
   for (const def of switchDefs(snap)) {
     const entry = def.feature ? pauseEntryFor(def.feature) : undefined
-    const top = el('div', { class: 'switch-top' })
-    top.append(el('span', { class: 'switch-label', text: def.label, title: def.tip }))
     if (entry) {
-      top.append(el('span', { class: 'warn', text: `paused ${ttl(entry.minutes)} · by ${entry.by}` }))
-      top.append(btn('resume', `turn ${def.label} back on now`, () => doAct({ kind: 'resume', feature: def.feature! })))
-    } else {
-      const on = def.toggle ? !!def.on : true
-      top.append(el('span', { class: on ? 'ok-dim' : 'dim', text: on ? 'on' : 'off' }))
-      if (def.toggle) top.append(btn(on ? 'turn off' : 'turn on', `turn ${def.label} ${on ? 'off' : 'on'}`, () => def.toggle!(!on)))
+      body.append(switchRow(def.label, def.tip, null, `paused ${ttl(entry.minutes)}`,
+        [btn('resume', `turn ${def.label} back on now`, () => doAct({ kind: 'resume', feature: def.feature! }))]))
+      continue
     }
-    const row = el('div', { class: 'switch-row' }, top)
-    if (def.feature && !entry) {
-      const pauseBtns = el('div', { class: 'switch-pause-btns' })
-      for (const m of [15, 30, 60]) pauseBtns.append(btn(`${m}m`, `pause ${def.label} for ${m} minutes`, () => doAct({ kind: 'pause', feature: def.feature!, minutes: m })))
-      row.append(pauseBtns)
-    }
-    body.append(row)
+    const on = def.toggle ? !!def.on : true
+    const buttons: HTMLElement[] = []
+    if (def.toggle) buttons.push(btn(on ? 'turn off' : 'turn on', `turn ${def.label} ${on ? 'off' : 'on'}`, () => def.toggle!(!on)))
+    if (def.feature) for (const [label, m] of PAUSE_CHIPS) buttons.push(btn(label, `pause ${def.label} for ${label}`, () => doAct({ kind: 'pause', feature: def.feature!, minutes: m })))
+    body.append(switchRow(def.label, def.tip, on, on ? 'on' : 'off', buttons))
   }
   if (state.me?.admin) {
-    const top = el('div', { class: 'switch-top' })
-    top.append(el('span', { class: 'switch-label', text: 'ai trivia (all channels)', title: 'whether the ai can write brand-new trivia questions, everywhere the bot runs' }))
     const on = snap.ai.aiTrivia
-    top.append(el('span', { class: on ? 'ok-dim' : 'dim', text: on ? 'on' : 'off' }))
-    top.append(btn(on ? 'turn off' : 'turn on', `turn ai trivia ${on ? 'off' : 'on'}, everywhere`, () => doAct({ kind: 'ai-trivia', on: !on })))
-    body.append(el('div', { class: 'switch-row' }, top))
+    body.append(switchRow('ai trivia', 'whether the ai can write brand-new trivia questions — applies to every channel', on, on ? 'on' : 'off',
+      [btn(on ? 'turn off' : 'turn on', `turn ai trivia ${on ? 'off' : 'on'}, everywhere`, () => doAct({ kind: 'ai-trivia', on: !on }))]))
   }
 }
 
@@ -636,17 +648,15 @@ function renderChatRules(snap: Snapshot): void {
   const list = el('div', { class: 'list-scroll' })
   if (!snap.vibes.length) list.append(el('div', { class: 'pane-empty', text: 'no chat rules right now' }))
   snap.vibes.forEach((v, i) => {
-    const wrap = el('div', { class: `vibe-row${isSelected('chatrules', i) ? ' selected' : ''}` })
-    const line1 = el('div', { class: 'row' })
-    line1.append(el('span', { text: `#${v.n}` }))
-    line1.append(el('span', { class: v.mod ? 'warn' : 'info', text: v.mod ? 'mod' : 'viewer' }))
-    line1.append(el('span', { class: 'row-label', text: v.target ? `${v.planter} →${v.target}` : v.planter }))
-    if (v.mute) line1.append(el('span', { class: 'danger', text: 'mute' }))
-    line1.append(el('span', { class: 'dim', text: ttl(v.minutes) }))
-    line1.append(btn('x', 'drop this chat rule', () => doAct({ kind: 'vibe-drop', index: v.n })))
-    wrap.append(line1)
-    wrap.append(el('div', { class: 'vibe-instruction', text: v.instruction, title: v.instruction }))
-    list.append(wrap)
+    const row = el('div', { class: `row${isSelected('chatrules', i) ? ' selected' : ''}` })
+    row.append(el('span', { class: v.mod ? 'warn' : 'info', text: v.mod ? 'mod' : 'viewer' }))
+    const who = v.target ? `${v.planter} →${v.target}` : v.planter
+    const what = v.mute ? 'mute' : v.instruction
+    const full = `${who}: ${what}`
+    row.append(el('span', { class: 'row-label', text: `${who} — ${what}`, title: full }))
+    row.append(el('span', { class: 'dim', text: ttl(v.minutes) }))
+    row.append(btn('x', 'drop this chat rule', () => doAct({ kind: 'vibe-drop', index: v.n })))
+    list.append(row)
   })
   body.append(list)
   const controls = el('div', { class: 'pane-controls' })
@@ -664,7 +674,7 @@ function renderTrivia(snap: Snapshot): void {
     triviaRoundEl.append(el('span', { class: 'dim', text: `${t.round.secondsLeft}s` }))
     triviaRoundEl.append(el('span', { class: 'dim', text: `${t.round.guesses} guesses` }))
   } else {
-    triviaRoundEl.append(el('span', { class: 'dim', text: 'no round running' }))
+    triviaRoundEl.append(el('span', { class: 'dim', text: 'no game running' }))
   }
 
   clear(triviaQueueEl)
@@ -697,26 +707,22 @@ function renderQuestions(snap: Snapshot): void {
   if (asks) {
     if (!snap.asks.length) list.append(el('div', { class: 'pane-empty', text: 'no questions yet' }))
     snap.asks.forEach((a, i) => {
-      const row = el('div', { class: `q-row${isSelected('questions', i) ? ' selected' : ''}` })
-      const meta = el('div', { class: 'q-meta' })
-      meta.append(el('span', { class: 'dim', text: relTime(new Date(`${a.at}Z`).getTime()) }))
-      meta.append(el('span', { class: 'info', text: a.user }))
-      if (a.latencyMs != null) meta.append(el('span', { class: 'dim', text: `${a.latencyMs}ms` }))
-      row.append(meta)
+      const row = el('div', { class: `row q-row${isSelected('questions', i) ? ' selected' : ''}` })
+      row.append(el('span', { class: 'q-age', text: relTime(new Date(`${a.at}Z`).getTime()) }))
+      row.append(el('span', { class: 'q-user', text: a.user, title: a.user }))
       const full = `${a.query} → ${a.response}`
-      row.append(el('div', { class: 'q-line', text: full, title: full }))
+      row.append(el('span', { class: 'q-line', text: full, title: full }))
+      if (a.latencyMs != null) row.append(el('span', { class: 'q-ms', text: `${(a.latencyMs / 1000).toFixed(1)}s` }))
       list.append(row)
     })
   } else {
     if (!snap.misses.length) list.append(el('div', { class: 'pane-empty', text: "the bot hasn't missed anything recently" }))
     snap.misses.forEach((m, i) => {
-      const row = el('div', { class: `q-row${isSelected('questions', i) ? ' selected' : ''}` })
-      const meta = el('div', { class: 'q-meta' })
-      meta.append(el('span', { class: 'dim', text: relTime(new Date(`${m.at}Z`).getTime()) }))
-      meta.append(el('span', { class: 'info', text: m.user }))
-      meta.append(el('span', { class: 'q-miss-reason', text: m.reason }))
-      row.append(meta)
-      row.append(el('div', { class: 'q-line', text: m.query, title: m.query }))
+      const row = el('div', { class: `row q-row${isSelected('questions', i) ? ' selected' : ''}` })
+      row.append(el('span', { class: 'q-age', text: relTime(new Date(`${m.at}Z`).getTime()) }))
+      row.append(el('span', { class: 'q-user', text: m.user, title: m.user }))
+      row.append(el('span', { class: 'q-line', text: m.query, title: m.query }))
+      row.append(el('span', { class: 'q-miss-reason', text: m.reason, title: m.reason }))
       list.append(row)
     })
   }
@@ -825,10 +831,12 @@ function renderLog(snap: Snapshot): void {
   const list = el('div', { class: 'list-scroll' })
   if (!snap.audit.length) list.append(el('div', { class: 'pane-empty', text: 'no actions yet' }))
   for (const a of snap.audit) {
-    const line = `${relTime(a.ts)} ${a.login} ${a.detail || a.action}`
+    const what = a.detail || a.action
     const row = el('div', { class: 'row audit-row' })
-    row.append(el('span', { class: 'audit-line', text: line, title: line }))
-    row.append(el('span', { class: 'audit-source', text: `(${a.source})`, title: a.source === 'chat' ? 'done by typing in twitch chat' : 'done from this panel' }))
+    row.append(el('span', { class: 'q-age', text: relTime(a.ts) }))
+    row.append(el('span', { class: 'q-user', text: a.login, title: a.login }))
+    row.append(el('span', { class: 'audit-line', text: what, title: what }))
+    row.append(el('span', { class: 'audit-source', text: a.source, title: a.source === 'chat' ? 'done by typing in twitch chat' : 'done from this panel' }))
     list.append(row)
   }
   body.append(list)
@@ -857,11 +865,34 @@ const RENDERERS: Record<BoxKey, (snap: Snapshot) => void> = {
   activity: renderActivity, people: renderPeople, raidgeon: renderRaidgeon, log: renderLog,
 }
 
+// trivia and people own static children (topic/ignore inputs + buttons, declared once in
+// index.html) that must never be wiped — only their own sub-lists get cleared here, so the
+// pre-first-snapshot paint can never destroy them the way a whole-body clear would.
+function renderTriviaEmpty(): void {
+  clear(triviaRoundEl)
+  triviaRoundEl.append(el('span', { class: 'dim', text: 'no game running' }))
+  clear(triviaQueueEl)
+  clear(triviaBansEl)
+  triviaBansEl.append(el('div', { class: 'pane-empty', text: 'none' }))
+}
+
+function renderPeopleEmpty(): void {
+  for (const list of [peopleIgnoredEl, peopleTimedOutEl, peopleTopEl]) {
+    clear(list)
+    list.append(el('div', { class: 'pane-empty', text: '—' }))
+  }
+}
+
 function renderBoxes(): void {
   const snap = state.snap
   for (const key of BOX_ORDER) boxEl[key].classList.toggle('focused', focusedBoxKey() === key)
   if (!snap) {
-    for (const key of BOX_ORDER) { clear(boxBody[key]); boxBody[key].append(el('div', { class: 'pane-empty', text: 'waiting for data…' })) }
+    for (const key of BOX_ORDER) {
+      if (key === 'trivia') { renderTriviaEmpty(); continue }
+      if (key === 'people') { renderPeopleEmpty(); continue }
+      clear(boxBody[key])
+      boxBody[key].append(el('div', { class: 'pane-empty', text: 'waiting for data…' }))
+    }
     return
   }
   for (const key of BOX_ORDER) {
