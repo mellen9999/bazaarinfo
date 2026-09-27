@@ -112,10 +112,10 @@ a:hover { background: #ffffff; color: #000000; }
   gap: 12px;
   flex-wrap: wrap;
 }
-.header-group { display: flex; align-items: center; gap: 8px; }
+.header-group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .brand { color: var(--accent); font-weight: bold; }
 
-.channel-tabs { display: flex; gap: 2px; }
+.channel-tabs { display: flex; flex-wrap: wrap; gap: 2px; min-width: 0; }
 .channel-tab {
   display: flex;
   align-items: center;
