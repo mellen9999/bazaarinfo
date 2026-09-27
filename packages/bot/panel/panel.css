@@ -25,6 +25,17 @@ html, body {
   overflow-x: hidden;
 }
 
+/* thin dark scrollbars everywhere a box scrolls internally — the native light/wide
+   default reads as a bright foreign strip against this palette */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--bg);
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: var(--bg); }
+*::-webkit-scrollbar-thumb { background: var(--border); border: 1px solid var(--bg); }
+*::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+
 body { min-height: 100vh; }
 
 button, input {
@@ -159,8 +170,6 @@ a:hover { background: #ffffff; color: #000000; }
       "switches questions questions people"
       "trivia   chatrules raidgeon  log";
     overflow-y: hidden;
-    border-top: 1px solid var(--border);
-    border-left: 1px solid var(--border);
   }
   .pane { min-height: 0; }
 }
@@ -184,11 +193,9 @@ a:hover { background: #ffffff; color: #000000; }
   min-height: 130px;
   overflow: visible; /* the border title sits above the box; .pane-body owns scrolling */
 }
-/* at >=1280 the grid itself supplies the top/left edge — each box only needs its own
-   right+bottom, so adjoining boxes share exactly one line instead of doubling it up */
-@media (min-width: 1280px) {
-  .pane { border-width: 0 1px 1px 0; }
-}
+/* every box keeps its own full border (not just right+bottom) — the ┤ title ├ straddles
+   THIS box's own top border, and at gap:0 that only works if every row has one; two
+   adjoining boxes' borders touch, reading as one clean line rather than a visible gap */
 .pane.focused { border-color: var(--accent); }
 .pane.focused > .pane-title { color: var(--accent); }
 .pane.focused > .pane-title::before, .pane.focused > .pane-title::after { color: var(--accent); }
@@ -277,12 +284,15 @@ a:hover { background: #ffffff; color: #000000; }
 .audit-line { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .audit-source { color: var(--dim); flex-shrink: 0; }
 
-/* ---- switches box: one line per switch ---- */
+/* ---- switches box: one line per switch ----
+   grid, not flex: the label and state columns size to their own content and never
+   shrink; only the buttons column is elastic, wrapping onto a 2nd line under pressure
+   rather than ever truncating the label. */
 
-.switch-row { gap: 6px; }
-.switch-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.switch-state { flex-shrink: 0; }
-.switch-btns { display: flex; gap: 3px; flex-shrink: 0; }
+.switch-row { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 6px; }
+.switch-label { white-space: nowrap; }
+.switch-state { white-space: nowrap; }
+.switch-btns { display: flex; gap: 3px; flex-wrap: wrap; justify-content: flex-end; }
 
 /* ---- status line (segmented, plain-word health readout) ---- */
 
@@ -311,6 +321,16 @@ a:hover { background: #ffffff; color: #000000; }
 .q-line { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .q-ms { color: var(--dim); flex-shrink: 0; }
 .q-miss-reason { color: var(--red); flex-shrink: 0; }
+.q-hint {
+  color: var(--dim);
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  margin-top: 3px;
+  padding-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ---- people box: top askers ---- */
 

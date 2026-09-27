@@ -104,12 +104,14 @@ function sparkLine(vals: number[]): string {
   return vals.map((v) => SPARK_CHARS[Math.min(SPARK_CHARS.length - 1, Math.floor((v / max) * (SPARK_CHARS.length - 1)))]).join('')
 }
 
-// square text meter: ▕████░░░░▏ — 10 cells, filled by ratio
+// square text meter: [████░░░░] — 10 cells, filled by ratio. plain brackets rather than
+// the eighth-block glyphs (▕▏) — those aren't in every monospace font's coverage and
+// rendered as tofu on at least one real check; █/░ are near-universal.
 function meterBar(used: number, cap: number, width = 10): string {
   if (cap <= 0) return ''
   const ratio = Math.max(0, Math.min(1, used / cap))
   const filled = Math.round(ratio * width)
-  return `▕${'█'.repeat(filled)}${'░'.repeat(width - filled)}▏`
+  return `[${'█'.repeat(filled)}${'░'.repeat(width - filled)}]`
 }
 
 // --- state ------------------------------------------------------------------------------
@@ -454,6 +456,7 @@ function handlePauseMinutesKey(key: string): void {
 function setStatus(msg: string, kind?: 'ok' | 'fail'): void {
   actionStatus.textContent = msg
   actionStatus.className = `status-line${kind ? ` ${kind}` : ''}`
+  actionStatus.hidden = !msg // no message → the bar itself takes no space, not just blank
 }
 
 const HELP_ROWS: [string, string][] = [
@@ -629,14 +632,16 @@ function renderSwitches(snap: Snapshot): void {
     }
     const on = def.toggle ? !!def.on : true
     const buttons: HTMLElement[] = []
-    if (def.toggle) buttons.push(btn(on ? 'turn off' : 'turn on', `turn ${def.label} ${on ? 'off' : 'on'}`, () => def.toggle!(!on)))
+    // button text is the action it performs (the state you'd land in), not a repeat of
+    // the state readout to its left — "off" while on means "click to turn it off"
+    if (def.toggle) buttons.push(btn(on ? 'off' : 'on', `turn ${def.label} ${on ? 'off' : 'on'}`, () => def.toggle!(!on)))
     if (def.feature) for (const [label, m] of PAUSE_CHIPS) buttons.push(btn(label, `pause ${def.label} for ${label}`, () => doAct({ kind: 'pause', feature: def.feature!, minutes: m })))
     body.append(switchRow(def.label, def.tip, on, on ? 'on' : 'off', buttons))
   }
   if (state.me?.admin) {
     const on = snap.ai.aiTrivia
     body.append(switchRow('ai trivia', 'whether the ai can write brand-new trivia questions — applies to every channel', on, on ? 'on' : 'off',
-      [btn(on ? 'turn off' : 'turn on', `turn ai trivia ${on ? 'off' : 'on'}, everywhere`, () => doAct({ kind: 'ai-trivia', on: !on }))]))
+      [btn(on ? 'off' : 'on', `turn ai trivia ${on ? 'off' : 'on'}, everywhere`, () => doAct({ kind: 'ai-trivia', on: !on }))]))
   }
 }
 
@@ -727,7 +732,8 @@ function renderQuestions(snap: Snapshot): void {
     })
   }
   body.append(list)
-  body.append(el('div', { class: 'dim', text: `f: switch to ${asks ? "didn't answer" : 'questions'} · D: remove reply · I: ignore asker 24h`, title: 'keyboard shortcuts while this box is focused' }))
+  body.append(el('div', { class: 'q-hint', title: 'keyboard shortcuts while this box is focused' },
+    document.createTextNode(`f: switch to ${asks ? "didn't answer" : 'questions'} · D: remove reply · I: ignore asker 24h`)))
 }
 
 // --- render: activity box (sparkline + meters) ------------------------------------------------
@@ -736,7 +742,12 @@ function renderActivity(snap: Snapshot): void {
   const body = boxBody.activity
   clear(body)
   body.append(el('div', { class: 'dim', title: 'questions asked per minute, over the last hour' }, document.createTextNode('questions / min (last hour)')))
-  body.append(el('div', { class: 'spark', text: sparkLine(snap.spark) }))
+  const peak = Math.max(0, ...snap.spark)
+  if (peak === 0) {
+    body.append(el('div', { class: 'dim' }, document.createTextNode('quiet — 0 questions in the last hour')))
+  } else {
+    body.append(el('div', { class: 'spark', title: `busiest minute: ${peak}` }, document.createTextNode(sparkLine(snap.spark))))
+  }
 
   const a = snap.ai
   if (a.tokenCap > 0) {
@@ -748,7 +759,9 @@ function renderActivity(snap: Snapshot): void {
         el('span', { class: 'dim', text: 'words used' }), el('span', { class: 'dim', text: `${compactNum(used)} / ${compactNum(a.tokenCap)}` })),
       el('div', { class: `meter-bar ${cls}`, text: meterBar(used, a.tokenCap) })))
   } else {
-    body.append(el('div', { class: 'dim', title: 'no daily cap is set — the bot can think as much as it needs' }, document.createTextNode(`words used today ${compactNum(a.tokensToday)} · no cap set`)))
+    body.append(el('div', { class: 'meter-row' },
+      el('div', { class: 'meter-label', title: 'how many words of thinking the bot has spent today — no cap is set' },
+        el('span', { class: 'dim', text: 'words used today' }), el('span', { class: 'dim', text: compactNum(a.tokensToday) }))))
   }
 
   body.append(el('div', { class: 'meter-row' },
@@ -794,9 +807,9 @@ function renderPeople(snap: Snapshot): void {
   clear(peopleTopEl)
   if (!snap.topUsers.length) peopleTopEl.append(el('div', { class: 'pane-empty', text: 'nobody yet today' }))
   for (const u of snap.topUsers) {
-    const row = el('div', { class: 'top-user-row' })
-    row.append(el('span', { class: 'row-label', text: u.user }))
-    row.append(el('span', { class: 'top-user-cap', title: 'ai questions used today, out of the daily limit', text: u.cap > 0 ? `${u.units}/${u.cap}` : `${u.units}` }))
+    const row = el('div', { class: 'row top-user-row' })
+    row.append(el('span', { class: 'row-label', text: u.user, title: u.user }))
+    row.append(el('span', { class: 'top-user-cap', title: 'ai questions used today, out of the daily limit', text: u.cap > 0 ? `${u.units} / ${u.cap}` : `${u.units}` }))
     row.append(btn('reset', `give ${u.user} their questions back for today`, () => triggerConfirm(`cap-reset-${u.user}`, () => doAct({ kind: 'cap-reset', user: u.user })), confirmArmedNow(`cap-reset-${u.user}`) ? 'danger' : ''))
     peopleTopEl.append(row)
   }

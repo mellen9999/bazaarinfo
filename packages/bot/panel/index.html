@@ -27,7 +27,7 @@
       </div>
       <div class="header-group header-right">
         <span id="whoami" class="whoami"></span>
-        <button id="logout-btn" class="btn" type="button">logout</button>
+        <button id="logout-btn" class="btn" type="button" title="sign out of this panel">logout</button>
       </div>
     </header>
 
@@ -36,6 +36,7 @@
     <div id="cmdbar" class="cmdbar">
       <span class="cmdbar-prefix">:</span>
       <input id="cmd-input" class="cmd-input" type="text" autocomplete="off" spellcheck="false"
+        title="type a command in plain english, then enter to run it"
         placeholder="plain english, e.g. pause trivia for an hour">
       <span id="cmd-preview" class="cmd-preview"></span>
     </div>
@@ -108,18 +109,18 @@
 
     <div id="admin-strip" class="admin-strip" hidden>
       <span class="admin-label">admin</span>
-      <input id="join-input" class="admin-input" type="text" placeholder="channel to join" autocomplete="off" spellcheck="false">
-      <button id="join-btn" class="btn" type="button">join</button>
-      <button id="part-btn" class="btn" type="button">leave current</button>
+      <input id="join-input" class="admin-input" type="text" placeholder="channel to join" title="a twitch channel name for the bot to join" autocomplete="off" spellcheck="false">
+      <button id="join-btn" class="btn" type="button" title="make the bot join that channel's chat">join</button>
+      <button id="part-btn" class="btn" type="button" title="make the bot leave this channel's chat (confirm)">leave current</button>
     </div>
 
     <div id="say-row" class="say-row">
       <span class="say-prefix">say</span>
-      <input id="say-input" class="say-input" type="text" placeholder="message to chat" autocomplete="off" spellcheck="false" maxlength="450">
-      <button id="say-btn" class="btn" type="button">send</button>
+      <input id="say-input" class="say-input" type="text" placeholder="message to chat" title="send this exact message to chat, as the bot" autocomplete="off" spellcheck="false" maxlength="450">
+      <button id="say-btn" class="btn" type="button" title="post this message to chat as the bot">send</button>
     </div>
 
-    <div id="action-status" class="status-line"></div>
+    <div id="action-status" class="status-line" hidden></div>
   </div>
 
   <div id="help-overlay" class="help-overlay" hidden></div>
