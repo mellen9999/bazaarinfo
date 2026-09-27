@@ -81,6 +81,13 @@ export function repeatCount(expects: string[]): number {
   return r ? Math.min(5, Math.max(1, Number(r.slice(6)))) : 1
 }
 
+// the whole title verbatim, or its distinctive words: a title made of generic words
+// ("Back to Stream Soon") has no distinctive words left, but a quote of it is still a quote
+export function quotesTitle(reply: string, title: string): boolean {
+  const flat = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  return flat(reply).includes(flat(title)) || mentions(reply, factWords(title))
+}
+
 export function mentions(reply: string, words: string[]): boolean {
   const r = reply.toLowerCase()
   return words.some((w) => r.includes(w))
@@ -101,7 +108,7 @@ if (import.meta.main && process.env.LEAK_PROBE_ONE) {
   db.initDb(process.env.LEAK_PROBE_DB)
   const { loadStore } = await import(resolve(SRC, 'store.ts'))
   await loadStore()
-  const { refreshChannelTitle, getCachedChannelTitle } = await import(resolve(SRC, 'channel-title.ts'))
+  const { refreshChannelTitle, getCachedChannelTitle, displayTitle } = await import(resolve(SRC, 'channel-title.ts'))
   const { markLiveStateKnown, getStreamInfo, getChannelGame, isChannelLive } = await import(resolve(SRC, 'ai-cache.ts'))
   const { aiRespond } = await import(resolve(SRC, 'ai.ts'))
 
@@ -109,7 +116,8 @@ if (import.meta.main && process.env.LEAK_PROBE_ONE) {
   markLiveStateKnown()
   await refreshChannelTitle(ch).catch(() => {})
   const info = getStreamInfo(ch)
-  const title = getCachedChannelTitle(ch) ?? info?.title ?? null
+  // judged against what the bot is allowed to quote: links stripped, spacing normalized
+  const title = displayTitle(getCachedChannelTitle(ch) ?? info?.title) ?? null
 
   // every ambient stream fact in one bag: whichever of these turns up in a reply to a
   // question that asked for none of them is the leak.
@@ -177,7 +185,7 @@ if (import.meta.main && !process.env.LEAK_PROBE_ONE) {
 
     const problems: string[] = []
     for (const expect of s.expects) {
-      if (expect === '-ambient' && mentions(reply, ambient)) {
+      if (expect === '-ambient' && (mentions(reply, ambient) || (title && quotesTitle(reply, title)))) {
         problems.push(`leaked an ambient fact (${ambient.filter((w) => reply.toLowerCase().includes(w)).join(', ')})`)
       }
       if (expect === '-ammo') {
@@ -186,7 +194,7 @@ if (import.meta.main && !process.env.LEAK_PROBE_ONE) {
       }
       if (expect === '+title') {
         if (!title) problems.push('no title available to quote — check the twitch token')
-        else if (!mentions(reply, factWords(title))) problems.push('did not quote the live title')
+        else if (!quotesTitle(reply, title)) problems.push('did not quote the live title')
       }
     }
     if (problems.length) failed++

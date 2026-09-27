@@ -5,7 +5,7 @@ import { tmpdir } from 'os'
 
 // dynamic import to avoid mock.module conflicts from other test files
 const db = await import('./db')
-const { buildChatRecall } = await import('./ai-build-recall')
+const { buildChatRecall, buildRecallContext } = await import('./ai-build-recall')
 const { formatContextSummary } = await import('./ai-build-chat')
 const { isPastaRecall, findChatPasta, isConfidentPasta } = await import('./pasta')
 
@@ -522,6 +522,15 @@ describe('db', () => {
     const results = db.searchAskFTS('test', 'aquatic OR weapons', 5)
     expect(results.length).toBe(1)
     expect(results[0].response).toContain('aquatic')
+  })
+
+  // an old title answer rode "title" into "whats the title track" (leak probe 2026-09-27)
+  it('recall keeps old title answers for title asks only', () => {
+    db.logAsk({ user: 'alice', channel: 'test' }, 'title', 'nl_kripp title right now: "Back to Stream Soon"', 100, 500)
+    db.logAsk({ user: 'bob', channel: 'test' }, 'best title track on that album', 'the title track slaps', 100, 500)
+    db.flushWrites()
+    expect(buildRecallContext('whats the title track', 'test')).not.toContain('Back to Stream Soon')
+    expect(buildRecallContext('whats his title', 'test')).toContain('Back to Stream Soon')
   })
 
   it('searchAskFTS scoped to channel', () => {

@@ -728,7 +728,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           // dispatched request (retries + hedge loser) is counted; not here.
         } catch {}
         // hot cache for instant follow-up context
-        cacheExchange(ctx.user, loggedQuery, result.text, ctx.channel)
+        cacheExchange(ctx.user, loggedQuery, result.text, ctx.channel, !titleAsk)
         // fire-and-forget memo + fact extraction (force both on identity requests)
         maybeExtractFacts(ctx.user, loggedQuery, result.text, isRememberReq).catch(() => {})
         if (isRememberReq) {

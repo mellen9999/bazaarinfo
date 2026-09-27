@@ -29,7 +29,10 @@ function hotKey(user: string, channel?: string): string {
   return `${(channel ?? '').toLowerCase()}:${user.toLowerCase()}`
 }
 
-export function cacheExchange(user: string, query: string, response: string, channel?: string) {
+// variety=false keeps a reply out of the channel-wide memory: a quoted stream title is data,
+// not a phrase to avoid, and in that list it resurfaced as an answer to "whats the title
+// track" (the list is ambient on every ask).
+export function cacheExchange(user: string, query: string, response: string, channel?: string, variety = true) {
   const key = hotKey(user, channel)
   const list = hotExchanges.get(key) ?? []
   list.push({ query, response, ts: Date.now() })
@@ -40,7 +43,7 @@ export function cacheExchange(user: string, query: string, response: string, cha
     hotExchanges.delete(first)
   }
   // channel-wide recent responses — lets model avoid repeating itself across users
-  if (channel) {
+  if (channel && variety) {
     const ch = channelRecentResponses.get(channel) ?? []
     ch.push(response)
     if (ch.length > CHANNEL_RESPONSE_MAX) ch.shift()

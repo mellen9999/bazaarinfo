@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from 'bun:test'
-import { cacheExchange, getHotExchanges } from './ai-cache'
+import { cacheExchange, getHotExchanges, getChannelRecentResponses } from './ai-cache'
 
 describe('hot exchange cache', () => {
   const realNow = Date.now
@@ -34,5 +34,13 @@ describe('hot exchange cache', () => {
     const hot = getHotExchanges('capuser', 'capchan')
     expect(hot.length).toBe(8)
     expect(hot.map((e) => e.query)).toEqual(['q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9'])
+  })
+})
+
+describe('cacheExchange variety memory', () => {
+  it('a title answer stays in the hot convo but out of the channel-wide list', () => {
+    cacheExchange('titleuser', 'title', '"Back to Stream Soon"', 'varchan', false)
+    expect(getHotExchanges('titleuser', 'varchan').map((e) => e.response)).toContain('"Back to Stream Soon"')
+    expect(getChannelRecentResponses('varchan')).not.toContain('"Back to Stream Soon"')
   })
 })

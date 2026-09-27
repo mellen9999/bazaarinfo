@@ -6,6 +6,7 @@ import { formatAge } from './ai-cache'
 import { buildFTSQuery, buildFTSQueryLoose, buildChatRecallFTS, findReferencedUser, RECALL_INTENT, parseChatTimeWindow } from './ai-query'
 import { isPastaRecall, findChatPasta, pastaText } from './pasta'
 import { stripChatMessage } from './ai-build-chat'
+import { isTitleQuery } from './channel-title'
 
 // --- timeline builder ---
 
@@ -39,7 +40,10 @@ export function buildRecallContext(query: string, channel: string): string {
   // run this exact diagnostic"), so identical past asks never ride along
   const norm = (q: string) => q.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
   const askNorm = norm(query)
-  results = results.filter((r) => norm(r.query) !== askNorm)
+  // an old title answer is only ever the answer to a title ask; for anything else it is a
+  // stale stream title riding in on the word "title" ("whats the title track")
+  const titleAsk = isTitleQuery(query)
+  results = results.filter((r) => norm(r.query) !== askNorm && (titleAsk || !isTitleQuery(r.query)))
   if (results.length === 0) return ''
 
   const now = Date.now()

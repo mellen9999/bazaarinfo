@@ -2,7 +2,7 @@
 // that returns nothing makes every scenario pass, and a green run would then mean nothing.
 // the probe itself needs a real model and real money, so only the pure parts are tested here.
 import { describe, it, expect } from 'bun:test'
-import { parseScenarios, factWords, mentions, repeatCount, AMMO_RE } from '../../../scripts/leak-probe'
+import { parseScenarios, factWords, mentions, repeatCount, AMMO_RE, quotesTitle } from '../../../scripts/leak-probe'
 
 describe('leak probe scenario parsing', () => {
   it('reads queries, expectations, comments and blanks', () => {
@@ -40,6 +40,11 @@ describe('leak probe fact words', () => {
   it('drops words any reply says on its own', () => {
     expect(factWords('Back to Stream Soon |!IRL - Mt. FUJI')).toEqual([])
     expect(factWords('YANAKA Is Retro Tokyo')).toEqual(['yanaka', 'retro', 'tokyo'])
+  })
+
+  it('a generic-word title still counts as quoted when it appears whole', () => {
+    expect(quotesTitle('title: "Back to Stream Soon |!IRL - Mt. FUJI"', 'Back to Stream Soon |!IRL - Mt. FUJI')).toBe(true)
+    expect(quotesTitle("stream's offline, back soon", 'Back to Stream Soon |!IRL - Mt. FUJI')).toBe(false)
   })
 })
 
