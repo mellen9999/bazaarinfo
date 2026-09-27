@@ -303,6 +303,21 @@ describe('buildChatStr — a spammed paste reads as one line, not N chatters', (
     expect(out).toContain('raif4: 我的一天不錯 ×3')
   })
 
+  // the ×N on the asker's own line was the ammo behind "same question three times in a row"
+  it("counts the asker's own repeats once, others' copies still count", () => {
+    const out = buildChatStr([
+      mk('mellen', 'do u work', 1),
+      mk('mellen', 'do u work', 2),
+      mk('mellen', 'do u work', 3),
+      mk('a', 'KEKW pasta', 4),
+      mk('mellen', 'KEKW pasta', 5),
+      mk('b', 'KEKW pasta', 6),
+    ], undefined, 'Mellen')
+    expect(out).toContain('mellen: do u work')
+    expect(out).not.toContain('do u work ×')
+    expect(out).toContain('KEKW pasta ×3')
+  })
+
   it('leaves a non-repeated line untouched', () => {
     const out = buildChatStr([mk('raif4', '我的一天不錯', 1), mk('other1', 'hello world', 2)])
     expect(out).toContain('> other1: hello world')

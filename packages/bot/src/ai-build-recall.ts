@@ -35,6 +35,11 @@ export function buildRecallContext(query: string, channel: string): string {
     const loose = buildFTSQueryLoose(query)
     if (loose && loose !== ftsQuery) results = db.searchAskFTS(channel, loose, 3)
   }
+  // the same ask answered before adds nothing but a head count ("fourth person today to
+  // run this exact diagnostic"), so identical past asks never ride along
+  const norm = (q: string) => q.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  const askNorm = norm(query)
+  results = results.filter((r) => norm(r.query) !== askNorm)
   if (results.length === 0) return ''
 
   const now = Date.now()

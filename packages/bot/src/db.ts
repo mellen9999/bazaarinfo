@@ -3,6 +3,7 @@ import { homedir } from 'os'
 import { resolve } from 'path'
 
 import { log } from './log'
+import { stripMetaTraits } from './memo-hygiene'
 
 const DB_PATH = resolve(homedir(), '.bazaarinfo.db')
 
@@ -999,6 +1000,19 @@ const migrations: (() => void)[] = [
       expires_at INTEGER,
       PRIMARY KEY (channel, login)
     )`)
+  },
+  // migration 37: strip "how they treat the bot" clauses from stored memos ("disputes memo
+  // accuracy", "tests boundaries") — they came back as dunks. the writer filters new memos.
+  () => {
+    const rows = db.query('SELECT username, memo FROM user_memos').all() as { username: string; memo: string }[]
+    const upd = db.prepare('UPDATE user_memos SET memo = ? WHERE username = ?')
+    const del = db.prepare('DELETE FROM user_memos WHERE username = ?')
+    for (const r of rows) {
+      const clean = stripMetaTraits(r.memo)
+      if (clean === r.memo) continue
+      if (clean) upd.run(clean, r.username)
+      else del.run(r.username)
+    }
   },
 ]
 

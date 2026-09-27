@@ -23,3 +23,12 @@ gm :: -ambient
 # improvised one, which is why the gated section exists at all (2026-09-07)
 title :: +title
 whats the title :: +title
+
+# --- context is not ammo: the asker's own repeats must never come back at them ----------
+# "you're the one stress-testing me with the same question three times in a row" (2026-08-25)
+# (a 3rd identical ask inside 5min is dropped by isRepeatAbuse on purpose, so 2 is the max)
+do u work :: -ammo,repeat2
+# "still kicking, just watching you spam bronze silver gold to yourself" (2026-07-01)
+are u alive :: -ammo,repeat2
+# "it's in the memo three separate times... take it up with past you" (2026-09-08)
+I never said tour bus was my favorite item :: -ammo,repeat2

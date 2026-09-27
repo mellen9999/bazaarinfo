@@ -102,13 +102,24 @@ export function fitToBudget(text: string, budget: number): string | null {
   const cut = text.lastIndexOf('\n', budget)
   return cut > 0 ? text.slice(0, cut) : null
 }
-export function buildChatStr(entries: ChatEntry[], botName?: string): string {
+export function buildChatStr(entries: ChatEntry[], botName?: string, asker?: string): string {
   if (entries.length === 0) return ''
   // collapse repeated message text (a spammed/pasted line, consecutive or not) into one
   // rendered line at the FIRST occurrence's position, with a ×N suffix — otherwise N
   // copies of the same paste eat the whole chat budget and read as N different chatters.
+  // the asker's own repeats count once: a ×3 on their line is the exact ammo behind
+  // "same question three times in a row" dunks, and no prompt rule held against it.
+  const askerLc = asker?.toLowerCase()
   const counts = new Map<string, number>()
-  for (const m of entries) counts.set(m.text.trim(), (counts.get(m.text.trim()) ?? 0) + 1)
+  const askerSeen = new Set<string>()
+  for (const m of entries) {
+    const key = m.text.trim()
+    if (askerLc && m.user.toLowerCase() === askerLc) {
+      if (askerSeen.has(key)) continue
+      askerSeen.add(key)
+    }
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
   const seen = new Set<string>()
   const deduped = entries.filter((m) => {
     const key = m.text.trim()

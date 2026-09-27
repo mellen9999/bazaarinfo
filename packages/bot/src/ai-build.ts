@@ -192,7 +192,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const humanEntries = recentEntries.filter((m) => m.user.toLowerCase() !== botName)
   const ownLines = recentEntries.filter((m) => m.user.toLowerCase() === botName).slice(-3)
   const chatContext = recentEntries.filter((m) => m.user.toLowerCase() !== botName || ownLines.includes(m))
-  const chatStr = buildChatStr(chatContext, botName)
+  const chatStr = buildChatStr(chatContext, botName, ctx.user)
 
   const chattersLine = buildChattersContext(humanEntries, ctx.user, ctx.channel)
 
@@ -561,12 +561,18 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   let hotLine = ''
   if (hot.length > 0) {
     const now = Date.now()
-    const lines = hot.map((e) => {
+    // one line per distinct ask, the newest kept, and never the ask being answered now: a
+    // listed repeat is countable, and a counted repeat comes back as a dunk ("you're on
+    // question two now"). asked twice = answered twice, fresh.
+    const norm = (q: string) => q.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+    const askNorm = norm(query)
+    const latest = new Map(hot.map((e) => [norm(e.query), e]))
+    const lines = hot.filter((e) => latest.get(norm(e.query)) === e && norm(e.query) !== askNorm).map((e) => {
       const ago = Math.round((now - e.ts) / 60_000)
       const label = ago < 1 ? 'just now' : `${ago}m ago`
       return `${label}: "${e.query}" → you: "${e.response}"`
     })
-    hotLine = `\nYour recent convo with ${ctx.user}:\n${lines.join('\n')}`
+    if (lines.length) hotLine = `\nYour recent convo with ${ctx.user}:\n${lines.join('\n')}`
   }
   const isContinuationLike = /\b(continue|extend|expand|keep going|more of that|expand on|next part|part \d)\b/i.test(query) && hot.length > 0
 

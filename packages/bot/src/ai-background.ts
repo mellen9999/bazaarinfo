@@ -7,6 +7,7 @@ import { AI_CHANNELS, getChannelId } from './ai-cache'
 import { canReadFollowage } from './twitch-profile'
 import { anthropicCall } from './ai-http'
 import { log } from './log'
+import { stripMetaTraits } from './memo-hygiene'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = 'claude-haiku-4-5-20251001'
@@ -214,6 +215,7 @@ export async function maybeUpdateMemo(user: string, force = false) {
     if (memo && isSlopMemo(memo)) {
       memo = trimMemoPrefix((await requestMemo(`${basePrompt}\n\nThat was too generic — no personality adjectives, no em dash, just a concrete observable detail.`))?.trim() ?? '')
     }
+    memo = stripMetaTraits(memo)
     if (memo && memo.length <= MEMO_MAX_CHARS && !isSlopMemo(memo)) {
       db.upsertUserMemo(user, memo, askCount)
       log(`memo: ${user} → ${memo}`)

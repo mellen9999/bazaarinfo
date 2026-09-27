@@ -45,6 +45,10 @@ const PROBE_FILE = arg('--file', resolve(HERE, 'leak-probes.txt'))
 // "query :: expectation[,expectation]". expectations:
 //   -ambient   the reply must mention NO ambient stream fact (title/game/viewers/uptime)
 //   +title     the reply must quote the live channel title — the ask it IS the answer to
+//   -ammo      the reply must not turn the asker's own history on them (repeat counts,
+//              "you spam", memo receipts), and must not come back empty
+//   repeatN    ask the same query N times in one process (chat buffer + hot convo fill up
+//              exactly as live), judge only the last reply. each repeat is a real call.
 // blank lines and # comments are ignored.
 export interface Scenario { query: string; expects: string[] }
 
@@ -60,9 +64,21 @@ export function parseScenarios(text: string): Scenario[] {
   return out
 }
 
-// a fact's distinctive words — short ones ("the", "is") would match anything, so they go.
+// a fact's distinctive words — short ones ("the", "is") would match anything, so they go,
+// and so do words any reply can say on its own: a title "Back to Stream Soon" made every
+// "stream's offline" fail the probe (2026-09-27).
+const GENERIC = new Set(['stream', 'streams', 'streaming', 'today', 'tonight', 'later', 'right', 'again', 'playing', 'games'])
 export function factWords(value: string | null | undefined): string[] {
-  return (value ?? '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 4)
+  return (value ?? '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 4 && !GENERIC.has(w))
+}
+
+// broader than the sanitize guard on purpose: the guard blocks the known shapes, this
+// flags the paraphrases that slip it ("recurring performance review", "barrage")
+export const AMMO_RE = /\b(?:again|times?|in a row|spam\w*|repeat\w*|recurring|barrage|memo|paper trail|receipts?|keep asking|same question|past you|question (?:two|three|four|#?\d+)|second time|twice|(?:second|third|fourth|fifth|\d+(?:st|nd|rd|th)) (?:person|one|guy)|every \w+ minutes)\b/i
+
+export function repeatCount(expects: string[]): number {
+  const r = expects.find((e) => /^repeat\d+$/.test(e))
+  return r ? Math.min(5, Math.max(1, Number(r.slice(6)))) : 1
 }
 
 export function mentions(reply: string, words: string[]): boolean {
@@ -105,10 +121,16 @@ if (import.meta.main && process.env.LEAK_PROBE_ONE) {
 
   const before = db.getDb().query('SELECT COALESCE(MAX(id), 0) AS id FROM ask_queries').get() as { id: number }
   const beforeRecent = db.getDb().query('SELECT COALESCE(MAX(rowid), 0) AS id FROM channel_recent_responses').get() as { id: number }
+  const { record } = await import(resolve(SRC, 'chatbuf.ts'))
+  const times = Number(process.env.LEAK_PROBE_REPEAT ?? '1')
   let reply = '(null)'
   try {
-    const r = await aiRespond(process.env.LEAK_PROBE_ONE, { user: 'leakprobe', channel: ch, direct: true } as never)
-    reply = r?.text ?? '(null)'
+    for (let i = 0; i < times; i++) {
+      // the ask lands in chat before routing, as it does live (index.ts records first)
+      record(ch, 'leakprobe', process.env.LEAK_PROBE_ONE)
+      const r = await aiRespond(process.env.LEAK_PROBE_ONE, { user: 'leakprobe', channel: ch, direct: true } as never)
+      reply = r?.text ?? '(null)'
+    }
   } finally {
     // leave the copy exactly as found — the next scenario must not see this one's answer
     try {
@@ -141,7 +163,7 @@ if (import.meta.main && !process.env.LEAK_PROBE_ONE) {
   let failed = 0
   for (const s of scenarios) {
     const child = Bun.spawnSync(['bun', 'run', resolve(HERE, 'leak-probe.ts')], {
-      env: { ...process.env, LEAK_PROBE_ONE: s.query, LEAK_PROBE_DB: copy, LEAK_PROBE_CHANNEL: CHANNEL },
+      env: { ...process.env, LEAK_PROBE_ONE: s.query, LEAK_PROBE_DB: copy, LEAK_PROBE_CHANNEL: CHANNEL, LEAK_PROBE_REPEAT: String(repeatCount(s.expects)) },
       stderr: 'pipe',
     })
     const out = child.stdout.toString().split('\n').find((l) => l.startsWith('__RESULT__'))
@@ -157,6 +179,10 @@ if (import.meta.main && !process.env.LEAK_PROBE_ONE) {
     for (const expect of s.expects) {
       if (expect === '-ambient' && mentions(reply, ambient)) {
         problems.push(`leaked an ambient fact (${ambient.filter((w) => reply.toLowerCase().includes(w)).join(', ')})`)
+      }
+      if (expect === '-ammo') {
+        if (reply === '(null)') problems.push('no reply — a repeat ask still gets answered')
+        else if (AMMO_RE.test(reply)) problems.push(`turned their history on them ("${reply.match(AMMO_RE)![0]}")`)
       }
       if (expect === '+title') {
         if (!title) problems.push('no title available to quote — check the twitch token')

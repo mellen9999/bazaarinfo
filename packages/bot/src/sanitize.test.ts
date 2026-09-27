@@ -1044,6 +1044,13 @@ describe('live-log regressions', () => {
       "proboscis. you've asked me your own favorite three separate times now, ask a harder one",
       'you typed that four different times, i heard you the first',
       'asked two straight times and the answer has not moved',
+      "working fine, you're the one stress-testing me with the same question three times in a row",
+      'still kicking, just watching you spam bronze silver gold to yourself Kappa',
+      "you didn't say it in words, no - it's in the memo three separate times, tour bus",
+      "tour bus, per your own memo, three times over. the tip's a nice try",
+      'the paper trail says otherwise',
+      'straight from your own facts file. take it up with past you',
+      "yeah still working, you're on question two now, quality control or just bored",
     ]) it(`blocks ${JSON.stringify(line.slice(0, 46))}`, () => expect(blocked(line)).toBe(true))
 
     // the same shapes describing the GAME are how tooltips read — they must survive
@@ -1053,6 +1060,9 @@ describe('live-log regressions', () => {
       'multicast procs two times in a row if you crit',
       // the adjective list is closed so ordinary game counting still reads as counting
       'it hits three separate times before the cooldown resets',
+      'same thing as last patch, it procs two times per fight',
+      'spam the button three times and the shop rerolls',
+      'your memo says you main Vanessa, want a Vanessa build?',
     ]) it(`keeps ${JSON.stringify(line.slice(0, 46))}`, () => expect(blocked(line)).toBe(false))
   })
 

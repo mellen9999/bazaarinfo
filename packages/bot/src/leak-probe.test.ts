@@ -2,7 +2,7 @@
 // that returns nothing makes every scenario pass, and a green run would then mean nothing.
 // the probe itself needs a real model and real money, so only the pure parts are tested here.
 import { describe, it, expect } from 'bun:test'
-import { parseScenarios, factWords, mentions } from '../../../scripts/leak-probe'
+import { parseScenarios, factWords, mentions, repeatCount, AMMO_RE } from '../../../scripts/leak-probe'
 
 describe('leak probe scenario parsing', () => {
   it('reads queries, expectations, comments and blanks', () => {
@@ -33,5 +33,26 @@ describe('leak probe fact matching', () => {
     expect(mentions('title\'s still the yanaka one', words)).toBe(true)
     expect(mentions('battering ram needs sequencing', words)).toBe(false)
     expect(mentions('', words)).toBe(false)
+  })
+})
+
+describe('leak probe fact words', () => {
+  it('drops words any reply says on its own', () => {
+    expect(factWords('Back to Stream Soon |!IRL - Mt. FUJI')).toEqual([])
+    expect(factWords('YANAKA Is Retro Tokyo')).toEqual(['yanaka', 'retro', 'tokyo'])
+  })
+})
+
+describe('leak probe ammo checks', () => {
+  it('reads repeatN and clamps it — each repeat is a paid call', () => {
+    expect(repeatCount(['-ammo', 'repeat3'])).toBe(3)
+    expect(repeatCount(['-ammo'])).toBe(1)
+    expect(repeatCount(['repeat99'])).toBe(5)
+  })
+
+  it('flags the paraphrases the guard lets through, not a plain answer', () => {
+    expect(AMMO_RE.test('still work, just adding "do u work" to my recurring performance review')).toBe(true)
+    expect(AMMO_RE.test('alive, still absorbing the ratJAM barrage like radiation.')).toBe(true)
+    expect(AMMO_RE.test('yep, working. what do you need?')).toBe(false)
   })
 })

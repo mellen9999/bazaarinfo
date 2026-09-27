@@ -51,7 +51,20 @@ export const ASK_COUNT_LEAK = new RegExp(
   `|\\byour\\s+\\d+(?:st|nd|rd|th)\\b` +
   // account age as a weapon — "13 years on this platform and you're still..."
   `|\\b\\d+\\s+years?\\s+on\\s+(?:this|the)\\s+(?:platform|account|site|website|app)\\b` +
-  `|\\b\\d+\\s+years?\\s+on\\s+twitch\\b`,
+  `|\\b\\d+\\s+years?\\s+on\\s+twitch\\b` +
+  // "same question three times in a row" (shipped 2026-08-25)
+  `|\\bsame\\s+(?:question|ask)\\b[^.!?]{0,30}\\b${COUNT}\\s+(?:${REP_ADJ})?times?\\b` +
+  // "watching you spam bronze silver gold to yourself"
+  `|\\b(?:you|u)\\s+(?:spam|keep\\s+spamming)\\b` +
+  // the memo as a receipt against them: "in the memo three separate times", "per your
+  // own memo… the paper trail says otherwise", "take it up with past you" (sep 2026)
+  `|\\b(?:memo|facts?\\s+file|paper\\s+trail|receipts?)\\b[^.!?]{0,40}\\b${COUNT}\\s+(?:${REP_ADJ})?times?\\b` +
+  `|\\b${COUNT}\\s+(?:${REP_ADJ})?times?\\b[^.!?]{0,20}\\b(?:memo|facts?\\s+file|paper\\s+trail)\\b` +
+  `|\\bper\\s+your\\s+own\\s+(?:memo|facts?\\s+file|words)\\b` +
+  `|\\bpaper\\s+trail\\s+says\\b` +
+  `|\\btake\\s+it\\s+up\\s+with\\s+past\\s+you\\b` +
+  // "you're on question two now" (leak probe, 2026-09-27)
+  `|\\bon\\s+(?:question|ask)\\s+(?:#|number\\s+)?${COUNT}\\b`,
   'i',
 )
 
