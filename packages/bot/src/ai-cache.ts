@@ -61,6 +61,15 @@ export function getChannelRecentResponses(channel: string): string[] {
   return channelRecentResponses.get(channel) ?? []
 }
 
+/** the panel's ask-purge cascade: a mod removed a bad reply, so it must stop being offered
+ * back to the model as a "don't repeat this" example too. mirrors db.purgeAsk's sqlite side. */
+export function dropRecentResponse(channel: string, response: string): void {
+  const list = channelRecentResponses.get(channel)
+  if (!list) return
+  const i = list.indexOf(response)
+  if (i !== -1) list.splice(i, 1)
+}
+
 export function getHotExchanges(user: string, channel?: string): HotExchange[] {
   const list = hotExchanges.get(hotKey(user, channel))
   if (!list) return []
@@ -102,14 +111,56 @@ function bareChannel(name: string): string {
   return name.trim().toLowerCase().replace(/^#/, '')
 }
 
-export function enableAiForChannel(name: string): void {
-  const ch = bareChannel(name)
-  if (ch) AI_CHANNELS.add(ch)
+// persistence (channel_controls, key 'ai') — a mod's explicit ai on/off toggle used to
+// read "until restart"; this makes it stick. lazy-loaded once, applied on top of the
+// env-seeded AI_CHANNELS set. the boot-time join loop (index.ts) calls
+// enableAiForChannel(name, false) so it can never clobber a stored override on restart —
+// only an explicit mod/self-serve action (the default, persist=true) writes one.
+let aiTogglesLoaded = false
+function ensureAiTogglesLoaded(): void {
+  if (aiTogglesLoaded || !db.getDb()) return
+  aiTogglesLoaded = true
+  try {
+    const now = Date.now()
+    for (const r of db.loadControls()) {
+      if (r.key !== 'ai' || r.channel === '*') continue
+      if (r.expires_at !== null && r.expires_at <= now) continue
+      if (r.value === 'on') AI_CHANNELS.add(r.channel)
+      else AI_CHANNELS.delete(r.channel)
+    }
+  } catch (e) {
+    log(`ai-cache: ai toggle load failed: ${e}`)
+  }
 }
 
-export function disableAiForChannel(name: string): void {
-  AI_CHANNELS.delete(bareChannel(name))
+/** the one AI_CHANNELS read that honours a persisted override — prefer this over a bare
+ * AI_CHANNELS.has() anywhere a persisted toggle needs to take effect without a restart. */
+export function isAiChannelEnabled(channel: string): boolean {
+  ensureAiTogglesLoaded()
+  return AI_CHANNELS.has(bareChannel(channel))
 }
+
+export function enableAiForChannel(name: string, persist = true): void {
+  ensureAiTogglesLoaded()
+  const ch = bareChannel(name)
+  if (!ch) return
+  AI_CHANNELS.add(ch)
+  if (persist) {
+    try { db.saveControl({ channel: ch, key: 'ai', value: 'on', by: '', expires_at: null }) } catch (e) { log(`ai-cache: ai toggle save failed: ${e}`) }
+  }
+}
+
+export function disableAiForChannel(name: string, persist = true): void {
+  ensureAiTogglesLoaded()
+  const ch = bareChannel(name)
+  if (!ch) return
+  AI_CHANNELS.delete(ch)
+  if (persist) {
+    try { db.saveControl({ channel: ch, key: 'ai', value: 'off', by: '', expires_at: null }) } catch (e) { log(`ai-cache: ai toggle save failed: ${e}`) }
+  }
+}
+
+export function __resetAiTogglesForTest(): void { aiTogglesLoaded = false }
 
 /**
  * Why the AI path is unavailable here, so a caller can tell a PERMANENT state apart from a
@@ -118,7 +169,7 @@ export function disableAiForChannel(name: string): void {
  */
 export function aiUnavailableReason(channel?: string): 'ok' | 'no-key' | 'not-enabled' {
   if (!process.env.ANTHROPIC_API_KEY) return 'no-key'
-  if (!channel || !AI_CHANNELS.has(bareChannel(channel))) return 'not-enabled'
+  if (!channel || !isAiChannelEnabled(channel)) return 'not-enabled'
   return 'ok'
 }
 
@@ -434,6 +485,16 @@ export function resetUserAiBudgetForTests(): void {
   db.clearUserAiBudget()
 }
 
+/** the panel's cap-reset action: one user gets today's counter back to zero, in both the
+ * hot in-memory map and sqlite — so a false-positive spam flag doesn't cost a real chatter
+ * the rest of their day. */
+export function resetUserAiUnitsToday(user: string): void {
+  const u = user.toLowerCase()
+  const e = userAiDay.get(u)
+  if (e && e.day === db.ptDay()) e.n = 0
+  db.clearUserAiUnitsToday(u)
+}
+
 // --- AI trivia kill switch ---
 
 // AI-generated trivia (custom topics, chat/person rounds, game-dossier rounds) is OFF
@@ -442,4 +503,35 @@ export function resetUserAiBudgetForTests(): void {
 // grounding are. The deterministic generators (bazaar cards, HS cards, the curated quiz
 // and kripp packs) are untouched and cost nothing, so trivia still works, just without a
 // model behind it. Read lazily so the flag can be flipped without a rebuild.
-export const aiTriviaEnabled = () => process.env.AI_TRIVIA === '1'
+//
+// The admin panel can override the env default at runtime (channel_controls, channel='*',
+// key='ai-trivia') — persisted so the override survives a restart; env is the fallback
+// when no override has ever been set.
+let aiTriviaOverride: boolean | null = null
+let aiTriviaLoaded = false
+function ensureAiTriviaLoaded(): void {
+  if (aiTriviaLoaded || !db.getDb()) return
+  aiTriviaLoaded = true
+  try {
+    const row = db.loadControls().find((r) => r.channel === '*' && r.key === 'ai-trivia')
+    if (row && (row.expires_at === null || row.expires_at > Date.now())) aiTriviaOverride = row.value === 'on'
+  } catch (e) {
+    log(`ai-cache: ai-trivia override load failed: ${e}`)
+  }
+}
+
+export const aiTriviaEnabled = (): boolean => {
+  ensureAiTriviaLoaded()
+  return aiTriviaOverride !== null ? aiTriviaOverride : process.env.AI_TRIVIA === '1'
+}
+
+export function setAiTriviaOverride(on: boolean): void {
+  ensureAiTriviaLoaded()
+  aiTriviaOverride = on
+  try { db.saveControl({ channel: '*', key: 'ai-trivia', value: on ? 'on' : 'off', by: '', expires_at: null }) } catch (e) { log(`ai-cache: ai-trivia override save failed: ${e}`) }
+}
+
+export function __resetAiTriviaForTest(): void {
+  aiTriviaLoaded = false
+  aiTriviaOverride = null
+}

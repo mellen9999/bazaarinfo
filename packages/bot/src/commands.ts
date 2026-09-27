@@ -30,7 +30,7 @@ import { DIRECTIVE_INTENT, MOD_CONTROL_HINT, handlePlantDirective, handleLanguag
 import { matchControlIntent } from './control-intent'
 import { act, type ActionKind } from './control'
 
-const CHAT_CONTROL_KINDS: ReadonlySet<ActionKind> = new Set(['trivia-start', 'trivia-skip', 'raid', 'raid-pace', 'ai', 'depths-reset', 'queue-clear', 'vibe-drop', 'vibe-clear', 'ignore', 'unignore'])
+const CHAT_CONTROL_KINDS: ReadonlySet<ActionKind> = new Set(['trivia-start', 'trivia-skip', 'raid', 'raid-pace', 'ai', 'goals', 'depths-reset', 'queue-clear', 'vibe-drop', 'vibe-clear', 'ignore', 'unignore'])
 
 export interface CommandContext {
   user?: string
@@ -400,7 +400,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     // "say" is panel-only, never dispatched from chat.
     const nlAction = matchControlIntent(cleanArgs)
     if (nlAction && CHAT_CONTROL_KINDS.has(nlAction.kind)) {
-      const res = await act(ctx.channel, ctx.user ?? 'mod', nlAction, false)
+      const res = await act(ctx.channel, ctx.user ?? 'mod', nlAction, false, 'chat')
       // a failed trivia start/skip falls through to a normal answer, as it always did
       if (res.ok || !nlAction.kind.startsWith('trivia-')) return withSuffix(res.msg, sfx)
     }

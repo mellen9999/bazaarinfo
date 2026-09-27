@@ -327,3 +327,13 @@ export function __resetForTest(): void {
   sessions.clear()
   pending.clear()
 }
+
+// test/harness-only door into a Session — never reachable from an http route. lets a
+// local harness (or a test) stand up a logged-in cookie without a real twitch oauth
+// round-trip. returns the Set-Cookie value to hand back to the client.
+export function __injectSessionForTest(s: Omit<Session, 'exp' | 'checkedAt'> & { exp?: number; checkedAt?: number }): string {
+  evictIfFull()
+  const id = newSessionId()
+  sessions.set(id, { exp: Date.now() + SESSION_TTL_MS, checkedAt: Date.now(), ...s })
+  return sessionCookie(id, 12 * 3600)
+}

@@ -1,5 +1,5 @@
 import { extractFirstJson } from './http'
-import { AI_CHANNELS, isOverDailyCap } from './ai-cache'
+import { isOverDailyCap, isAiChannelEnabled } from './ai-cache'
 import { anthropicCall, stripUnpairedSurrogates } from './ai-http'
 import { MAX_INSTRUCTION, listDirectives, type Directive } from './directives'
 import type { SuppressFeature } from './suppress'
@@ -72,7 +72,7 @@ Output ONLY the single minified JSON object — no markdown, no commentary, no s
 // (expiry/eviction/new plant) between what the model saw and what gets removed.
 export async function parseDirective(text: string, channel: string, isMod = false, vibesSnapshot?: Directive[]): Promise<ParsedDirective | ParsedSuppress | ParsedUnvibe | null> {
   if (!API_KEY) return null
-  if (!AI_CHANNELS.has(channel.toLowerCase())) return null
+  if (!isAiChannelEnabled(channel.toLowerCase())) return null
   if (isOverDailyCap(channel)) return null
   const clean = stripUnpairedSurrogates(text.trim()).slice(0, 200)
   if (clean.length < 8) return null

@@ -1014,6 +1014,27 @@ const migrations: (() => void)[] = [
       else del.run(r.username)
     }
   },
+  // migration 38: channel_controls — the write-through store behind every panel toggle that
+  // used to be "until restart": mod pauses, trivia topic bans, the per-channel ai switch, the
+  // new goals switch, the global ai-trivia override (channel='*'). one row per (channel, key);
+  // NULL expires_at = until a mod lifts it. each owning module lazy-loads this the same way
+  // ignore.ts lazy-loads ignored_users — no cross-module coupling, no second action path.
+  () => {
+    db.run(`CREATE TABLE channel_controls (
+      channel TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      by TEXT NOT NULL,
+      expires_at INTEGER,
+      PRIMARY KEY (channel, key)
+    )`)
+  },
+  // migration 39: panel_audit gets a source column ('panel' | 'chat') — a mod's plain-talk
+  // "pause trivia" in chat used to act but leave no audit trail; now both doors log to the
+  // same table. existing rows predate the chat path, so they backfill as 'panel'.
+  () => {
+    db.run(`ALTER TABLE panel_audit ADD COLUMN source TEXT NOT NULL DEFAULT 'panel'`)
+  },
 ]
 
 function runMigrations() {
@@ -2417,25 +2438,99 @@ export function getUserChatProfile(username: string, channel: string): UserChatP
 
 // --- control panel ---
 
-export interface PanelAuditRow { ts: number; login: string; action: string; detail: string }
+export type PanelAuditSource = 'panel' | 'chat'
+export interface PanelAuditRow { ts: number; login: string; action: string; detail: string; source: PanelAuditSource }
 
-export function logPanelAction(login: string, channel: string, action: string, detail = ''): void {
-  db.query(`INSERT INTO panel_audit (ts, login, channel, action, detail) VALUES (?, ?, ?, ?, ?)`)
-    .run(Date.now(), login, channel.toLowerCase(), action, detail.slice(0, 200))
+export function logPanelAction(login: string, channel: string, action: string, detail = '', source: PanelAuditSource = 'panel'): void {
+  db.query(`INSERT INTO panel_audit (ts, login, channel, action, detail, source) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(Date.now(), login, channel.toLowerCase(), action, detail.slice(0, 200), source)
 }
 
 export function recentPanelActions(channel: string, n = 15): PanelAuditRow[] {
-  return db.query(`SELECT ts, login, action, detail FROM panel_audit WHERE channel = ? ORDER BY ts DESC LIMIT ?`)
+  return db.query(`SELECT ts, login, action, detail, source FROM panel_audit WHERE channel = ? ORDER BY ts DESC LIMIT ?`)
     .all(channel.toLowerCase(), n) as PanelAuditRow[]
 }
 
-export interface RecentAsk { user: string; query: string; response: string; at: string }
+export interface RecentAsk { id: number; user: string; query: string; response: string; at: string; latencyMs: number | null }
 
 export function recentAsks(channel: string, n = 20): RecentAsk[] {
   return db.query(
-    `SELECT u.username AS user, aq.query, aq.response, aq.created_at AS at FROM ask_queries aq
+    `SELECT aq.id, u.username AS user, aq.query, aq.response, aq.created_at AS at, aq.latency_ms AS latencyMs FROM ask_queries aq
      JOIN users u ON u.id = aq.user_id WHERE aq.channel = ? ORDER BY aq.id DESC LIMIT ?`,
   ).all(channel.toLowerCase(), n) as RecentAsk[]
+}
+
+/**
+ * Delete one ask_queries row for the panel's "remove this reply" action, scoped to the
+ * channel that asked for it (never another channel's row by guessed id). The FTS delete
+ * trigger keeps ask_fts in sync. Also drops the row's response text from
+ * channel_recent_responses so a purged bad reply can't echo back as a voice example.
+ * Returns the deleted row's response text (for the caller to also evict from the
+ * in-memory recent-responses cache), or null when the id doesn't exist in this channel.
+ */
+export function purgeAsk(id: number, channel: string): string | null {
+  const ch = channel.toLowerCase()
+  const row = db.query(`SELECT response FROM ask_queries WHERE id = ? AND channel = ?`).get(id, ch) as { response: string | null } | null
+  if (!row) return null
+  db.run(`DELETE FROM ask_queries WHERE id = ?`, [id])
+  if (row.response) db.run(`DELETE FROM channel_recent_responses WHERE channel = ? AND response = ?`, [ch, row.response])
+  return row.response
+}
+
+export interface RecentMiss { user: string; query: string; reason: string; at: string }
+
+export function recentMisses(channel: string, n = 15): RecentMiss[] {
+  return db.query(
+    `SELECT COALESCE(u.username, '?') AS user, am.query, am.reason, am.created_at AS at FROM ask_misses am
+     LEFT JOIN users u ON u.id = am.user_id WHERE am.channel = ? ORDER BY am.id DESC LIMIT ?`,
+  ).all(channel.toLowerCase(), n) as RecentMiss[]
+}
+
+// asks per minute for the last 60 minutes, oldest first — the panel's activity sparkline.
+// one grouped query on ask_queries.created_at (UTC, 'YYYY-MM-DD HH:MM:SS'), served by
+// idx_ask_channel_time.
+export function getAskSpark(channel: string): number[] {
+  const rows = db.query(
+    `SELECT CAST((strftime('%s','now') - strftime('%s', created_at)) / 60 AS INTEGER) AS bucket, COUNT(*) AS n
+     FROM ask_queries WHERE channel = ? AND created_at >= datetime('now', '-60 minutes')
+     GROUP BY bucket`,
+  ).all(channel.toLowerCase()) as { bucket: number; n: number }[]
+  const out = new Array(60).fill(0) as number[]
+  for (const r of rows) if (r.bucket >= 0 && r.bucket < 60) out[59 - r.bucket] = r.n
+  return out
+}
+
+export interface TopAiUser { user: string; units: number }
+
+/**
+ * Top askers today for the panel's people box. ask_queries has channel scope; the real
+ * weighted budget ledger (user_ai_budget) does not, so a per-channel count of today's asks
+ * is the best channel-scoped proxy available. Falls back to the global budget ledger only
+ * when this channel has asked nothing today (a quiet channel, not "nobody spent anything").
+ */
+export function getTopAskersToday(channel: string, n = 8): TopAiUser[] {
+  try {
+    const rows = db.query(
+      `SELECT u.username AS user, COUNT(*) AS units FROM ask_queries aq
+       JOIN users u ON u.id = aq.user_id
+       WHERE aq.channel = ? AND aq.created_at >= datetime('now', 'start of day')
+       GROUP BY aq.user_id ORDER BY units DESC LIMIT ?`,
+    ).all(channel.toLowerCase(), n) as TopAiUser[]
+    if (rows.length) return rows
+  } catch {}
+  try {
+    return db.query(`SELECT user, units FROM user_ai_budget WHERE day = ? ORDER BY units DESC LIMIT ?`).all(ptDay(), n) as TopAiUser[]
+  } catch {
+    return []
+  }
+}
+
+export function clearUserAiUnitsToday(user: string): void {
+  try {
+    db.run(`DELETE FROM user_ai_budget WHERE user = ? AND day = ?`, [user.toLowerCase(), ptDay()])
+  } catch (e) {
+    log(`user_ai_budget clear failed: ${e}`)
+  }
 }
 
 export interface IgnoreRow { channel: string; login: string; by: string; created_at: number; expires_at: number | null }
@@ -2451,4 +2546,22 @@ export function saveIgnore(r: IgnoreRow): void {
 
 export function deleteIgnore(channel: string, login: string): void {
   db.query(`DELETE FROM ignored_users WHERE channel = ? AND login = ?`).run(channel, login)
+}
+
+// --- channel_controls: write-through store behind every panel toggle that used to be
+// "until restart" (see migration 38). channel '*' is the one global row (ai-trivia).
+
+export interface ControlRow { channel: string; key: string; value: string; by: string; expires_at: number | null }
+
+export function loadControls(): ControlRow[] {
+  return db.query(`SELECT channel, key, value, by, expires_at FROM channel_controls`).all() as ControlRow[]
+}
+
+export function saveControl(r: ControlRow): void {
+  db.query(`INSERT OR REPLACE INTO channel_controls (channel, key, value, by, expires_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(r.channel, r.key, r.value, r.by, r.expires_at)
+}
+
+export function deleteControl(channel: string, key: string): void {
+  db.query(`DELETE FROM channel_controls WHERE channel = ? AND key = ?`).run(channel, key)
 }

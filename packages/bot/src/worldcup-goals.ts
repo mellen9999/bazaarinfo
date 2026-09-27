@@ -1,4 +1,5 @@
 import { fetchWorldCup, type WcData, type WcMatch } from './worldcup'
+import * as db from './db'
 import { log } from './log'
 
 // posts concise world cup announcements — kickoff, goals, and full time. piggybacks on
@@ -133,6 +134,40 @@ type Say = (channel: string, msg: string) => void
 const tracked: GoalState = new Map()
 let timer: ReturnType<typeof setTimeout> | null = null
 
+// --- per-channel mute (channel_controls, key 'goals') — the panel's "goal alerts" switch.
+// on by default (unset = the existing always-on behavior); lazy-loaded like ignore.ts.
+const disabledChannels = new Set<string>()
+let goalsLoaded = false
+function ensureGoalsLoaded(): void {
+  if (goalsLoaded || !db.getDb()) return
+  goalsLoaded = true
+  try {
+    for (const r of db.loadControls()) {
+      if (r.key === 'goals' && r.value === 'off') disabledChannels.add(r.channel)
+    }
+  } catch (e) {
+    log(`worldcup-goals: toggle load failed: ${e}`)
+  }
+}
+
+export function isGoalsEnabled(channel: string): boolean {
+  ensureGoalsLoaded()
+  return !disabledChannels.has(channel.toLowerCase())
+}
+
+export function setGoalsEnabled(channel: string, on: boolean, by: string): void {
+  ensureGoalsLoaded()
+  const ch = channel.toLowerCase()
+  if (on) disabledChannels.delete(ch)
+  else disabledChannels.add(ch)
+  try { db.saveControl({ channel: ch, key: 'goals', value: on ? 'on' : 'off', by, expires_at: null }) } catch (e) { log(`worldcup-goals: toggle save failed: ${e}`) }
+}
+
+export function __resetGoalsForTest(): void {
+  goalsLoaded = false
+  disabledChannels.clear()
+}
+
 export function startGoalWatch(say: Say, offlineChannels: () => string[]) {
   const tick = async () => {
     let delay = DORMANT_POLL_MS
@@ -141,7 +176,7 @@ export function startGoalWatch(say: Say, offlineChannels: () => string[]) {
       if (data) {
         const msgs = diffAnnouncements(data, tracked)
         if (msgs.length > 0) {
-          const chs = offlineChannels()
+          const chs = offlineChannels().filter(isGoalsEnabled)
           for (const msg of msgs) {
             log(`worldcup: ${msg} → ${chs.length} channel(s)`)
             for (const ch of chs) say(ch, msg)

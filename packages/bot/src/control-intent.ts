@@ -87,7 +87,7 @@ function matchRaidPace(t: string): Action | null {
   return null
 }
 
-// the channel-level ai on/off switch (ai-cache's AI_CHANNELS — "until restart") is a
+// the channel-level ai on/off switch (ai-cache's AI_CHANNELS — persisted) is a
 // different, bigger lever than SUPPRESS_RE's temporary "ai" feature pause, and their
 // bare verbs collide ("turn ai off" already means the temp pause and must keep meaning
 // that — byte-identical). requiring an explicit qualifier keeps the two unambiguous
@@ -96,6 +96,18 @@ function matchAiToggle(t: string): Action | null {
   if (!AI_TOGGLE_QUALIFIER_RE.test(t)) return null
   if (/^(?:turn|switch)\s+(?:the\s+)?ai\s+on\b/i.test(t) || /^enable\s+ai\b/i.test(t)) return { kind: 'ai', on: true }
   if (/^(?:turn|switch)\s+(?:the\s+)?ai\s+off\b/i.test(t) || /^disable\s+ai\b/i.test(t)) return { kind: 'ai', on: false }
+  return null
+}
+
+// the world cup goal announcer's per-channel mute — "goal alerts"/"goal announcer"/"world
+// cup goals" is a distinct vocabulary from raid/ai/trivia's on-off words, so no qualifier
+// or collision guard is needed the way matchAiToggle needs one.
+const GOALS_WORDS_RE = /(?:goal\s+alerts?|goal\s+announcer|world\s?cup\s+goals?)/i
+function matchGoalsToggle(t: string): Action | null {
+  if (new RegExp(`^(?:turn|switch)\\s+(?:the\\s+)?${GOALS_WORDS_RE.source}\\s+on\\b`, 'i').test(t)
+    || new RegExp(`^enable\\s+(?:the\\s+)?${GOALS_WORDS_RE.source}\\b`, 'i').test(t)) return { kind: 'goals', on: true }
+  if (new RegExp(`^(?:turn|switch)\\s+(?:the\\s+)?${GOALS_WORDS_RE.source}\\s+off\\b`, 'i').test(t)
+    || new RegExp(`^(?:disable|mute|stop)\\s+(?:the\\s+)?${GOALS_WORDS_RE.source}\\b`, 'i').test(t)) return { kind: 'goals', on: false }
   return null
 }
 
@@ -191,6 +203,7 @@ export function matchControlIntent(text: string): Action | null {
     ?? matchRaidToggle(t)
     ?? matchRaidPace(t)
     ?? matchAiToggle(t)
+    ?? matchGoalsToggle(t)
     ?? matchSay(t)
 }
 

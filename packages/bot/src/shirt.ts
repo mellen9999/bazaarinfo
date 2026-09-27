@@ -4,7 +4,7 @@ import { log } from './log'
 import { anthropicCall } from './ai-http'
 import * as db from './db'
 import type { ShirtLook } from './db'
-import { AI_CHANNELS, getStreamInfo, isChannelLive, isLiveStateKnown } from './ai-cache'
+import { getStreamInfo, isChannelLive, isLiveStateKnown, isAiChannelEnabled } from './ai-cache'
 import { familiesIn, toFamily } from './shirt-colour'
 
 // chat bets on what colour shirt kripp is wearing. the bot could never see the stream, so it
@@ -413,7 +413,7 @@ export function noteStreamThumb(channel: string, startedAt: number, template: st
   const ch = channel.toLowerCase()
   if (!Number.isFinite(startedAt) || !template) return
   // spending on a channel whose bot cannot answer questions buys nothing.
-  if (!AI_CHANNELS.has(ch)) return
+  if (!isAiChannelEnabled(ch)) return
 
   let w = watches.get(ch)
   if (!w || w.startedAt !== startedAt) {

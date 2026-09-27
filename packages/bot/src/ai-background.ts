@@ -3,7 +3,7 @@ import { setSummarizer, setSummaryPersister, setLessonExtractor } from './chatbu
 import type { ChatEntry } from './chatbuf'
 import { getUserInfo, getFollowage } from './twitch'
 import { getAccessToken } from './auth'
-import { AI_CHANNELS, getChannelId } from './ai-cache'
+import { getChannelId, isAiChannelEnabled } from './ai-cache'
 import { canReadFollowage } from './twitch-profile'
 import { anthropicCall } from './ai-http'
 import { log } from './log'
@@ -32,7 +32,7 @@ export function stripNoBotCommitments(text: string): string {
 
 async function summarizeChat(channel: string, recent: ChatEntry[], prev: string): Promise<string> {
   if (!API_KEY) return prev
-  if (!AI_CHANNELS.has(channel.toLowerCase())) return prev
+  if (!isAiChannelEnabled(channel.toLowerCase())) return prev
   const chatLines = recent.map((m) => `${m.user}: ${m.text}`).join('\n')
   const prompt = [
     prev ? `Previous summary: ${prev}\n` : '',
@@ -77,7 +77,7 @@ const INSTRUCTION_LESSON = /\b(needs? to|should|must|always|never|don'?t|has to|
 
 async function extractChatLessons(channel: string, recent: ChatEntry[]): Promise<void> {
   if (!API_KEY) return
-  if (!AI_CHANNELS.has(channel.toLowerCase())) return
+  if (!isAiChannelEnabled(channel.toLowerCase())) return
   if (lessonInFlight.has(channel)) return
 
   let count = db.getChatLessonCount()

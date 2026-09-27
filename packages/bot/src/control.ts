@@ -11,11 +11,15 @@ import { skipTrivia, activeRoundInfo } from './trivia'
 import * as dungeon from './dungeon/loop'
 import * as raid from './raid/state'
 import {
-  AI_CHANNELS, enableAiForChannel, disableAiForChannel, getStreamInfo, getLiveChannels,
-  getChannelGame, cbIsOpen, activeSlotCount, aiQueueDepth,
+  isAiChannelEnabled, enableAiForChannel, disableAiForChannel, getStreamInfo, getLiveChannels,
+  getChannelGame, cbIsOpen, activeSlotCount, aiQueueDepth, AI_MAX_QUEUE, AI_DAILY_TOKEN_CAP,
+  aiTriviaEnabled, setAiTriviaOverride, resetUserAiUnitsToday, dropRecentResponse, USER_DAILY_AI_CAP,
 } from './ai-cache'
-import { hardStopReasonText } from './ai-http'
+import { hardStopReasonPure, hardStopResumeAt } from './ai-http'
+import { WEB_SEARCH_DAILY_CAP } from './ai-search-gate'
 import { ignoreUser, unignoreUser, listIgnored, IGNORE_MAX_MIN, LOGIN_RE } from './ignore'
+import { isGoalsEnabled, setGoalsEnabled } from './worldcup-goals'
+import { listTimedOut } from './moderation'
 import * as db from './db'
 import { log } from './log'
 
@@ -38,6 +42,10 @@ export type Action =
   | { kind: 'raid'; on: boolean }
   | { kind: 'raid-pace'; pace: raid.Pace }
   | { kind: 'ai'; on: boolean }
+  | { kind: 'goals'; on: boolean }
+  | { kind: 'cap-reset'; user: string }
+  | { kind: 'ask-purge'; id: number }
+  | { kind: 'ai-trivia'; on: boolean }
   | { kind: 'say'; text: string }
   | { kind: 'ignore'; user: string; minutes?: number }
   | { kind: 'unignore'; user: string }
@@ -45,7 +53,7 @@ export type Action =
   | { kind: 'part'; target: string }
 
 export type ActionKind = Action['kind']
-export const ADMIN_KINDS: ReadonlySet<ActionKind> = new Set(['join', 'part'])
+export const ADMIN_KINDS: ReadonlySet<ActionKind> = new Set(['join', 'part', 'ai-trivia'])
 
 export interface ActResult { ok: boolean; msg: string }
 
@@ -61,6 +69,21 @@ let partOp: ChannelOp | null = null
 
 export function setControlSender(fn: Sender): void { send = fn }
 export function setControlChannelOps(join: ChannelOp, part: ChannelOp): void { joinOp = join; partOp = part }
+
+// health readout — transport/rate-limit state lives on the twitch client, uptime/data
+// freshness on index.ts's boot clock and the store cache. injected, not imported, same
+// reason as send/join above: this module stays a leaf.
+export interface HealthProvider {
+  irc: () => boolean
+  eventsub: () => boolean
+  privileged: (channel: string) => boolean
+  sendBucket: (channel: string) => { used: number; limit: number }
+  lastDrop: (channel: string) => { at: number; reason: string } | null
+  uptimeSec: () => number
+  dataAgeSec: () => number
+}
+let health: HealthProvider | null = null
+export function setHealthProvider(p: HealthProvider): void { health = p }
 
 const listeners = new Set<(channel: string) => void>()
 /** fires after any state-changing action — the panel's live stream pushes on it. */
@@ -115,9 +138,19 @@ export function parseAction(input: unknown): Action | null {
     }
     case 'raid':
     case 'ai':
+    case 'goals':
+    case 'ai-trivia':
       return typeof a.on === 'boolean' ? { kind: a.kind, on: a.on } : null
     case 'raid-pace':
       return PACES.includes(a.pace as raid.Pace) ? { kind: 'raid-pace', pace: a.pace as raid.Pace } : null
+    case 'cap-reset': {
+      const u = typeof a.user === 'string' ? a.user.trim().toLowerCase().replace(/^@/, '') : ''
+      return LOGIN_RE.test(u) ? { kind: 'cap-reset', user: u } : null
+    }
+    case 'ask-purge': {
+      const id = a.id
+      return typeof id === 'number' && Number.isInteger(id) && id > 0 ? { kind: 'ask-purge', id } : null
+    }
     case 'say': {
       const t = str(a.text, SAY_MAX)
       return t && !/[\r\n]/.test(t) ? { kind: 'say', text: t } : null
@@ -169,6 +202,10 @@ export function describe(a: Action): string {
     case 'raid': return `raid game ${a.on ? 'on' : 'off'}`
     case 'raid-pace': return `raid pace ${a.pace}`
     case 'ai': return `ai answers ${a.on ? 'on' : 'off'}`
+    case 'goals': return `goal alerts ${a.on ? 'on' : 'off'}`
+    case 'cap-reset': return `reset @${a.user}'s ai budget for today`
+    case 'ask-purge': return `remove question #${a.id}`
+    case 'ai-trivia': return `ai trivia (all channels) ${a.on ? 'on' : 'off'}`
     case 'say': return `say "${a.text}"`
     case 'ignore': return `ignore @${a.user}${a.minutes ? ` for ${fmtMins(a.minutes)}` : ' until lifted'}`
     case 'unignore': return `stop ignoring @${a.user}`
@@ -189,11 +226,17 @@ async function post(channel: string, text: string | null | undefined): Promise<v
  * `announce` posts chat-visible results (a skipped round's answer, a started question).
  * the chat door passes false and replies with msg itself — either way chat sees the line,
  * never a headless round.
+ * `source` ('panel' | 'chat') is the audit trail's provenance — the ONE place a state
+ * change is logged, so a mod's plain-talk pause in chat shows up in the panel's log the
+ * same as a button click, and neither caller can forget to log it.
  */
-export async function act(channel: string, by: string, a: Action, announce = true): Promise<ActResult> {
+export async function act(channel: string, by: string, a: Action, announce = true, source: db.PanelAuditSource = 'panel'): Promise<ActResult> {
   const ch = channel.toLowerCase()
   const res = await run(ch, by, a, announce)
-  if (res.ok) changed(ch)
+  if (res.ok) {
+    changed(ch)
+    try { db.logPanelAction(by, ch, a.kind, describe(a), source) } catch (e) { log(`control: audit log failed: ${e}`) }
+  }
   return res
 }
 
@@ -253,7 +296,22 @@ async function run(ch: string, by: string, a: Action, announce: boolean): Promis
     case 'ai':
       if (a.on) enableAiForChannel(ch)
       else disableAiForChannel(ch)
-      return { ok: true, msg: `ai answers ${a.on ? 'on' : 'off'} (until restart)` }
+      return { ok: true, msg: `ai answers ${a.on ? 'on' : 'off'}` }
+    case 'goals':
+      setGoalsEnabled(ch, a.on, by)
+      return { ok: true, msg: `goal alerts ${a.on ? 'on' : 'off'}` }
+    case 'cap-reset':
+      resetUserAiUnitsToday(a.user)
+      return { ok: true, msg: `reset @${a.user}'s ai budget for today` }
+    case 'ask-purge': {
+      const response = db.purgeAsk(a.id, ch)
+      if (response === null) return { ok: false, msg: `question #${a.id} not found` }
+      dropRecentResponse(ch, response)
+      return { ok: true, msg: `removed question #${a.id}` }
+    }
+    case 'ai-trivia':
+      setAiTriviaOverride(a.on)
+      return { ok: true, msg: `ai trivia (all channels) ${a.on ? 'on' : 'off'}` }
     case 'say':
       if (!send) return { ok: false, msg: 'not connected' }
       await send(ch, a.text)
@@ -277,13 +335,24 @@ async function run(ch: string, by: string, a: Action, announce: boolean): Promis
 
 // --- snapshot --------------------------------------------------------------------------
 
+export interface Health {
+  irc: boolean
+  eventsub: boolean
+  privileged: boolean
+  sends: { used: number; limit: number }
+  lastDrop: { at: number; reason: string } | null
+  uptimeSec: number
+  dataAgeSec: number
+}
+
 export interface Snapshot {
   channel: string
   now: number
   stream: { live: boolean; game: string | null; title: string | null; viewers: number | null; startedAt: number | null }
   ai: {
-    enabled: boolean; breaker: boolean; slots: number; queue: number; hardStop: string
-    tokensToday: number; callsToday: number; globalTokensToday: number; searchesToday: number
+    enabled: boolean; breaker: boolean; slots: number; queue: number; queueMax: number; hardStop: string; hardStopUntil: number | null
+    tokensToday: number; callsToday: number; globalTokensToday: number; searchesToday: number; searchCap: number
+    aiTrivia: boolean; tokenCap: number
   }
   pauses: { feature: SuppressFeature; by: string; minutes: number }[]
   ignored: { login: string; by: string; minutes: number | null }[]
@@ -295,7 +364,13 @@ export interface Snapshot {
   }
   depths: string
   raid: { enabled: boolean; pace: raid.Pace }
+  goals: boolean
+  health: Health | null
+  spark: number[]
   asks: db.RecentAsk[]
+  misses: db.RecentMiss[]
+  topUsers: (db.TopAiUser & { cap: number })[]
+  timedOut: { login: string; minutesLeft: number }[]
   audit: db.PanelAuditRow[]
 }
 
@@ -325,15 +400,20 @@ export function snapshot(channel: string): Snapshot {
       startedAt: info?.startedAt ?? null,
     },
     ai: {
-      enabled: AI_CHANNELS.has(ch),
+      enabled: isAiChannelEnabled(ch),
       breaker: cbIsOpen(),
       slots: activeSlotCount(),
       queue: aiQueueDepth,
-      hardStop: hardStopReasonText(),
+      queueMax: AI_MAX_QUEUE,
+      hardStop: hardStopReasonPure(),
+      hardStopUntil: hardStopResumeAt() || null,
       tokensToday: spend.input_tokens + spend.output_tokens,
       callsToday: spend.calls,
       globalTokensToday: db.getGlobalDailyAiSpend().tokens,
       searchesToday: db.getWebSearchesToday(),
+      searchCap: WEB_SEARCH_DAILY_CAP,
+      aiTrivia: aiTriviaEnabled(),
+      tokenCap: AI_DAILY_TOKEN_CAP,
     },
     pauses: listSuppressions(ch),
     ignored: listIgnored(ch),
@@ -350,7 +430,21 @@ export function snapshot(channel: string): Snapshot {
     trivia: { round: activeRoundInfo(ch), queue: listTopicQueue(ch), bans: listTriviaTopicBans(ch) },
     depths: safe('depths', () => dungeon.statusLine(ch), 'unavailable'),
     raid: safe('raid', () => ({ enabled: raid.isEnabled(ch), pace: raid.getPace(ch) }), { enabled: false, pace: 'normal' as raid.Pace }),
+    goals: safe('goals', () => isGoalsEnabled(ch), true),
+    health: safe('health', () => health ? {
+      irc: health.irc(),
+      eventsub: health.eventsub(),
+      privileged: health.privileged(ch),
+      sends: health.sendBucket(ch),
+      lastDrop: health.lastDrop(ch),
+      uptimeSec: health.uptimeSec(),
+      dataAgeSec: health.dataAgeSec(),
+    } : null, null),
+    spark: safe('spark', () => db.getAskSpark(ch), new Array(60).fill(0)),
     asks: safe('asks', () => db.recentAsks(ch, 20), []),
+    misses: safe('misses', () => db.recentMisses(ch, 15), []),
+    topUsers: safe('topUsers', () => db.getTopAskersToday(ch, 8).map((u) => ({ ...u, cap: USER_DAILY_AI_CAP })), []),
+    timedOut: safe('timedOut', () => listTimedOut(ch), []),
     audit: safe('audit', () => db.recentPanelActions(ch, 15), []),
   }
 }

@@ -66,6 +66,13 @@ describe('matchControlIntent — phrase coverage', () => {
     // keep meaning the existing temporary suppress/resume, never the new raid/ai actions
     ['resume the raid game', { kind: 'resume', feature: 'all' }],
     ['disable ai', { kind: 'pause', feature: 'ai', minutes: undefined }],
+    // goal alerts (world cup goal announcer mute)
+    ['turn goal alerts off', { kind: 'goals', on: false }],
+    ['turn the goal announcer on', { kind: 'goals', on: true }],
+    ['disable goal alerts', { kind: 'goals', on: false }],
+    ['mute the goal announcer', { kind: 'goals', on: false }],
+    ['stop goal alerts', { kind: 'goals', on: false }],
+    ['enable world cup goals', { kind: 'goals', on: true }],
     // say (panel command bar only — never wired to chat)
     ['say hello chat', { kind: 'say', text: 'hello chat' }],
     ['say gg well played in chat', { kind: 'say', text: 'gg well played' }],
@@ -120,6 +127,11 @@ describe('matchControlIntent — near-miss (must return null)', () => {
     // ai toggle without the required qualifier — falls through to nothing actionable
     // ("turn ai off" alone isn't SUPPRESS_RE's contiguous "turn off ai" shape either)
     'turn ai off',
+    // goal alerts — bare "goal" or narration never toggles the switch
+    'goal',
+    'did you see that goal',
+    'kripp turned off goal alerts yesterday',
+    'is the goal announcer on',
   ]
 
   for (const text of cases) {

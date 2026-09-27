@@ -5,10 +5,10 @@
 
 import { resolve } from 'path'
 import { log } from './log'
-import * as db from './db'
 import { parseAction, describe, act, snapshot, onControlChange, ADMIN_KINDS, type Action } from './control'
 import { handleLogin, handleCallback, handleLogout, getSession, cookieSessionId } from './panel-auth'
 import { parseControlIntent } from './control-intent'
+import { getLiveChannels, getStreamInfo } from './ai-cache'
 
 const PANEL_ORIGIN = process.env.PANEL_ORIGIN ?? ''
 const PANEL_PORT = parseInt(process.env.PANEL_PORT ?? '3200')
@@ -145,8 +145,9 @@ async function apiAct(req: Request): Promise<Response> {
   if (!ch || !session.channels.includes(ch)) return errorJson(403, 'not your channel')
   if (ADMIN_KINDS.has(action.kind) && !session.admin) return errorJson(403, 'admin only')
 
+  // act() itself writes the panel_audit row (tagged 'panel') — the one place a state
+  // change is logged, shared with the chat mod-control door (commands.ts, tagged 'chat').
   const result = await act(ch, session.login, action)
-  db.logPanelAction(session.login, ch, action.kind, describe(action))
   return Response.json(result)
 }
 
@@ -176,6 +177,14 @@ async function apiParse(req: Request): Promise<Response> {
 
 const streamCounts = new Map<string, number>()
 
+// this session's channel tabs (live dot + viewer count) — panel-server knows session.channels,
+// control.ts's snapshot() is per-channel and doesn't, so this rides along on each SSE frame
+// instead of living in Snapshot.
+function tabsFor(channels: string[]): { ch: string; live: boolean; viewers: number | null }[] {
+  const live = new Set(getLiveChannels())
+  return channels.map((ch) => ({ ch, live: live.has(ch), viewers: getStreamInfo(ch)?.viewers ?? null }))
+}
+
 async function apiStream(req: Request, url: URL): Promise<Response> {
   const session = await getSession(req)
   if (!session) return json401()
@@ -186,7 +195,7 @@ async function apiStream(req: Request, url: URL): Promise<Response> {
   const open = streamCounts.get(sid) ?? 0
   if (open >= MAX_STREAMS_PER_SESSION) return errorJson(429, 'too many open streams')
   // first frame built before a slot is taken — a throw here is a plain 500, never a leaked slot
-  const first = JSON.stringify(snapshot(ch))
+  const first = JSON.stringify({ ...snapshot(ch), tabs: tabsFor(session.channels) })
   streamCounts.set(sid, open + 1)
 
   let closed = false
@@ -203,7 +212,7 @@ async function apiStream(req: Request, url: URL): Promise<Response> {
       const send = (pre?: string) => {
         let json: string
         try {
-          json = pre ?? JSON.stringify(snapshot(ch))
+          json = pre ?? JSON.stringify({ ...snapshot(ch), tabs: tabsFor(session.channels) })
         } catch (e) {
           log(`panel: snapshot failed for #${ch}: ${e}`)
           return

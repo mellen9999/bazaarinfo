@@ -288,6 +288,7 @@ describe('shirt: stored looks', () => {
     raw.run(`DROP TABLE IF EXISTS web_search_spend`)
     raw.run(`DROP TABLE IF EXISTS panel_audit`)
     raw.run(`DROP TABLE IF EXISTS ignored_users`)
+    raw.run(`DROP TABLE IF EXISTS channel_controls`)
     raw.run(`UPDATE schema_version SET version = 32`)
     raw.close()
     db.initDb(path)

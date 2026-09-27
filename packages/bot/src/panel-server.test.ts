@@ -41,9 +41,6 @@ mock.module('./control', () => ({
   ADMIN_KINDS: new Set(['join', 'part']),
 }))
 
-const mockLogPanelAction = mock((_login: string, _ch: string, _kind: string, _detail: string) => {})
-mock.module('./db', () => ({ logPanelAction: mockLogPanelAction }))
-
 let parseControlIntentResult: { kind: string } | null = null
 mock.module('./control-intent', () => ({
   parseControlIntent: mock(async (_text: string, _ch: string) => parseControlIntentResult),
@@ -71,7 +68,6 @@ beforeEach(() => {
   parseControlIntentResult = null
   mockGetSession.mockClear()
   mockAct.mockClear()
-  mockLogPanelAction.mockClear()
 })
 
 // --- security headers, on every response ---
@@ -161,13 +157,14 @@ describe('POST /api/act', () => {
     expect(mockAct).not.toHaveBeenCalled()
   })
 
-  it('allows an admin-kind action for an admin session and logs it', async () => {
+  it('allows an admin-kind action for an admin session', async () => {
+    // audit logging lives inside act() now (control.test.ts covers it) — this only
+    // proves panel-server let the admin-kind action through to act().
     parseActionResult = { kind: 'join', target: 'newchan' }
     currentSession = { login: 'owner', admin: true, channels: ['kripp'] }
     const res = await post('/api/act', { channel: 'kripp', action: parseActionResult })
     expect(res.status).toBe(200)
     expect(mockAct).toHaveBeenCalledWith('kripp', 'owner', parseActionResult)
-    expect(mockLogPanelAction).toHaveBeenCalledTimes(1)
   })
 
   it('runs a normal (non-admin-kind) action for any session member', async () => {
@@ -231,7 +228,7 @@ describe('GET /api/stream', () => {
     expect(res.status).toBe(403)
   })
 
-  it('sends an initial snap event immediately', async () => {
+  it('sends an initial snap event immediately, with the session tabs riding along', async () => {
     currentSid = 'sid-snap'
     const res = await get('/api/stream?ch=kripp')
     expect(res.status).toBe(200)
@@ -240,7 +237,9 @@ describe('GET /api/stream', () => {
     const { value } = await reader.read()
     const text = new TextDecoder().decode(value)
     expect(text.startsWith('event: snap\ndata: ')).toBe(true)
-    expect(JSON.parse(text.slice('event: snap\ndata: '.length).trim())).toEqual({ channel: 'kripp', now: 1, fake: true })
+    expect(JSON.parse(text.slice('event: snap\ndata: '.length).trim())).toEqual({
+      channel: 'kripp', now: 1, fake: true, tabs: [{ ch: 'kripp', live: false, viewers: null }],
+    })
     await reader.cancel()
   })
 

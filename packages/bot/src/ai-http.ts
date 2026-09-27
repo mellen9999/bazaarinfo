@@ -89,6 +89,20 @@ export function hardStopReasonText(): string {
   return isHardStopped() ? hardStopReason : ''
 }
 
+/**
+ * Same text as hardStopReasonText(), but side-effect-free — unlike isHardStopped() it
+ * never clears an expired latch and never releases a probe call. The panel snapshot reads
+ * on a 2s tick; isHardStopped()'s probe-release logic assumes it is called by a real AI
+ * call site about to spend a slot, and letting a snapshot poll silently consume the
+ * once-an-hour probe window would starve the real probe that was meant to use it.
+ */
+export function hardStopReasonPure(): string {
+  if (!hardStopDay && !hardStopUntil) return ''
+  const now = Date.now()
+  const expired = hardStopUntil > 0 ? now >= hardStopUntil : hardStopDay !== ptDay()
+  return expired ? '' : hardStopReason
+}
+
 /** epoch ms the API said access returns, 0 when it stated none. side-effect-free —
  * unlike isHardStopped() it never clears the latch or releases a probe. */
 export function hardStopResumeAt(): number {

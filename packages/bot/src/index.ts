@@ -44,7 +44,7 @@ import * as dungeon from './dungeon'
 import { backfillVods } from './vod-backfill'
 import { renderUserNotice, routesAsAsk, renderStoredEvent } from './stream-events'
 import { renderModeration, noteTimeout, isTimedOut, noteDeletedMessage, wasDeleted, noteSentLine, storedLineFor } from './moderation'
-import { setControlSender, setControlChannelOps } from './control'
+import { setControlSender, setControlChannelOps, setHealthProvider } from './control'
 import { startPanel } from './panel-server'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
@@ -71,7 +71,9 @@ const channelNames = [...new Set([...envChannels, ...storedChannels])]
 // AI follows the channels the bot is actually in. Without this a streamer who ran !join
 // got a bot that sat in their chat and answered nothing — and the join reply tells them to
 // type "!b help", which routes through AI and so returned silence.
-for (const name of channelNames) enableAiForChannel(name)
+// persist:false — this runs every boot for every configured channel, and must never
+// overwrite a mod's explicit panel/chat toggle (channel_controls) with the env default.
+for (const name of channelNames) enableAiForChannel(name, false)
 
 // validate + refresh token
 const token = await ensureValidToken(CLIENT_ID, CLIENT_SECRET)
@@ -328,6 +330,21 @@ setStatusHandler(() => {
   const live = getLiveChannels()
   const mem = Math.round(process.memoryUsage.rss() / 1024 / 1024)
   return `up ${h}h${m}m | ${cache.items} items, ${cache.skills} skills, ${cache.monsters} monsters | data ${age}h old | ${chans.length} channels (${live.length} live) | ${mem}MB`
+})
+
+// control panel health readout — transport/rate-limit state lives on the twitch client,
+// uptime/data-freshness on this module's own clocks. injected so control.ts stays a leaf.
+setHealthProvider({
+  irc: () => client.isIrcReady(),
+  eventsub: () => client.eventsubEverConnected,
+  privileged: (ch) => client.isPrivilegedIn(ch),
+  sendBucket: (ch) => client.sendBucketStatus(ch),
+  lastDrop: (ch) => client.getLastDrop(ch),
+  uptimeSec: () => Math.floor((Date.now() - startedAt) / 1000),
+  dataAgeSec: () => {
+    const fetchedAt = getCacheInfo().fetchedAt
+    return fetchedAt ? Math.floor((Date.now() - new Date(fetchedAt).getTime()) / 1000) : -1
+  },
 })
 
 // load emote descriptions cache, then refresh emotes + describe new ones

@@ -4,7 +4,7 @@ import { describe, expect, it, beforeEach } from 'bun:test'
 // ceiling is reached, every further request is a doomed round trip, and a trivia round
 // was firing 37 of them. Unlike the circuit breaker (30s, then re-probe) this latches for
 // the rest of the PT day, because there is nothing to re-probe.
-const { isHardStopped, noteHardStop, hardStopReasonText, resetHardStopForTests } = await import('./ai-http')
+const { isHardStopped, noteHardStop, hardStopReasonText, hardStopReasonPure, resetHardStopForTests } = await import('./ai-http')
 
 describe('hard stop — permanent API failures latch, transient ones do not', () => {
   beforeEach(() => resetHardStopForTests())
@@ -41,6 +41,16 @@ describe('hard stop — permanent API failures latch, transient ones do not', ()
       noteHardStop(status, 'rate_limit_error / overloaded_error')
       expect(isHardStopped()).toBe(false)
     }
+  })
+
+  it('the pure read never clears an expired latch or consumes a probe — unlike isHardStopped()', () => {
+    expect(hardStopReasonPure()).toBe('')
+    noteHardStop(401, 'authentication_error')
+    expect(hardStopReasonPure()).toContain('401')
+    // called 30 times: a panel snapshot poller must never itself release the once-an-hour
+    // probe — only a real call site (isHardStopped()) may do that
+    for (let i = 0; i < 30; i++) hardStopReasonPure()
+    expect(isHardStopped()).toBe(true) // still latched — the pure reads consumed nothing
   })
 
   it('stays latched, on the newest reason, when a doomed fan-out all reports in', () => {

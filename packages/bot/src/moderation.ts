@@ -95,6 +95,20 @@ export function isTimedOut(channel: string, login: string, now = Date.now()): bo
   return true
 }
 
+/** everyone this channel currently has silenced by twitch's own timeout/ban, for the
+ * panel's read-only "timed out" list — not a bot-side mute, twitch enforcing directly. */
+export function listTimedOut(channel: string): { login: string; minutesLeft: number }[] {
+  const now = Date.now()
+  const prefix = `${channel.toLowerCase()}:`
+  const out: { login: string; minutesLeft: number }[] = []
+  for (const [key, until] of timeouts) {
+    if (!key.startsWith(prefix)) continue
+    if (until <= now) { timeouts.delete(key); continue }
+    out.push({ login: key.slice(prefix.length), minutesLeft: Math.max(1, Math.round((until - now) / 60_000)) })
+  }
+  return out
+}
+
 // deleted-message ring: "was this id removed" without keeping the removed text anywhere.
 const DELETED_CAP = 500
 const deletedIds: string[] = []

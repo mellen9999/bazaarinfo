@@ -417,6 +417,9 @@ export class TwitchClient {
   private seenMessageIdSet = new Set<string>()
   private readonly SEEN_MSG_CAP = 512
   lastActivity = Date.now()
+  // last twitch-side send drop (automod hold, dup, ratelimit, ban, suspension) — the panel's
+  // health readout names it instead of a mod having to go dig it out of the logs.
+  private lastDrop: { channel: string; reason: string; at: number } | null = null
 
   constructor(config: TwitchConfig, onMessage: MessageHandler) {
     this.config = config
@@ -871,6 +874,7 @@ export class TwitchClient {
             // (seen live: a 5x-identical emote wall tripping automod's repeat detector.)
             const drop = (msg.raw ?? '').match(/^\[(msg_automod_held|msg_rejected\w*|msg_duplicate|msg_ratelimit|msg_banned|msg_channel_suspended)\] #(\S+):/)
             if (drop) {
+              this.lastDrop = { channel: drop[2].toLowerCase(), reason: drop[1], at: Date.now() }
               const last = this.lastSentByChannel.get(drop[2])
               const age = last ? Date.now() - last.at : Infinity
               if (last && age < 15_000) log(`send dropped by twitch (${drop[1]}) #${drop[2]} after ${age}ms: ${JSON.stringify(last.text.slice(0, 80))}`)
@@ -1143,6 +1147,32 @@ export class TwitchClient {
   isModIn(channel: string): boolean {
     const c = channel.toLowerCase()
     return c === this.config.botUsername.toLowerCase() || this.modChannels.has(c)
+  }
+
+  /** vip/mod/broadcaster there — the panel's "bot is mod" readout. */
+  isPrivilegedIn(channel: string): boolean {
+    return this.isPrivileged(channel.toLowerCase())
+  }
+
+  /** irc transport is up (joined and answering pings) — the panel's "chat link" dot. */
+  isIrcReady(): boolean {
+    return this.ircReady
+  }
+
+  /** this channel's send bucket right now — mod bucket (100/30s) when privileged there,
+   * else the smaller user bucket (20/30s). the panel's "messages n/limit" readout. */
+  sendBucketStatus(channel: string): { used: number; limit: number } {
+    this.trimBuckets()
+    return this.isPrivileged(channel.toLowerCase())
+      ? { used: this.modSendTimes.length, limit: this.MOD_LIMIT }
+      : { used: this.userSendTimes.length, limit: this.USER_LIMIT }
+  }
+
+  /** the most recent twitch-side send drop for this channel, or null. */
+  getLastDrop(channel: string): { at: number; reason: string } | null {
+    return this.lastDrop && this.lastDrop.channel === channel.toLowerCase()
+      ? { at: this.lastDrop.at, reason: this.lastDrop.reason }
+      : null
   }
 
   private trimBuckets() {

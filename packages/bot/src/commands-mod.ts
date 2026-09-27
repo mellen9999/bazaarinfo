@@ -7,6 +7,7 @@ import { skipTrivia } from './trivia'
 import * as dungeon from './dungeon'
 import { parseDirective } from './ai-directive'
 import { addDirective, listDirectives, clearDirectives, removeDirectives, activeModGlobal, dropViewerGlobals, dropViewerWhere, removeByInstruction, MOD_TTL_MS } from './directives'
+import * as db from './db'
 import { log } from './log'
 
 // --- mod trivia-topic bans ---
@@ -20,21 +21,55 @@ const triviaTopicBans = new Map<string, Map<string, number>>()
 export const normTopic = (s: string) =>
   s.toLowerCase().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
 
+// persistence (channel_controls, key `topicban:<topic>`) — a ban used to be memory-only
+// and forgotten on restart; write-through on ban/unban, lazy-loaded like ignore.ts.
+let bansLoaded = false
+function ensureBansLoaded(): void {
+  if (bansLoaded || !db.getDb()) return
+  bansLoaded = true
+  try {
+    const now = Date.now()
+    for (const r of db.loadControls()) {
+      if (!r.key.startsWith('topicban:')) continue
+      if (r.expires_at === null || r.expires_at <= now) continue
+      const topic = r.key.slice('topicban:'.length)
+      const bans = triviaTopicBans.get(r.channel) ?? new Map<string, number>()
+      bans.set(topic, r.expires_at)
+      triviaTopicBans.set(r.channel, bans)
+    }
+  } catch (e) {
+    log(`commands-mod: ban load failed: ${e}`)
+  }
+}
+
+// deliberately does not reset `bansLoaded` — see suppress.ts's resetForTest comment: a
+// shared test-group process must not replay this file's own earlier writes back into itself.
 export function resetTriviaTopicBans() { triviaTopicBans.clear() }
 
+/** simulates a real restart (memory gone, db remains) — only safe from a test file that
+ * owns its own isolated db (e.g. control.test.ts), never from a shared test-group file. */
+export function __simulateRestartForTest(): void {
+  triviaTopicBans.clear()
+  bansLoaded = false
+}
+
 export function banTriviaTopic(channel: string, topic: string): string {
+  ensureBansLoaded()
   const key = normTopic(topic)
+  const expiresAt = Date.now() + TRIVIA_BAN_TTL
   const bans = triviaTopicBans.get(channel) ?? new Map<string, number>()
-  bans.set(key, Date.now() + TRIVIA_BAN_TTL)
+  bans.set(key, expiresAt)
   if (bans.size > 50) {
     const now = Date.now()
     for (const [k, exp] of bans) if (exp < now) bans.delete(k)
   }
   triviaTopicBans.set(channel, bans)
+  try { db.saveControl({ channel, key: `topicban:${key}`, value: '1', by: '', expires_at: expiresAt }) } catch (e) { log(`commands-mod: ban save failed: ${e}`) }
   return key
 }
 
 export function listTriviaTopicBans(channel: string): { topic: string; minutes: number }[] {
+  ensureBansLoaded()
   const now = Date.now()
   return [...(triviaTopicBans.get(channel) ?? [])]
     .filter(([, exp]) => exp > now)
@@ -42,10 +77,15 @@ export function listTriviaTopicBans(channel: string): { topic: string; minutes: 
 }
 
 export function unbanTriviaTopic(channel: string, topic: string): boolean {
-  return triviaTopicBans.get(channel)?.delete(normTopic(topic)) ?? false
+  ensureBansLoaded()
+  const key = normTopic(topic)
+  const had = triviaTopicBans.get(channel)?.delete(key) ?? false
+  if (had) { try { db.deleteControl(channel, `topicban:${key}`) } catch (e) { log(`commands-mod: unban failed: ${e}`) } }
+  return had
 }
 
 export function bannedTriviaTopic(channel: string, topic: string): string | null {
+  ensureBansLoaded()
   const bans = triviaTopicBans.get(channel)
   if (!bans) return null
   const t = ` ${normTopic(topic)} `
@@ -339,6 +379,7 @@ export function onSuppressClearQueue(fn: (channel: string) => void): void { clea
 // commands-trivia.ts alongside the topic-queue provider so the original registration
 // order (queue, then bans) is preserved.
 export function triviaBanStateLine(channel: string): string {
+  ensureBansLoaded()
   const bans = triviaTopicBans.get(channel)
   if (!bans?.size) return ''
   const now = Date.now()

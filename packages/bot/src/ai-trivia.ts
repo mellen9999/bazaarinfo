@@ -1,6 +1,6 @@
 import { log } from './log'
 import { extractFirstJson } from './http'
-import { AI_CHANNELS, isOverDailyCap, aiTriviaEnabled } from './ai-cache'
+import { isOverDailyCap, aiTriviaEnabled, isAiChannelEnabled } from './ai-cache'
 import { anthropicCall, stripUnpairedSurrogates, isHardStopped } from './ai-http'
 import { bankTrivia, takeBankedTrivia } from './db'
 
@@ -254,7 +254,7 @@ export async function generateCustomTrivia(
   if (!API_KEY) return null
   // governed exactly like the !b AI path: only spend in AI-enabled channels, and honor
   // the per-channel daily token backstop so a custom-trivia spree can't dodge the cap.
-  if (!AI_CHANNELS.has(channel.toLowerCase())) return null
+  if (!isAiChannelEnabled(channel.toLowerCase())) return null
   const clean = stripUnpairedSurrogates(topic.trim()).slice(0, MAX_TOPIC_LEN)
   if (clean.length < 2) return null
   const key = topicKey(clean)
@@ -866,7 +866,7 @@ const MAX_DOSSIER_LEN = 4000
 export async function generateGameTrivia(dossier: string, topic: string, channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
   if (!aiTriviaEnabled()) return null
   if (!API_KEY) return null
-  if (!AI_CHANNELS.has(channel.toLowerCase())) return null
+  if (!isAiChannelEnabled(channel.toLowerCase())) return null
   if (isOverDailyCap(channel)) {
     log(`ai-trivia: daily cap hit for ${channel}, skipping game trivia`)
     return null
@@ -973,7 +973,7 @@ const MAX_LORE_LEN = 2600
 export async function generateLoreTrivia(dossier: string, topic: string, channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
   if (!aiTriviaEnabled()) return null
   if (!API_KEY) return null
-  if (!AI_CHANNELS.has(channel.toLowerCase())) return null
+  if (!isAiChannelEnabled(channel.toLowerCase())) return null
   if (isOverDailyCap(channel)) {
     log(`ai-trivia: daily cap hit for ${channel}, skipping lore trivia`)
     return null
@@ -1046,7 +1046,7 @@ const MIN_CHAT_LINES = 5
 export async function generateChatTrivia(chatLines: string[], channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
   if (!aiTriviaEnabled()) return null
   if (!API_KEY) return null
-  if (!AI_CHANNELS.has(channel.toLowerCase())) return null
+  if (!isAiChannelEnabled(channel.toLowerCase())) return null
   if (isOverDailyCap(channel)) {
     log(`ai-trivia: daily cap hit for ${channel}, skipping chat trivia`)
     return null
@@ -1096,7 +1096,7 @@ const MIN_DOSSIER_LEN = 20
 export async function generatePersonTrivia(dossier: string, handle: string, channel: string, avoid: string[] = [], avoidAnswers: string[] = []): Promise<CustomTrivia | null> {
   if (!aiTriviaEnabled()) return null
   if (!API_KEY) return null
-  if (!AI_CHANNELS.has(channel.toLowerCase())) return null
+  if (!isAiChannelEnabled(channel.toLowerCase())) return null
   if (isOverDailyCap(channel)) {
     log(`ai-trivia: daily cap hit for ${channel}, skipping person trivia`)
     return null

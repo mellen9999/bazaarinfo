@@ -18,7 +18,7 @@ import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSi
 import { searchEligible, finalText, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, SEARCH_HINT, SEARCH_FAILED_HINT } from './ai-search-gate'
 import { notify } from './notify'
 import { repairTruncation, isStub } from './ai-truncate'
-import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, AI_CHANNELS, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, isUserOverDailyAiCap, noteUserAiRequest, getChannelRecentResponses, isLiveStateKnown, isChannelLive } from './ai-cache'
+import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, isAiChannelEnabled, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, isUserOverDailyAiCap, noteUserAiRequest, getChannelRecentResponses, isLiveStateKnown, isChannelLive } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE, formatContextSummary } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
@@ -153,7 +153,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (isLowValue(query)) return null
   if (query.length > AI_MAX_QUERY_LEN) query = query.slice(0, AI_MAX_QUERY_LEN)
   if (!ctx.user || !ctx.channel) return null
-  if (!AI_CHANNELS.has(ctx.channel.toLowerCase())) return null
+  if (!isAiChannelEnabled(ctx.channel.toLowerCase())) return null
   // checked before the breaker: a hard stop is permanent for the day, so there is nothing
   // to probe and every request would be a doomed round trip.
   if (isHardStopped()) return { text: hardStopLine(), mentions: [] }
