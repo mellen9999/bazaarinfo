@@ -97,18 +97,18 @@ a:hover { background: #ffffff; color: #000000; }
 
 .channel-tabs { display: flex; gap: 2px; }
 .channel-tab {
+  display: flex;
+  align-items: center;
   border: 1px solid var(--border);
   padding: 2px 7px;
   cursor: pointer;
   color: var(--dim);
 }
 .channel-tab .num { color: var(--dim); margin-right: 3px; }
+.channel-tab .dot { margin-right: 4px; }
 .channel-tab:hover { background: #ffffff; color: #000000; }
-.channel-tab:hover .num { color: #000000; }
+.channel-tab:hover .num, .channel-tab:hover .dot { color: #000000; }
 .channel-tab.active { color: var(--fg); border-color: var(--accent); }
-
-.stream-game, .stream-viewers, .stream-uptime { color: var(--dim); }
-.stale-flag { color: var(--yellow); border: 1px solid var(--yellow); padding: 0 4px; }
 
 .whoami { color: var(--dim); }
 
@@ -149,22 +149,21 @@ a:hover { background: #ffffff; color: #000000; }
     grid-template-columns: 1fr 1fr 1.3fr 1.6fr;
     grid-template-rows: 1fr 1fr 1fr;
     grid-template-areas:
-      "pauses vibes   trivia asks"
-      "raid   vibes   trivia asks"
-      "ai     ignored depths audit";
+      "switches chatrules trivia   questions"
+      "switches chatrules trivia   questions"
+      "activity people    raidgeon log";
     overflow-y: hidden;
   }
 }
 
-#pane-pauses { grid-area: pauses; }
-#pane-vibes { grid-area: vibes; }
+#pane-switches { grid-area: switches; }
+#pane-chatrules { grid-area: chatrules; }
 #pane-trivia { grid-area: trivia; }
-#pane-asks { grid-area: asks; }
-#pane-audit { grid-area: audit; }
-#pane-raid { grid-area: raid; }
-#pane-ai { grid-area: ai; }
-#pane-depths { grid-area: depths; }
-#pane-ignored { grid-area: ignored; }
+#pane-questions { grid-area: questions; }
+#pane-activity { grid-area: activity; }
+#pane-people { grid-area: people; }
+#pane-raidgeon { grid-area: raidgeon; }
+#pane-log { grid-area: log; }
 
 .pane {
   position: relative;
@@ -263,6 +262,53 @@ a:hover { background: #ffffff; color: #000000; }
 
 .ask-row, .audit-row { flex-direction: column; align-items: flex-start; gap: 0; }
 .ask-line, .audit-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.audit-source { color: var(--dim); margin-left: 4px; }
+
+/* ---- switches box ---- */
+
+.switch-row { flex-direction: column; align-items: stretch; gap: 2px; padding: 3px 2px; border-bottom: 1px solid var(--border); }
+.switch-row:last-child { border-bottom: none; }
+.switch-top { display: flex; align-items: center; gap: 6px; }
+.switch-label { flex: 1 1 auto; }
+.switch-pause-btns { display: flex; gap: 3px; }
+.switch-pause-btns button { padding: 1px 5px; }
+
+/* ---- status line (segmented, plain-word health readout) ---- */
+
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  flex: 0 0 auto;
+  color: var(--dim);
+}
+.status-seg { display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+.status-sep { color: var(--border); }
+
+/* ---- activity box: sparkline + meters ---- */
+
+.spark { font-variant-numeric: tabular-nums; letter-spacing: 0; white-space: pre; overflow: hidden; }
+.meter-row { display: flex; flex-direction: column; gap: 0; padding: 2px; }
+.meter-label { display: flex; justify-content: space-between; gap: 8px; }
+.meter-bar { font-variant-numeric: tabular-nums; white-space: pre; }
+.meter-bar.warn { color: var(--yellow); }
+.meter-bar.danger { color: var(--red); }
+
+/* ---- questions box ---- */
+
+.q-row { flex-direction: column; align-items: flex-start; gap: 0; padding: 2px; border-bottom: 1px solid var(--border); }
+.q-row:last-child { border-bottom: none; }
+.q-meta { display: flex; gap: 6px; width: 100%; }
+.q-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; width: 100%; }
+.q-miss-reason { color: var(--red); }
+
+/* ---- people box: top askers ---- */
+
+.top-user-row { display: flex; align-items: center; gap: 6px; }
+.top-user-cap { color: var(--dim); }
 
 .admin-strip {
   display: flex;
@@ -286,15 +332,6 @@ a:hover { background: #ffffff; color: #000000; }
 .say-prefix { color: var(--dim); }
 .say-input { flex: 1; }
 
-.status-line {
-  border: 1px solid var(--border);
-  padding: 3px 8px;
-  flex: 0 0 auto;
-  color: var(--dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .status-line.ok { color: var(--green); }
 .status-line.fail { color: var(--red); }
 

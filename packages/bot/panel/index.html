@@ -25,18 +25,13 @@
         <span class="brand">bazaarinfo</span>
         <nav id="channel-tabs" class="channel-tabs"></nav>
       </div>
-      <div id="stream-info" class="header-group stream-info">
-        <span id="live-dot" class="dot"></span>
-        <span id="stream-game" class="stream-game"></span>
-        <span id="stream-viewers" class="stream-viewers"></span>
-        <span id="stream-uptime" class="stream-uptime"></span>
-        <span id="stale-flag" class="stale-flag" hidden>stale</span>
-      </div>
       <div class="header-group header-right">
         <span id="whoami" class="whoami"></span>
         <button id="logout-btn" class="btn" type="button">logout</button>
       </div>
     </header>
+
+    <div id="status-line" class="status-line"></div>
 
     <div id="cmdbar" class="cmdbar">
       <span class="cmdbar-prefix">:</span>
@@ -46,49 +41,68 @@
     </div>
 
     <div id="grid" class="grid">
-      <section class="pane" id="pane-pauses" data-pane="pauses">
-        <h2 class="pane-title">pauses</h2>
-        <div class="pane-body" id="pauses-body"></div>
+      <section class="pane" id="pane-switches" data-pane="switches">
+        <h2 class="pane-title">switches</h2>
+        <div class="pane-body" id="switches-body"></div>
       </section>
 
-      <section class="pane" id="pane-vibes" data-pane="vibes">
-        <h2 class="pane-title">vibes</h2>
-        <div class="pane-body" id="vibes-body"></div>
+      <section class="pane" id="pane-chatrules" data-pane="chatrules">
+        <h2 class="pane-title">chat rules</h2>
+        <div class="pane-body" id="chatrules-body"></div>
       </section>
 
       <section class="pane" id="pane-trivia" data-pane="trivia">
         <h2 class="pane-title">trivia</h2>
-        <div class="pane-body" id="trivia-body"></div>
+        <div class="pane-body" id="trivia-body">
+          <div id="trivia-round" class="row"></div>
+          <div id="trivia-queue" class="list-scroll"></div>
+          <div class="dim">banned topics</div>
+          <div id="trivia-bans" class="list-scroll"></div>
+          <div class="pane-controls">
+            <input id="topic-input" type="text" placeholder="topic (optional)" title="what the round should be about — leave blank for a random one" autocomplete="off" spellcheck="false">
+            <button id="trivia-start-btn" type="button" title="start a trivia round now">start</button>
+            <button id="trivia-skip-btn" type="button" title="end the round that's running now">skip</button>
+          </div>
+        </div>
       </section>
 
-      <section class="pane" id="pane-asks" data-pane="asks">
-        <h2 class="pane-title">asks</h2>
-        <div class="pane-body" id="asks-body"></div>
+      <section class="pane" id="pane-questions" data-pane="questions">
+        <h2 class="pane-title" id="questions-title">questions</h2>
+        <div class="pane-body" id="questions-body"></div>
       </section>
 
-      <section class="pane" id="pane-audit" data-pane="audit">
-        <h2 class="pane-title">audit</h2>
-        <div class="pane-body" id="audit-body"></div>
+      <section class="pane" id="pane-activity" data-pane="activity">
+        <h2 class="pane-title">activity</h2>
+        <div class="pane-body" id="activity-body"></div>
       </section>
 
-      <section class="pane" id="pane-ignored" data-pane="ignored">
-        <h2 class="pane-title">ignored</h2>
-        <div class="pane-body" id="ignored-body"></div>
+      <section class="pane" id="pane-people" data-pane="people">
+        <h2 class="pane-title">people</h2>
+        <div class="pane-body" id="people-body">
+          <div class="dim">ignoring</div>
+          <div id="people-ignored" class="list-scroll"></div>
+          <div class="pane-controls">
+            <input id="ignore-input" type="text" placeholder="@user" title="stop the bot from replying to this person" autocomplete="off" spellcheck="false">
+            <button id="ignore-1h-btn" type="button" title="ignore for 1 hour">1h</button>
+            <button id="ignore-24h-btn" type="button" title="ignore for 24 hours">24h</button>
+            <button id="ignore-7d-btn" type="button" title="ignore for 7 days">7d</button>
+            <button id="ignore-forever-btn" type="button" title="ignore until a mod lifts it">forever</button>
+          </div>
+          <div class="dim">timed out by twitch</div>
+          <div id="people-timedout" class="list-scroll"></div>
+          <div class="dim">top askers today</div>
+          <div id="people-top" class="list-scroll"></div>
+        </div>
       </section>
 
-      <section class="pane" id="pane-raid" data-pane="raid">
-        <h2 class="pane-title">raid</h2>
-        <div class="pane-body" id="raid-body"></div>
+      <section class="pane" id="pane-raidgeon" data-pane="raidgeon">
+        <h2 class="pane-title">raid + dungeon</h2>
+        <div class="pane-body" id="raidgeon-body"></div>
       </section>
 
-      <section class="pane" id="pane-ai" data-pane="ai">
-        <h2 class="pane-title">ai</h2>
-        <div class="pane-body" id="ai-body"></div>
-      </section>
-
-      <section class="pane" id="pane-depths" data-pane="depths">
-        <h2 class="pane-title">depths</h2>
-        <div class="pane-body" id="depths-body"></div>
+      <section class="pane" id="pane-log" data-pane="log">
+        <h2 class="pane-title">log</h2>
+        <div class="pane-body" id="log-body"></div>
       </section>
     </div>
 
@@ -105,7 +119,7 @@
       <button id="say-btn" class="btn" type="button">send</button>
     </div>
 
-    <div id="status-line" class="status-line"></div>
+    <div id="action-status" class="status-line"></div>
   </div>
 
   <div id="help-overlay" class="help-overlay" hidden></div>
