@@ -46,7 +46,7 @@ mock.module('./control-intent', () => ({
   parseControlIntent: mock(async (_text: string, _ch: string) => parseControlIntentResult),
 }))
 
-const { __handleForTest: handle } = await import('./panel-server')
+const { __handleForTest: handle, __loadAssetsForTest: loadAssets } = await import('./panel-server')
 
 const ORIGIN = 'http://localhost:3200'
 
@@ -270,5 +270,27 @@ describe('/auth/*', () => {
   it('login redirects to twitch', async () => {
     const res = await get('/auth/login', { 'cf-connecting-ip': '1.2.3.4' })
     expect(res.status).toBe(302)
+  })
+})
+
+// an edge-cached old panel.js under new html blanked the live page (2026-09-27)
+describe('static assets can never pair stale js with new html', () => {
+  it('html is no-store and names js/css by content hash', async () => {
+    await loadAssets()
+    const res = await get('/')
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+    const html = await res.text()
+    const v = html.match(/panel\.js\?v=([a-z0-9]+)/)?.[1]
+    expect(v).toBeTruthy()
+    expect(html).toContain(`panel.css?v=${v}`)
+    const js = await get(`/panel.js?v=${v}`)
+    expect(js.status).toBe(200)
+    expect(js.headers.get('Cache-Control')).toContain('immutable')
+  })
+
+  it('a bare or stale-hash asset url is served fresh, never cached', async () => {
+    await loadAssets()
+    expect((await get('/panel.js')).headers.get('Cache-Control')).toBe('no-store')
+    expect((await get('/panel.css?v=old')).headers.get('Cache-Control')).toBe('no-store')
   })
 })

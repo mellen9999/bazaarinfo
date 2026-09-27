@@ -65,31 +65,40 @@ function warnMissing(path: string): void {
   log(`panel: missing frontend asset ${path} — control panel UI unavailable until built`)
 }
 
-async function serveFile(path: string, contentType: string): Promise<Response> {
-  const f = Bun.file(path)
-  if (!(await f.exists())) {
-    warnMissing(path)
-    return new Response('panel frontend not built', { status: 503 })
-  }
-  return new Response(f, { headers: { 'Content-Type': contentType } })
-}
+// the three assets are loaded once, together, and the html points at the js/css by a
+// content hash. cloudflare caches .js/.css for 4h by default, and a deploy that paired new
+// html with an edge-cached old panel.js blanked the page ("missing #live-dot", 2026-09-27).
+// with ?v=<hash> a new build is a new url, so a stale pair cannot exist; the html itself is
+// no-store so it always names the current hash.
+interface Assets { html: string; css: string; js: string; v: string }
+let assets: Assets | null = null
 
-let builtPanelJs: string | null = null
-async function buildPanelJs(): Promise<void> {
+async function loadAssets(): Promise<void> {
   try {
     const result = await Bun.build({ entrypoints: [PANEL_TS], minify: true, target: 'browser' })
     if (!result.success || result.outputs.length === 0) throw new Error('build produced no output')
-    builtPanelJs = await result.outputs[0].text()
+    const js = await result.outputs[0].text()
+    const css = await Bun.file(PANEL_CSS).text()
+    const v = Bun.hash(js + css).toString(36)
+    const html = (await Bun.file(INDEX_HTML).text())
+      .replace('href="panel.css"', `href="panel.css?v=${v}"`)
+      .replace('src="panel.js"', `src="panel.js?v=${v}"`)
+    if (!html.includes(`panel.js?v=${v}`) || !html.includes(`panel.css?v=${v}`)) throw new Error('index.html lost its asset tags')
+    assets = { html, css, js, v }
   } catch (e) {
     warnMissing(PANEL_TS)
-    log(`panel: panel.js build failed: ${e}`)
-    builtPanelJs = null
+    log(`panel: frontend build failed: ${e}`)
+    assets = null
   }
 }
 
-function servePanelJs(): Response {
-  if (builtPanelJs === null) return new Response('panel frontend not built', { status: 503 })
-  return new Response(builtPanelJs, { headers: { 'Content-Type': 'application/javascript; charset=utf-8' } })
+function serveAsset(kind: 'html' | 'css' | 'js', url: URL): Response {
+  if (!assets) return new Response('panel frontend not built', { status: 503 })
+  const type = kind === 'html' ? 'text/html; charset=utf-8' : kind === 'css' ? 'text/css; charset=utf-8' : 'application/javascript; charset=utf-8'
+  // only the exact current version may be cached forever; anything else (a bare url, an
+  // old hash from a stale tab) gets today's bytes uncached
+  const cache = kind !== 'html' && url.searchParams.get('v') === assets.v ? 'public, max-age=31536000, immutable' : 'no-store'
+  return new Response(assets[kind], { headers: { 'Content-Type': type, 'Cache-Control': cache } })
 }
 
 // --- response helpers ---
@@ -272,9 +281,9 @@ async function handle(req: Request): Promise<Response> {
 
   let res: Response
   try {
-    if (req.method === 'GET' && path === '/') res = await serveFile(INDEX_HTML, 'text/html; charset=utf-8')
-    else if (req.method === 'GET' && path === '/panel.js') res = servePanelJs()
-    else if (req.method === 'GET' && path === '/panel.css') res = await serveFile(PANEL_CSS, 'text/css; charset=utf-8')
+    if (req.method === 'GET' && path === '/') res = serveAsset('html', url)
+    else if (req.method === 'GET' && path === '/panel.js') res = serveAsset('js', url)
+    else if (req.method === 'GET' && path === '/panel.css') res = serveAsset('css', url)
     else if (req.method === 'GET' && path === '/auth/login') res = authRateOk(req) ? handleLogin() : errorJson(429, 'rate limited')
     else if (req.method === 'GET' && path === '/auth/callback') res = authRateOk(req) ? await handleCallback(req) : errorJson(429, 'rate limited')
     else if (req.method === 'POST' && path === '/auth/logout') res = await guardedPost(req, handleLogout)
@@ -301,7 +310,7 @@ export function startPanel(): ReturnType<typeof Bun.serve> | null {
     log('panel: PANEL_ORIGIN not set — control panel disabled')
     return null
   }
-  void buildPanelJs()
+  void loadAssets()
   // a taken port must cost the panel, never the bot — chat keeps working without it
   let server: ReturnType<typeof Bun.serve>
   try {
@@ -326,3 +335,4 @@ export function startPanel(): ReturnType<typeof Bun.serve> | null {
 
 // test seam — export unwrapped handler so tests can drive it without binding a port
 export const __handleForTest = handle
+export const __loadAssetsForTest = loadAssets
