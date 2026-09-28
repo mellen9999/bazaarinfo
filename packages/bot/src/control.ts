@@ -53,7 +53,10 @@ export type Action =
   | { kind: 'part'; target: string }
 
 export type ActionKind = Action['kind']
-export const ADMIN_KINDS: ReadonlySet<ActionKind> = new Set(['join', 'part', 'ai-trivia'])
+// say is admin-only: any streamer can !join the bot, log in as their own channel's owner
+// and make it post anything, and one ToS-breaking line risks the account in every channel.
+// a mod can type in their own chat; the bot's voice is not theirs to lend.
+export const ADMIN_KINDS: ReadonlySet<ActionKind> = new Set(['join', 'part', 'ai-trivia', 'say'])
 
 export interface ActResult { ok: boolean; msg: string }
 

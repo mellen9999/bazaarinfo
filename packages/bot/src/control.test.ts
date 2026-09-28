@@ -233,3 +233,10 @@ describe('persistence — survives a simulated restart', () => {
     expect(wc.isGoalsEnabled('persistchan4')).toBe(false)
   })
 })
+
+describe('admin-only kinds', () => {
+  it('say is admin-only — the bot\'s voice is not a channel mod\'s to lend', () => {
+    expect(ADMIN_KINDS.has('say')).toBe(true)
+    expect(ADMIN_KINDS.has('pause')).toBe(false)
+  })
+})

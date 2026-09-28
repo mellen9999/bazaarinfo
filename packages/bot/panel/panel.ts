@@ -182,6 +182,7 @@ const logoutBtn = $<HTMLButtonElement>('logout-btn')
 const cmdInput = $<HTMLInputElement>('cmd-input')
 const cmdPreview = $<HTMLSpanElement>('cmd-preview')
 const adminStrip = $<HTMLDivElement>('admin-strip')
+const sayRow = $<HTMLDivElement>('say-row')
 const joinInput = $<HTMLInputElement>('join-input')
 const joinBtn = $<HTMLButtonElement>('join-btn')
 const partBtn = $<HTMLButtonElement>('part-btn')
@@ -565,6 +566,7 @@ function renderHeader(): void {
     })
     whoami.textContent = me.admin ? `${me.login} (admin)` : me.login
     adminStrip.hidden = !me.admin
+    sayRow.hidden = !me.admin
   }
   partBtn.textContent = confirmArmedNow('part') ? 'again to confirm' : 'leave current'
   partBtn.classList.toggle('danger', confirmArmedNow('part'))
@@ -1127,7 +1129,7 @@ function handleGlobalKey(e: KeyboardEvent): void {
 
   if (e.key === '?') { openHelp(); e.preventDefault(); return }
   if (e.key === ':') { focusCmd(); e.preventDefault(); return }
-  if (e.key === '/') { sayInput.focus(); e.preventDefault(); return }
+  if (e.key === '/' && !sayRow.hidden) { sayInput.focus(); e.preventDefault(); return }
   if (/^[1-9]$/.test(e.key)) { switchChannelByIndex(Number(e.key) - 1); return }
 
   switch (e.key) {
