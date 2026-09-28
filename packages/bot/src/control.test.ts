@@ -113,9 +113,37 @@ describe('new panel actions', () => {
     expect(db.getUserAiUnits('capuser')).toBe(5)
     expect(parseAction({ kind: 'cap-reset', user: 'two words' })).toBeNull()
     expect(parseAction({ kind: 'cap-reset', user: '@CapUser' })).toEqual({ kind: 'cap-reset', user: 'capuser' })
+    // a mod can only reset someone who's actually asked in THIS channel today — same list
+    // the panel shows a reset button next to (db.getTopAskersToday)
+    const raw = db.getDb()
+    raw.run(`INSERT INTO users (username) VALUES ('capuser')`)
+    const uid = (raw.query(`SELECT id FROM users WHERE username = 'capuser'`).get() as { id: number }).id
+    raw.run(`INSERT INTO ask_queries (user_id, channel, query, response) VALUES (?, 'ctl', 'q', 'a')`, [uid])
     expect((await act('ctl', 'mod1', { kind: 'cap-reset', user: 'capuser' }, false)).ok).toBe(true)
     expect(db.getUserAiUnits('capuser')).toBe(0)
     expect(db.getUserAiUnits('bystander')).toBe(5)
+  })
+
+  it('cap-reset refuses a target who hasn\'t asked in this channel, and the actor resetting themself', async () => {
+    const ai = await import('./ai-cache')
+    ai.noteUserAiRequest('nobodyasked', 5)
+    ai.noteUserAiRequest('mod1', 5)
+    // never asked in #ctl2 — a mod can't drain an arbitrary login's budget by guessing it
+    const res1 = await act('ctl2', 'mod1', { kind: 'cap-reset', user: 'nobodyasked' }, false)
+    expect(res1.ok).toBe(false)
+    expect(db.getUserAiUnits('nobodyasked')).toBe(5)
+    // the acting mod can't reset their own limit even if they did ask
+    const raw = db.getDb()
+    raw.run(`INSERT INTO users (username) VALUES ('mod1')`)
+    const uid = (raw.query(`SELECT id FROM users WHERE username = 'mod1'`).get() as { id: number }).id
+    raw.run(`INSERT INTO ask_queries (user_id, channel, query, response) VALUES (?, 'ctl2', 'q', 'a')`, [uid])
+    const res2 = await act('ctl2', 'mod1', { kind: 'cap-reset', user: 'mod1' }, false)
+    expect(res2.ok).toBe(false)
+    expect(db.getUserAiUnits('mod1')).toBe(5)
+    // an admin bypasses both restrictions
+    const res3 = await act('ctl2', 'mod1', { kind: 'cap-reset', user: 'nobodyasked' }, false, 'panel', true)
+    expect(res3.ok).toBe(true)
+    expect(db.getUserAiUnits('nobodyasked')).toBe(0)
   })
 
   it('ai-trivia is ADMIN_KINDS-gated and flips the persisted global override', async () => {

@@ -233,10 +233,13 @@ async function post(channel: string, text: string | null | undefined): Promise<v
  * `source` ('panel' | 'chat') is the audit trail's provenance — the ONE place a state
  * change is logged, so a mod's plain-talk pause in chat shows up in the panel's log the
  * same as a button click, and neither caller can forget to log it.
+ * `isAdmin` gates the handful of actions (cap-reset) whose authorization depends on more
+ * than "is this a mod of the channel" — panel-server passes session.admin; the chat door
+ * never issues those kinds, so it stays at the false default.
  */
-export async function act(channel: string, by: string, a: Action, announce = true, source: db.PanelAuditSource = 'panel'): Promise<ActResult> {
+export async function act(channel: string, by: string, a: Action, announce = true, source: db.PanelAuditSource = 'panel', isAdmin = false): Promise<ActResult> {
   const ch = channel.toLowerCase()
-  const res = await run(ch, by, a, announce)
+  const res = await run(ch, by, a, announce, isAdmin)
   if (res.ok) {
     changed(ch)
     try { db.logPanelAction(by, ch, a.kind, describe(a), source) } catch (e) { log(`control: audit log failed: ${e}`) }
@@ -244,7 +247,7 @@ export async function act(channel: string, by: string, a: Action, announce = tru
   return res
 }
 
-async function run(ch: string, by: string, a: Action, announce: boolean): Promise<ActResult> {
+async function run(ch: string, by: string, a: Action, announce: boolean, isAdmin: boolean): Promise<ActResult> {
   switch (a.kind) {
     case 'pause': {
       const msg = applySuppress(ch, a.feature, by, a.minutes, '')
@@ -304,9 +307,19 @@ async function run(ch: string, by: string, a: Action, announce: boolean): Promis
     case 'goals':
       setGoalsEnabled(ch, a.on, by)
       return { ok: true, msg: `goal alerts ${a.on ? 'on' : 'off'}` }
-    case 'cap-reset':
+    case 'cap-reset': {
+      // a mod resetting their OWN cap is the abuse case this action exists to prevent
+      // elsewhere from — never allowed except for an actual admin. and the target must be
+      // someone who's genuinely asked in this channel (the same list the panel shows a
+      // reset button next to), not an arbitrary login guessed at the http layer.
+      if (!isAdmin) {
+        if (a.user === by.toLowerCase()) return { ok: false, msg: "can't reset your own limit" }
+        const askers = new Set(db.getTopAskersToday(ch, 8).map((u) => u.user.toLowerCase()))
+        if (!askers.has(a.user)) return { ok: false, msg: `@${a.user} hasn't asked anything here today` }
+      }
       resetUserAiUnitsToday(a.user)
       return { ok: true, msg: `reset @${a.user}'s ai budget for today` }
+    }
     case 'ask-purge': {
       const response = db.purgeAsk(a.id, ch)
       if (response === null) return { ok: false, msg: `question #${a.id} not found` }

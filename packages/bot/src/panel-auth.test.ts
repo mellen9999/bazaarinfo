@@ -19,7 +19,7 @@ mock.module('./ai-cache', () => ({ getJoinedChannels: () => joinedChannels }))
 const panelAuth = await import('./panel-auth')
 const {
   buildLoginUrl, handleCallback, handleLogout, getSession, sessionCookie, cookieSessionId,
-  __setFetchForTest, __resetForTest,
+  sessionCovers, __setFetchForTest, __resetForTest,
 } = panelAuth
 
 function reqWithCookie(id: string | null): Request {
@@ -82,7 +82,7 @@ afterEach(() => {
 
 describe('buildLoginUrl', () => {
   it('carries client id, redirect uri, scope, state and a S256 pkce challenge', () => {
-    const url = new URL(buildLoginUrl())
+    const url = new URL(buildLoginUrl().url)
     expect(url.searchParams.get('client_id')).toBe('test_client_id')
     expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:3200/auth/callback')
     expect(url.searchParams.get('scope')).toBe('user:read:moderated_channels')
@@ -93,8 +93,8 @@ describe('buildLoginUrl', () => {
   })
 
   it('generates a fresh state each call', () => {
-    const a = new URL(buildLoginUrl()).searchParams.get('state')
-    const b = new URL(buildLoginUrl()).searchParams.get('state')
+    const a = buildLoginUrl().state
+    const b = buildLoginUrl().state
     expect(a).not.toBe(b)
   })
 })
@@ -102,8 +102,30 @@ describe('buildLoginUrl', () => {
 // --- callback ---
 
 async function doLogin(): Promise<{ state: string }> {
-  const url = new URL(buildLoginUrl())
-  return { state: url.searchParams.get('state')! }
+  const { state } = buildLoginUrl()
+  return { state }
+}
+
+// the callback also requires the pre-auth state cookie handleLogin would have set on this
+// same browser (login CSRF binding) — every real request carries it, so the test double does too.
+function callbackReq(state: string, opts: { code?: string; cookieState?: string } = {}): Request {
+  const code = opts.code ?? 'abc'
+  const cookieState = 'cookieState' in opts ? opts.cookieState : state
+  const headers = cookieState !== undefined ? { Cookie: `bzi_st=${cookieState}` } : {}
+  return new Request(`http://localhost:3200/auth/callback?code=${code}&state=${state}`, { headers })
+}
+
+function extractCookie(res: Response, name: string): string | null {
+  // Bun's Headers.get('Set-Cookie') only ever returns the FIRST of several Set-Cookie
+  // headers; getSetCookie() is the real multi-value accessor.
+  const all = typeof (res.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie === 'function'
+    ? (res.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()
+    : [res.headers.get('Set-Cookie') ?? '']
+  for (const c of all) {
+    const m = new RegExp(`^${name}=([^;]*)`).exec(c)
+    if (m) return m[1]
+  }
+  return null
 }
 
 describe('handleCallback', () => {
@@ -117,16 +139,28 @@ describe('handleCallback', () => {
     expect(res.status).toBe(400)
   })
 
-  it('400s on an unknown state', async () => {
-    const res = await handleCallback(new Request('http://localhost:3200/auth/callback?code=abc&state=neverissued'))
+  it('400s with no pre-auth state cookie at all — the login-csrf binding', async () => {
+    const { state } = await doLogin()
+    const res = await handleCallback(new Request(`http://localhost:3200/auth/callback?code=abc&state=${state}`))
+    expect(res.status).toBe(400)
+  })
+
+  it("400s when the state cookie doesn't match the state param — a forged/replayed callback", async () => {
+    const { state } = await doLogin()
+    const res = await handleCallback(callbackReq(state, { cookieState: 'someone-elses-state' }))
+    expect(res.status).toBe(400)
+  })
+
+  it('400s on an unknown state (cookie present, never issued server-side)', async () => {
+    const res = await handleCallback(callbackReq('neverissued'))
     expect(res.status).toBe(400)
   })
 
   it('400s on a replayed state (single-use)', async () => {
     const { state } = await doLogin()
-    const first = await handleCallback(new Request(`http://localhost:3200/auth/callback?code=abc&state=${state}`))
+    const first = await handleCallback(callbackReq(state))
     expect(first.status).toBe(302)
-    const replay = await handleCallback(new Request(`http://localhost:3200/auth/callback?code=abc&state=${state}`))
+    const replay = await handleCallback(callbackReq(state))
     expect(replay.status).toBe(400)
   })
 
@@ -134,29 +168,31 @@ describe('handleCallback', () => {
     const realNow = Date.now
     const { state } = await doLogin()
     Date.now = () => realNow() + 11 * 60_000 // past the 10min ttl
-    const res = await handleCallback(new Request(`http://localhost:3200/auth/callback?code=abc&state=${state}`))
+    const res = await handleCallback(callbackReq(state))
     Date.now = realNow
     expect(res.status).toBe(400)
   })
 
-  it('on success sets a session cookie and redirects to /', async () => {
+  it('on success sets a session cookie, clears the pre-auth state cookie, and redirects to /', async () => {
     const { state } = await doLogin()
-    const res = await handleCallback(new Request(`http://localhost:3200/auth/callback?code=abc&state=${state}`))
+    const res = await handleCallback(callbackReq(state))
     expect(res.status).toBe(302)
     expect(res.headers.get('Location')).toBe('/')
-    const cookie = res.headers.get('Set-Cookie')
-    expect(cookie).toContain('bzi_s=')
-    expect(cookie).toContain('HttpOnly')
-    expect(cookie).toContain('SameSite=Strict')
+    const sid = extractCookie(res, 'bzi_s')
+    expect(sid).toBeTruthy()
+    const raw = (res.headers as unknown as { getSetCookie: () => string[] }).getSetCookie().find((c) => c.startsWith('bzi_s='))!
+    expect(raw).toContain('HttpOnly')
+    expect(raw).toContain('SameSite=Strict')
+    const clearedState = extractCookie(res, 'bzi_st')
+    expect(clearedState).toBe('')
   })
 
   it('mod-in-a-channel + own channel intersected with joined channels', async () => {
     moderated = [{ broadcaster_login: 'kripp' }, { broadcaster_login: 'not_joined' }]
     joinedChannels = ['kripp', 'modlogin']
     const { state } = await doLogin()
-    const res = await handleCallback(new Request(`http://localhost:3200/auth/callback?code=abc&state=${state}`))
-    const cookie = res.headers.get('Set-Cookie')!
-    const id = /bzi_s=([^;]+)/.exec(cookie)![1]
+    const res = await handleCallback(callbackReq(state))
+    const id = extractCookie(res, 'bzi_s')!
     const session = await getSession(reqWithCookie(id))
     expect(session?.channels.sort()).toEqual(['kripp', 'modlogin'])
     expect(session?.admin).toBe(false)
@@ -167,29 +203,42 @@ describe('handleCallback', () => {
     moderated = [] // admin bypasses the moderated-channels intersection
     joinedChannels = ['kripp', 'other_channel']
     const { state } = await doLogin()
-    const res = await handleCallback(new Request(`http://localhost:3200/auth/callback?code=abc&state=${state}`))
-    const id = /bzi_s=([^;]+)/.exec(res.headers.get('Set-Cookie')!)![1]
+    const res = await handleCallback(callbackReq(state))
+    const id = extractCookie(res, 'bzi_s')!
     const session = await getSession(reqWithCookie(id))
     expect(session?.admin).toBe(true)
     expect(session?.channels.sort()).toEqual(['kripp', 'other_channel'])
   })
 
-  it('zero allowed channels: no session, plain not-a-mod message', async () => {
+  it('zero allowed channels: no session, plain not-a-mod message, and the unused token is revoked', async () => {
     moderated = []
     joinedChannels = ['kripp']
     selfUser = { id: 'u1', login: 'randomviewer' }
     const { state } = await doLogin()
-    const res = await handleCallback(new Request(`http://localhost:3200/auth/callback?code=abc&state=${state}`))
+    const res = await handleCallback(callbackReq(state))
     expect(res.status).toBe(200)
-    expect(res.headers.get('Set-Cookie')).toBeNull()
+    expect(extractCookie(res, 'bzi_s')).toBeNull()
     expect(await res.text()).toContain("not a mod")
+    expect(calls.some((c) => c.url.includes('oauth2/revoke'))).toBe(true)
   })
 
   it('token exchange failure fails cleanly', async () => {
     tokenOk = false
     const { state } = await doLogin()
-    const res = await handleCallback(new Request(`http://localhost:3200/auth/callback?code=abc&state=${state}`))
+    const res = await handleCallback(callbackReq(state))
     expect(res.status).toBe(400)
+  })
+
+  it('caps sessions per twitch user id, evicting only that user\'s oldest', async () => {
+    const ids: string[] = []
+    for (let i = 0; i < 4; i++) {
+      const { state } = await doLogin()
+      const res = await handleCallback(callbackReq(state))
+      ids.push(extractCookie(res, 'bzi_s')!)
+    }
+    // the oldest of the 4 (same userId 'u1' throughout) was evicted to stay at the cap of 3
+    expect(await getSession(reqWithCookie(ids[0]))).toBeNull()
+    expect(await getSession(reqWithCookie(ids[3]))).not.toBeNull()
   })
 })
 
@@ -206,8 +255,8 @@ describe('getSession', () => {
 
   async function loggedInId(): Promise<string> {
     const { state } = await doLogin()
-    const res = await handleCallback(new Request(`http://localhost:3200/auth/callback?code=abc&state=${state}`))
-    return /bzi_s=([^;]+)/.exec(res.headers.get('Set-Cookie')!)![1]
+    const res = await handleCallback(callbackReq(state))
+    return extractCookie(res, 'bzi_s')!
   }
 
   it('expired session -> null', async () => {
@@ -271,6 +320,34 @@ describe('getSession', () => {
     expect(session).not.toBeNull()
     expect(modCallCount).toBe(2) // first 401, refreshed, retried
   })
+
+  it('a transient twitch failure (5xx/429/network) on reverify keeps the existing session — never reads as a demod', async () => {
+    const id = await loggedInId()
+    const realNow = Date.now
+    Date.now = () => realNow() + 6 * 60_000
+    for (const status of [500, 503, 429]) {
+      const fn = (async (url: string | URL) => {
+        if (url.toString().includes('/moderation/channels')) return new Response('nope', { status })
+        return new Response('not found', { status: 404 })
+      }) as typeof fetch
+      __setFetchForTest(fn)
+      const session = await getSession(reqWithCookie(id))
+      expect(session?.login).toBe('modlogin')
+      expect(session?.channels.sort()).toEqual(['kripp', 'modlogin'])
+    }
+    Date.now = realNow
+  })
+
+  it('a network exception on reverify (timeout, dns, ...) also keeps the existing session, never a throw', async () => {
+    const id = await loggedInId()
+    const realNow = Date.now
+    Date.now = () => realNow() + 6 * 60_000
+    const fn = (async () => { throw new Error('fetch failed: timeout') }) as unknown as typeof fetch
+    __setFetchForTest(fn)
+    const session = await getSession(reqWithCookie(id))
+    Date.now = realNow
+    expect(session?.login).toBe('modlogin')
+  })
 })
 
 // --- logout ---
@@ -278,8 +355,8 @@ describe('getSession', () => {
 describe('handleLogout', () => {
   it('revokes the token and clears the cookie', async () => {
     const { state } = await doLogin()
-    const cbRes = await handleCallback(new Request(`http://localhost:3200/auth/callback?code=abc&state=${state}`))
-    const id = /bzi_s=([^;]+)/.exec(cbRes.headers.get('Set-Cookie')!)![1]
+    const cbRes = await handleCallback(callbackReq(state))
+    const id = extractCookie(cbRes, 'bzi_s')!
 
     calls = []
     const res = await handleLogout(reqWithCookie(id))
@@ -293,6 +370,31 @@ describe('handleLogout', () => {
   it('no cookie is a harmless no-op', async () => {
     const res = await handleLogout(reqWithCookie(null))
     expect(res.status).toBe(204)
+  })
+})
+
+describe('sessionCovers — pure, no twitch call', () => {
+  it('true only while the session exists, is unexpired, and lists the channel', async () => {
+    const id = await (async () => {
+      const { state } = await doLogin()
+      const res = await handleCallback(callbackReq(state))
+      return extractCookie(res, 'bzi_s')!
+    })()
+    expect(sessionCovers(id, 'kripp')).toBe(true)
+    expect(sessionCovers(id, 'someone_else')).toBe(false)
+    expect(sessionCovers('not-a-real-session', 'kripp')).toBe(false)
+  })
+
+  it('never calls twitch, even well past the 5min recheck window', async () => {
+    const { state } = await doLogin()
+    const res = await handleCallback(callbackReq(state))
+    const id = extractCookie(res, 'bzi_s')!
+    const realNow = Date.now
+    Date.now = () => realNow() + 60 * 60_000 // an hour — well past reverify's own window
+    calls = []
+    expect(sessionCovers(id, 'kripp')).toBe(true)
+    Date.now = realNow
+    expect(calls.length).toBe(0)
   })
 })
 

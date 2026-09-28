@@ -17,12 +17,16 @@ const mockHandleLogin = mock(() => new Response(null, { status: 302, headers: { 
 const mockHandleCallback = mock(async (_req: Request) => new Response(null, { status: 302, headers: { Location: '/' } }))
 const mockHandleLogout = mock(async (_req: Request) => new Response(null, { status: 204 }))
 
+let sessionCoversResult = true
+const mockSessionCovers = mock((_id: string, _ch: string) => sessionCoversResult)
+
 mock.module('./panel-auth', () => ({
   handleLogin: mockHandleLogin,
   handleCallback: mockHandleCallback,
   handleLogout: mockHandleLogout,
   getSession: mockGetSession,
   cookieSessionId: mockCookieSessionId,
+  sessionCovers: mockSessionCovers,
 }))
 
 let parseActionResult: { kind: string; [k: string]: unknown } | null = { kind: 'pause', feature: 'trivia' }
@@ -42,8 +46,10 @@ mock.module('./control', () => ({
 }))
 
 let parseControlIntentResult: { kind: string } | null = null
+let matchControlIntentResult: { kind: string } | null = null
 mock.module('./control-intent', () => ({
   parseControlIntent: mock(async (_text: string, _ch: string) => parseControlIntentResult),
+  matchControlIntent: mock((_text: string) => matchControlIntentResult),
 }))
 
 const { __handleForTest: handle, __loadAssetsForTest: loadAssets } = await import('./panel-server')
@@ -66,6 +72,8 @@ beforeEach(() => {
   currentSid = 'sid1'
   parseActionResult = { kind: 'pause', feature: 'trivia' }
   parseControlIntentResult = null
+  matchControlIntentResult = null
+  sessionCoversResult = true
   mockGetSession.mockClear()
   mockAct.mockClear()
 })
@@ -87,6 +95,18 @@ describe('security headers', () => {
     expect(api.headers.get('Cache-Control')).toBe('no-store')
     const notApi = await get('/nope')
     expect(notApi.headers.get('Cache-Control')).not.toBe('no-store')
+  })
+
+  it('sets the isolation headers on every response', async () => {
+    const res = await get('/nope')
+    expect(res.headers.get('Cross-Origin-Opener-Policy')).toBe('same-origin')
+    expect(res.headers.get('Cross-Origin-Resource-Policy')).toBe('same-origin')
+    expect(res.headers.get('Permissions-Policy')).toContain('camera=()')
+  })
+
+  it('never sends HSTS over the http:// localhost dev origin', async () => {
+    const res = await get('/nope')
+    expect(res.headers.get('Strict-Transport-Security')).toBeNull()
   })
 })
 
@@ -164,7 +184,9 @@ describe('POST /api/act', () => {
     currentSession = { login: 'owner', admin: true, channels: ['kripp'] }
     const res = await post('/api/act', { channel: 'kripp', action: parseActionResult })
     expect(res.status).toBe(200)
-    expect(mockAct).toHaveBeenCalledWith('kripp', 'owner', parseActionResult)
+    // isAdmin (session.admin) rides along as the 6th arg — cap-reset's self/other-asker
+    // gating in control.ts reads it
+    expect(mockAct).toHaveBeenCalledWith('kripp', 'owner', parseActionResult, true, 'panel', true)
   })
 
   it('runs a normal (non-admin-kind) action for any session member', async () => {
@@ -181,6 +203,9 @@ describe('POST /api/act', () => {
 })
 
 // --- /api/parse ---
+// the AI fallback (parseControlIntent) may only run on a committed (Enter) parse, and
+// only once the deterministic layer (matchControlIntent) already came up empty — a typing
+// preview must never be able to spend an AI call, however it's phrased.
 
 describe('POST /api/parse', () => {
   it('403s for a channel outside the session', async () => {
@@ -193,22 +218,35 @@ describe('POST /api/parse', () => {
     expect(res.status).toBe(400)
   })
 
-  it('returns {action:null} when nothing parses', async () => {
-    parseControlIntentResult = null
+  it('returns {action:null} when nothing parses, uncommitted', async () => {
     const res = await post('/api/parse', { channel: 'kripp', text: 'do a barrel roll' })
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ action: null })
   })
 
-  it('returns {action, preview} when it parses', async () => {
-    parseControlIntentResult = { kind: 'trivia-skip' }
+  it('a deterministic match returns {action, preview} without commit, and never calls the AI parser', async () => {
+    matchControlIntentResult = { kind: 'trivia-skip' }
     const res = await post('/api/parse', { channel: 'kripp', text: 'skip this question' })
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ action: { kind: 'trivia-skip' }, preview: 'did the thing' })
   })
 
+  it('an uncommitted miss never reaches the AI parser, even when the text is control-ish', async () => {
+    parseControlIntentResult = { kind: 'pause', feature: 'ai' } // would hit if the AI path ran
+    const res = await post('/api/parse', { channel: 'kripp', text: 'you are being way too much right now' })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ action: null })
+  })
+
+  it('a committed miss falls through to the AI parser', async () => {
+    parseControlIntentResult = { kind: 'pause', feature: 'ai' }
+    const res = await post('/api/parse', { channel: 'kripp', text: 'you are being way too much right now', commit: true })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ action: { kind: 'pause', feature: 'ai' }, preview: 'did the thing' })
+  })
+
   it('never calls act — parse only previews', async () => {
-    parseControlIntentResult = { kind: 'trivia-skip' }
+    matchControlIntentResult = { kind: 'trivia-skip' }
     await post('/api/parse', { channel: 'kripp', text: 'skip this question' })
     expect(mockAct).not.toHaveBeenCalled()
   })
@@ -251,6 +289,36 @@ describe('GET /api/stream', () => {
     const fifth = await get('/api/stream?ch=kripp')
     expect(fifth.status).toBe(429)
     for (const r of opened) await r.body!.cancel()
+  })
+
+  it('caps streams by LOGIN, not session id — several tabs for the same mod share one quota', async () => {
+    currentSession = { login: 'sharedlogin', admin: false, channels: ['kripp'] }
+    const opened: Response[] = []
+    currentSid = 'tab-a'
+    opened.push(await get('/api/stream?ch=kripp'))
+    currentSid = 'tab-b'
+    opened.push(await get('/api/stream?ch=kripp'))
+    currentSid = 'tab-c'
+    opened.push(await get('/api/stream?ch=kripp'))
+    currentSid = 'tab-d'
+    opened.push(await get('/api/stream?ch=kripp'))
+    for (const r of opened) expect(r.status).toBe(200)
+    currentSid = 'tab-e' // a brand new session id, same login — still hits the shared cap
+    const fifth = await get('/api/stream?ch=kripp')
+    expect(fifth.status).toBe(429)
+    for (const r of opened) await r.body!.cancel()
+  })
+
+  it('closes the stream once the underlying session no longer covers it, without waiting for a client abort', async () => {
+    currentSession = { login: 'goesaway', admin: false, channels: ['kripp'] }
+    currentSid = 'sid-vanish'
+    const res = await get('/api/stream?ch=kripp')
+    expect(res.status).toBe(200)
+    const reader = res.body!.getReader()
+    await reader.read() // the initial snap frame
+    sessionCoversResult = false // simulates logout/eviction/demod mid-stream
+    const { done } = await reader.read() // the 2s re-check tick should close the stream
+    expect(done).toBe(true)
   })
 })
 

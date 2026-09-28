@@ -5,10 +5,10 @@
 
 import { resolve } from 'path'
 import { log } from './log'
-import { parseAction, describe, act, snapshot, onControlChange, ADMIN_KINDS, type Action } from './control'
-import { handleLogin, handleCallback, handleLogout, getSession, cookieSessionId } from './panel-auth'
-import { parseControlIntent } from './control-intent'
-import { getLiveChannels, getStreamInfo } from './ai-cache'
+import { parseAction, describe, act, snapshot, onControlChange, ADMIN_KINDS, type Action, type Snapshot } from './control'
+import { handleLogin, handleCallback, handleLogout, getSession, cookieSessionId, sessionCovers } from './panel-auth'
+import { parseControlIntent, matchControlIntent } from './control-intent'
+import { getLiveChannels, getStreamInfo, isUserOverDailyAiCap, noteUserAiRequest } from './ai-cache'
 
 const PANEL_ORIGIN = process.env.PANEL_ORIGIN ?? ''
 const PANEL_PORT = parseInt(process.env.PANEL_PORT ?? '3200')
@@ -16,6 +16,7 @@ const BODY_MAX = 4096
 const MAX_STREAMS_PER_SESSION = 4
 
 const CSP = "default-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+const IS_HTTPS_ORIGIN = PANEL_ORIGIN.startsWith('https://')
 
 const PANEL_DIR = resolve(import.meta.dir, '../panel')
 const INDEX_HTML = resolve(PANEL_DIR, 'index.html')
@@ -37,6 +38,11 @@ function makeLimiter(windowMs: number, max: number): (key: string) => boolean {
 
 const authLimiter = makeLimiter(60_000, 20) // per-ip, /auth/*
 const apiLimiter = makeLimiter(10_000, 30) // per-session, /api/act + /api/parse combined
+// the ONE door the AI fallback can walk through (apiParse's commit path) — keyed by login,
+// not session, so a mod with several tabs open shares one budget. tighter than apiLimiter
+// on purpose: apiLimiter bounds request volume, these bound spend.
+const parseAiMinuteLimiter = makeLimiter(60_000, 10)
+const parseAiDayLimiter = makeLimiter(24 * 3600_000, 100)
 
 // mirrors ebs: no proxy header means we can't distinguish viewers, so fail open for
 // service and let the per-session/per-ip limiter downstream still bound abuse where it can.
@@ -156,7 +162,7 @@ async function apiAct(req: Request): Promise<Response> {
 
   // act() itself writes the panel_audit row (tagged 'panel') — the one place a state
   // change is logged, shared with the chat mod-control door (commands.ts, tagged 'chat').
-  const result = await act(ch, session.login, action)
+  const result = await act(ch, session.login, action, true, 'panel', session.admin)
   return Response.json(result)
 }
 
@@ -174,6 +180,22 @@ async function apiParse(req: Request): Promise<Response> {
   if (!ch || !session.channels.includes(ch)) return errorJson(403, 'not your channel')
   const text = typeof data.text === 'string' ? data.text : ''
   if (!text || text.length > 300) return errorJson(400, 'bad text')
+  const commit = data.commit === true
+
+  // the deterministic layer is free and instant — every keystroke's preview, and a
+  // committed (Enter) parse, both get it before anything touches the AI.
+  const det = matchControlIntent(text)
+  if (det) return Response.json({ action: det, preview: describe(det) })
+  if (!commit) return Response.json({ action: null }) // a typing preview never spends an AI call
+
+  // committed, nothing deterministic matched: the ONLY door the AI fallback (inside
+  // parseControlIntent) can walk through. a self-joined broadcaster could otherwise loop
+  // plain typing against the shared per-session apiLimiter above and burn real spend, so
+  // this gets its own per-login limiter plus the same daily AI cap a heavy chatter hits —
+  // over either, a plain miss, never an AI call.
+  if (isUserOverDailyAiCap(session.login)) return Response.json({ action: null })
+  if (!parseAiMinuteLimiter(session.login) || !parseAiDayLimiter(session.login)) return errorJson(429, 'slow down a sec')
+  noteUserAiRequest(session.login)
 
   let action: Action | null = null
   try {
@@ -184,6 +206,8 @@ async function apiParse(req: Request): Promise<Response> {
   return Response.json(action ? { action, preview: describe(action) } : { action: null })
 }
 
+// keyed by LOGIN, not session id — several tabs/devices for the same mod share one quota,
+// so opening streams from N browsers can't multiply how many the account gets.
 const streamCounts = new Map<string, number>()
 
 // this session's channel tabs (live dot + viewer count) — panel-server knows session.channels,
@@ -194,18 +218,32 @@ function tabsFor(channels: string[]): { ch: string; live: boolean; viewers: numb
   return channels.map((ch) => ({ ch, live: live.has(ch), viewers: getStreamInfo(ch)?.viewers ?? null }))
 }
 
+// snapshot() runs several sqlite queries; a channel with N open tabs/streams used to pay
+// for all of them independently on every 2s tick. one snapshot per channel per second,
+// shared by every stream watching it — a burst of tabs costs the same as one.
+const snapshotMemo = new Map<string, { at: number; snap: Snapshot }>()
+function memoSnapshot(ch: string): Snapshot {
+  const cached = snapshotMemo.get(ch)
+  const now = Date.now()
+  if (cached && now - cached.at < 1000) return cached.snap
+  const snap = snapshot(ch)
+  snapshotMemo.set(ch, { at: now, snap })
+  return snap
+}
+
 async function apiStream(req: Request, url: URL): Promise<Response> {
   const session = await getSession(req)
   if (!session) return json401()
   const ch = normChannel(url.searchParams.get('ch'))
   if (!ch || !session.channels.includes(ch)) return errorJson(403, 'not your channel')
 
-  const sid = cookieSessionId(req) ?? session.login
-  const open = streamCounts.get(sid) ?? 0
+  const sessionId = cookieSessionId(req)
+  const login = session.login
+  const open = streamCounts.get(login) ?? 0
   if (open >= MAX_STREAMS_PER_SESSION) return errorJson(429, 'too many open streams')
   // first frame built before a slot is taken — a throw here is a plain 500, never a leaked slot
-  const first = JSON.stringify({ ...snapshot(ch), tabs: tabsFor(session.channels) })
-  streamCounts.set(sid, open + 1)
+  const first = JSON.stringify({ ...memoSnapshot(ch), tabs: tabsFor(session.channels) })
+  streamCounts.set(login, open + 1)
 
   let closed = false
   let lastSent = ''
@@ -221,7 +259,7 @@ async function apiStream(req: Request, url: URL): Promise<Response> {
       const send = (pre?: string) => {
         let json: string
         try {
-          json = pre ?? JSON.stringify({ ...snapshot(ch), tabs: tabsFor(session.channels) })
+          json = pre ?? JSON.stringify({ ...memoSnapshot(ch), tabs: tabsFor(session.channels) })
         } catch (e) {
           log(`panel: snapshot failed for #${ch}: ${e}`)
           return
@@ -236,9 +274,9 @@ async function apiStream(req: Request, url: URL): Promise<Response> {
         off?.()
         if (tick) clearInterval(tick)
         if (heartbeat) clearInterval(heartbeat)
-        const n = (streamCounts.get(sid) ?? 1) - 1
-        if (n <= 0) streamCounts.delete(sid)
-        else streamCounts.set(sid, n)
+        const n = (streamCounts.get(login) ?? 1) - 1
+        if (n <= 0) streamCounts.delete(login)
+        else streamCounts.set(login, n)
         try { controller.close() } catch {}
       }
 
@@ -250,7 +288,13 @@ async function apiStream(req: Request, url: URL): Promise<Response> {
         lastPush = now
         send()
       })
-      tick = setInterval(() => send(), 2000) // catches state that drifts without an action (timers)
+      tick = setInterval(() => {
+        // pure, synchronous re-check (no twitch call) — a session that logged out, expired,
+        // or lost this channel must not keep riding an open stream until the next
+        // real reverify (up to 5 minutes away).
+        if (sessionId && !sessionCovers(sessionId, ch)) { cleanup(); return }
+        send()
+      }, 2000) // also catches state that drifts without an action (timers)
       heartbeat = setInterval(() => {
         try { controller.enqueue(enc.encode(': hb\n\n')) } catch {}
       }, 15_000)
@@ -301,6 +345,10 @@ async function handle(req: Request): Promise<Response> {
   headers.set('Content-Security-Policy', CSP)
   headers.set('X-Content-Type-Options', 'nosniff')
   headers.set('Referrer-Policy', 'no-referrer')
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin')
+  headers.set('Cross-Origin-Resource-Policy', 'same-origin')
+  headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), interest-cohort=()')
+  if (IS_HTTPS_ORIGIN) headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
   if (isApi) headers.set('Cache-Control', 'no-store')
   return new Response(res.body, { status: res.status, headers })
 }

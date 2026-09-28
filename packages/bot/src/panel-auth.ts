@@ -19,16 +19,21 @@ const REVOKE_URL = 'https://id.twitch.tv/oauth2/revoke'
 const HELIX = 'https://api.twitch.tv/helix'
 const FETCH_TIMEOUT = 10_000
 
-export const SESSION_COOKIE = 'bzi_s'
 const STATE_TTL_MS = 10 * 60_000
 const SESSION_TTL_MS = 12 * 60 * 60_000
 const RECHECK_MS = 5 * 60_000
 const MAX_SESSIONS = 500
+const MAX_SESSIONS_PER_USER = 3
 const MAX_PENDING = 1000
 const MAX_MOD_PAGES = 20 // 2000 channels — a hard cap, not a real-world number
 
 // http:// localhost is the only origin allowed to skip Secure, so local dev works without tls
 const isLocalhost = PANEL_ORIGIN.startsWith('http://localhost')
+// __Host- locks a cookie to this exact origin (no Domain, Path=/, Secure mandatory) — the
+// strongest binding a cookie can have, but the prefix requires Secure, which http://localhost
+// dev can't offer, so it keeps the plain name there.
+export const SESSION_COOKIE = isLocalhost ? 'bzi_s' : '__Host-bzi_s'
+const STATE_COOKIE = isLocalhost ? 'bzi_st' : '__Host-bzi_st'
 
 // test seam — swap in a mock instead of hitting real twitch
 let doFetch: typeof fetch = fetch
@@ -52,7 +57,29 @@ export function redirectUri(): string {
   return `${PANEL_ORIGIN}/auth/callback`
 }
 
-export function buildLoginUrl(): string {
+/** the pre-auth cookie binds the oauth `state` to THIS browser — without it, an attacker
+ * who tricks a mod into visiting an attacker-initiated callback URL (a valid `state` the
+ * attacker generated themselves, since `pending` is server-global) could complete a login
+ * as the attacker's own twitch identity in the victim's browser session (login CSRF).
+ * SameSite=Lax (not Strict) because the callback arrives as a top-level cross-site
+ * redirect FROM twitch — a Strict cookie would not be sent on it at all. */
+function stateCookie(value: string | null, maxAgeSec: number): string {
+  const secure = isLocalhost ? '' : '; Secure'
+  return `${STATE_COOKIE}=${value ?? ''}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSec}${secure}`
+}
+
+function readStateCookie(req: Request): string | null {
+  const header = req.headers.get('Cookie')
+  if (!header) return null
+  for (const part of header.split(';')) {
+    const i = part.indexOf('=')
+    if (i === -1) continue
+    if (part.slice(0, i).trim() === STATE_COOKIE) return part.slice(i + 1).trim()
+  }
+  return null
+}
+
+export function buildLoginUrl(): { url: string; state: string } {
   prunePending()
   // bounded even under a login flood — oldest half-finished login is the one to lose
   if (pending.size >= MAX_PENDING) {
@@ -72,7 +99,7 @@ export function buildLoginUrl(): string {
     code_challenge: challenge,
     code_challenge_method: 'S256',
   })
-  return `${AUTHORIZE_URL}?${params}`
+  return { url: `${AUTHORIZE_URL}?${params}`, state }
 }
 
 // --- sessions ---
@@ -94,12 +121,31 @@ function newSessionId(): string {
   return b64url(randomBytes(32))
 }
 
+// fire-and-forget: a revoke is a courtesy to twitch, never something a request should wait
+// on or fail over. every place a session's token stops being ours to use calls this.
+function revokeInBackground(token: string): void {
+  revokeAccessToken(token).catch((e) => log(`panel: token revoke failed: ${e}`))
+}
+
 // evict the oldest session (insertion order) rather than refuse a new login — a stale
 // session is worthless the moment it's evicted, a refused login blocks a mod entirely.
 function evictIfFull(): void {
   if (sessions.size < MAX_SESSIONS) return
-  const oldest = sessions.keys().next().value
-  if (oldest !== undefined) sessions.delete(oldest)
+  const oldest = sessions.entries().next().value
+  if (oldest) { sessions.delete(oldest[0]); revokeInBackground(oldest[1].token) }
+}
+
+// caps how many live sessions one twitch account can hold at once — otherwise a compromised
+// or scripted login could flood the global session table (and every one of them counts
+// against the per-login SSE stream cap too) without ever touching another user's sessions.
+function evictOldestForUser(userId: string, max: number): void {
+  const mine = [...sessions.entries()].filter(([, s]) => s.userId === userId)
+  while (mine.length >= max) {
+    const oldest = mine.shift()
+    if (!oldest) break
+    sessions.delete(oldest[0])
+    revokeInBackground(oldest[1].token)
+  }
 }
 
 export function sessionCookie(id: string | null, maxAgeSec: number): string {
@@ -181,22 +227,33 @@ async function fetchSelf(token: string): Promise<{ id: string; login: string } |
   return data.data[0] ?? null
 }
 
-// null = the token is unauthorized (caller should try a refresh, then give up)
-async function fetchModeratedChannels(userId: string, token: string): Promise<string[] | null> {
+// 'unauthorized' = the token is rejected (caller should try a refresh, then give up).
+// 'transient' = twitch is rate-limiting/erroring/unreachable right now — this says NOTHING
+// about whether the mod is still modded, and must never be read as a demod (that was
+// reverify's bug: a 5xx or a timeout logged a mod out of their own panel).
+type ModResult = string[] | 'unauthorized' | 'transient'
+
+async function fetchModeratedChannels(userId: string, token: string): Promise<ModResult> {
   const out: string[] = []
   let cursor: string | undefined
-  for (let page = 0; page < MAX_MOD_PAGES; page++) {
-    const qs = new URLSearchParams({ user_id: userId, first: '100' })
-    if (cursor) qs.set('after', cursor)
-    const res = await helixGet(`/moderation/channels?${qs}`, token)
-    if (res.status === 401) return null
-    if (!res.ok) return out
-    const data = (await res.json()) as { data: { broadcaster_login: string }[]; pagination?: { cursor?: string } }
-    out.push(...data.data.map((d) => d.broadcaster_login.toLowerCase()))
-    cursor = data.pagination?.cursor
-    if (!cursor) break
+  try {
+    for (let page = 0; page < MAX_MOD_PAGES; page++) {
+      const qs = new URLSearchParams({ user_id: userId, first: '100' })
+      if (cursor) qs.set('after', cursor)
+      const res = await helixGet(`/moderation/channels?${qs}`, token)
+      if (res.status === 401) return 'unauthorized'
+      if (res.status === 429 || res.status >= 500) return 'transient'
+      if (!res.ok) return out
+      const data = (await res.json()) as { data: { broadcaster_login: string }[]; pagination?: { cursor?: string } }
+      out.push(...data.data.map((d) => d.broadcaster_login.toLowerCase()))
+      cursor = data.pagination?.cursor
+      if (!cursor) break
+    }
+    return out
+  } catch (e) {
+    log(`panel: fetchModeratedChannels network error: ${e}`)
+    return 'transient'
   }
-  return out
 }
 
 function computeChannels(login: string, moderated: string[]): { channels: string[]; admin: boolean } {
@@ -215,16 +272,28 @@ function textResponse(status: number, body: string): Response {
 // --- routes (panel-server wires these in; it owns security headers/origin checks) ---
 
 export function handleLogin(): Response {
-  return new Response(null, { status: 302, headers: { Location: buildLoginUrl() } })
+  const { url, state } = buildLoginUrl()
+  const headers = new Headers({ Location: url })
+  headers.append('Set-Cookie', stateCookie(state, Math.floor(STATE_TTL_MS / 1000)))
+  return new Response(null, { status: 302, headers })
 }
 
-export async function handleCallback(req: Request): Promise<Response> {
+// the actual callback logic; wrapped below so the pre-auth state cookie is cleared on
+// EVERY exit path (success or any failure) without repeating it at each return.
+async function handleCallbackInner(req: Request): Promise<Response> {
   const url = new URL(req.url)
   const err = url.searchParams.get('error')
   if (err) return textResponse(400, 'twitch declined the login')
   const code = url.searchParams.get('code')
   const state = url.searchParams.get('state')
   if (!code || !state) return textResponse(400, 'missing code or state')
+
+  // the state param must match BOTH the server-side record (proves it's a state we issued)
+  // AND this browser's own pre-auth cookie (proves it's the same browser we issued it to —
+  // without this second check, an attacker who captured or guessed a valid `state` value
+  // could complete a login in a victim's browser as the attacker's own twitch identity).
+  const cookieState = readStateCookie(req)
+  if (!cookieState || cookieState !== state) return textResponse(400, 'login link expired — try again')
 
   const entry = pending.get(state)
   pending.delete(state) // single-use regardless of outcome — a replayed state always fails
@@ -244,12 +313,14 @@ export async function handleCallback(req: Request): Promise<Response> {
   if (!self) return textResponse(400, 'login failed — try again')
 
   const moderated = await fetchModeratedChannels(self.id, tok.access_token)
-  const { channels, admin } = computeChannels(self.login, moderated ?? [])
+  const { channels, admin } = computeChannels(self.login, Array.isArray(moderated) ? moderated : [])
   if (channels.length === 0) {
+    revokeInBackground(tok.access_token) // never sat in a session — nothing else will revoke it
     return textResponse(200, "you're not a mod in any channel bazaarinfo is in")
   }
 
   evictIfFull()
+  evictOldestForUser(self.id, MAX_SESSIONS_PER_USER)
   const id = newSessionId()
   sessions.set(id, {
     login: self.login.toLowerCase(),
@@ -262,6 +333,13 @@ export async function handleCallback(req: Request): Promise<Response> {
     checkedAt: Date.now(),
   })
   return new Response(null, { status: 302, headers: { Location: '/', 'Set-Cookie': sessionCookie(id, 12 * 3600) } })
+}
+
+export async function handleCallback(req: Request): Promise<Response> {
+  const res = await handleCallbackInner(req)
+  const headers = new Headers(res.headers)
+  headers.append('Set-Cookie', stateCookie(null, 0))
+  return new Response(res.body, { status: res.status, headers })
 }
 
 export async function handleLogout(req: Request): Promise<Response> {
@@ -288,24 +366,30 @@ function reverifyOnce(id: string, s: Session): Promise<boolean> {
   return p
 }
 
-// re-verify the mod list against twitch. false clears the session (401ed even after a
-// refresh attempt, or the mod is left with zero allowed channels).
+// re-verify the mod list against twitch. false clears the session — but ONLY on a real
+// auth failure (401 that survives a refresh attempt, or zero channels left); a transient
+// twitch hiccup (5xx/429/timeout) keeps the existing channels and just retries next window,
+// so an outage on twitch's end can never read as "you got demodded".
 async function reverify(id: string, s: Session): Promise<boolean> {
-  let moderated = await fetchModeratedChannels(s.userId, s.token)
-  if (moderated === null) {
+  let result = await fetchModeratedChannels(s.userId, s.token)
+  if (result === 'unauthorized') {
     try {
       const tok = await refreshAccessToken(s.refreshToken)
       s.token = tok.access_token
       s.refreshToken = tok.refresh_token
-      moderated = await fetchModeratedChannels(s.userId, s.token)
+      result = await fetchModeratedChannels(s.userId, s.token)
     } catch (e) {
       log(`panel: session refresh failed for ${s.login}: ${e}`)
-      moderated = null
+      result = 'unauthorized' // the refresh itself failed (bad/revoked token) — a real logout
     }
   }
-  if (moderated === null) { sessions.delete(id); return false }
-  const { channels, admin } = computeChannels(s.login, moderated)
-  if (channels.length === 0) { sessions.delete(id); return false }
+  if (result === 'transient') {
+    s.checkedAt = Date.now() // don't hammer twitch again until the next normal window
+    return true
+  }
+  if (result === 'unauthorized') { sessions.delete(id); revokeInBackground(s.token); return false }
+  const { channels, admin } = computeChannels(s.login, result)
+  if (channels.length === 0) { sessions.delete(id); revokeInBackground(s.token); return false }
   s.channels = channels
   s.admin = admin
   s.checkedAt = Date.now()
@@ -318,9 +402,23 @@ export async function getSession(req: Request): Promise<Session | null> {
   if (!id) return null
   const s = sessions.get(id)
   if (!s) return null
-  if (Date.now() > s.exp) { sessions.delete(id); return null }
+  if (Date.now() > s.exp) { sessions.delete(id); revokeInBackground(s.token); return null }
   if (Date.now() - s.checkedAt < RECHECK_MS) return s
   return (await reverifyOnce(id, s)) ? s : null
+}
+
+/**
+ * pure, synchronous check — no twitch call, no reverify, never mutates anything. lets a
+ * long-lived SSE stream notice a session that vanished (logout, eviction, expiry) or lost
+ * this channel between the 5-minute reverify windows, without spamming twitch every 2s to
+ * find out. expired-but-still-present sessions read as false but are left for getSession's
+ * own lazy delete to clean up (avoids a second code path deciding when a session dies).
+ */
+export function sessionCovers(id: string, channel: string): boolean {
+  const s = sessions.get(id)
+  if (!s) return false
+  if (Date.now() > s.exp) return false
+  return s.channels.includes(channel)
 }
 
 export function __resetForTest(): void {
