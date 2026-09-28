@@ -57,10 +57,20 @@ function isTypingTarget(t: EventTarget | null): boolean {
   return t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement
 }
 
-function btn(text: string, title: string, onClick: () => void, cls = ''): HTMLButtonElement {
+// disables itself while its own onClick's promise (usually doAct(...)) is in flight, so a
+// fast double-click can't fire the same action twice — a confirm-armed button is already
+// safe on its own (the arm/consume state machine below), this covers every plain one.
+function btn(text: string, title: string, onClick: () => void | Promise<void>, cls = ''): HTMLButtonElement {
   const b = el('button', { text, title, class: cls })
   b.type = 'button'
-  b.addEventListener('click', onClick)
+  b.addEventListener('click', () => {
+    if (b.disabled) return
+    const result = onClick()
+    if (result instanceof Promise) {
+      b.disabled = true
+      result.finally(() => { b.disabled = false })
+    }
+  })
   return b
 }
 
@@ -134,6 +144,7 @@ interface PanelState {
   pauseArm: 'feature' | 'minutes' | null
   pauseFeature: Feature | null
   cmdAction: Action | null
+  cmdActionText: string | null // the exact input text `cmdAction` was parsed from
   helpOpen: boolean
   questionsMode: 'asks' | 'misses'
   uiRev: number
@@ -151,6 +162,7 @@ const state: PanelState = {
   pauseArm: null,
   pauseFeature: null,
   cmdAction: null,
+  cmdActionText: null,
   helpOpen: false,
   questionsMode: 'asks',
   uiRev: 0,
@@ -227,9 +239,12 @@ async function doAct(action: Action): Promise<void> {
       body: JSON.stringify({ channel: state.channel, action }),
     })
     if (res.status === 401) { showLogin(); return }
-    if (res.status === 403) { setStatus('not allowed', 'fail'); return }
-    const data = await res.json() as { ok: boolean; msg: string }
-    setStatus(data.msg, data.ok ? 'ok' : 'fail')
+    const data = await res.json().catch(() => null) as { ok?: boolean; msg?: string; error?: string } | null
+    if (!res.ok) {
+      setStatus(res.status === 429 ? 'slow down a sec' : (data?.error ?? `error ${res.status}`), 'fail')
+      return
+    }
+    setStatus(data?.msg ?? '', data?.ok ? 'ok' : 'fail')
   } catch {
     setStatus('request failed', 'fail')
   }
@@ -262,9 +277,15 @@ function connectStream(channel: string): void {
   es.addEventListener('error', () => {
     es.close()
     if (state.channel !== channel) return
-    const delay = esBackoff
-    esBackoff = Math.min(esBackoff * 2, 30_000)
-    window.setTimeout(() => { if (state.channel === channel) connectStream(channel) }, delay)
+    // a dropped session (logout elsewhere, eviction, expiry) must show the login screen,
+    // not retry forever against a stream that will keep 401ing
+    fetchMe().then((me) => {
+      if (state.channel !== channel) return
+      if (!me) { showLogin(); return }
+      const delay = esBackoff
+      esBackoff = Math.min(esBackoff * 2, 30_000)
+      window.setTimeout(() => { if (state.channel === channel) connectStream(channel) }, delay)
+    })
   })
 }
 
@@ -371,6 +392,15 @@ function moveSelection(dir: number): void {
   if (count === 0) return
   const cur = selectionIndex(key)
   state.selection[key] = (cur + dir + count) % count
+}
+
+// a mouse click on any selectable row focuses that row's box and selects it — the same
+// state j/k and the box-local keys (x/D/I/enter) already act on, so a mouse-only mod gets
+// the exact same D/I/x/enter behavior a keyboard one does.
+function selectRow(key: BoxKey, idx: number): void {
+  state.focusedBox = BOX_ORDER.indexOf(key)
+  state.selection[key] = idx
+  bumpUi()
 }
 
 function jumpSelection(toEnd: boolean): void {
@@ -665,6 +695,7 @@ function renderChatRules(snap: Snapshot): void {
     row.append(el('span', { class: 'row-label', text: `${who} — ${what}`, title: full }))
     row.append(el('span', { class: 'dim', text: ttl(v.minutes) }))
     row.append(btn('x', 'drop this chat rule', () => doAct({ kind: 'vibe-drop', index: v.n })))
+    row.addEventListener('click', () => selectRow('chatrules', i))
     list.append(row)
   })
   body.append(list)
@@ -701,6 +732,7 @@ function renderTrivia(snap: Snapshot): void {
     row.append(el('span', { class: 'row-label', text: b.topic, title: b.topic }))
     row.append(el('span', { class: 'dim', text: ttl(b.minutes) }))
     row.append(btn('unban', `allow "${b.topic}" trivia again`, () => doAct({ kind: 'topic-unban', topic: b.topic })))
+    row.addEventListener('click', () => selectRow('trivia', i))
     triviaBansEl.append(row)
   })
 }
@@ -722,6 +754,7 @@ function renderQuestions(snap: Snapshot): void {
       const full = `${a.query} → ${a.response}`
       row.append(el('span', { class: 'q-line', text: full, title: full }))
       if (a.latencyMs != null) row.append(el('span', { class: 'q-ms', text: `${(a.latencyMs / 1000).toFixed(1)}s` }))
+      row.addEventListener('click', () => selectRow('questions', i))
       list.append(row)
     })
   } else {
@@ -732,6 +765,7 @@ function renderQuestions(snap: Snapshot): void {
       row.append(el('span', { class: 'q-user', text: m.user, title: m.user }))
       row.append(el('span', { class: 'q-line', text: m.query, title: m.query }))
       row.append(el('span', { class: 'q-miss-reason', text: m.reason, title: m.reason }))
+      row.addEventListener('click', () => selectRow('questions', i))
       list.append(row)
     })
   }
@@ -798,6 +832,7 @@ function renderPeople(snap: Snapshot): void {
     r.append(el('span', { class: 'dim', text: `by ${row.by}` }))
     r.append(el('span', { class: 'dim', text: row.minutes == null ? '∞' : ttl(row.minutes) }))
     r.append(btn('x', 'let the bot reply to this person again', () => doAct({ kind: 'unignore', user: row.login })))
+    r.addEventListener('click', () => selectRow('people', i))
     peopleIgnoredEl.append(r)
   })
 
@@ -939,22 +974,33 @@ function clearCmd(): void {
   cmdPreview.textContent = ''
   cmdPreview.className = 'cmd-preview'
   state.cmdAction = null
+  state.cmdActionText = null
+  parseSeq++ // invalidate any in-flight parse — its response must never repopulate after a clear
 }
 
-async function runParse(text: string): Promise<void> {
+// `commit` is Enter — the only door the AI fallback can walk through (server-enforced too;
+// this is defense in depth so a typing preview can never even ask). every response is
+// tagged with the exact text it answers for, so a stale response (typed past it, or a
+// slow request that lands late) can never be mistaken for a fresh one.
+async function runParse(text: string, commit: boolean): Promise<Action | null> {
   const seq = ++parseSeq
   try {
     const res = await fetch('/api/parse', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channel: state.channel, text }),
+      body: JSON.stringify({ channel: state.channel, text, commit }),
     })
-    if (seq !== parseSeq) return
-    if (res.status === 401) { showLogin(); return }
-    if (res.status === 403) { setStatus('not allowed', 'fail'); return }
+    if (seq !== parseSeq) return null
+    if (res.status === 401) { showLogin(); return null }
+    if (!res.ok) {
+      cmdPreview.textContent = res.status === 429 ? 'slow down a sec' : `error ${res.status}`
+      cmdPreview.className = 'cmd-preview err'
+      return null
+    }
     const data = await res.json() as { action: Action | null; preview?: string }
     state.cmdAction = data.action
+    state.cmdActionText = text
     if (data.action) {
       cmdPreview.textContent = `→ ${data.preview ?? ''}`
       cmdPreview.className = 'cmd-preview'
@@ -962,11 +1008,13 @@ async function runParse(text: string): Promise<void> {
       cmdPreview.textContent = "didn't catch that"
       cmdPreview.className = 'cmd-preview err'
     }
+    return data.action
   } catch {
     if (seq === parseSeq) {
       cmdPreview.textContent = 'request failed'
       cmdPreview.className = 'cmd-preview err'
     }
+    return null
   }
 }
 
@@ -975,12 +1023,26 @@ function bindCmdBar(): void {
     const text = cmdInput.value
     window.clearTimeout(cmdDebounce)
     if (!text.trim()) { clearCmd(); return }
-    cmdDebounce = window.setTimeout(() => runParse(text), 200)
+    cmdDebounce = window.setTimeout(() => runParse(text, false), 200)
   })
   cmdInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault()
-      if (state.cmdAction) { doAct(state.cmdAction); clearCmd() }
+      const text = cmdInput.value
+      if (!text.trim()) return
+      // a fresh-enough cached parse (typed preview matches exactly what's in the box right
+      // now) fires immediately — this is the common case, and if it was a deterministic
+      // match it never touched the AI either way. anything else commits a fresh parse,
+      // which is the only way the AI fallback gets a chance.
+      if (state.cmdAction && state.cmdActionText === text) {
+        doAct(state.cmdAction)
+        clearCmd()
+      } else {
+        window.clearTimeout(cmdDebounce)
+        runParse(text, true).then((action) => {
+          if (action && cmdInput.value === text) { doAct(action); clearCmd() }
+        })
+      }
     } else if (e.key === 'Escape') {
       clearCmd()
       cmdInput.blur()
