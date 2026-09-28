@@ -170,12 +170,21 @@ function matchSay(t: string): Action | null {
  * there; this is the canonical parser for anything else that wants full NL coverage
  * (the panel's command bar).
  */
+const NAMED_TOPIC_BAN_RE = /^(un)?ban\s+(?:(?:the\s+)?(?:trivia\s+)?topic\s+([\w' -]{2,60}?)|([\w' -]{2,60}?)\s+from\s+trivia)\s*$/i
+
 export function matchControlIntent(text: string): Action | null {
   const t = text.trim()
   if (!t) return null
   const isQuestion = QUESTION_RE.test(t)
 
   if (!isQuestion) {
+    // the command bar's own phrasing — "ban topic pineapple pizza", "unban pineapple pizza
+    // from trivia". the chat regexes want "ban X trivia" and left these as "didn't catch that"
+    const named = t.match(NAMED_TOPIC_BAN_RE)
+    if (named) {
+      const topic = stripArticles(named[2] ?? named[3] ?? '')
+      if (topic && !BAN_FILLER_RE.test(topic)) return { kind: named[1] ? 'topic-unban' : 'topic-ban', topic }
+    }
     const unban = t.match(TRIVIA_UNBAN_RE)
     if (unban) {
       const topic = stripArticles(unban[1])

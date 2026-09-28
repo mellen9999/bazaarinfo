@@ -171,6 +171,12 @@ export function isEmote(name: string): boolean {
 }
 
 /** case-insensitive emote lookup — returns canonical name or undefined */
+// twitch emotes are case-sensitive: "Bazaar" can be an emote while "bazaar" is the game.
+// use this where stripping a match would delete a real word
+export function isExactEmote(name: string): boolean {
+  return allEmoteNames.has(name)
+}
+
 export function findEmote(name: string): string | undefined {
   if (allEmoteNames.has(name)) return name
   const lower = name.toLowerCase()

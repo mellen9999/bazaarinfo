@@ -79,7 +79,11 @@ function relTime(ts: number): string {
 // remaining-time label: 45 → "45m", 180 → "3h", 2880 → "2d"
 function ttl(mins: number): string {
   if (mins >= 2880) return `${Math.round(mins / 1440)}d`
-  if (mins >= 120) return `${Math.round(mins / 60)}h`
+  // the pause buttons say 1h, so a fresh 1h pause must read "1h", not "60m"
+  if (mins >= 60) {
+    const h = Math.floor(mins / 60), m = mins % 60
+    return m && mins < 600 ? `${h}h${m}m` : `${h}h`
+  }
   return `${mins}m`
 }
 

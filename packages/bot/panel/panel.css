@@ -127,6 +127,8 @@ a:hover { background: #ffffff; color: #000000; }
 }
 .channel-tab .num { color: var(--dim); margin-right: 3px; }
 .channel-tab .dot { margin-right: 4px; }
+/* flex drops a leading space inside the viewer span, so the gap is a margin */
+.channel-tab .dim { margin-left: 4px; }
 .channel-tab:hover { background: #ffffff; color: #000000; }
 .channel-tab:hover .num, .channel-tab:hover .dot { color: #000000; }
 .channel-tab.active { color: var(--fg); border-color: var(--accent); }

@@ -9,7 +9,7 @@ import { isSuppressed, remainingMinutes } from './suppress'
 import { aiTriviaEnabled, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest } from './ai-cache'
 import { userStandingLine } from './ai-build-user'
 import { getChannelSnapshotLine } from './twitch-profile'
-import { findEmote } from './emotes'
+import { findEmote, isExactEmote } from './emotes'
 import { getRecent } from './chatbuf'
 import { log } from './log'
 import * as db from './db'
@@ -20,6 +20,8 @@ import { bannedTriviaTopic, triviaBanStateLine, onSuppressClearQueue } from './c
 
 // 'bg' / 'battlegrounds' / 'hearthstone' all mean the same round — chat types all three
 const TRIVIA_CATEGORIES = new Set(['items', 'heroes', 'monsters', 'kripp', 'bg', 'bgs', 'battlegrounds', 'hearthstone', 'hs', 'guildrun', 'gr'])
+// the home game by name is an ordinary round off real card data, never a custom AI topic
+const BAZAAR_TOPIC_RE = /^(?:the\s+)?bazaar(?:\s+(?:game|trivia|stuff))?$/i
 const TRIVIA_CATEGORY_ALIASES: Record<string, string> = {
   bgs: 'bg', battlegrounds: 'bg', hearthstone: 'bg', hs: 'bg', gr: 'guildrun',
 }
@@ -44,7 +46,9 @@ const INVISIBLE_RE = /[\p{Cf}\u034F\u115F\u1160\u3164\uFFA0]/gu
 function stripEmotesFromTopic(topic: string): string {
   const noEmoji = topic.replace(INVISIBLE_RE, '').replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}️‍]/gu, ' ')
   const tokens = noEmoji.split(/\s+/).filter(Boolean)
-  const kept = tokens.filter((tok) => !findEmote(tok))
+  // exact case only: the case-insensitive lookup ate the word "bazaar" out of "the bazaar"
+  // (an emote shares the name) and the round was generated about "the" (2026-09-27)
+  const kept = tokens.filter((tok) => !isExactEmote(tok))
   return kept.length ? kept.join(' ') : topic.trim()
 }
 
@@ -512,6 +516,10 @@ export async function runTrivia(ctx: CommandContext, rawArg: string, suffix: str
     const target = lower.replace(/^stats\s*@?/, '').trim() || ctx.user
     if (!target) return null
     return withSuffix(formatStats(target, ctx.channel), suffix)
+  }
+  if (BAZAAR_TOPIC_RE.test(lower)) {
+    const cats = ['items', 'heroes', 'monsters'] as const
+    return withSuffix(startTrivia(ctx.channel, cats[Math.floor(Math.random() * cats.length)]), suffix)
   }
   if (TRIVIA_CATEGORIES.has(lower)) {
     const cat = (TRIVIA_CATEGORY_ALIASES[lower] ?? lower) as 'items' | 'heroes' | 'monsters' | 'kripp' | 'bg' | 'guildrun'

@@ -55,6 +55,9 @@ describe('matchControlIntent — phrase coverage', () => {
     ['slow the raid down', { kind: 'raid-pace', pace: 'slow' }],
     ['speed up the raid', { kind: 'raid-pace', pace: 'fast' }],
     ['raid pace fast', { kind: 'raid-pace', pace: 'fast' }],
+    ['ban topic pineapple pizza', { kind: 'topic-ban', topic: 'pineapple pizza' }],
+    ['unban topic pineapple pizza', { kind: 'topic-unban', topic: 'pineapple pizza' }],
+    ['ban anime from trivia', { kind: 'topic-ban', topic: 'anime' }],
     ['set raid pace to slow', { kind: 'raid-pace', pace: 'slow' }],
     ['make the raid normal', { kind: 'raid-pace', pace: 'normal' }],
     // ai channel toggle (qualifier required — see near-miss table)

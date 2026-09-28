@@ -2503,23 +2503,22 @@ export function getAskSpark(channel: string): number[] {
 export interface TopAiUser { user: string; units: number }
 
 /**
- * Top askers today for the panel's people box. ask_queries has channel scope; the real
- * weighted budget ledger (user_ai_budget) does not, so a per-channel count of today's asks
- * is the best channel-scoped proxy available. Falls back to the global budget ledger only
- * when this channel has asked nothing today (a quiet channel, not "nobody spent anything").
+ * Top askers for the panel's people box: everyone who asked in THIS channel in the last
+ * 24h, with their real daily budget use (user_ai_budget — the ledger the cap and a reset
+ * act on; it is per user, not per channel, because the cap is). an ask count stood in for
+ * units before, so a reset never moved the number and a quiet channel showed other
+ * channels' askers (panel test 2026-09-27).
  */
 export function getTopAskersToday(channel: string, n = 8): TopAiUser[] {
   try {
-    const rows = db.query(
-      `SELECT u.username AS user, COUNT(*) AS units FROM ask_queries aq
-       JOIN users u ON u.id = aq.user_id
-       WHERE aq.channel = ? AND aq.created_at >= datetime('now', 'start of day')
-       GROUP BY aq.user_id ORDER BY units DESC LIMIT ?`,
-    ).all(channel.toLowerCase(), n) as TopAiUser[]
-    if (rows.length) return rows
-  } catch {}
-  try {
-    return db.query(`SELECT user, units FROM user_ai_budget WHERE day = ? ORDER BY units DESC LIMIT ?`).all(ptDay(), n) as TopAiUser[]
+    return db.query(
+      `SELECT u.username AS user, COALESCE(b.units, 0) AS units
+       FROM (SELECT DISTINCT user_id FROM ask_queries
+             WHERE channel = ? AND created_at >= datetime('now', '-24 hours')) a
+       JOIN users u ON u.id = a.user_id
+       LEFT JOIN user_ai_budget b ON b.user = lower(u.username) AND b.day = ?
+       ORDER BY units DESC, u.username LIMIT ?`,
+    ).all(channel.toLowerCase(), ptDay(), n) as TopAiUser[]
   } catch {
     return []
   }

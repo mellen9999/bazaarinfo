@@ -524,6 +524,17 @@ describe('db', () => {
     expect(results[0].response).toContain('aquatic')
   })
 
+  // the people box: real budget units for this channel's askers, so a reset shows (2026-09-27)
+  it('top askers are this channel\'s askers with their real daily units', () => {
+    db.logAsk({ user: 'zed', channel: 'topchan' }, 'q', 'r', 100, 500)
+    db.flushWrites()
+    db.bumpUserAiUnits('zed', 3)
+    expect(db.getTopAskersToday('topchan')).toEqual([{ user: 'zed', units: 3 }])
+    expect(db.getTopAskersToday('quietchan')).toEqual([])
+    db.clearUserAiUnitsToday('zed')
+    expect(db.getTopAskersToday('topchan')).toEqual([{ user: 'zed', units: 0 }])
+  })
+
   // an old title answer rode "title" into "whats the title track" (leak probe 2026-09-27)
   it('recall keeps old title answers for title asks only', () => {
     db.logAsk({ user: 'alice', channel: 'test' }, 'title', 'nl_kripp title right now: "Back to Stream Soon"', 100, 500)

@@ -186,26 +186,30 @@ export function fmtMins(m: number): string {
   return `${m}m`
 }
 
-/** one-line human preview — the panel's "→ pause ai 60m" confirm line + the audit row. */
+// the panel's words, not the code's: a mod reads "dungeon" and "bot replies" on every
+// switch, so the preview and the log must say the same thing
+const FEATURE_LABEL: Record<string, string> = { ai: 'bot replies', depths: 'dungeon', trivia: 'trivia', all: 'everything' }
+
+/** one-line human preview — the panel's "→ pause trivia 1h" confirm line + the audit row. */
 export function describe(a: Action): string {
   switch (a.kind) {
-    case 'pause': return `pause ${a.feature}${a.minutes ? ` ${fmtMins(a.minutes)}` : ''}`
-    case 'resume': return `resume ${a.feature}`
-    case 'vibe-drop': return `drop vibe #${a.index}`
-    case 'vibe-clear': return 'clear all vibes'
+    case 'pause': return `pause ${FEATURE_LABEL[a.feature] ?? a.feature}${a.minutes ? ` ${fmtMins(a.minutes)}` : ''}`
+    case 'resume': return `resume ${FEATURE_LABEL[a.feature] ?? a.feature}`
+    case 'vibe-drop': return `drop chat rule #${a.index}`
+    case 'vibe-clear': return 'clear all chat rules'
     case 'topic-ban': return `ban trivia topic "${a.topic}"`
     case 'topic-unban': return `unban trivia topic "${a.topic}"`
     case 'queue-clear': return 'clear trivia queue'
     case 'trivia-start': return a.topic ? `start trivia about "${a.topic}"` : 'start trivia'
     case 'trivia-skip': return 'skip trivia round'
-    case 'depths-reset': return 'reset the depths'
+    case 'depths-reset': return 'reset the dungeon'
     case 'raid': return `raid game ${a.on ? 'on' : 'off'}`
-    case 'raid-pace': return `raid pace ${a.pace}`
-    case 'ai': return `ai answers ${a.on ? 'on' : 'off'}`
+    case 'raid-pace': return `raid speed ${a.pace}`
+    case 'ai': return `bot replies ${a.on ? 'on' : 'off'}`
     case 'goals': return `goal alerts ${a.on ? 'on' : 'off'}`
-    case 'cap-reset': return `reset @${a.user}'s ai budget for today`
-    case 'ask-purge': return `remove question #${a.id}`
-    case 'ai-trivia': return `ai trivia (all channels) ${a.on ? 'on' : 'off'}`
+    case 'cap-reset': return `reset @${a.user}'s daily limit`
+    case 'ask-purge': return `remove reply #${a.id}`
+    case 'ai-trivia': return `ai trivia ${a.on ? 'on' : 'off'} (every channel)`
     case 'say': return `say "${a.text}"`
     case 'ignore': return `ignore @${a.user}${a.minutes ? ` for ${fmtMins(a.minutes)}` : ' until lifted'}`
     case 'unignore': return `stop ignoring @${a.user}`
