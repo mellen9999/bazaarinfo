@@ -73,6 +73,26 @@ export async function verifyTwitchJwt(authHeader: string | null): Promise<Twitch
   return hmacVerify(authHeader.slice(7), EXTENSION_SECRET)
 }
 
+// Why a token was rejected, for the auth-failure log only — never an auth decision.
+// Reads the payload WITHOUT verifying it, so the channel is only what the token
+// claims; digits-only so a forged claim can't smuggle anything into the log.
+export function jwtFailReason(authHeader: string | null): string {
+  if (!authHeader) return 'no token'
+  if (!authHeader.startsWith('Bearer ')) return 'not a bearer token'
+  const parts = authHeader.slice(7).split('.')
+  if (parts.length !== 3) return 'malformed'
+  try {
+    const p = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[1])))
+    const ch = /^\d{1,20}$/.test(String(p.channel_id)) ? ` channel ${p.channel_id}` : ''
+    if (typeof p.exp === 'number' && p.exp < Math.floor(Date.now() / 1000)) {
+      return `expired ${Math.floor(Date.now() / 1000) - p.exp}s ago${ch}`
+    }
+    return `bad signature${ch}`
+  } catch {
+    return 'malformed'
+  }
+}
+
 export function verifyCompanionSecret(secret: string, channelId: string): boolean {
   if (!COMPANION_SECRET || !channelId) return false
   // Per-channel secret only: HMAC-SHA256(master COMPANION_SECRET, channelId), hex.

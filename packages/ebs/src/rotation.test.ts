@@ -199,3 +199,27 @@ describe('GET /health/ready exposure', () => {
     expect(intBody.rotations).toBe(0)
   })
 })
+
+const { jwtFailReason } = await import('./auth')
+
+// ── auth-failure log reason (diagnostic only, never an auth decision) ────────
+describe('jwtFailReason', () => {
+  const b64 = (o: object) => btoa(JSON.stringify(o)).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
+  const tok = (p: object) => `Bearer x.${b64(p)}.sig`
+  const now = Math.floor(Date.now() / 1000)
+
+  it('names a missing or non-bearer header', () => {
+    expect(jwtFailReason(null)).toBe('no token')
+    expect(jwtFailReason('Basic abc')).toBe('not a bearer token')
+    expect(jwtFailReason('Bearer abc')).toBe('malformed')
+  })
+
+  it('tells expired from bad signature and names the claimed channel', () => {
+    expect(jwtFailReason(tok({ exp: now - 90, channel_id: '12345' }))).toMatch(/^expired 9\ds ago channel 12345$/)
+    expect(jwtFailReason(tok({ exp: now + 900, channel_id: '12345' }))).toBe('bad signature channel 12345')
+  })
+
+  it('never echoes a non-numeric channel claim into the log', () => {
+    expect(jwtFailReason(tok({ exp: now + 900, channel_id: 'x\n[ebs] fake' }))).toBe('bad signature')
+  })
+})

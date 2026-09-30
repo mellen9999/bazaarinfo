@@ -4,7 +4,7 @@
 import { readFileSync, watch } from 'fs'
 import { resolve, dirname, basename } from 'path'
 import type { CardCache } from '@bazaarinfo/shared'
-import { verifyTwitchJwt, deriveChannelSecret } from './auth'
+import { verifyTwitchJwt, deriveChannelSecret, jwtFailReason } from './auth'
 import { loadRotations, bumpVersion, rotationCount } from './rotation'
 import { handleCards, setCardCache, getCardCache } from './routes/cards'
 import { handleImage } from './routes/images'
@@ -138,7 +138,7 @@ export async function handleRequest(req: Request): Promise<Response> {
   if (path.startsWith('/api/')) {
     twitchAuth = await verifyTwitchJwt(req.headers.get('Authorization'))
     if (!twitchAuth) {
-      console.log(`[ebs] auth failed: ${path}`)
+      console.log(`[ebs] auth failed: ${path} (${jwtFailReason(req.headers.get('Authorization'))})`)
       return cors(new Response('unauthorized', { status: 401 }), origin)
     }
   }
