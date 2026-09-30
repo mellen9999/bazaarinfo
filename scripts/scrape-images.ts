@@ -55,6 +55,7 @@ interface CardCache {
   items: CardLike[]
   skills: CardLike[]
   monsters: CardLike[]
+  events?: CardLike[]
 }
 
 async function fetchSitemap(): Promise<Map<string, string>> {
@@ -117,6 +118,7 @@ async function main() {
     ...raw.items.map((c) => c.Title),
     ...raw.skills.map((c) => c.Title),
     ...raw.monsters.map((c) => c.Title),
+    ...(raw.events ?? []).map((c) => c.Title),
   ]
 
   const hashes: Record<string, string> = existsSync(HASHES_PATH)
