@@ -11,7 +11,12 @@
 // which is how every card ended up with no art and nobody noticed.
 //
 // Output is packages/data/art-keys.json — the map the data scraper actually reads,
-// committed so a deploy carries it. If bazaardb ever re-keys its CDN, the stored
+// committed so a deploy carries it — plus packages/data/art-cdn.json, the newest
+// z-segment seen, which the EBS image proxy serves from. A new patch's cards exist
+// only under the new segment (18.0 cards 404 under z17.0), while the new segment
+// still serves every older hash, so the proxy must follow the newest one.
+//
+// If bazaardb ever re-keys its CDN, the stored
 // hashes all go stale at once: delete that file and re-run, since resume treats any
 // existing entry as done.
 //
@@ -35,14 +40,15 @@ import { readFileSync, writeFileSync, existsSync } from 'fs'
 
 const CACHE_PATH = 'cache/items.json'
 const HASHES_PATH = 'packages/data/art-keys.json'
+const CDN_PATH = 'packages/data/art-cdn.json'
 const SITEMAP_URL = 'https://bazaardb.gg/sitemap.xml'
 const USER_AGENT = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
 const DELAY_MS = 150
 const LOG_EVERY = 50
 
-// RSC response contains CDN URLs like: s.bazaardb.gg/v1/z17.0/{hash}@256.webp.
+// RSC response contains CDN URLs like: s.bazaardb.gg/v1/z18.0/{hash}@256.webp.
 // The z-segment is the game version and moves with patches — match any of them.
-const HASH_RE = /\/v1\/z[\d.]+\/([a-f0-9]{20,64})@/
+const HASH_RE = /\/v1\/(z[\d.]+)\/([a-f0-9]{20,64})@/
 
 interface CardLike { Title: string }
 interface CardCache {
@@ -80,7 +86,7 @@ async function fetchSitemap(): Promise<Map<string, string>> {
 }
 
 // Fetch card page via RSC endpoint — returns server-rendered data including image URLs
-async function fetchCardHash(cardPath: string): Promise<string | null> {
+async function fetchCardHash(cardPath: string): Promise<{ hash: string, cdn: string } | null> {
   const res = await fetch(`https://bazaardb.gg${cardPath}`, {
     headers: {
       'User-Agent': USER_AGENT,
@@ -90,7 +96,19 @@ async function fetchCardHash(cardPath: string): Promise<string | null> {
   })
   if (!res.ok) return null
   const text = await res.text()
-  return text.match(HASH_RE)?.[1] ?? null
+  const m = text.match(HASH_RE)
+  return m ? { cdn: m[1], hash: m[2] } : null
+}
+
+// "z18.0" → [18, 0]; compares segment by segment so z18.0 beats z9.9
+function cdnNewer(a: string, b: string): boolean {
+  const pa = a.slice(1).split('.').map(Number)
+  const pb = b.slice(1).split('.').map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (d) return d > 0
+  }
+  return false
 }
 
 async function main() {
@@ -104,6 +122,10 @@ async function main() {
   const hashes: Record<string, string> = existsSync(HASHES_PATH)
     ? JSON.parse(readFileSync(HASHES_PATH, 'utf-8'))
     : {}
+
+  let cdn: string = existsSync(CDN_PATH)
+    ? JSON.parse(readFileSync(CDN_PATH, 'utf-8')).version
+    : 'z0'
 
   const alreadyDone = Object.keys(hashes).length
   console.log(`cards: ${allTitles.length} total, ${alreadyDone} already hashed`)
@@ -129,9 +151,10 @@ async function main() {
       failed++
     } else {
       try {
-        const hash = await fetchCardHash(cardPath)
-        if (hash) {
-          hashes[title] = hash
+        const hit = await fetchCardHash(cardPath)
+        if (hit) {
+          hashes[title] = hit.hash
+          if (cdnNewer(hit.cdn, cdn)) cdn = hit.cdn
           found++
         } else {
           console.log(`[miss] no hash in RSC: ${title}`)
@@ -155,7 +178,9 @@ async function main() {
   }
 
   writeFileSync(HASHES_PATH, JSON.stringify(hashes, null, 2))
-  console.log(`done: ${Object.keys(hashes).length} hashes total, ${failed} failures`)
+  // never write the 'z0' placeholder — that would point the proxy at nothing
+  if (cdn !== 'z0') writeFileSync(CDN_PATH, JSON.stringify({ version: cdn }, null, 2) + '\n')
+  console.log(`done: ${Object.keys(hashes).length} hashes total, ${failed} failures, cdn ${cdn}`)
 }
 
 main().catch((e) => {

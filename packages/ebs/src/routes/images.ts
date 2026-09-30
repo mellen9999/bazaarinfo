@@ -1,11 +1,13 @@
 // GET /api/images/:hash — proxies bazaardb.gg CDN images
 // so the extension only needs to allowlist the EBS domain
 
-// The z-segment tracks the game version. It is a rendition selector, not part of
-// the identity — a given hash resolves under old versions too — but it should still
-// follow the live site, so it is one env var rather than a literal buried in code.
-// Regenerate the hashes (scripts/scrape-images.ts) whenever this moves.
-const CDN_VERSION = process.env.BAZAARDB_CDN_VERSION ?? 'z17.0'
+import artCdn from '@bazaarinfo/data/art-cdn.json'
+
+// The z-segment tracks the game version. Newer segments serve every older hash, but
+// a new patch's cards exist ONLY under its own segment — pinned to z17.0, every 18.0
+// card 404'd. scripts/scrape-images.ts records the newest segment it sees alongside
+// the hashes, so running it on patch day moves both together. Env still overrides.
+const CDN_VERSION = process.env.BAZAARDB_CDN_VERSION ?? artCdn.version
 const CDN_BASE = `https://s.bazaardb.gg/v1/${CDN_VERSION}`
 const HASH_RE = /^[a-f0-9]{20,64}$/
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024 // 2MB

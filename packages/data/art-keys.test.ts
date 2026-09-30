@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import artKeys from './art-keys.json'
+import artCdn from './art-cdn.json'
 
 // This map is the only thing standing between the overlay and a wall of fallback
 // glyphs, and it fails silently: a stale or empty map just means no card has art,
@@ -39,5 +40,12 @@ describe('art-keys map', () => {
 
   it('has no blank titles to look up by', () => {
     expect(entries.filter(([k]) => !k.trim())).toEqual([])
+  })
+})
+
+// the EBS proxies art from this segment; a malformed one breaks every image at once
+describe('art-cdn version', () => {
+  it('is a real z-segment', () => {
+    expect(artCdn.version).toMatch(/^z[1-9]\d*\.\d+$/)
   })
 })
