@@ -1441,6 +1441,13 @@ export function recordTriviaAnswer(
   stmts.insertTriviaAnswer.run(gameId, userId, answerText, isCorrect ? 1 : 0, answerTimeMs)
 }
 
+// a round whose question never reached chat (automod held it) — remove it outright so it
+// doesn't read back as a dead 0-player round. answers go first (foreign key).
+export function deleteTriviaGame(gameId: number) {
+  db.query('DELETE FROM trivia_answers WHERE game_id = ?').run(gameId)
+  db.query('DELETE FROM trivia_games WHERE id = ?').run(gameId)
+}
+
 export function recordTriviaWin(gameId: number, userId: number, answerTimeMs: number, participantCount: number, points = 0) {
   // one transaction: a failure between the two writes would otherwise leave the game row
   // showing a winner while the user's aggregate wins/points/streak silently never update.
@@ -1458,13 +1465,6 @@ export function recordTriviaWin(gameId: number, userId: number, answerTimeMs: nu
  * all showed zero. That makes the losses, which are exactly the rounds worth studying,
  * unreadable.
  */
-// a round whose question never reached chat (automod held it) — remove it outright so it
-// doesn't read back as a dead 0-player round. answers go first (foreign key).
-export function deleteTriviaGame(gameId: number) {
-  db.query('DELETE FROM trivia_answers WHERE game_id = ?').run(gameId)
-  db.query('DELETE FROM trivia_games WHERE id = ?').run(gameId)
-}
-
 export function recordTriviaEnd(gameId: number, participantCount: number) {
   db.query('UPDATE trivia_games SET participant_count = ? WHERE id = ? AND winner_id IS NULL')
     .run(participantCount, gameId)

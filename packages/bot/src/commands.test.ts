@@ -3972,6 +3972,27 @@ describe('trivia cooldowns — per-user start cd + channel round cd', () => {
     expect(tcd.userCdLeft('cdchan', 'cdQ')).toBeGreaterThan(0)
   })
 
+  it('a second ask while the first custom topic is still generating already sees the cd', async () => {
+    let release: (v: unknown) => void = () => {}
+    mockGenerateCustomTrivia.mockImplementation(() => new Promise((r) => { release = r }) as never)
+    const first = handleCommand('!b trivia about granblue', { user: 'cdG', channel: 'cdgen' })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(await handleCommand('!b trivia about tekken', { user: 'cdG', channel: 'cdgen' })).toMatch(/you can start another trivia in/)
+    release({ question: 'custom q?', answer: 'ans', accept: ['ans'] })
+    await first
+    expect(mockGenerateCustomTrivia).toHaveBeenCalledTimes(1)
+    mockGenerateCustomTrivia.mockImplementation(async () => ({ question: 'custom q?', answer: 'ans', accept: ['ans', 'answer'] }))
+  })
+
+  it('a mod custom topic that falls back to a bazaar round skips the round cd', async () => {
+    mockRoundCdLeft.mockImplementation(() => 90_000)
+    delete process.env.AI_TRIVIA
+    try {
+      await handleCommand('!b trivia about granblue', { user: 'cdModF', channel: 'cdchan', isMod: true })
+      expect(mockStartTrivia).toHaveBeenCalledWith('cdchan', undefined, true)
+    } finally { process.env.AI_TRIVIA = '1' }
+  })
+
   it('a mod custom topic during the round cd is not held', async () => {
     mockRoundCdLeft.mockImplementation(() => 90_000)
     await handleCommand('!b trivia granblue', { user: 'cdModQ', channel: 'cdchan', isMod: true })

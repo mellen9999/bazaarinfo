@@ -1073,9 +1073,9 @@ export function startTrivia(channel: string, category?: TriviaCategory, bypassCd
 // rejects it -> NULL; the curated pack is the verified, always-lands source for it.
 // returns null when this isn't a kripp channel / the pack is empty, so the caller falls
 // back to the AI path. otherwise returns startTrivia's announce (or its active/cooldown msg).
-export function startKrippTrivia(channel: string): string | null {
+export function startKrippTrivia(channel: string, bypassCd = false): string | null {
   if (!isKrippChannel(channel) || krippPack.length === 0) return null
-  return startTrivia(channel, 'kripp')
+  return startTrivia(channel, 'kripp', bypassCd)
 }
 
 // Which curated fallback questions a channel has already been served. The old anti-repeat
@@ -1099,8 +1099,8 @@ const fallbackServed = new Map<string, Set<string>>()
  */
 const fallbackCycles = new Map<string, number>()
 
-export function startFallbackTrivia(channel: string): string | null {
-  if (fallbackPack.length === 0) return startTrivia(channel)
+export function startFallbackTrivia(channel: string, bypassCd = false): string | null {
+  if (fallbackPack.length === 0) return startTrivia(channel, undefined, bypassCd)
   const recent = recentQuestions.get(channel) ?? []
   const served = fallbackServed.get(channel) ?? new Set<string>()
   const cycles = fallbackCycles.get(channel) ?? 0
@@ -1115,7 +1115,7 @@ export function startFallbackTrivia(channel: string): string | null {
     fallbackServed.set(channel, served)
     fallbackCycles.set(channel, cycles + 1)
     if (fallbackCycles.size > 200) fallbackCycles.delete(fallbackCycles.keys().next().value!)
-    return startTrivia(channel)
+    return startTrivia(channel, undefined, bypassCd)
   }
 
   // First time through, the curated pack leads: 36 hand-verified general questions is a
@@ -1124,7 +1124,7 @@ export function startFallbackTrivia(channel: string): string | null {
   // and, when it is what is on screen, the hearthstone set. Those are effectively
   // inexhaustible, so a heavy day keeps producing questions chat has not answered before
   // instead of cycling the same three dozen.
-  if (cycles > 0 && Math.random() < 0.5) return startTrivia(channel)
+  if (cycles > 0 && Math.random() < 0.5) return startTrivia(channel, undefined, bypassCd)
 
   const q = pickRandom(unseen)
   served.add(norm(q.question))
@@ -1359,7 +1359,11 @@ export function fmtWait(ms: number): string {
 export function cancelUndeliveredRound(channel: string, droppedText: string): boolean {
   const game = activeGames.get(channel)
   if (!game || Date.now() - game.startedAt >= 15_000) return false
-  if (!droppedText.includes(game.question)) return false
+  // say() may truncate a long line, so match on a normalized opening run of the question
+  // rather than the whole thing verbatim
+  const squash = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  const head = squash(game.question).slice(0, 40)
+  if (!head || !squash(droppedText).includes(head)) return false
   clearTimeout(game.timeout)
   clearHints(game)
   activeGames.delete(channel)

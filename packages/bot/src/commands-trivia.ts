@@ -351,21 +351,21 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   // can't confirm niche streamer lore so the AI path would just NULL out; the pack is the
   // verified, always-lands source. null when not a kripp channel/empty pack -> AI fallback.
   if (KRIPP_TOPIC_RE.test(t)) {
-    const kr = startKrippTrivia(channel)
+    const kr = startKrippTrivia(channel, !!ctx.isMod)
     if (kr) return withSuffix(kr, suffix)
   }
   // AI-written topics are off (AI_TRIVIA unset) — everything past this point costs tokens.
   // say so plainly and still start a real round: the miss messages below ("couldn't cook
   // one", "try again", "let it cook") all imply a retry that will never work.
   if (!aiTriviaEnabled()) {
-    return withSuffix(`custom topics are off — bazaar round instead: ${startTrivia(channel)}`, suffix)
+    return withSuffix(`custom topics are off — bazaar round instead: ${startTrivia(channel, undefined, !!ctx.isMod)}`, suffix)
   }
   // a custom round fans out to ~a dozen generate/verify calls, so it bills 10 units
   // against the asker's daily AI budget — one person gets a handful of rounds a day,
   // not four unattended days of them. falls back to a free deterministic round.
   if (ctx.user && !AI_VIP.has(ctx.user.toLowerCase())) {
     if (isUserOverDailyAiCap(ctx.user)) {
-      return withSuffix(`you're out of ai budget today — bazaar round instead: ${startTrivia(channel)}`, suffix)
+      return withSuffix(`you're out of ai budget today — bazaar round instead: ${startTrivia(channel, undefined, !!ctx.isMod)}`, suffix)
     }
     noteUserAiRequest(ctx.user, 10)
   }
@@ -453,7 +453,7 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
           q = await generateGameTrivia(dossier, t, channel, avoid, avoidAnswers)
         }
         if (!q) {
-          return withSuffix(`couldn't cook that exact one — bazaar question instead: ${startTrivia(channel)}`, suffix)
+          return withSuffix(`couldn't cook that exact one — bazaar question instead: ${startTrivia(channel, undefined, !!ctx.isMod)}`, suffix)
         }
         return withSuffix(startCustomTrivia(channel, q), suffix)
       }
@@ -473,7 +473,7 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
         // fabricates, confidently, which is the whole reason this path exists. same call
         // the game path makes: a real bazaar round, labeled, rather than an invention.
         log(`trivia: lore round for "${t}" produced nothing — serving a bazaar round instead`)
-        return withSuffix(`couldn't cook that exact one — bazaar question instead: ${startTrivia(channel)}`, suffix)
+        return withSuffix(`couldn't cook that exact one — bazaar question instead: ${startTrivia(channel, undefined, !!ctx.isMod)}`, suffix)
       }
       // the freshness gate is handed DOWN rather than applied here: a round verifies
       // several candidates and ships one, so a repeat is answered by walking to the next
@@ -487,7 +487,7 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
       // substitute. silently serving an unrelated question reads as "the bot ignored my
       // topic"; saying so up front keeps it honest (and still never dead-ends).
       if (!q) {
-        const fb = startFallbackTrivia(channel)
+        const fb = startFallbackTrivia(channel, !!ctx.isMod)
         if (!fb) return withSuffix(`trivia's catching its breath — try again in a sec`, suffix)
         return withSuffix(`couldn't cook one about "${t.slice(0, 40)}" — random one instead: ${fb}`, suffix)
       }
@@ -535,13 +535,14 @@ export async function runTrivia(ctx: CommandContext, rawArg: string, suffix: str
   }
   const gameBefore = activeGameId(ch)
   const queuedBefore = listTopicQueue(ch).filter((e) => e.user === user).length
+  // charge up front: a custom topic generates for ~20s, and a second ask in that window
+  // must already see the cooldown. refunded below if the ask never landed (paused, banned
+  // topic, generation miss, already queued) — a refused ask costs nothing.
+  chargeUser(ch, user)
   const out = await routeTrivia(ctx, arg, lower, suffix, roundCdLeft(ch) > 0)
-  // charge only when the ask landed: a round launched, or a topic queued. a refused ask
-  // (paused, banned topic, generation miss, already queued) costs nothing.
   const launched = isGameActive(ch) && activeGameId(ch) !== gameBefore
   const queued = listTopicQueue(ch).filter((e) => e.user === user).length > queuedBefore
-  if (launched || queued) chargeUser(ch, user)
-  else refundUser(ch, user)
+  if (!launched && !queued) refundUser(ch, user)
   return out
 }
 

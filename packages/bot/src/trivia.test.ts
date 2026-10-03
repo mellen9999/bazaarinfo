@@ -573,6 +573,13 @@ describe('a question twitch held (automod) never reaches chat', () => {
     expect(mockSay).toHaveBeenCalledWith('#test', 'trivia question got held by twitch automod — skipped, try another topic')
   })
 
+  it('still matches when the sent line was truncated or re-punctuated', () => {
+    startTrivia('#test')
+    const q = getActiveGameForTest('#test')!.question
+    const mangled = `Trivia! ${q.replace(/[—-]/g, ' ').slice(0, Math.max(45, q.length - 10))}…`
+    expect(cancelUndeliveredRound('#test', mangled)).toBe(true)
+  })
+
   it('ignores a dropped line that is not the live question, or no live round', () => {
     expect(cancelUndeliveredRound('#test', 'some other line')).toBe(false)
     startTrivia('#test')
