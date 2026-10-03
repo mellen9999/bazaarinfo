@@ -58,7 +58,7 @@ describe('sourceCheck — web-grounded gate on the shipped question', () => {
     mockApi(searchResponse({ check: 'sources confirm the culling of Stratholme', ok: true }))
     expect(await sourceCheck(Q, '#test')).toBe('pass')
     const tools = lastBody?.tools as { type: string; name: string }[]
-    expect(tools?.[0]?.type).toBe('web_search_20260209')
+    expect(tools?.[0]?.type).toBe('web_search_20250305')
     expect(tools?.[0]?.name).toBe('web_search')
   })
 
@@ -75,6 +75,18 @@ describe('sourceCheck — web-grounded gate on the shipped question', () => {
   it('fails ok:true when no cited source text contains the answer', async () => {
     mockApi(searchResponse({ check: 'looks right', ok: true }, 'Arthas Menethil is a paladin of the Silver Hand.', 'Arthas Menethil - Wowpedia'))
     expect(await sourceCheck(Q, '#test')).toBe('fail')
+  })
+
+  it('fails ok:true when the cited source states the answer but never names the subject', async () => {
+    mockApi(searchResponse({ check: 'looks right', ok: true }, 'Stratholme is a city in the Eastern Plaguelands.', 'Stratholme - travel guide'))
+    expect(await sourceCheck(Q, '#test')).toBe('fail')
+  })
+
+  it('sends the source call uncached (its search results are never reused)', async () => {
+    mockApi(searchResponse({ check: 'sources confirm', ok: true }))
+    await sourceCheck(Q, '#test')
+    const sys = lastBody?.system as { cache_control?: unknown }[]
+    expect(sys?.[0]?.cache_control).toBeUndefined()
   })
 
   it('fails ok:true when there are no citations at all', async () => {

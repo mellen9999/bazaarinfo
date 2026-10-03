@@ -255,7 +255,7 @@ export function handleTtlRejection(status: number, body: string, tag: string): b
 
 export interface AnthropicMeta {
   text: string | null
-  /** every cited_text + title the API attached to the text blocks (extracted from the real pages). */
+  /** one `cited_text title` string per citation the API attached (extracted from the real pages). */
   citations: string[]
   /** web_search requests the call actually made (0 = the model answered from memory). */
   searches: number
@@ -376,9 +376,12 @@ export async function anthropicCallMeta(o: AnthropicCallOpts): Promise<Anthropic
     const citations: string[] = []
     for (const b of blocks) {
       if (b.type !== 'text') continue
+      // one entry per citation, page text + page title together, so a caller can ask
+      // "does ONE source state both the subject and the answer" rather than matching
+      // words scattered across unrelated pages
       for (const c of b.citations ?? []) {
-        if (typeof c?.cited_text === 'string') citations.push(c.cited_text)
-        if (typeof c?.title === 'string') citations.push(c.title)
+        const parts = [c?.cited_text, c?.title].filter((x): x is string => typeof x === 'string')
+        if (parts.length) citations.push(parts.join(' '))
       }
     }
     return { text: texts.length ? texts.join('\n') : null, citations, searches }

@@ -6,7 +6,7 @@ import { describe, expect, it, beforeEach, afterAll } from 'bun:test'
 process.env.ANTHROPIC_API_KEY = 'sk-ant-test'
 process.env.AI_TRIVIA = '1'
 
-const { groundedIn, normEvidence, parseGen, generateChatTrivia, generatePersonTrivia, generateGameTrivia } = await import('./ai-trivia')
+const { groundedIn, groundedInSources, questionAnchors, normEvidence, parseGen, generateChatTrivia, generatePersonTrivia, generateGameTrivia } = await import('./ai-trivia')
 const { initDb } = await import('./db')
 const { enableAiForChannel } = await import('./ai-cache')
 const { resetHardStopForTests } = await import('./ai-http')
@@ -46,6 +46,39 @@ describe('groundedIn', () => {
   })
   it('normEvidence pads for word-run search', () => {
     expect(normEvidence('Hi, there!')).toBe(' hi there ')
+  })
+})
+
+describe('groundedInSources — one source must name the subject AND state the answer', () => {
+  const malenia = { question: "In Elden Ring, Malenia's boss theme shares its name with a kanji meaning what?", answer: 'law', accept: ['law', 'dharma'] }
+
+  it('anchors are the capitalized subjects past the first word, never the answer', () => {
+    expect(questionAnchors(malenia)).toEqual(['elden', 'ring', 'malenia'])
+    expect(questionAnchors({ question: 'What 2016 FPS advances time only when you move?', answer: 'Superhot', accept: [] })).toEqual([])
+    expect(questionAnchors({ question: 'Which city did Arthas purge in Stratholme?', answer: 'Stratholme', accept: [] })).toEqual(['arthas'])
+  })
+
+  it('a common answer word on a page that never names the subject does not count', () => {
+    expect(groundedInSources(malenia, ['the rule of law in feudal japan — Wikipedia'])).toBe(false)
+  })
+
+  it('subject and answer split across two different sources does not count', () => {
+    expect(groundedInSources(malenia, ['Malenia, Blade of Miquella — Elden Ring Wiki', 'the rule of law — Wikipedia'])).toBe(false)
+  })
+
+  it('one source naming the subject and stating the answer passes', () => {
+    expect(groundedInSources(malenia, ['the theme title uses the kanji for law — Malenia - Elden Ring Wiki'])).toBe(true)
+  })
+
+  it('anchors match on a stem, so Sardinian finds Sardinia', () => {
+    const q = { question: 'This Sardinian cheese is infested with larvae — name it?', answer: 'Casu Marzu', accept: [] }
+    expect(groundedInSources(q, ['Casu marzu is a traditional cheese from Sardinia, Italy'])).toBe(true)
+  })
+
+  it('a question with no named subject falls back to the answer alone', () => {
+    const q = { question: 'What 2016 FPS advances time only when you move?', answer: 'Superhot', accept: [] }
+    expect(groundedInSources(q, ['SUPERHOT is the FPS where time moves only when you move'])).toBe(true)
+    expect(groundedInSources(q, ['a time-bending shooter'])).toBe(false)
   })
 })
 

@@ -507,6 +507,33 @@ export function groundedIn(q: CustomTrivia, evidence: string): boolean {
   return false
 }
 
+// the question's named subjects: capitalized words past the opening one, 4+ chars, that
+// aren't part of the answer ("Malenia", "Sardinian", "Kendrick"). a source only backs a
+// question when it names one of these AND states the answer — a common answer word like
+// "law" or "budget" turns up in half the pages on any topic, the subject pins it down.
+export function questionAnchors(q: CustomTrivia): string[] {
+  const answerWords = new Set([q.answer, ...q.accept].flatMap((a) => normEvidence(a).trim().split(' ')))
+  const out = new Set<string>()
+  for (const tok of q.question.split(/\s+/).slice(1)) {
+    if (!/^[A-Z]/.test(tok)) continue
+    const w = normEvidence(tok).trim().split(' ')[0]
+    if (w.length >= 4 && !answerWords.has(w)) out.add(w)
+  }
+  return [...out]
+}
+
+// grounding against web sources: ONE citation must both state the answer and name a
+// subject of the question. anchors match on a 6-char stem so "Sardinian" finds "Sardinia".
+// a question with no capitalized subject falls back to the answer alone.
+export function groundedInSources(q: CustomTrivia, citations: string[]): boolean {
+  const stems = questionAnchors(q).map((a) => ` ${a.slice(0, 6)}`)
+  return citations.some((c) => {
+    if (!groundedIn(q, c)) return false
+    const nc = normEvidence(c)
+    return stems.length === 0 || stems.some((st) => nc.includes(st))
+  })
+}
+
 // deterministic giveaway check: true if any distinctive accepted answer appears as a
 // contiguous word run in the question (a viewer could copy it verbatim). Skips short and
 // pure-number forms — a 2-letter token or a bare count recurs harmlessly in normal wording.
@@ -782,9 +809,13 @@ export async function verifyPanel(q: CustomTrivia, channel: string, topic = '', 
 // sources instead of another opinion. It runs ONCE per question, at serve time (the fresh
 // winner before it ships, a banked spare before it is served), never on the whole slate —
 // so it costs 1-2 searches per round, not per candidate.
-const SOURCE_TIMEOUT = 45_000 // searches round-trip the web via code execution; 30s timed out live
-const SOURCE_TRIES = 2 // refuted winner -> promote the runner-up once, then fall back free
-const WEB_SEARCH_TOOL = [{ type: 'web_search_20260209', name: 'web_search', max_uses: 2 }]
+const SOURCE_TIMEOUT = 45_000
+const SOURCE_TRIES = 3 // refuted winner -> promote the next survivor, twice, then fall back free (a try costs 1 call, a give-up wastes the ~20 the round already spent)
+// the 2025 tool on purpose: web_search_20260209 filters results through code execution and
+// returns NO citations (measured 2026-10-03: 0 cited_text across every probe), so the
+// proof-of-source gate below could never pass. 20250305 attaches the page text the answer
+// rests on, and skips the code-execution round trip, which is cheaper and faster too.
+const WEB_SEARCH_TOOL = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }]
 
 const SOURCE_SYSTEM = `You are the final fact-gate for a trivia question about to go to live Twitch chat. You have web search. The question already passed model-memory review — your ONLY job is to catch confident fabrications that model memory cannot: invented names, wrong attributions, plausible-sounding misremembered details.
 
@@ -816,7 +847,9 @@ export async function sourceCheck(q: CustomTrivia, channel: string): Promise<Sou
     VERIFY_MAX_TOKENS,
     MODEL,
     'ai-trivia:source',
-    { tools: WEB_SEARCH_TOOL, timeoutMs: SOURCE_TIMEOUT },
+    // uncached: every question's search results are unique, so a cache write is never
+    // read back (measured: ~13% cheaper per call without it)
+    { tools: WEB_SEARCH_TOOL, timeoutMs: SOURCE_TIMEOUT, cacheSystem: false },
   )
   // still fail closed for SHIPPING — an errored check never lets a question through. the
   // caller just treats it as "unjudged" rather than "wrong" when deciding what to keep.
@@ -836,7 +869,7 @@ export async function sourceCheck(q: CustomTrivia, channel: string): Promise<Sou
     log(`ai-trivia: source lens: no search performed for "${q.question.slice(0, 50)}" — failed`)
     return 'fail'
   }
-  if (!groundedIn(q, res.citations.join(' '))) {
+  if (!groundedInSources(q, res.citations)) {
     log(`ai-trivia: source lens: no cited source states "${q.answer}" for "${q.question.slice(0, 50)}" — failed`)
     return 'fail'
   }
@@ -1176,9 +1209,9 @@ async function callApi(system: string, content: string, channel: string, maxToke
 }
 
 // same funnel + backstop as callApi, for the one stage that must see citations/searches.
-async function callApiMeta(system: string, content: string, channel: string, maxTokens: number, model: string, tag: string, extra?: { tools?: object[]; timeoutMs?: number }): Promise<AnthropicMeta | null> {
+async function callApiMeta(system: string, content: string, channel: string, maxTokens: number, model: string, tag: string, extra?: { tools?: object[]; timeoutMs?: number; cacheSystem?: boolean }): Promise<AnthropicMeta | null> {
   if (!aiTriviaEnabled()) return null
-  return anthropicCallMeta({ tag, channel, model, maxTokens, system, content, timeoutMs: extra?.timeoutMs ?? TIMEOUT, tools: extra?.tools })
+  return anthropicCallMeta({ tag, channel, model, maxTokens, system, content, timeoutMs: extra?.timeoutMs ?? TIMEOUT, tools: extra?.tools, cacheSystem: extra?.cacheSystem })
 }
 
 type GenResult = { ok: true; q: CustomTrivia } | { ok: false; retry: boolean }

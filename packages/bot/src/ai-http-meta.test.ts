@@ -28,11 +28,11 @@ function mock(): void {
 const opts = { tag: 'ai-http-meta', channel: 'x', model: 'm', maxTokens: 10, content: 'hi' }
 
 describe('anthropicCallMeta', () => {
-  it('returns text, citations (cited_text + title) and the search count', async () => {
+  it('returns text, one citation string per source (cited_text + title) and the search count', async () => {
     mock()
     const r = await anthropicCallMeta(opts)
     expect(r?.searches).toBe(2)
-    expect(r?.citations).toEqual(['Arthas purges Stratholme', 'Wowpedia'])
+    expect(r?.citations).toEqual(['Arthas purges Stratholme Wowpedia'])
     expect(r?.text).toBe('looking\nStratholme.\n{"ok":true}')
   })
   it('default mode is still the plain joined text', async () => {
