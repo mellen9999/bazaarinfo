@@ -872,14 +872,7 @@ export class TwitchClient {
             // got silence and nothing else records it, so pair the notice with the line it
             // killed — otherwise "the bot ignored me" is unfalsifiable after the fact.
             // (seen live: a 5x-identical emote wall tripping automod's repeat detector.)
-            const drop = (msg.raw ?? '').match(/^\[(msg_automod_held|msg_rejected\w*|msg_duplicate|msg_ratelimit|msg_banned|msg_channel_suspended)\] #(\S+):/)
-            if (drop) {
-              this.lastDrop = { channel: drop[2].toLowerCase(), reason: drop[1], at: Date.now() }
-              const last = this.lastSentByChannel.get(drop[2])
-              const age = last ? Date.now() - last.at : Infinity
-              if (last && age < 15_000) log(`send dropped by twitch (${drop[1]}) #${drop[2]} after ${age}ms: ${JSON.stringify(last.text.slice(0, 80))}`)
-              else log(`send dropped by twitch (${drop[1]}) #${drop[2]} — no recent line to attribute it to`)
-            }
+            this.handleDropNotice(msg.raw ?? line)
             break
           }
           case 'userstate': {
@@ -1166,6 +1159,31 @@ export class TwitchClient {
     return this.isPrivileged(channel.toLowerCase())
       ? { used: this.modSendTimes.length, limit: this.MOD_LIMIT }
       : { used: this.userSendTimes.length, limit: this.USER_LIMIT }
+  }
+
+  // twitch-side send drops (automod hold, dup, ratelimit, ban, suspension): log the line
+  // it killed and tell listeners, so a feature that just announced something (a trivia
+  // question) can find out chat never saw it. only fires with attribution — a drop with
+  // no recent line of ours to pin it on is not something a listener can act on.
+  private dropListeners = new Set<(d: { channel: string; reason: string; text: string }) => void>()
+  onSendDropped(fn: (d: { channel: string; reason: string; text: string }) => void): () => void {
+    this.dropListeners.add(fn)
+    return () => this.dropListeners.delete(fn)
+  }
+
+  handleDropNotice(raw: string): void {
+    const drop = raw.match(/^\[(msg_automod_held|msg_rejected\w*|msg_duplicate|msg_ratelimit|msg_banned|msg_channel_suspended)\] #(\S+):/)
+    if (!drop) return
+    const channel = drop[2].toLowerCase()
+    this.lastDrop = { channel, reason: drop[1], at: Date.now() }
+    const last = this.lastSentByChannel.get(drop[2]) ?? this.lastSentByChannel.get(channel)
+    const age = last ? Date.now() - last.at : Infinity
+    if (last && age < 15_000) {
+      log(`send dropped by twitch (${drop[1]}) #${drop[2]} after ${age}ms: ${JSON.stringify(last.text.slice(0, 80))}`)
+      for (const fn of this.dropListeners) {
+        try { fn({ channel, reason: drop[1], text: last.text }) } catch (e) { log(`drop listener failed: ${e}`) }
+      }
+    } else log(`send dropped by twitch (${drop[1]}) #${drop[2]} — no recent line to attribute it to`)
   }
 
   /** the most recent twitch-side send drop for this channel, or null. */

@@ -134,6 +134,7 @@ mock.module('./store', () => ({
 }))
 
 const mockCreateTriviaGame = mock(() => 1)
+const mockDeleteTriviaGame = mock((_id: number) => {})
 const mockRecordTriviaAnswer = mock(() => {})
 const mockRecordTriviaWin = mock(() => {})
 const mockRecordTriviaAttempt = mock(() => {})
@@ -146,6 +147,7 @@ const mockGetChannelLeaderboard = mock<() => { username: string; total_commands:
 mock.module('./db', () => ({
   ptDay: () => '2026-01-01',
   createTriviaGame: mockCreateTriviaGame,
+  deleteTriviaGame: mockDeleteTriviaGame,
   recordTriviaAnswer: mockRecordTriviaAnswer,
   recordTriviaWin: mockRecordTriviaWin,
   recordTriviaAttempt: mockRecordTriviaAttempt,
@@ -200,7 +202,12 @@ const {
   setQuizCulturePackForTest,
   startQuizCultureTrivia,
   carriesLiveQuestion,
+  roundCdLeft,
+  cancelUndeliveredRound,
+  scheduleQueueDrain,
+  setRoundEndHook,
 } = await import('./trivia')
+const tcd = await import('./trivia-cd')
 
 const { suppress: suppressFeature, resetForTest: resetSuppressState } = await import('./suppress')
 
@@ -210,6 +217,8 @@ const mockSay = mock((_channel: string, _text: string) => {})
 
 beforeEach(() => {
   resetForTest()
+  tcd.__resetForTest()
+  mockDeleteTriviaGame.mockReset()
   mockCreateTriviaGame.mockReset()
   mockRecordTriviaAnswer.mockReset()
   mockRecordTriviaWin.mockReset()
@@ -497,6 +506,98 @@ describe('startTrivia', () => {
 // ---------------------------------------------------------------------------
 // checkAnswer — answer processing
 // ---------------------------------------------------------------------------
+describe('round cooldown (panel setting)', () => {
+  const win = () => {
+    const game = getActiveGameForTest('#test')!
+    checkAnswer('#test', 'winner', game.acceptedAnswers[0], mockSay)
+  }
+
+  it('blocks the next start for the configured gap, reading minutes and seconds', () => {
+    tcd.setTriviaCd('#test', 'round', 60, 'mod')
+    startTrivia('#test')
+    win()
+    expect(roundCdLeft('#test')).toBeGreaterThan(55_000)
+    expect(startTrivia('#test')).toMatch(/^trivia on cooldown, (59s|1m 0s) remaining$/)
+    expect(isGameActive('#test')).toBe(false)
+  })
+
+  it('mods bypass it, and it is per channel', () => {
+    tcd.setTriviaCd('#test', 'round', 60, 'mod')
+    startTrivia('#test')
+    win()
+    expect(startTrivia('#other')).toStartWith('Trivia!')
+    expect(startTrivia('#test', undefined, true)).toStartWith('Trivia!')
+  })
+
+  it('off (the default) never blocks', () => {
+    startTrivia('#test')
+    win()
+    expect(roundCdLeft('#test')).toBe(0)
+  })
+
+  it('the queue drain waits for the cd instead of bouncing off it', async () => {
+    tcd.setTriviaCd('#test', 'round', 30, 'mod')
+    const hook = mock(async (_ch: string) => null as string | null)
+    setRoundEndHook(hook)
+    startTrivia('#test')
+    win()
+    // reveal delay alone is 2.5s — with a 30s cd the hook must not have run by then
+    await new Promise((r) => setTimeout(r, 2_700))
+    expect(hook).not.toHaveBeenCalled()
+    setRoundEndHook(null)
+  })
+
+  it('scheduleQueueDrain arms one timer per channel, not one per call', async () => {
+    const hook = mock(async (_ch: string) => null as string | null)
+    setRoundEndHook(hook)
+    scheduleQueueDrain('#drain')
+    scheduleQueueDrain('#drain')
+    await new Promise((r) => setTimeout(r, 2_700))
+    expect(hook).toHaveBeenCalledTimes(1)
+    setRoundEndHook(null)
+  })
+})
+
+describe('a question twitch held (automod) never reaches chat', () => {
+  it('cancels the round: row deleted, no round cd, starter refunded, chat told', () => {
+    tcd.setTriviaCd('#test', 'round', 60, 'mod')
+    tcd.chargeUser('#test', 'starter')
+    expect(tcd.userCdLeft('#test', 'starter')).toBeGreaterThan(0)
+    const text = startTrivia('#test')
+    const game = getActiveGameForTest('#test')!
+    expect(cancelUndeliveredRound('#test', text)).toBe(true)
+    expect(isGameActive('#test')).toBe(false)
+    expect(mockDeleteTriviaGame).toHaveBeenCalledWith(game.gameId)
+    expect(roundCdLeft('#test')).toBe(0)
+    expect(tcd.userCdLeft('#test', 'starter')).toBe(0)
+    expect(mockSay).toHaveBeenCalledWith('#test', 'trivia question got held by twitch automod — skipped, try another topic')
+  })
+
+  it('ignores a dropped line that is not the live question, or no live round', () => {
+    expect(cancelUndeliveredRound('#test', 'some other line')).toBe(false)
+    startTrivia('#test')
+    expect(cancelUndeliveredRound('#test', 'some other line')).toBe(false)
+    expect(isGameActive('#test')).toBe(true)
+    expect(mockDeleteTriviaGame).not.toHaveBeenCalled()
+  })
+
+  it('a round older than the attribution window is left alone', () => {
+    const text = startTrivia('#test')
+    getActiveGameForTest('#test')!.startedAt -= 16_000
+    expect(cancelUndeliveredRound('#test', text)).toBe(false)
+  })
+})
+
+describe('trivia-cd settings', () => {
+  it('defaults to round off / user 5m and rejects values off the whitelist', () => {
+    expect(tcd.getTriviaCd('#x')).toEqual({ round: 0, user: 300 })
+    expect(tcd.setTriviaCd('#x', 'round', 45, 'mod')).toBe(false)
+    expect(tcd.setTriviaCd('#x', 'user', 30, 'mod')).toBe(false)
+    expect(tcd.setTriviaCd('#x', 'user', 600, 'mod')).toBe(true)
+    expect(tcd.getTriviaCd('#x')).toEqual({ round: 0, user: 600 })
+  })
+})
+
 describe('checkAnswer', () => {
   beforeEach(() => {
     startTrivia('#test')

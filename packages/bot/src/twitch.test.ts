@@ -220,6 +220,49 @@ describe('drop notices', () => {
   })
 })
 
+describe('onSendDropped', () => {
+  const mk = () => {
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [] },
+      () => {},
+    )
+    const c = client as unknown as { lastSentByChannel: Map<string, { text: string; at: number }> }
+    return { client, sent: c.lastSentByChannel }
+  }
+  const NOTICE = '[msg_automod_held] #nl_kripp: Your message has been held for review by Automod.'
+
+  test('tells listeners which line was dropped when it is attributable', () => {
+    const { client, sent } = mk()
+    const seen: { channel: string; reason: string; text: string }[] = []
+    client.onSendDropped((d) => seen.push(d))
+    sent.set('nl_kripp', { text: 'Trivia! some question (30s)', at: Date.now() - 400 })
+    client.handleDropNotice(NOTICE)
+    expect(seen).toEqual([{ channel: 'nl_kripp', reason: 'msg_automod_held', text: 'Trivia! some question (30s)' }])
+  })
+
+  test('stays quiet with no recent line to blame, or a stale one', () => {
+    const { client, sent } = mk()
+    const seen: unknown[] = []
+    client.onSendDropped((d) => seen.push(d))
+    client.handleDropNotice(NOTICE)
+    sent.set('nl_kripp', { text: 'old line', at: Date.now() - 20_000 })
+    client.handleDropNotice(NOTICE)
+    expect(seen).toHaveLength(0)
+  })
+
+  test('a non-drop notice is not reported, and a throwing listener cannot break the others', () => {
+    const { client, sent } = mk()
+    const seen: unknown[] = []
+    client.onSendDropped(() => { throw new Error('boom') })
+    client.onSendDropped((d) => seen.push(d))
+    sent.set('nl_kripp', { text: 'line', at: Date.now() })
+    client.handleDropNotice('[msg_followersonly] #nl_kripp: followers only')
+    expect(seen).toHaveLength(0)
+    client.handleDropNotice(NOTICE)
+    expect(seen).toHaveLength(1)
+  })
+})
+
 // P1: "is this a reply to the bot?" = parent login === botname. twitch delivers the direct
 // parent's login + body on every reply tag, so no message-id capture / pacer surgery needed.
 describe('reply-parent parsing (P1 addressed-without-!b)', () => {

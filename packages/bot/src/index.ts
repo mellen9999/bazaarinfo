@@ -11,7 +11,7 @@ import { startGoalWatch } from './worldcup-goals'
 import { scrapeDump } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
-import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, carriesLiveQuestion, setLiveGameResolver} from './trivia'
+import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, carriesLiveQuestion, setLiveGameResolver, cancelUndeliveredRound } from './trivia'
 import { isMuted } from './directives'
 import { isSuppressed } from './suppress'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
@@ -588,6 +588,8 @@ setModCheck((ch) => client.isModIn(ch))
 // mods-only web control panel — chat plain-talk and the panel both land on control.ts,
 // so a pause from the web and a pause from chat are the same pause.
 setControlSender((ch, text) => client.say(ch, text))
+// a trivia question twitch held (automod) never reached chat — cancel that round
+client.onSendDropped((d) => { cancelUndeliveredRound(d.channel, d.text) })
 setControlChannelOps(joinChannelAsAdmin, partChannelAsAdmin)
 const panelServer = startPanel()
 // stream events (raid/sub/resub/gift/announce) — context only. renders into the chat
