@@ -8,6 +8,7 @@ import { pickEmoteByMood, isEmote } from './emotes'
 import { HS_GENERATORS, hsTriviaReady } from './hs-trivia'
 import { isSuppressed, remainingMinutes } from './suppress'
 import { GR_GENERATORS, grTriviaReady } from './gr-trivia'
+import { getTriviaCd, refundStarter } from './trivia-cd'
 
 // what the channel is streaming, injected rather than imported: reaching into ai-cache
 // from here drags the whole AI graph into every consumer of trivia (and broke a mocked
@@ -213,7 +214,6 @@ function addNicknames(accepted: string[]): string[] {
 const ROUND_DURATION = 30_000
 const HINT1_DELAY = 10_000 // weak hint: shape/count only
 const HINT2_DELAY = 20_000 // strong hint: first-letter skeleton
-const COOLDOWN = 0
 const RECENT_BUFFER_SIZE = 10
 const RECENT_QUESTIONS_SIZE = 10
 // recent ANSWERS run a deeper window than questions: it's only consulted by the custom AI
@@ -254,6 +254,13 @@ function clearHints(game: TriviaState) {
 
 const activeGames = new Map<string, TriviaState>()
 const lastGameEnd = new Map<string, number>()
+
+/** ms left on this channel's round cooldown (panel setting, default off). 0 = free to start. */
+export function roundCdLeft(channel: string): number {
+  const cd = getTriviaCd(channel).round * 1000
+  if (cd <= 0) return 0
+  return Math.max(0, cd - (Date.now() - (lastGameEnd.get(channel) ?? 0)))
+}
 const recentTypes = new Map<string, number[]>()
 const recentQuestions = new Map<string, string[]>()
 const recentAnswers = new Map<string, string[]>()
@@ -1021,17 +1028,17 @@ function looksLikeAnswer(text: string, game: TriviaState): boolean {
   return true
 }
 
-export function startTrivia(channel: string, category?: TriviaCategory): string {
+// bypassCd: mods and the panel are exempt from the round cooldown (it's their setting)
+export function startTrivia(channel: string, category?: TriviaCategory, bypassCd = false): string {
   if (activeGames.has(channel)) {
     const game = activeGames.get(channel)!
     const remaining = Math.ceil((ROUND_DURATION - (Date.now() - game.startedAt)) / 1000)
     return `trivia already active (${remaining}s left): ${game.question}`
   }
 
-  const lastEnd = lastGameEnd.get(channel) ?? 0
-  const cooldownLeft = COOLDOWN - (Date.now() - lastEnd)
+  const cooldownLeft = bypassCd ? 0 : roundCdLeft(channel)
   if (cooldownLeft > 0) {
-    return `trivia on cooldown, ${Math.ceil(cooldownLeft / 1000)}s remaining`
+    return `trivia on cooldown, ${fmtWait(cooldownLeft)} remaining`
   }
 
   // try generators until one works AND its question isn't a recent repeat.
@@ -1309,17 +1316,59 @@ export function setRoundEndHook(fn: RoundEndHook | null): void {
 // let the reveal land before the next question — back to back reads as one wall of text
 const QUEUE_DRAIN_DELAY = 2_500
 
+// one pending drain per channel — queueing during a cooldown and a round ending must not
+// each arm their own, or two topics would launch back to back
+const drainTimers = new Map<string, Timer>()
+
+/**
+ * Serve the next queued topic once the reveal has landed AND the round cooldown is over,
+ * so a queued topic arrives when it was promised instead of bouncing off the cd.
+ */
+export function scheduleQueueDrain(channel: string): void {
+  const hook = roundEndHook
+  if (!hook || drainTimers.has(channel)) return
+  const t = setTimeout(() => {
+    drainTimers.delete(channel)
+    hook(channel)
+      .then((msg) => { if (msg) globalSay(channel, msg) })
+      .catch((e) => log(`trivia: queued-topic drain failed: ${e}`))
+  }, Math.max(QUEUE_DRAIN_DELAY, roundCdLeft(channel)))
+  t.unref?.()
+  drainTimers.set(channel, t)
+}
+
 /** every path that ends a round funnels through here, so the hook can never be missed. */
 function finishRound(channel: string): void {
   activeGames.delete(channel)
   lastGameEnd.set(channel, Date.now())
-  const hook = roundEndHook
-  if (!hook) return
-  setTimeout(() => {
-    hook(channel)
-      .then((msg) => { if (msg) globalSay(channel, msg) })
-      .catch((e) => log(`trivia: queued-topic drain failed: ${e}`))
-  }, QUEUE_DRAIN_DELAY).unref?.()
+  scheduleQueueDrain(channel)
+}
+
+// "90s" under a minute, "4m 12s" over — the cooldown notices read the same everywhere
+export function fmtWait(ms: number): string {
+  const s = Math.ceil(ms / 1000)
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
+}
+
+/**
+ * twitch threw away a line of ours (automod hold etc). if that line carried the live
+ * question, nobody could have seen it: drop the round entirely instead of letting it run
+ * 30s and record as a dead round. no round cooldown (it never really happened), the
+ * starter's own cooldown is refunded, and chat is told why.
+ */
+export function cancelUndeliveredRound(channel: string, droppedText: string): boolean {
+  const game = activeGames.get(channel)
+  if (!game || Date.now() - game.startedAt >= 15_000) return false
+  if (!droppedText.includes(game.question)) return false
+  clearTimeout(game.timeout)
+  clearHints(game)
+  activeGames.delete(channel)
+  try { db.deleteTriviaGame(game.gameId) } catch (e) { log(`trivia: held-round row delete failed: ${e}`) }
+  refundStarter(channel)
+  scheduleQueueDrain(channel)
+  log(`trivia: cancelled #${channel} game ${game.gameId} — question never reached chat`)
+  globalSay(channel, 'trivia question got held by twitch automod — skipped, try another topic')
+  return true
 }
 
 function endTrivia(channel: string, expectedGameId?: number): string | null {
@@ -1468,6 +1517,8 @@ export function cleanupChannel(channel: string) {
   }
   activeGames.delete(channel)
   lastGameEnd.delete(channel)
+  clearTimeout(drainTimers.get(channel))
+  drainTimers.delete(channel)
   recentTypes.delete(channel)
   recentQuestions.delete(channel)
   recentAnswers.delete(channel)
@@ -1480,6 +1531,11 @@ export function cleanupChannel(channel: string) {
 export function carriesLiveQuestion(channel: string, text: string): boolean {
   const game = activeGames.get(channel)
   return game !== undefined && text.includes(game.question)
+}
+
+/** id of the live round, or null — lets a caller tell "my ask launched a round" from "someone else's did". */
+export function activeGameId(channel: string): number | null {
+  return activeGames.get(channel)?.gameId ?? null
 }
 
 export function isGameActive(channel: string): boolean {
@@ -1539,6 +1595,8 @@ export function formatTop(channel: string): string {
 export { matchAnswer, looksLikeAnswer, difficultyBase, generateHint, generateWeakHint }
 
 export function resetForTest() {
+  for (const t of drainTimers.values()) clearTimeout(t)
+  drainTimers.clear()
   activeGames.clear()
   lastGameEnd.clear()
   recentTypes.clear()

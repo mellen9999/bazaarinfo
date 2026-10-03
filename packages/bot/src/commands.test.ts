@@ -141,8 +141,16 @@ const mockSkipTrivia = mock<(ch: string, user?: string) => string | null>(() => 
 const mockStartKrippTrivia = mock<(ch: string) => string | null>(() => null)
 const mockStartFallbackTrivia = mock<(ch: string) => string | null>(() => 'Trivia! fallback question (30s)')
 const mockStartQuizCultureTrivia = mock<(ch: string) => string | null>(() => 'Trivia! quiz culture question (30s)')
+// cooldown tests drive these: startTrivia launches a "round" by bumping the game id
+const mockStartTrivia = mock<(ch: string, cat?: string, bypass?: boolean) => string>(() => 'Trivia! test question (30s to answer)')
+const mockRoundCdLeft = mock<(ch: string) => number>(() => 0)
+const mockActiveGameId = mock<(ch: string) => number | null>(() => null)
 mock.module('./trivia', () => ({
-  startTrivia: mock(() => 'Trivia! test question (30s to answer)'),
+  startTrivia: mockStartTrivia,
+  roundCdLeft: mockRoundCdLeft,
+  activeGameId: mockActiveGameId,
+  scheduleQueueDrain: mock(() => {}),
+  fmtWait: (ms: number) => { const s = Math.ceil(ms / 1000); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s` },
   getTriviaScore: mock(() => 'no trivia scores yet'),
   formatStats: mock((u: string) => `[${u}] cmds:0`),
   formatTop: mock(() => 'no activity yet'),
@@ -238,6 +246,7 @@ const { handleCommand, resetDedup, resetProxyCooldowns } = await import('./comma
 const { parseArgs, salvageQuery } = await import('./commands-lookup')
 const { buildBareBQuery, findUnansweredQuestion, BARE_B_NUDGES } = await import('./commands-bare')
 const { PROXY_COOLDOWN } = await import('./commands-proxy')
+const tcd = await import('./trivia-cd')
 const { stripTopicConnector, __queueDepthForTest, __clearTopicQueueForTest } = await import('./commands-trivia')
 const { resetTriviaTopicBans, DIRECTIVE_INTENT } = await import('./commands-mod')
 const { isSuppressed, suppress, resetForTest: resetSuppressState } = await import('./suppress')
@@ -3877,6 +3886,96 @@ describe('queued trivia topics — "wait for it" has to mean something', () => {
     await handleCommand('!b trivia beta', { user: 'b', channel: 'qtestB' })
     expect(__queueDepthForTest('qtestA')).toBe(1)
     expect(__queueDepthForTest('qtestB')).toBe(1)
+  })
+})
+
+describe('trivia cooldowns — per-user start cd + channel round cd', () => {
+  let gameId = 0
+  let live = false
+  beforeEach(() => {
+    tcd.__resetForTest()
+    __clearTopicQueueForTest()
+    mockGenerateCustomTrivia.mockClear()
+    gameId = 0
+    live = false
+    mockIsGameActive.mockReset()
+    mockIsGameActive.mockImplementation(() => live)
+    mockActiveGameId.mockReset()
+    mockActiveGameId.mockImplementation(() => (live ? gameId : null))
+    mockRoundCdLeft.mockReset()
+    mockRoundCdLeft.mockImplementation(() => 0)
+    // a real launch: a new live round with a fresh id
+    mockStartTrivia.mockReset()
+    mockStartTrivia.mockImplementation(() => { live = true; gameId++; return 'Trivia! q (30s)' })
+  })
+  afterEach(() => {
+    mockIsGameActive.mockImplementation(() => false)
+    mockActiveGameId.mockImplementation(() => null)
+    mockRoundCdLeft.mockImplementation(() => 0)
+    mockStartTrivia.mockImplementation(() => 'Trivia! test question (30s to answer)')
+    tcd.__resetForTest()
+    __clearTopicQueueForTest()
+  })
+  const roundEnds = () => { live = false }
+
+  it('blocks a second start by the same user, with one notice then silence', async () => {
+    expect(await handleCommand('!b trivia', { user: 'cdA', channel: 'cdchan' })).toContain('Trivia!')
+    roundEnds()
+    const notice = await handleCommand('!b trivia', { user: 'cdA', channel: 'cdchan' })
+    expect(notice).toMatch(/you can start another trivia in \d+m \d+s/)
+    expect(await handleCommand('!b trivia', { user: 'cdA', channel: 'cdchan' })).toBeNull()
+    expect(mockStartTrivia).toHaveBeenCalledTimes(1)
+  })
+
+  it('a different user is not held by someone else\'s cd', async () => {
+    await handleCommand('!b trivia', { user: 'cdA', channel: 'cdchan' })
+    roundEnds()
+    expect(await handleCommand('!b trivia', { user: 'cdB', channel: 'cdchan' })).toContain('Trivia!')
+  })
+
+  it('mods skip the user cd', async () => {
+    await handleCommand('!b trivia', { user: 'cdM', channel: 'cdchan', isMod: true })
+    roundEnds()
+    expect(await handleCommand('!b trivia', { user: 'cdM', channel: 'cdchan', isMod: true })).toContain('Trivia!')
+  })
+
+  it('cd off (0) never blocks', async () => {
+    tcd.setTriviaCd('cdchan', 'user', 0, 'mod')
+    await handleCommand('!b trivia', { user: 'cdA', channel: 'cdchan' })
+    roundEnds()
+    expect(await handleCommand('!b trivia', { user: 'cdA', channel: 'cdchan' })).toContain('Trivia!')
+  })
+
+  it('a refused ask costs nothing', async () => {
+    // startTrivia refuses (e.g. paused / already active): no new round, so no charge
+    mockStartTrivia.mockImplementation(() => 'trivia is paused by mods — back in ~5m')
+    await handleCommand('!b trivia', { user: 'cdR', channel: 'cdchan' })
+    expect(tcd.userCdLeft('cdchan', 'cdR')).toBe(0)
+    mockStartTrivia.mockImplementation(() => { live = true; gameId++; return 'Trivia! q (30s)' })
+    expect(await handleCommand('!b trivia', { user: 'cdR', channel: 'cdchan' })).toContain('Trivia!')
+  })
+
+  it('score and stats never touch the cd', async () => {
+    await handleCommand('!b trivia', { user: 'cdA', channel: 'cdchan' })
+    roundEnds()
+    expect(await handleCommand('!b trivia score', { user: 'cdA', channel: 'cdchan' })).toContain('no trivia scores')
+  })
+
+  it('a custom topic during the round cd queues instead of generating', async () => {
+    mockRoundCdLeft.mockImplementation(() => 90_000)
+    const res = await handleCommand('!b trivia granblue', { user: 'cdQ', channel: 'cdchan' })
+    expect(res).toContain('on cooldown')
+    expect(res).toContain('1m 30s')
+    expect(__queueDepthForTest('cdchan')).toBe(1)
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+    // queued = accepted, so it's charged
+    expect(tcd.userCdLeft('cdchan', 'cdQ')).toBeGreaterThan(0)
+  })
+
+  it('a mod custom topic during the round cd is not held', async () => {
+    mockRoundCdLeft.mockImplementation(() => 90_000)
+    await handleCommand('!b trivia granblue', { user: 'cdModQ', channel: 'cdchan', isMod: true })
+    expect(__queueDepthForTest('cdchan')).toBe(0)
   })
 })
 

@@ -13,7 +13,8 @@ import { findEmote, isExactEmote } from './emotes'
 import { getRecent } from './chatbuf'
 import { log } from './log'
 import * as db from './db'
-import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, recentAnswerList, isRecentAnswer, startKrippTrivia, startFallbackTrivia, startQuizCultureTrivia, setRoundEndHook } from './trivia'
+import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, recentAnswerList, isRecentAnswer, startKrippTrivia, startFallbackTrivia, startQuizCultureTrivia, setRoundEndHook, scheduleQueueDrain, roundCdLeft, activeGameId, fmtWait } from './trivia'
+import { getTriviaCd, userCdLeft, shouldNotifyUser, chargeUser, refundUser, noteStarter } from './trivia-cd'
 import type { CommandContext, CommandHandler } from './commands'
 import { withSuffix } from './commands-reply'
 import { bannedTriviaTopic, triviaBanStateLine, onSuppressClearQueue } from './commands-mod'
@@ -223,7 +224,9 @@ const topicQueue = new Map<string, QueuedTopic[]>()
 
 function liveQueue(channel: string): QueuedTopic[] {
   const now = Date.now()
-  const q = (topicQueue.get(channel) ?? []).filter((e) => now - e.at < QUEUE_TTL)
+  // a topic waiting out the round cooldown must not expire before it can be served
+  const ttl = QUEUE_TTL + getTriviaCd(channel).round * 1000
+  const q = (topicQueue.get(channel) ?? []).filter((e) => now - e.at < ttl)
   if (q.length) topicQueue.set(channel, q)
   else topicQueue.delete(channel)
   return q
@@ -236,7 +239,7 @@ function liveQueue(channel: string): QueuedTopic[] {
  * already full: during a spree a dozen people ask in one round, and answering all of them
  * "busy" is worse noise than saying nothing. We speak when we are making a promise.
  */
-function queueTopic(channel: string, topic: string, user: string): string | null {
+function queueTopic(channel: string, topic: string, user: string, behindCd = false): string | null {
   const q = liveQueue(channel)
   const norm = topic.trim().toLowerCase()
   if (q.some((e) => e.topic.trim().toLowerCase() === norm)) {
@@ -245,6 +248,12 @@ function queueTopic(channel: string, topic: string, user: string): string | null
   if (q.length >= QUEUE_MAX) return null
   q.push({ topic, user, at: Date.now() })
   topicQueue.set(channel, q)
+  // behind the round cooldown with no round running, nothing else will wake the queue up —
+  // arm the drain for when the cooldown ends
+  if (behindCd) {
+    scheduleQueueDrain(channel)
+    return `trivia is on cooldown — "${topic.slice(0, 30)}" is up in ${fmtWait(roundCdLeft(channel))}`
+  }
   return q.length === 1
     ? `a round is already running — "${topic.slice(0, 30)}" is up next`
     : `a round is already running — "${topic.slice(0, 30)}" is queued (#${q.length})`
@@ -280,6 +289,7 @@ async function drainTopicQueue(channel: string): Promise<string | null> {
   if (q.length) topicQueue.set(channel, q)
   else topicQueue.delete(channel)
   const ctx: CommandContext = { user: next.user, channel }
+  noteStarter(channel, next.user) // already charged at queue time — just remember for a refund
   try {
     const out = await handleCustomTrivia(ctx, next.topic, '')
     return out ? `@${next.user} ${out}` : null
@@ -303,7 +313,9 @@ registerStateProvider(triviaBanStateLine)
 // not fire after resume) — commands-mod.ts owns applySuppress but calling clearTopicQueue
 // directly would cycle (it needs bannedTriviaTopic from here), so it's registered instead.
 onSuppressClearQueue(clearTopicQueue)
-async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: string): Promise<string | null> {
+// holdForCd: the round cooldown is up and this asker isn't exempt — hold the topic like a
+// mid-round ask instead of generating now (the queue drain serves it when the cd ends).
+async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: string, holdForCd = false): Promise<string | null> {
   const channel = ctx.channel
   if (!channel) return null
   let t = stripTopicFraming(stripTopicConnector(stripEmotesFromTopic(topic.trim())))
@@ -317,10 +329,10 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   if (isMetaTopic) {
     t = 'trivia and quiz culture — game shows, jeopardy, quiz history, famous trivia facts'
   }
-  if (isGameActive(channel)) {
+  if (isGameActive(channel) || holdForCd) {
     // hold it rather than dropping it — the reply below is a promise, and drainTopicQueue
     // is what makes it true
-    const held = queueTopic(channel, t, ctx.user ?? 'chat')
+    const held = queueTopic(channel, t, ctx.user ?? 'chat', holdForCd && !isGameActive(channel))
     return held ? withSuffix(held, suffix) : null
   }
   // mod topic bans — enforced here so every entry path (about-form, topic-first,
@@ -506,26 +518,58 @@ export async function runTrivia(ctx: CommandContext, rawArg: string, suffix: str
   }
   // bare `!b trivia` arrives as the literal "trivia" (subcommand dispatcher falls back
   // to cleanArgs when no group captured) — treat it, like an empty arg, as a random round.
-  if (!arg || lower === 'trivia') return withSuffix(startTrivia(ctx.channel), suffix)
-  if (lower === 'score') return withSuffix(getTriviaScore(ctx.channel), suffix)
+  const isStart = !(lower === 'score' || lower === 'skip' || lower === 'stats' || lower.startsWith('stats '))
+  // cooldowns gate round STARTS only, and never mods/the panel (it's their setting)
+  if (!isStart || ctx.isMod || !ctx.user) {
+    const before = activeGameId(ctx.channel)
+    const out = await routeTrivia(ctx, arg, lower, suffix)
+    // remember the starter either way so an automod-cancelled round can refund the right person
+    if (isStart && isGameActive(ctx.channel) && activeGameId(ctx.channel) !== before) noteStarter(ctx.channel, ctx.user)
+    return out
+  }
+  const ch = ctx.channel
+  const user = ctx.user
+  const left = userCdLeft(ch, user)
+  if (left > 0) {
+    return shouldNotifyUser(ch, user) ? withSuffix(`you can start another trivia in ${fmtWait(left)}`, suffix) : null
+  }
+  const gameBefore = activeGameId(ch)
+  const queuedBefore = listTopicQueue(ch).filter((e) => e.user === user).length
+  const out = await routeTrivia(ctx, arg, lower, suffix, roundCdLeft(ch) > 0)
+  // charge only when the ask landed: a round launched, or a topic queued. a refused ask
+  // (paused, banned topic, generation miss, already queued) costs nothing.
+  const launched = isGameActive(ch) && activeGameId(ch) !== gameBefore
+  const queued = listTopicQueue(ch).filter((e) => e.user === user).length > queuedBefore
+  if (launched || queued) chargeUser(ch, user)
+  else refundUser(ch, user)
+  return out
+}
+
+// the router below `runTrivia`'s gates: built-in subcommands, categories, then custom topics.
+// cdActive = round cooldown is up for a non-exempt asker (custom topics queue, built-ins
+// get startTrivia's own cooldown reply).
+async function routeTrivia(ctx: CommandContext, arg: string, lower: string, suffix: string, cdActive = false): Promise<string | null> {
+  const bypass = !!ctx.isMod
+  if (!arg || lower === 'trivia') return withSuffix(startTrivia(ctx.channel!, undefined, bypass), suffix)
+  if (lower === 'score') return withSuffix(getTriviaScore(ctx.channel!), suffix)
   if (lower === 'skip') {
-    const msg = skipTrivia(ctx.channel, ctx.user)
+    const msg = skipTrivia(ctx.channel!, ctx.user)
     return msg ? withSuffix(msg, suffix) : null
   }
   if (lower === 'stats' || lower.startsWith('stats ')) {
     const target = lower.replace(/^stats\s*@?/, '').trim() || ctx.user
     if (!target) return null
-    return withSuffix(formatStats(target, ctx.channel), suffix)
+    return withSuffix(formatStats(target, ctx.channel!), suffix)
   }
   if (BAZAAR_TOPIC_RE.test(lower)) {
     const cats = ['items', 'heroes', 'monsters'] as const
-    return withSuffix(startTrivia(ctx.channel, cats[Math.floor(Math.random() * cats.length)]), suffix)
+    return withSuffix(startTrivia(ctx.channel!, cats[Math.floor(Math.random() * cats.length)], bypass), suffix)
   }
   if (TRIVIA_CATEGORIES.has(lower)) {
     const cat = (TRIVIA_CATEGORY_ALIASES[lower] ?? lower) as 'items' | 'heroes' | 'monsters' | 'kripp' | 'bg' | 'guildrun'
-    return withSuffix(startTrivia(ctx.channel, cat), suffix)
+    return withSuffix(startTrivia(ctx.channel!, cat, bypass), suffix)
   }
-  return await handleCustomTrivia(ctx, arg, suffix)
+  return await handleCustomTrivia(ctx, arg, suffix, cdActive)
 }
 
 export const triviaCommand: CommandHandler = (args, ctx) => runTrivia(ctx, args, '')
