@@ -8,6 +8,7 @@ import { listDirectives, removeDirectives, clearDirectives } from './directives'
 import { applySuppress, applyResume, banTriviaTopic, unbanTriviaTopic, listTriviaTopicBans, normTopic } from './commands-mod'
 import { runTrivia, listTopicQueue, clearTopicQueue, stripTopicConnector } from './commands-trivia'
 import { skipTrivia, activeRoundInfo } from './trivia'
+import { getTriviaCd, setTriviaCd, CD_CHOICES, type CdScope } from './trivia-cd'
 import * as dungeon from './dungeon/loop'
 import * as raid from './raid/state'
 import {
@@ -38,6 +39,7 @@ export type Action =
   | { kind: 'queue-clear' }
   | { kind: 'trivia-start'; topic?: string }
   | { kind: 'trivia-skip' }
+  | { kind: 'trivia-cd'; scope: CdScope; seconds: number }
   | { kind: 'depths-reset' }
   | { kind: 'raid'; on: boolean }
   | { kind: 'raid-pace'; pace: raid.Pace }
@@ -139,6 +141,12 @@ export function parseAction(input: unknown): Action | null {
       const t = str(a.topic, TOPIC_MAX)
       return t ? { kind: 'trivia-start', topic: t } : null
     }
+    case 'trivia-cd': {
+      const scope = a.scope === 'round' || a.scope === 'user' ? a.scope : null
+      return scope && typeof a.seconds === 'number' && CD_CHOICES[scope].includes(a.seconds)
+        ? { kind: 'trivia-cd', scope, seconds: a.seconds }
+        : null
+    }
     case 'raid':
     case 'ai':
     case 'goals':
@@ -189,6 +197,9 @@ export function fmtMins(m: number): string {
   return `${m}m`
 }
 
+// 30 → "30s", 120 → "2m" — whole minutes when it divides, else seconds
+const fmtCd = (sec: number): string => (sec >= 60 && sec % 60 === 0 ? `${sec / 60}m` : `${sec}s`)
+
 // the panel's words, not the code's: a mod reads "dungeon" and "bot replies" on every
 // switch, so the preview and the log must say the same thing
 const FEATURE_LABEL: Record<string, string> = { ai: 'bot replies', depths: 'dungeon', trivia: 'trivia', all: 'everything' }
@@ -205,6 +216,7 @@ export function describe(a: Action): string {
     case 'queue-clear': return 'clear trivia queue'
     case 'trivia-start': return a.topic ? `start trivia about "${a.topic}"` : 'start trivia'
     case 'trivia-skip': return 'skip trivia round'
+    case 'trivia-cd': return `${a.scope} cd ${a.seconds ? fmtCd(a.seconds) : 'off'}`
     case 'depths-reset': return 'reset the dungeon'
     case 'raid': return `raid game ${a.on ? 'on' : 'off'}`
     case 'raid-pace': return `raid speed ${a.pace}`
@@ -295,6 +307,10 @@ async function run(ch: string, by: string, a: Action, announce: boolean, isAdmin
       if (announce) await post(ch, msg)
       return { ok: true, msg }
     }
+    case 'trivia-cd':
+      return setTriviaCd(ch, a.scope, a.seconds, by)
+        ? { ok: true, msg: `trivia ${a.scope} cd ${a.seconds ? fmtCd(a.seconds) : 'off'}` }
+        : { ok: false, msg: 'bad cooldown value' }
     case 'depths-reset':
       return { ok: true, msg: dungeon.resetRun(ch) }
     case 'raid':
@@ -381,6 +397,7 @@ export interface Snapshot {
     round: { question: string; secondsLeft: number; guesses: number } | null
     queue: { topic: string; user: string }[]
     bans: { topic: string; minutes: number }[]
+    cd: { round: number; user: number }
   }
   depths: string
   raid: { enabled: boolean; pace: raid.Pace }
@@ -447,7 +464,7 @@ export function snapshot(channel: string): Snapshot {
       instruction: d.instruction,
       minutes: Math.max(1, Math.round((d.expiresAt - now) / 60_000)),
     })),
-    trivia: { round: activeRoundInfo(ch), queue: listTopicQueue(ch), bans: listTriviaTopicBans(ch) },
+    trivia: { round: activeRoundInfo(ch), queue: listTopicQueue(ch), bans: listTriviaTopicBans(ch), cd: getTriviaCd(ch) },
     depths: safe('depths', () => dungeon.statusLine(ch), 'unavailable'),
     raid: safe('raid', () => ({ enabled: raid.isEnabled(ch), pace: raid.getPace(ch) }), { enabled: false, pace: 'normal' as raid.Pace }),
     goals: safe('goals', () => isGoalsEnabled(ch), true),

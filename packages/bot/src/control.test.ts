@@ -234,6 +234,41 @@ describe('persistence — survives a simulated restart', () => {
   })
 })
 
+describe('trivia cooldowns', () => {
+  it('parseAction takes only whitelisted scopes and values', () => {
+    expect(parseAction({ kind: 'trivia-cd', scope: 'round', seconds: 120 })).toEqual({ kind: 'trivia-cd', scope: 'round', seconds: 120 })
+    expect(parseAction({ kind: 'trivia-cd', scope: 'user', seconds: 0 })).toEqual({ kind: 'trivia-cd', scope: 'user', seconds: 0 })
+    expect(parseAction({ kind: 'trivia-cd', scope: 'round', seconds: 600 })).toBeNull() // user-only value
+    expect(parseAction({ kind: 'trivia-cd', scope: 'user', seconds: 30 })).toBeNull()
+    expect(parseAction({ kind: 'trivia-cd', scope: 'global', seconds: 60 })).toBeNull()
+    expect(parseAction({ kind: 'trivia-cd', scope: 'round', seconds: '60' })).toBeNull()
+    expect(parseAction({ kind: 'trivia-cd', scope: 'round' })).toBeNull()
+  })
+
+  it('describes in the panel\'s words', () => {
+    expect(say({ kind: 'trivia-cd', scope: 'round', seconds: 120 })).toBe('round cd 2m')
+    expect(say({ kind: 'trivia-cd', scope: 'user', seconds: 0 })).toBe('user cd off')
+    expect(say({ kind: 'trivia-cd', scope: 'round', seconds: 30 })).toBe('round cd 30s')
+  })
+
+  it('is a mod action (not admin-only), lands in the snapshot, and is audited', async () => {
+    expect(ADMIN_KINDS.has('trivia-cd')).toBe(false)
+    expect(snapshot('cdsnap').trivia.cd).toEqual({ round: 0, user: 300 })
+    expect((await act('cdsnap', 'mod1', { kind: 'trivia-cd', scope: 'round', seconds: 60 }, false)).ok).toBe(true)
+    expect(snapshot('cdsnap').trivia.cd).toEqual({ round: 60, user: 300 })
+    expect(snapshot('cdsnap').audit.some((r) => r.detail === 'round cd 1m')).toBe(true)
+    // one channel's setting never leaks into another
+    expect(snapshot('cdother').trivia.cd.round).toBe(0)
+  })
+
+  it('reloads from sqlite after memory is wiped', async () => {
+    const tcd = await import('./trivia-cd')
+    expect((await act('cdpersist', 'mod1', { kind: 'trivia-cd', scope: 'user', seconds: 600 }, false)).ok).toBe(true)
+    tcd.__resetForTest()
+    expect(tcd.getTriviaCd('cdpersist')).toEqual({ round: 0, user: 600 })
+  })
+})
+
 describe('admin-only kinds', () => {
   it('say is admin-only — the bot\'s voice is not a channel mod\'s to lend', () => {
     expect(ADMIN_KINDS.has('say')).toBe(true)

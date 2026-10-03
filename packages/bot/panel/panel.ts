@@ -21,6 +21,9 @@ type Tab = { ch: string; live: boolean; viewers: number | null }
 interface Me { login: string; admin: boolean; channels: string[] }
 
 const PACES: Pace[] = ['fast', 'normal', 'slow']
+// cooldown chips — must match the server's whitelist (trivia-cd.ts), which rejects anything else
+const ROUND_CD_CHIPS: [number, string][] = [[0, 'off'], [30, '30s'], [60, '1m'], [120, '2m'], [300, '5m']]
+const USER_CD_CHIPS: [number, string][] = [[0, 'off'], [60, '1m'], [120, '2m'], [300, '5m'], [600, '10m']]
 const IGNORE_DURATIONS: [string, number | undefined][] = [['1h', 60], ['24h', 1440], ['7d', 10080], ['forever', undefined]]
 const BOX_ORDER: BoxKey[] = ['switches', 'chatrules', 'trivia', 'questions', 'activity', 'people', 'raidgeon', 'log']
 const CHANNEL_KEY = 'bzi-panel-channel'
@@ -213,6 +216,7 @@ const boxBody: Record<BoxKey, HTMLElement> = {
 // sub-containers inside boxes whose outer shell (index.html) already holds the static
 // inputs — only these lists get rebuilt, never the box body itself for trivia/people.
 const triviaRoundEl = $<HTMLElement>('trivia-round')
+const triviaCdEl = $<HTMLElement>('trivia-cd')
 const triviaQueueEl = $<HTMLElement>('trivia-queue')
 const triviaBansEl = $<HTMLElement>('trivia-bans')
 const peopleIgnoredEl = $<HTMLElement>('people-ignored')
@@ -717,6 +721,18 @@ function renderTrivia(snap: Snapshot): void {
     triviaRoundEl.append(el('span', { class: 'dim', text: `${t.round.guesses} guesses` }))
   } else {
     triviaRoundEl.append(el('span', { class: 'dim', text: 'no game running' }))
+  }
+
+  clear(triviaCdEl)
+  const cdRows: [string, 'round' | 'user', [number, string][], string][] = [
+    ['round cd', 'round', ROUND_CD_CHIPS, 'how long after a round ends before the next one can start'],
+    ['user cd', 'user', USER_CD_CHIPS, 'how often one person can start a round — mods skip it'],
+  ]
+  for (const [label, scope, chips, tip] of cdRows) {
+    const row = el('div', { class: 'row', title: tip })
+    row.append(el('span', { class: 'dim', text: label }))
+    for (const [sec, name] of chips) row.append(btn(name, `set ${label} to ${name}`, () => doAct({ kind: 'trivia-cd', scope, seconds: sec }), sec === t.cd[scope] ? 'selected' : ''))
+    triviaCdEl.append(row)
   }
 
   clear(triviaQueueEl)
