@@ -253,11 +253,28 @@ export function handleTtlRejection(status: number, body: string, tag: string): b
   return true
 }
 
+export interface AnthropicMeta {
+  text: string | null
+  /** every cited_text + title the API attached to the text blocks (extracted from the real pages). */
+  citations: string[]
+  /** web_search requests the call actually made (0 = the model answered from memory). */
+  searches: number
+}
+
 /**
- * Returns the model's first text block, or null on any error/timeout/refusal/empty body.
+ * Returns the model's text, or null on any error/timeout/refusal/empty body.
  * Never throws — every call site here wants a clean miss path, not an exception.
  */
 export async function anthropicCall(o: AnthropicCallOpts): Promise<string | null> {
+  return (await anthropicCallMeta(o))?.text ?? null
+}
+
+/**
+ * Same call, but also hands back the citations and search count — for callers that must
+ * PROVE a claim against a source instead of trusting the model's word. null only when the
+ * call itself failed (no key, hard stop, http/timeout); an empty body is text:null.
+ */
+export async function anthropicCallMeta(o: AnthropicCallOpts): Promise<AnthropicMeta | null> {
   if (!API_KEY) return null
   // isHardStopped() is not a pure query — when the latch is stale enough it releases one
   // probe call and returns false. Ask ONCE and carry the answer, or the re-check below
@@ -319,7 +336,7 @@ export async function anthropicCall(o: AnthropicCallOpts): Promise<string | null
     // the call went through, so whatever wall we were latched behind is down.
     if (isProbe) noteApiSuccess()
 
-    const parsed = await readJson<{ content?: { type: string; text?: string }[]; usage?: Usage; stop_reason?: string }>(res)
+    const parsed = await readJson<{ content?: { type: string; text?: string; citations?: { cited_text?: unknown; title?: unknown }[] | null }[]; usage?: Usage; stop_reason?: string }>(res)
     // every dispatched request that returns a 200 body is billed, so record before
     // inspecting the content — a truncated or empty body still costs money.
     const u = parsed.data?.usage
@@ -354,8 +371,17 @@ export async function anthropicCall(o: AnthropicCallOpts): Promise<string | null
     if (searches > 0) log(`${o.tag}: ${searches} web search(es)`)
     // a tool-using response interleaves text with tool blocks, and the verdict is the LAST
     // text; joining loses nothing for plain calls (they only ever have one text block).
-    const texts = parsed.data?.content?.filter((b) => b.type === 'text' && b.text).map((b) => b.text) ?? []
-    return texts.length ? texts.join('\n') : null
+    const blocks = parsed.data?.content ?? []
+    const texts = blocks.filter((b) => b.type === 'text' && b.text).map((b) => b.text)
+    const citations: string[] = []
+    for (const b of blocks) {
+      if (b.type !== 'text') continue
+      for (const c of b.citations ?? []) {
+        if (typeof c?.cited_text === 'string') citations.push(c.cited_text)
+        if (typeof c?.title === 'string') citations.push(c.title)
+      }
+    }
+    return { text: texts.length ? texts.join('\n') : null, citations, searches }
   } catch (e) {
     if ((e as Error)?.name === 'AbortError') log(`${o.tag}: call timed out`)
     else log(`${o.tag}: ${(e as Error)?.message ?? e}`)

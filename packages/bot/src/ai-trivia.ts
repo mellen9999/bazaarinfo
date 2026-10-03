@@ -1,7 +1,7 @@
 import { log } from './log'
 import { extractFirstJson } from './http'
 import { isOverDailyCap, aiTriviaEnabled, isAiChannelEnabled } from './ai-cache'
-import { anthropicCall, stripUnpairedSurrogates, isHardStopped } from './ai-http'
+import { anthropicCall, anthropicCallMeta, stripUnpairedSurrogates, isHardStopped, type AnthropicMeta } from './ai-http'
 import { bankTrivia, takeBankedTrivia } from './db'
 
 // Custom-topic trivia generation. Isolated from the chat path (ai.ts): no system
@@ -264,7 +264,7 @@ export async function generateCustomTrivia(
   // from an earlier round. One source-lens call instead of a 37-call pipeline, and it
   // still has to clear the channel's freshness gates. This keeps a repeat topic (~a
   // quarter of asks) cheap, and it is the only path that still works when the API is
-  // down (the source lens waves banked questions through during a hard stop).
+  // down (the source lens re-banks instead of shipping unchecked when it cannot run).
   // banked spares passed the panel but not the source lens (it runs once, at serve time) —
   // gate each here, dropping refuted ones for good. capped so a poisoned bank stack can't
   // chain searches; past the cap we fall through to fresh generation.
@@ -482,14 +482,38 @@ async function generateAndVerify(
   return { passed, soft, rejected }
 }
 
+// the one text normalizer for whole-word matching: lowercase, non-alphanumerics become
+// spaces, padded so ` ${form} ` can be searched as a whole-word run. shared by the
+// giveaway check (answer in question) and the grounding check (answer in evidence) so the
+// two can never disagree about what "the same words" means.
+export function normEvidence(s: string): string {
+  return ` ${s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()} `
+}
+
+// deterministic grounding check: true when the canonical answer or an accepted form shows
+// up as a whole-word run in the evidence it was supposedly written from (game data, lore,
+// chat log, dossier, or a cited source). Forms under 3 chars are skipped (they match
+// everywhere) unless purely numeric, and a number only matches as a whole token — "2385"
+// never hits "23850". An answer that normalizes to nothing (emoji, symbols) can't be shown
+// to appear, so it fails closed.
+export function groundedIn(q: CustomTrivia, evidence: string): boolean {
+  const ne = normEvidence(evidence)
+  for (const a of [q.answer, ...q.accept]) {
+    const na = normEvidence(a).trim()
+    if (!na) continue
+    if (na.length < 3 && !/^\d+$/.test(na)) continue
+    if (ne.includes(` ${na} `)) return true
+  }
+  return false
+}
+
 // deterministic giveaway check: true if any distinctive accepted answer appears as a
 // contiguous word run in the question (a viewer could copy it verbatim). Skips short and
 // pure-number forms — a 2-letter token or a bare count recurs harmlessly in normal wording.
 export function answerLeaks(q: CustomTrivia): boolean {
-  const norm = (s: string) => ` ${s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()} `
-  const nq = norm(q.question)
+  const nq = normEvidence(q.question)
   for (const a of [q.answer, ...q.accept]) {
-    const na = norm(a).trim()
+    const na = normEvidence(a).trim()
     if (na.length < 3 || /^\d+$/.test(na)) continue
     if (nq.includes(` ${na} `)) return true
   }
@@ -770,22 +794,22 @@ Search the web (1-2 searches) for the question's central factual claim. Then jud
 - A claim your results neither support nor mention is NOT confirmed — fail it.
 - A widely-repeated myth counts as wrong when reliable sources debunk it.
 
-After searching, reply with ONLY this JSON:
+After searching, write ONE plain sentence stating the fact from the source that answers the question, citing that source (no curly braces in the sentence). Then, on the last line, reply with this JSON:
 {"check":"<what you searched + what the sources said, 1-2 sentences>","ok":true|false}`
 
-/** 'pass' = source-confirmed (or checking is impossible right now and blocking would kill
- * the only working path). 'fail' = the sources refuted it — discard forever. 'error' = the
- * CHECK broke (timeout/API flake), which says nothing about the question — never ship it
- * unchecked, but keep it banked so a healthier moment can re-judge it. */
+/** 'pass' = source-confirmed: the model said ok AND it really searched AND a cited source
+ * text states the answer. 'fail' = refuted, or no cited source backs it — discard forever.
+ * 'error' = the CHECK could not run or broke (no key, hard stop, timeout/API flake), which
+ * says nothing about the question — never ship it unchecked, but keep it banked so a
+ * healthier moment can re-judge it. */
 export type SourceVerdict = 'pass' | 'fail' | 'error'
 
 export async function sourceCheck(q: CustomTrivia, channel: string): Promise<SourceVerdict> {
-  if (!API_KEY) return 'pass' // can't check without a key; same posture as the panel
-  // during a hard stop the bank is the only trivia source left alive — a fail-closed gate
-  // here would silence it for the whole outage. serve unchecked, re-gate when the API is back.
-  if (isHardStopped()) return 'pass'
+  // fail closed: the deterministic generators are always alive, so shipping an unchecked
+  // AI question during an outage buys nothing. callers re-bank on 'error'.
+  if (!API_KEY || isHardStopped()) return 'error'
   const answers = [q.answer, ...q.accept.filter((a) => a.toLowerCase() !== q.answer.toLowerCase())].join(' / ')
-  const text = await callApi(
+  const res = await callApiMeta(
     SOURCE_SYSTEM,
     `QUESTION: ${q.question}\nANSWER: ${q.answer}\nACCEPTED FORMS: ${answers}`,
     channel,
@@ -796,14 +820,27 @@ export async function sourceCheck(q: CustomTrivia, channel: string): Promise<Sou
   )
   // still fail closed for SHIPPING — an errored check never lets a question through. the
   // caller just treats it as "unjudged" rather than "wrong" when deciding what to keep.
-  if (!text) return 'error'
-  const json = extractFirstJson(text)
+  if (!res?.text) return 'error'
+  const json = extractFirstJson(res.text)
   if (!json) return 'error'
+  let ok: boolean
   try {
-    return (JSON.parse(json) as { ok?: unknown }).ok === true ? 'pass' : 'fail'
+    ok = (JSON.parse(json) as { ok?: unknown }).ok === true
   } catch {
     return 'error'
   }
+  if (!ok) return 'fail'
+  // the model's "ok" is its word only. proof = it actually searched, and the text the API
+  // extracted from the pages (cited_text/title) contains the answer.
+  if (res.searches < 1) {
+    log(`ai-trivia: source lens: no search performed for "${q.question.slice(0, 50)}" — failed`)
+    return 'fail'
+  }
+  if (!groundedIn(q, res.citations.join(' '))) {
+    log(`ai-trivia: source lens: no cited source states "${q.answer}" for "${q.question.slice(0, 50)}" — failed`)
+    return 'fail'
+  }
+  return 'pass'
 }
 
 // GAME-DATA trivia: the topic names Bazaar content (a hero, item, monster, tag), so both
@@ -816,7 +853,7 @@ export async function sourceCheck(q: CustomTrivia, channel: string): Promise<Sou
 const GAME_SYSTEM = `You write ONE trivia question for a live Twitch chat about the video game The Bazaar, using ONLY the GAME DATA block provided. The DATA is from the current patch and is the sole source of truth — your own memory of The Bazaar is stale; NEVER use it.
 
 Hard rules:
-- Every fact in the question AND the answer must be checkable against the DATA alone: an item/skill/monster/hero name, a tag, a size, a tier, a day, an HP value, a number in an effect, or a count of listed entries.
+- Every fact in the question AND the answer must be checkable against the DATA alone: an item/skill/monster/hero name, a tag, a size, a tier, a day, an HP value, or a number in an effect.
 - NEVER add lore, history, meta, strategy, or any detail not literally in the DATA.
 - Chat plays/watches The Bazaar: make it fair but not free — something a regular gets and a sharp casual can reason out. Prefer a fun angle (an odd name, a memorable effect, a big number) over a dry stat when the DATA offers one.
 - The answer — and every accepted form — must NOT appear in the question. If the question names a card, that card cannot be the answer.
@@ -856,7 +893,6 @@ const GAME_ANGLES = [
   'identify the card or monster from its effect/details, WITHOUT naming it in the question',
   'which hero, tag, size, or tier a named card belongs to',
   'a monster: what day it appears, its HP, or something on its board',
-  'a count of listed entries sharing a tag, size, or tier',
   'an odd, funny, or memorable name in the data',
 ]
 
@@ -888,6 +924,12 @@ export async function generateGameTrivia(dossier: string, topic: string, channel
       if (!g.ok) return null
       if (answerLeaks(g.q)) {
         log(`ai-trivia: dropped game giveaway "${g.q.answer}" (answer appears in the question)`)
+        return null
+      }
+      // the answer must literally appear in the DATA it was written from — free, and saves
+      // a verify call per candidate that invented or miscounted its way to an answer.
+      if (!groundedIn(g.q, data)) {
+        log(`ai-trivia: dropped ungrounded game "${g.q.answer}" (not in the data)`)
         return null
       }
       return g.q
@@ -1002,6 +1044,10 @@ export async function generateLoreTrivia(dossier: string, topic: string, channel
         log(`ai-trivia: dropped lore giveaway "${g.q.answer}" (answer appears in the question)`)
         return null
       }
+      if (!groundedIn(g.q, data)) {
+        log(`ai-trivia: dropped ungrounded lore "${g.q.answer}" (not in the lore)`)
+        return null
+      }
       return g.q
     }),
   )
@@ -1059,7 +1105,7 @@ export async function generateChatTrivia(chatLines: string[], channel: string, a
 
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0 && isOverDailyCap(channel)) break
-    const r = await attemptGen(CHAT_SYSTEM, content, channel, 'ai-trivia:chat')
+    const r = await attemptGen(CHAT_SYSTEM, content, channel, 'ai-trivia:chat', MODEL, log_)
     if (r.ok) return r.q
     if (!r.retry) return null
   }
@@ -1107,7 +1153,7 @@ export async function generatePersonTrivia(dossier: string, handle: string, chan
 
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0 && isOverDailyCap(channel)) break
-    const r = await attemptGen(PERSON_SYSTEM, content, channel, 'ai-trivia:person')
+    const r = await attemptGen(PERSON_SYSTEM, content, channel, 'ai-trivia:person', MODEL, d)
     if (r.ok) return r.q
     if (!r.retry) return null
   }
@@ -1129,23 +1175,36 @@ async function callApi(system: string, content: string, channel: string, maxToke
   return anthropicCall({ tag, channel, model, maxTokens, system, content, timeoutMs: extra?.timeoutMs ?? TIMEOUT, tools: extra?.tools })
 }
 
+// same funnel + backstop as callApi, for the one stage that must see citations/searches.
+async function callApiMeta(system: string, content: string, channel: string, maxTokens: number, model: string, tag: string, extra?: { tools?: object[]; timeoutMs?: number }): Promise<AnthropicMeta | null> {
+  if (!aiTriviaEnabled()) return null
+  return anthropicCallMeta({ tag, channel, model, maxTokens, system, content, timeoutMs: extra?.timeoutMs ?? TIMEOUT, tools: extra?.tools })
+}
+
 type GenResult = { ok: true; q: CustomTrivia } | { ok: false; retry: boolean }
 
-async function attemptGen(system: string, userContent: string, channel: string, tag = 'ai-trivia:gen', model = MODEL): Promise<GenResult> {
+async function attemptGen(system: string, userContent: string, channel: string, tag = 'ai-trivia:gen', model = MODEL, evidence?: string): Promise<GenResult> {
   const text = await callApi(system, userContent, channel, GEN_MAX_TOKENS, model, tag)
   if (!text) return { ok: false, retry: false }
-  return parseGen(text)
+  return parseGen(text, evidence)
 }
 
 // pure post-parse gate for the single-call generators (person + chat trivia): parse the
 // model's JSON, then apply the same giveaway backstop as the custom-topic/game paths — an
 // answer sitting verbatim in the question is copyable, so regen instead. exported as the
 // test seam.
-export function parseGen(text: string): GenResult {
+export function parseGen(text: string, evidence?: string): GenResult {
   const q = validate(text)
   if (!q) return { ok: false, retry: true }
   if (answerLeaks(q)) {
     log(`ai-trivia: dropped giveaway "${q.answer}" (answer appears in the question)`)
+    return { ok: false, retry: true }
+  }
+  // when the caller hands over the material the question was written from (chat log,
+  // dossier), the answer must appear in it — otherwise it was invented. retry like any
+  // other bad parse.
+  if (evidence !== undefined && !groundedIn(q, evidence)) {
+    log(`ai-trivia: dropped ungrounded "${q.answer}" (not in the source material)`)
     return { ok: false, retry: true }
   }
   return { ok: true, q }
