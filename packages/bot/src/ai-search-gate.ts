@@ -10,10 +10,12 @@ import type { UserMessageResult } from './ai-build'
 //
 // cost shape: a search bills ~$0.01 plus a few k input tokens of results, so a searched ask
 // is ~10x a plain one. the deterministic gate keeps banter/opinion/kripp asks (most of chat)
-// off the tool entirely, a per-day cap bounds the worst day, and an in-flight cap keeps a
-// 45s tool turn from parking the AI slots.
-
-export const WEB_SEARCH_DAILY_CAP = Math.max(0, Number(process.env.WEB_SEARCH_DAILY_CAP ?? 25) || 0)
+// off the tool entirely, and an in-flight cap keeps a 45s tool turn from parking the AI
+// slots. no daily cap by default (mellen, 2026-10-03: a legit question answered from memory
+// is noise) — the per-user AI budget bills a search 3 units and the console wall is the
+// outer ceiling. WEB_SEARCH_DAILY_CAP=N still sets one; 0 turns search off.
+const capEnv = process.env.WEB_SEARCH_DAILY_CAP?.trim()
+export const WEB_SEARCH_DAILY_CAP = capEnv ? Math.max(0, Number(capEnv) || 0) : Infinity
 export const MAX_INFLIGHT_SEARCHES = 2
 // searches round-trip the web via code execution; 30s timed out live (ai-trivia.ts), 45s holds.
 export const SEARCH_TIMEOUT = 45_000
@@ -93,8 +95,8 @@ export function searchEligible(query: string, build: Build, inFlight: number, se
   if (build.isCreative && !KNOWLEDGE_STORY_RE.test(query)) return false
   if (isLowValue(query) || isShortResponse(query)) return false
   if (!QUESTION_RE.test(query) || ARITHMETIC_RE.test(query)) return false
-  // "why?" / "so 2.5D?" — a reaction, not a fact ask. three words is the floor ("what is aion2?")
-  if (query.trim().split(/\s+/).length < 3) return false
+  // "why?" — a reaction, not a fact ask. two words is the floor ("who's faker?")
+  if (query.trim().split(/\s+/).length < 2) return false
   const otherGame = OTHER_GAME_RE.test(query)
   if (!otherGame && OPINION_RE.test(query)) return false
   if (build.hasGameData && !otherGame) return false

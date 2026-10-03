@@ -322,7 +322,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // web search: offered on a knowledge-shaped ask with no data behind it (ai-search-gate.ts).
   // the model still decides whether to use it; the hint rides in the user message so the
   // cached system prompt is untouched.
-  const searchesToday = (() => { try { return db.getWebSearchesToday() } catch { return WEB_SEARCH_DAILY_CAP } })()
+  const searchesToday = (() => { try { return db.getWebSearchesToday() } catch { return 0 } })()
   const offerSearch = searchEligible(query, build, inFlightSearches, searchesToday)
   // compact "section:chars,section:chars" record of what the model actually saw —
   // names and sizes only, never content (see formatContextSummary in ai-build.ts).

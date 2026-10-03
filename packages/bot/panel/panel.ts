@@ -614,8 +614,9 @@ function renderStatusLine(): void {
     el('span', { class: 'dim', title: 'rounds being generated right now · rounds waiting their turn' },
       document.createTextNode(`thinking ${snap.ai.slots} · waiting ${snap.ai.queue}/${snap.ai.queueMax}`))))
 
-  chunks.push(el('span', { class: 'status-seg dim', title: 'real-world facts looked up today, out of the daily cap' },
-    document.createTextNode(`web searches ${snap.ai.searchesToday}/${snap.ai.searchCap}`)))
+  const cap = snap.ai.searchCap
+  chunks.push(el('span', { class: 'status-seg dim', title: cap === null ? 'real-world facts looked up today — no daily cap' : 'real-world facts looked up today, out of the daily cap' },
+    document.createTextNode(cap === null ? `web searches ${snap.ai.searchesToday}` : `web searches ${snap.ai.searchesToday}/${cap}`)))
 
   if (h) {
     chunks.push(el('span', { class: 'status-seg' },
@@ -831,10 +832,15 @@ function renderActivity(snap: Snapshot): void {
         el('span', { class: 'dim', text: 'words used today' }), el('span', { class: 'dim', text: compactNum(a.tokensToday) }))))
   }
 
-  body.append(el('div', { class: 'meter-row' },
-    el('div', { class: 'meter-label', title: 'real-world facts looked up today, out of the daily cap' },
-      el('span', { class: 'dim', text: 'web searches' }), el('span', { class: 'dim', text: `${a.searchesToday} / ${a.searchCap}` })),
-    el('div', { class: `meter-bar${a.searchesToday >= a.searchCap ? ' danger' : ''}`, text: meterBar(a.searchesToday, a.searchCap) })))
+  const searchCap = a.searchCap
+  body.append(searchCap === null
+    ? el('div', { class: 'meter-row' },
+      el('div', { class: 'meter-label', title: 'real-world facts looked up today — no daily cap' },
+        el('span', { class: 'dim', text: 'web searches' }), el('span', { class: 'dim', text: String(a.searchesToday) })))
+    : el('div', { class: 'meter-row' },
+      el('div', { class: 'meter-label', title: 'real-world facts looked up today, out of the daily cap' },
+        el('span', { class: 'dim', text: 'web searches' }), el('span', { class: 'dim', text: `${a.searchesToday} / ${searchCap}` })),
+      el('div', { class: `meter-bar${a.searchesToday >= searchCap ? ' danger' : ''}`, text: meterBar(a.searchesToday, searchCap) })))
 
   if (snap.health) {
     const h = snap.health

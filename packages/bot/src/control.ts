@@ -410,7 +410,7 @@ export interface Snapshot {
   stream: { live: boolean; game: string | null; title: string | null; viewers: number | null; startedAt: number | null }
   ai: {
     enabled: boolean; breaker: boolean; slots: number; queue: number; queueMax: number; hardStop: string; hardStopUntil: number | null
-    tokensToday: number; callsToday: number; globalTokensToday: number; searchesToday: number; searchCap: number
+    tokensToday: number; callsToday: number; globalTokensToday: number; searchesToday: number; searchCap: number | null
     aiTrivia: boolean; tokenCap: number
   }
   pauses: { feature: SuppressFeature; by: string; minutes: number }[]
@@ -480,7 +480,7 @@ export function snapshot(channel: string): Snapshot {
       callsToday: spend.calls,
       globalTokensToday: db.getGlobalDailyAiSpend().tokens,
       searchesToday: db.getWebSearchesToday(),
-      searchCap: WEB_SEARCH_DAILY_CAP,
+      searchCap: Number.isFinite(WEB_SEARCH_DAILY_CAP) ? WEB_SEARCH_DAILY_CAP : null, // null = no cap (json has no Infinity)
       aiTrivia: aiTriviaEnabled(),
       tokenCap: AI_DAILY_TOKEN_CAP,
     },

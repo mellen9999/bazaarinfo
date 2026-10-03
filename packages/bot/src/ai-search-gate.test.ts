@@ -78,16 +78,15 @@ describe('search gate — which asks are offered the tool', () => {
     expect(eligible('what is my name? remember it', { isRememberReq: true })).toBe(false)
   })
 
-  it('closes on capacity: the daily cap and two in flight', () => {
+  it('no daily cap by default — a busy day never pushes legit asks back to memory; two in flight still closes', () => {
     const q = 'how many days till blizzcon?'
-    expect(gate.searchEligible(q, plain, 0, gate.WEB_SEARCH_DAILY_CAP - 1)).toBe(true)
-    expect(gate.searchEligible(q, plain, 0, gate.WEB_SEARCH_DAILY_CAP)).toBe(false)
+    expect(gate.searchEligible(q, plain, 0, 10_000)).toBe(true)
     expect(gate.searchEligible(q, plain, gate.MAX_INFLIGHT_SEARCHES - 1, 0)).toBe(true)
     expect(gate.searchEligible(q, plain, gate.MAX_INFLIGHT_SEARCHES, 0)).toBe(false)
   })
 
-  it('has a real cap by default and the tool definition trivia already proved live', () => {
-    expect(gate.WEB_SEARCH_DAILY_CAP).toBe(25)
+  it('is uncapped by default and keeps the chat tool definition', () => {
+    expect(gate.WEB_SEARCH_DAILY_CAP).toBe(Infinity)
     expect(gate.WEB_SEARCH_TOOL).toEqual([{ type: 'web_search_20260209', name: 'web_search', max_uses: 1 }])
   })
 })
@@ -106,6 +105,7 @@ describe('search gate — opinion asks and one-word reactions stay off the tool'
   it('a named other game still searches even when it asks for a take', () => {
     expect(eligible('which hero would you recommend in deadlock?')).toBe(true)
     expect(eligible('what is aion2?')).toBe(true)
+    expect(eligible("who's faker?")).toBe(true)
   })
 })
 
