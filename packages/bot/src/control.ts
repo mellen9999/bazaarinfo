@@ -7,7 +7,7 @@ import { SUPPRESS_MAX_MIN, listSuppressions, type SuppressFeature } from './supp
 import { listDirectives, removeDirectives, clearDirectives } from './directives'
 import { applySuppress, applyResume, banTriviaTopic, unbanTriviaTopic, listTriviaTopicBans, normTopic } from './commands-mod'
 import { runTrivia, listTopicQueue, clearTopicQueue, stripTopicConnector } from './commands-trivia'
-import { skipTrivia, activeRoundInfo } from './trivia'
+import { skipTrivia, activeRoundInfo, activeGameId } from './trivia'
 import { getTriviaCd, setTriviaCd, CD_CHOICES, type CdScope } from './trivia-cd'
 import * as dungeon from './dungeon/loop'
 import * as raid from './raid/state'
@@ -28,6 +28,8 @@ export const FEATURES: readonly SuppressFeature[] = ['trivia', 'depths', 'ai', '
 export const PACES: readonly raid.Pace[] = ['fast', 'normal', 'slow']
 export const SAY_MAX = 450
 const TOPIC_MAX = 60
+// how many of a channel's latest rounds a mod may flag — the panel lists 3, this leaves slack
+const FLAG_WINDOW = 5
 
 export type Action =
   | { kind: 'pause'; feature: SuppressFeature; minutes?: number }
@@ -39,6 +41,7 @@ export type Action =
   | { kind: 'queue-clear' }
   | { kind: 'trivia-start'; topic?: string }
   | { kind: 'trivia-skip' }
+  | { kind: 'trivia-flag'; gameId: number }
   | { kind: 'trivia-cd'; scope: CdScope; seconds: number }
   | { kind: 'depths-reset' }
   | { kind: 'raid'; on: boolean }
@@ -147,6 +150,10 @@ export function parseAction(input: unknown): Action | null {
         ? { kind: 'trivia-cd', scope, seconds: a.seconds }
         : null
     }
+    case 'trivia-flag': {
+      const id = a.gameId
+      return typeof id === 'number' && Number.isInteger(id) && id > 0 ? { kind: 'trivia-flag', gameId: id } : null
+    }
     case 'raid':
     case 'ai':
     case 'goals':
@@ -216,6 +223,7 @@ export function describe(a: Action): string {
     case 'queue-clear': return 'clear trivia queue'
     case 'trivia-start': return a.topic ? `start trivia about "${a.topic}"` : 'start trivia'
     case 'trivia-skip': return 'skip trivia round'
+    case 'trivia-flag': return `flag trivia question #${a.gameId} as bad`
     case 'trivia-cd': return `${a.scope} cd ${a.seconds ? fmtCd(a.seconds) : 'off'}`
     case 'depths-reset': return 'reset the dungeon'
     case 'raid': return `raid game ${a.on ? 'on' : 'off'}`
@@ -306,6 +314,21 @@ async function run(ch: string, by: string, a: Action, announce: boolean, isAdmin
       if (!msg) return { ok: false, msg: 'no round running' }
       if (announce) await post(ch, msg)
       return { ok: true, msg }
+    }
+    case 'trivia-flag': {
+      // only a round this channel actually played, and only one of the last few the panel
+      // listed — a forged id can't reach another channel's rows or old history.
+      if (!db.isRecentTriviaGame(ch, a.gameId, FLAG_WINDOW)) return { ok: false, msg: `round #${a.gameId} not found` }
+      const live = activeGameId(ch) === a.gameId
+      const purged = db.flagTriviaGame(a.gameId, by, ch)
+      if (purged === null) return { ok: false, msg: `round #${a.gameId} not found` }
+      // the bad question is still on the clock: end it. skipTrivia's reveal is the same line
+      // chat gets from any skip — by then the question is already public, so nothing new leaks.
+      if (live) {
+        const msg = skipTrivia(ch, by)
+        if (msg && announce) await post(ch, msg)
+      }
+      return { ok: true, msg: `flagged round #${a.gameId}${purged ? `, dropped ${purged} banked` : ''}${live ? ', skipped' : ''}` }
     }
     case 'trivia-cd':
       return setTriviaCd(ch, a.scope, a.seconds, by)
@@ -398,6 +421,8 @@ export interface Snapshot {
     queue: { topic: string; user: string }[]
     bans: { topic: string; minutes: number }[]
     cd: { round: number; user: number }
+    /** last ended AI rounds, answers included — the live round is never in here. */
+    recent: { id: number; question: string; answer: string; flagged: boolean }[]
   }
   depths: string
   raid: { enabled: boolean; pace: raid.Pace }
@@ -419,6 +444,13 @@ function safe<T>(what: string, fn: () => T, fallback: T): T {
     log(`control: snapshot ${what} failed: ${e}`)
     return fallback
   }
+}
+
+// ended AI rounds only: the live round's answer is already in trivia_games, so it is
+// filtered out by id — the snapshot must never carry an answer chat hasn't been shown.
+function recentRounds(ch: string): Snapshot['trivia']['recent'] {
+  const live = activeGameId(ch)
+  return safe('recent', () => db.recentAiTriviaGames(ch, 4).filter((g) => g.id !== live).slice(0, 3), [])
 }
 
 export function snapshot(channel: string): Snapshot {
@@ -464,7 +496,7 @@ export function snapshot(channel: string): Snapshot {
       instruction: d.instruction,
       minutes: Math.max(1, Math.round((d.expiresAt - now) / 60_000)),
     })),
-    trivia: { round: activeRoundInfo(ch), queue: listTopicQueue(ch), bans: listTriviaTopicBans(ch), cd: getTriviaCd(ch) },
+    trivia: { round: activeRoundInfo(ch), queue: listTopicQueue(ch), bans: listTriviaTopicBans(ch), cd: getTriviaCd(ch), recent: recentRounds(ch) },
     depths: safe('depths', () => dungeon.statusLine(ch), 'unavailable'),
     raid: safe('raid', () => ({ enabled: raid.isEnabled(ch), pace: raid.getPace(ch) }), { enabled: false, pace: 'normal' as raid.Pace }),
     goals: safe('goals', () => isGoalsEnabled(ch), true),

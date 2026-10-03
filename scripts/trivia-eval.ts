@@ -8,6 +8,10 @@
 // needs ANTHROPIC_API_KEY + an AI channel (auto-loaded from .env on mele). uses an
 // isolated temp DB so the bot's data is untouched. the verifier is a temp-0 model call,
 // so a rare case may flip — investigate any FAIL, don't treat one as deterministic truth.
+import { Database } from 'bun:sqlite'
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { resolve } from 'node:path'
 import { initDb, getAiSpendBySource } from '../packages/bot/src/db'
 import { verifyAllLenses, panelVerdict, panelLenses } from '../packages/bot/src/ai-trivia'
 
@@ -74,6 +78,32 @@ const CASES: Case[] = [
   { topic: 'wrestling', question: 'Which wrestling legend was driven to school as a boy by Nobel Prize-winning playwright Samuel Beckett?', answer: 'Andre the Giant', accept: ['andre the giant', 'andre'], expect: 'accept', why: 'the correct flip of the Beckett fact — outsider in the question, in-world answer; the topic veto must not over-reject a fair cross-domain bridge' },
   { topic: 'Elden Ring', question: 'Elden Ring\'s worldbuilding was co-created by which fantasy author best known for A Song of Ice and Fire?', answer: 'George R. R. Martin', accept: ['george r r martin', 'grrm', 'george martin'], expect: 'accept', why: 'one-hop creator zoom — a fan of the topic knows its co-creator; the topic veto must stay generous about a subject\'s own creators' },
 ]
+
+// every round a mod flagged "bad q" in the panel becomes a must-reject case, so a future
+// prompt or model change that would re-ship a known-wrong question fails this eval. reads
+// the bot's real db read-only (the eval itself runs on a temp db); no db, no column, or no
+// flags just means no extra cases.
+function loadFlaggedCases(): Case[] {
+  const path = process.env.DB_PATH ?? resolve(homedir(), '.bazaarinfo.db')
+  if (!existsSync(path)) {
+    console.log(`flagged cases: no db at ${path} — skipped\n`)
+    return []
+  }
+  try {
+    const db = new Database(path, { readonly: true })
+    try {
+      const rows = db.query('SELECT id, question_text, correct_answer FROM trivia_games WHERE flagged = 1 ORDER BY id').all() as { id: number; question_text: string; correct_answer: string }[]
+      console.log(`flagged cases: ${rows.length} from ${path}\n`)
+      return rows.map((r) => ({ question: r.question_text, answer: r.correct_answer, expect: 'reject' as const, why: `flagged bad by a mod (round #${r.id})` }))
+    } finally {
+      db.close()
+    }
+  } catch (e) {
+    console.log(`flagged cases: skipped (${(e as Error).message})\n`)
+    return []
+  }
+}
+CASES.push(...loadFlaggedCases())
 
 const LENSES = panelLenses(CHEAP_LENSES)
 console.log(`panel: ${LENSES.map((l) => `${l.name}=${l.model}`).join('  ')}\n`)

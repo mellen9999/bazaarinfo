@@ -275,3 +275,62 @@ describe('admin-only kinds', () => {
     expect(ADMIN_KINDS.has('pause')).toBe(false)
   })
 })
+
+describe('trivia-flag (bad q button)', () => {
+  const trivia = () => import('./trivia')
+  const mkGame = (ch: string, q: string, a: string) => db.createTriviaGame(ch, 21, q, a)
+
+  it('parseAction needs a positive integer id', () => {
+    expect(parseAction({ kind: 'trivia-flag', gameId: 7 })).toEqual({ kind: 'trivia-flag', gameId: 7 })
+    for (const bad of [{ kind: 'trivia-flag' }, { kind: 'trivia-flag', gameId: 0 }, { kind: 'trivia-flag', gameId: -1 }, { kind: 'trivia-flag', gameId: 1.5 }, { kind: 'trivia-flag', gameId: '7' }]) {
+      expect(parseAction(bad)).toBeNull()
+    }
+    expect(say({ kind: 'trivia-flag', gameId: 7 })).toBe('flag trivia question #7 as bad')
+    expect(ADMIN_KINDS.has('trivia-flag')).toBe(false)
+  })
+
+  it('flags the round, purges the bank by question AND by answer across topics, and audits', async () => {
+    const id = mkGame('flagch', 'Which city did Arthas purge?', 'Stratholme')
+    db.bankTrivia('arthas', 'arthas', { question: 'which city did arthas purge', answer: 'x', accept: [] }, 2, false) // same question, other punctuation
+    db.bankTrivia('wc3', 'wc3', { question: 'A different question entirely?', answer: 'STRATHOLME!', accept: [] }, 2, false) // same answer, other topic
+    db.bankTrivia('wc3', 'wc3', { question: 'Unrelated question?', answer: 'Dalaran', accept: [] }, 2, false)
+    const r = await act('flagch', 'mod1', { kind: 'trivia-flag', gameId: id }, false)
+    expect(r.ok).toBe(true)
+    expect(db.takeBankedTrivia('arthas')).toBeNull()
+    expect(db.takeBankedTrivia('wc3')?.answer).toBe('Dalaran')
+    expect(db.takeBankedTrivia('wc3')).toBeNull()
+    expect(snapshot('flagch').trivia.recent).toEqual([{ id, question: 'Which city did Arthas purge?', answer: 'Stratholme', flagged: true }])
+    expect(snapshot('flagch').audit.some((a) => a.action === 'trivia-flag')).toBe(true)
+  })
+
+  it('rejects a game from another channel, and one outside the last 5 rounds', async () => {
+    const foreign = mkGame('otherch', 'Foreign q?', 'Foreign')
+    expect((await act('flagch2', 'mod1', { kind: 'trivia-flag', gameId: foreign }, false)).ok).toBe(false)
+    const old = mkGame('flagch2', 'Old q?', 'Old')
+    for (let i = 0; i < 5; i++) mkGame('flagch2', `q${i}?`, `a${i}`)
+    expect((await act('flagch2', 'mod1', { kind: 'trivia-flag', gameId: old }, false)).ok).toBe(false)
+    expect(db.getDb().query('SELECT flagged FROM trivia_games WHERE id = ?').get(foreign)).toEqual({ flagged: 0 })
+  })
+
+  it('the live round is skipped, and its answer never appears in the snapshot', async () => {
+    const t = await trivia()
+    t.resetForTest()
+    t.startCustomTrivia('livech', { question: 'What is the secret word here?', answer: 'Zorblax', accept: ['zorblax'] })
+    const id = t.activeGameId('livech')!
+    expect(id).toBeGreaterThan(0)
+    expect(JSON.stringify(snapshot('livech'))).not.toContain('Zorblax')
+    expect(snapshot('livech').trivia.recent).toEqual([])
+    const r = await act('livech', 'mod1', { kind: 'trivia-flag', gameId: id }, false)
+    expect(r.ok).toBe(true)
+    expect(t.isGameActive('livech')).toBe(false)
+    expect(snapshot('livech').trivia.recent[0]).toMatchObject({ id, flagged: true })
+    t.resetForTest()
+  })
+
+  it('the flag survives a restart (it is a db column)', () => {
+    const id = mkGame('flagch3', 'Persist q?', 'Persist')
+    db.flagTriviaGame(id, 'mod1', 'flagch3')
+    expect(db.recentAiTriviaGames('flagch3', 3)[0].flagged).toBe(true)
+    expect((db.getDb().query('SELECT flagged_by FROM trivia_games WHERE id = ?').get(id) as { flagged_by: string }).flagged_by).toBe('mod1')
+  })
+})

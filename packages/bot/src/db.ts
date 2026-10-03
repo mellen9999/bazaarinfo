@@ -1035,6 +1035,13 @@ const migrations: (() => void)[] = [
   () => {
     db.run(`ALTER TABLE panel_audit ADD COLUMN source TEXT NOT NULL DEFAULT 'panel'`)
   },
+  // migration 40: trivia_games.flagged — a mod pressed "bad q" on a round. the flag is the
+  // record the eval script reads back as a must-reject case, so a known-wrong question can
+  // never quietly come back after a prompt or model change.
+  () => {
+    db.run(`ALTER TABLE trivia_games ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0`)
+    db.run(`ALTER TABLE trivia_games ADD COLUMN flagged_by TEXT`)
+  },
 ]
 
 function runMigrations() {
@@ -1446,6 +1453,54 @@ export function recordTriviaAnswer(
 export function deleteTriviaGame(gameId: number) {
   db.query('DELETE FROM trivia_answers WHERE game_id = ?').run(gameId)
   db.query('DELETE FROM trivia_games WHERE id = ?').run(gameId)
+}
+
+export interface RecentTriviaGame { id: number; question: string; answer: string; flagged: boolean }
+
+// the channel's latest AI-written rounds (question_type 21), newest first. answers are
+// included on purpose — callers must exclude the live round themselves (control.snapshot).
+export function recentAiTriviaGames(channel: string, limit: number): RecentTriviaGame[] {
+  const rows = db.query(
+    `SELECT id, question_text, correct_answer, flagged FROM trivia_games
+     WHERE channel = ? AND question_type = 21 ORDER BY id DESC LIMIT ?`,
+  ).all(channel, limit) as { id: number; question_text: string; correct_answer: string; flagged: number }[]
+  return rows.map((r) => ({ id: r.id, question: r.question_text, answer: r.correct_answer, flagged: r.flagged === 1 }))
+}
+
+// is `gameId` one of this channel's last `within` rounds (any type)? the panel may only
+// act on what it was shown.
+export function isRecentTriviaGame(channel: string, gameId: number, within: number): boolean {
+  const rows = db.query('SELECT id FROM trivia_games WHERE channel = ? ORDER BY id DESC LIMIT ?').all(channel, within) as { id: number }[]
+  return rows.some((r) => r.id === gameId)
+}
+
+const normBank = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
+/**
+ * Mark a round as a bad question and purge its twin from the bank: every banked row (any
+ * topic shelf) whose normalized question OR answer matches, so the same wrong fact can't be
+ * served back under a different topic key. One transaction — flag and purge land together.
+ * Returns the purged count, or null when the game doesn't exist in this channel.
+ */
+export function flagTriviaGame(gameId: number, by: string, channel: string): number | null {
+  return db.transaction(() => {
+    const g = db.query('SELECT question_text, correct_answer FROM trivia_games WHERE id = ? AND channel = ?')
+      .get(gameId, channel) as { question_text: string; correct_answer: string } | null
+    if (!g) return null
+    db.query('UPDATE trivia_games SET flagged = 1, flagged_by = ? WHERE id = ?').run(by, gameId)
+    const nq = normBank(g.question_text)
+    const na = normBank(g.correct_answer)
+    const rows = db.query('SELECT id, question, answer FROM trivia_bank').all() as { id: number; question: string; answer: string }[]
+    const del = db.prepare('DELETE FROM trivia_bank WHERE id = ?')
+    let n = 0
+    for (const r of rows) {
+      if ((nq && normBank(r.question) === nq) || (na && normBank(r.answer) === na)) {
+        del.run(r.id)
+        n++
+      }
+    }
+    return n
+  })()
 }
 
 export function recordTriviaWin(gameId: number, userId: number, answerTimeMs: number, participantCount: number, points = 0) {

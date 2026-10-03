@@ -218,6 +218,7 @@ const boxBody: Record<BoxKey, HTMLElement> = {
 const triviaRoundEl = $<HTMLElement>('trivia-round')
 const triviaCdEl = $<HTMLElement>('trivia-cd')
 const triviaQueueEl = $<HTMLElement>('trivia-queue')
+const triviaRecentEl = $<HTMLElement>('trivia-recent')
 const triviaBansEl = $<HTMLElement>('trivia-bans')
 const peopleIgnoredEl = $<HTMLElement>('people-ignored')
 const peopleTimedOutEl = $<HTMLElement>('people-timedout')
@@ -743,6 +744,16 @@ function renderTrivia(snap: Snapshot): void {
     }
   }
 
+  // last few ended ai rounds — one press-again "bad q" drops the question from the bank
+  clear(triviaRecentEl)
+  for (const g of t.recent) {
+    const full = `${g.question} — ${g.answer}`
+    const row = el('div', { class: 'row' }, el('span', { class: 'row-label', text: full, title: full }))
+    if (g.flagged) row.append(el('span', { class: 'dim', text: 'flagged' }))
+    else row.append(confirmButton(`trivia-flag-${g.id}`, 'bad q', 'this question was wrong — remove it and its twins from the bank', () => doAct({ kind: 'trivia-flag', gameId: g.id })))
+    triviaRecentEl.append(row)
+  }
+
   clear(triviaBansEl)
   if (!t.bans.length) triviaBansEl.append(el('div', { class: 'pane-empty', text: 'none' }))
   t.bans.forEach((b, i) => {
@@ -942,6 +953,7 @@ function renderTriviaEmpty(): void {
   clear(triviaRoundEl)
   triviaRoundEl.append(el('span', { class: 'dim', text: 'no game running' }))
   clear(triviaQueueEl)
+  clear(triviaRecentEl)
   clear(triviaBansEl)
   triviaBansEl.append(el('div', { class: 'pane-empty', text: 'none' }))
 }
