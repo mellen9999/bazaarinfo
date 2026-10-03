@@ -15,7 +15,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 
 import { sanitize, plainDashes, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL } from './ai-sanitize'
 import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak, hasFabricatedDataRef } from './ai-verify'
-import { searchEligible, finalText, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, SEARCH_HINT, SEARCH_FAILED_HINT } from './ai-search-gate'
+import { searchEligible, finalText, SEARCH_TALK, stripSearchTalk, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, SEARCH_HINT, SEARCH_FAILED_HINT } from './ai-search-gate'
 import { notify } from './notify'
 import { repairTruncation, isStub } from './ai-truncate'
 import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, isAiChannelEnabled, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, isUserOverDailyAiCap, noteUserAiRequest, getChannelRecentResponses, isLiveStateKnown, isChannelLive } from './ai-cache'
@@ -640,6 +640,19 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // board actually reached the model: telling chat it's blind while holding the board,
       // and pinning a tier/enchant to a board card — the frames carry names and nothing else,
       // so a confident "his skirt is gold" is invention wearing the costume of observation.
+      // the model narrating its search decision to chat ("no need to search, this is just
+      // banter"). only possible when the tool was offered. retry once with the reason named;
+      // on the last attempt cut the clause and keep the answer rather than going silent.
+      if (offerSearch && SEARCH_TALK.test(result.text)) {
+        log(`ai: talked about searching, retrying (attempt ${attempt + 1})`)
+        if (attempt < MAX_RETRIES - 1) {
+          messages.push({ role: 'assistant', content: replyText })
+          messages.push({ role: 'user', content: 'Blocked: you talked about searching. Just answer — never say whether you searched or needed to.' })
+          continue
+        }
+        result.text = stripSearchTalk(result.text)
+        if (!result.text) return miss('search_talk_blocked')
+      }
       const seenBoard = extractBoardLine(userMessage)
       if (seenBoard) {
         if (deniesBoardSight(result.text)) {

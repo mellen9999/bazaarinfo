@@ -92,6 +92,58 @@ describe('search gate — which asks are offered the tool', () => {
   })
 })
 
+describe('search gate — opinion asks and one-word reactions stay off the tool', () => {
+  it('declines the asks that made the bot narrate "no need to search" live', () => {
+    for (const q of [
+      'why?',
+      'what is your favorite song of all time?',
+      'how would you rate the human centipede triology?',
+      'what are these sus memos?',
+      'do you think kripp hates mak?',
+    ]) expect(eligible(q)).toBe(false)
+  })
+
+  it('a named other game still searches even when it asks for a take', () => {
+    expect(eligible('which hero would you recommend in deadlock?')).toBe(true)
+    expect(eligible('what is aion2?')).toBe(true)
+  })
+})
+
+describe('SEARCH_TALK — the bot never narrates its search decision', () => {
+  // real replies from ask_queries, 2026-09-12..10-02
+  const leaks = [
+    '"why?" is following their own "eww" - not responding to mellen\'s rough moment. no need to search, this is just chat banter.',
+    'rusticatedcharm already mentioned a Castlevania demo, so there\'s clearly a new entry in the works - no need to force a second search.',
+    'human centipede doesn\'t need a search, that\'s a personal take request.',
+    'no need to search for an opinion. picking one: "Hurt" by Nine Inch Nails.',
+    'no search needed here, just chat receipts.',
+    'that\'s not something a web search fixes since it\'s personal to them.',
+    'that episode\'s Cartman rolls a warlock, pretty sure - didn\'t lock that second search in, but the class matches.',
+  ]
+  it('flags every live leak', () => {
+    for (const t of leaks) expect(gate.SEARCH_TALK.test(t)).toBe(true)
+  })
+
+  it('leaves ordinary answers alone', () => {
+    for (const t of [
+      'bazaardb.gg has the full item search, filter by type and it\'ll spit out every amulet',
+      'i looked it up: blizzcon 2026 runs sept 12-13',
+      'wooper just looks too honest to search.',
+      'the CIA Stargate Project was 1970s-90s remote viewing research',
+    ]) expect(gate.SEARCH_TALK.test(t)).toBe(false)
+  })
+
+  it('last-attempt strip keeps the answer and its punctuation', () => {
+    expect(gate.stripSearchTalk('no need to search for an opinion. picking one: "Hurt" by Nine Inch Nails.')).toBe('picking one: "Hurt" by Nine Inch Nails.')
+    expect(gate.stripSearchTalk('rusticatedcharm mentioned a Castlevania demo, so a new entry is coming - no need to force a second search.')).toBe('rusticatedcharm mentioned a Castlevania demo, so a new entry is coming')
+    expect(gate.stripSearchTalk('no need to search.')).toBe('')
+  })
+
+  it('the hint no longer lists what not to search', () => {
+    expect(gate.SEARCH_HINT).not.toMatch(/never for opinions|banter/i)
+  })
+})
+
 describe('finalText — the answer is what comes after the tool blocks', () => {
   it('skips the preamble of a tool turn and keeps the answer', () => {
     const content = [

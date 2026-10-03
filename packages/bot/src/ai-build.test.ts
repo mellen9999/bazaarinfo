@@ -269,6 +269,14 @@ describe('META_QUERY_RE — live patch/event questions route to the bazaardb pat
     ]) expect(META_QUERY_RE.test(q)).toBe(true)
   })
 
+  // live 2026-09-29: "next hero" missed the patch line and the bot said 17.0 from memory (live: 18.3)
+  it('fires on next/new/upcoming hero and patch asks', () => {
+    for (const q of [
+      'when is the next hero coming to bazaar? and who or with which mechanics you think?',
+      'any new heroes soon', 'whens the next patch', 'upcoming content?', 'when does the next update drop',
+    ]) expect(META_QUERY_RE.test(q)).toBe(true)
+  })
+
   // real miss: no qualifier (current/latest/new/this) before "patch" and not "patch notes"
   // either — a release-timing ask, which getPatchInfo() actually has an answer for
   it('fires on release-timing patch phrasings with no qualifier', () => {
