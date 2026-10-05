@@ -531,7 +531,12 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // chat-norm for an emote aimed at chat ("LICK", "spam LICK", "LICK anyone",
   // "can u LICK mellen") is participation, not prose about it. deterministic because the
   // AI drifted into refusing the bit; the question form ("what is X") still reaches it.
-  if (spamWall) return withSuffix(spamWall, suffix)
+  if (spamWall) {
+    // the wall already tags a bare-named chatter; don't tag them twice
+    const tagged = new Set(spamWall.toLowerCase().split(' ').filter((t) => t.startsWith('@')))
+    const rest = mentions.filter((m) => !tagged.has(m.toLowerCase()))
+    return withSuffix(spamWall, rest.length ? ` ${rest.join(' ')}` : '')
+  }
 
   // pasta recall — post the logged pasta verbatim, no model in the loop. asked to recite
   // one, the model kept substituting words with the kripp emote ("Subscribe kripp Kripp's

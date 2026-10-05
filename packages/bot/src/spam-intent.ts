@@ -9,7 +9,8 @@
 //   "LICK"                bare emote
 //   "LICK anyone" / "can u LICK mellen" / "LICK random chatter"   emote aimed at someone
 //
-// The target is never echoed back. A wall is participation; naming the person is aim.
+// A named chatter is tagged once after the wall ("LICK wollip" → "LICK ×5 @wollip"), the
+// same shape an @mention already gets. Audience words ("anyone", "me") are never tagged.
 import { findEmote } from './emotes'
 import { EMOTE_CAP_PER_MSG } from './ai-sanitize'
 
@@ -42,10 +43,24 @@ function tokenize(s: string): string[] {
   return s.trim().split(/\s+/).filter(Boolean)
 }
 
-function wall(emotes: string[]): string {
+function wall(emotes: string[], tags: string[] = []): string {
   const out: string[] = []
   while (out.length < EMOTE_CAP_PER_MSG) out.push(emotes[out.length % emotes.length])
-  return out.join(' ')
+  return [...out, ...tags.map((t) => `@${t}`)].join(' ')
+}
+
+/** distinct named chatters among the targets, each tagged once (audience words excluded) */
+function tagsIn(targets: string[], isChatter: (name: string) => boolean): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const t of targets) {
+    const name = t.replace(/^@/, '')
+    const key = name.toLowerCase()
+    if (AUDIENCE.has(key) || seen.has(key) || !/^\w+$/.test(name) || !isChatter(name)) continue
+    seen.add(key)
+    out.push(name)
+  }
+  return out
 }
 
 /** distinct known emotes in token order */
@@ -75,7 +90,7 @@ export function detectSpamIntent(args: string, isChatter: (name: string) => bool
     const emotes = emotesIn(tokens)
     const rest = tokens.filter((t) => !findEmote(t)).join(' ')
     const hasQuestion = /[?]/.test(leading[1]) || /\b(what|who|when|where|why|how|tell|is|are|does|do|can|could|would|whats|whos)\b/i.test(rest)
-    if (!hasQuestion && valid(emotes)) return wall(emotes)
+    if (!hasQuestion && valid(emotes)) return wall(emotes, tagsIn(tokens.filter((t) => !findEmote(t)), isChatter))
   }
 
   // "LICK spam" — trailing verb. Stricter than the leading form: every non-filler token
@@ -99,5 +114,5 @@ export function detectSpamIntent(args: string, isChatter: (name: string) => bool
   const targets = tokens.filter((t) => !findEmote(t))
   if (targets.length > MAX_TARGETS) return null
   if (!targets.every((t) => AUDIENCE.has(t.toLowerCase()) || isChatter(t.replace(/^@/, '')))) return null
-  return wall(emotes)
+  return wall(emotes, tagsIn(targets, isChatter))
 }

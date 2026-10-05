@@ -39,19 +39,23 @@ describe('detectSpamIntent', () => {
   })
 
   it('walls an emote aimed at a named chatter', () => {
-    expect(detect('LICK mellen')).toBe('LICK LICK LICK LICK LICK')
-    expect(detect('LICK @wollip')).toBe('LICK LICK LICK LICK LICK')
+    expect(detect('LICK mellen')).toBe('LICK LICK LICK LICK LICK @mellen')
+    expect(detect('LICK @wollip')).toBe('LICK LICK LICK LICK LICK @wollip')
   })
 
-  it('never echoes the target back', () => {
-    expect(detect('LICK mellen')).not.toContain('mellen')
+  it('tags a named chatter once, never an audience word', () => {
+    expect(detect('LICK wollip')).toBe('LICK LICK LICK LICK LICK @wollip')
+    expect(detect('LICK wollip wollip')).toBe('LICK LICK LICK LICK LICK @wollip')
+    expect(detect('LICK me')).not.toContain('@')
+    expect(detect('LICK random chatter')).not.toContain('@')
+    expect(detect('spam LICK wollip')).toBe('LICK LICK LICK LICK LICK @wollip')
   })
 
   it('sees through request scaffolding', () => {
-    expect(detect('can u LICK mellen')).toBe('LICK LICK LICK LICK LICK')
-    expect(detect('just LICK wollip')).toBe('LICK LICK LICK LICK LICK')
-    expect(detect('pls LICK wollip')).toBe('LICK LICK LICK LICK LICK')
-    expect(detect('now LICK wollip')).toBe('LICK LICK LICK LICK LICK')
+    expect(detect('can u LICK mellen')).toBe('LICK LICK LICK LICK LICK @mellen')
+    expect(detect('just LICK wollip')).toBe('LICK LICK LICK LICK LICK @wollip')
+    expect(detect('pls LICK wollip')).toBe('LICK LICK LICK LICK LICK @wollip')
+    expect(detect('now LICK wollip')).toBe('LICK LICK LICK LICK LICK @wollip')
   })
 
   it('ignores trailing punctuation', () => {
