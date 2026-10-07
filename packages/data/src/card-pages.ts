@@ -117,11 +117,17 @@ export async function fetchSitemap(f: Fetcher = fetch): Promise<Map<string, stri
   return parseSitemap(await readTextCapped(res, 50_000_000))
 }
 
+export class RateLimited extends Error {
+  constructor() { super('bazaardb rate limit (429)') }
+}
+
 export async function fetchCardPage(path: string, f: Fetcher = fetch): Promise<ParsedPage | null> {
   const res = await f(`https://bazaardb.gg${path}`, {
     headers: { 'User-Agent': USER_AGENT, RSC: '1' },
     signal: AbortSignal.timeout(20_000),
   })
+  // rate-limited: the whole run must stop, not burn through the rest of the list
+  if (res.status === 429) throw new RateLimited()
   if (!res.ok) return null
   return parseCardPage(await readTextCapped(res, MAX_PAGE_BYTES))
 }
@@ -211,6 +217,7 @@ export async function fillPageCache(titles: string[], cache: PageCache, opts: Fi
     } catch (e) {
       res.failed++
       onProgress?.(`card pages: ${title}: ${e instanceof Error ? e.message : e}`)
+      if (e instanceof RateLimited) break // the rest stay pending for the next refresh
     }
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs))
   }

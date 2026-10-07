@@ -97,6 +97,15 @@ describe('fillPageCache', () => {
     expect(Object.keys(cache.cards)).toEqual(['C'])
   })
 
+  it('stops the whole run on a rate limit instead of hammering the rest', async () => {
+    const seen: string[] = []
+    const cache: PageCache = { cdn: '', cards: {} }
+    const f = fakeFetch({ '/card/1/A': aged(), '/card/2/B': 429, '/card/3/C': aged() }, seen)
+    const r = await fillPageCache(['A', 'B', 'C'], cache, { ...opts, fetcher: f })
+    expect(seen).toEqual(['/card/1/A', '/card/2/B'])
+    expect(r.pending).toBe(2)
+  })
+
   it('sitemap outage leaves everything pending without throwing', async () => {
     const cache: PageCache = { cdn: '', cards: {} }
     const f = (async () => { throw new Error('down') }) as unknown as typeof fetch
