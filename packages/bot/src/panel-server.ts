@@ -8,7 +8,7 @@ import { log } from './log'
 import { parseAction, describe, act, snapshot, onControlChange, ADMIN_KINDS, type Action, type Snapshot } from './control'
 import { handleLogin, handleCallback, handleLogout, getSession, cookieSessionId, sessionCovers } from './panel-auth'
 import { parseControlIntent, matchControlIntent } from './control-intent'
-import { getLiveChannels, getStreamInfo, isUserOverDailyAiCap, noteUserAiRequest } from './ai-cache'
+import { AI_VIP, getLiveChannels, getStreamInfo, isUserOverDailyAiCap, noteUserAiRequest } from './ai-cache'
 
 const PANEL_ORIGIN = process.env.PANEL_ORIGIN ?? ''
 const PANEL_PORT = parseInt(process.env.PANEL_PORT ?? '3200')
@@ -192,10 +192,11 @@ async function apiParse(req: Request): Promise<Response> {
   // parseControlIntent) can walk through. a self-joined broadcaster could otherwise loop
   // plain typing against the shared per-session apiLimiter above and burn real spend, so
   // this gets its own per-login limiter plus the same daily AI cap a heavy chatter hits —
-  // over either, a plain miss, never an AI call.
-  if (isUserOverDailyAiCap(session.login)) return Response.json({ action: null })
+  // over either, a plain miss, never an AI call. AI_VIP skips the daily cap, same as chat.
+  const vip = AI_VIP.has(session.login.toLowerCase())
+  if (!vip && isUserOverDailyAiCap(session.login)) return Response.json({ action: null })
   if (!parseAiMinuteLimiter(session.login) || !parseAiDayLimiter(session.login)) return errorJson(429, 'slow down a sec')
-  noteUserAiRequest(session.login)
+  if (!vip) noteUserAiRequest(session.login)
 
   let action: Action | null = null
   try {
