@@ -27,7 +27,8 @@ const USER_AGENT = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo
 const HASH_RE = /\/v1\/(z[\d.]+)\/([a-f0-9]{20,64})@/
 const COOLDOWN_ROW = '"tr","CooldownMax"'
 const COOLDOWN_CELL = /"CooldownMax-(Bronze|Silver|Gold|Diamond|Legendary)",\{(?:"style":\{[^{}]*\},)?"children":"([\d.]+)s"/g
-const MAX_PAGE_BYTES = 8_000_000
+// most pages are ~200KB; Stickybeans is 24MB (it lists every board it appears on)
+const MAX_PAGE_BYTES = 48_000_000
 const TIERS: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
 
 // repo-root cache/card-pages.json; env override because the ebs runs from another checkout
