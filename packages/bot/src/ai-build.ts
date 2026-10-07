@@ -2,7 +2,8 @@ import * as db from './db'
 import { isGameActive } from './trivia'
 import { getRedditDigest, getBgRedditDigest, getGrRedditDigest } from './reddit'
 import { getPatchInfo } from './patch'
-import { OVERLAY, isOverlayFresh, resolvePatch, selectNotes } from './patch-notes'
+import { OVERLAY, isOverlayFresh, resolvePatch, selectNotes, patchScope, newCardNote } from './patch-notes'
+import { exact } from './store'
 import { getWorldCupLine } from './worldcup'
 import { isHsRatingQuery, extractSubject, hsContext } from './hs'
 import { isHsCardQuery, isHsCardIntent, isHearthstoneCategory, hsCardContext } from './hs-cards'
@@ -378,11 +379,21 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     ? `\nCurrent game patch (authoritative — answer "what's new / is there an event" from THIS, don't deflect): ${patch.latestPatch} (${patch.patchDate}${size}); active event: ${patch.activeEvent ?? 'none — no special limited-time event is running right now'}.`
     : ''
   // hand-grounded notes for the newest patch — the only source of "what actually changed",
-  // since the dump carries current stats but no deltas. query-ranked, capped at 3.
-  const notes = isMetaQuery && isOverlayFresh() ? selectNotes(query) : []
-  const notesLine = notes.length
-    ? `\nPatch ${OVERLAY.version} "${OVERLAY.name}" notes (real, from the official notes — use these, don't invent others):\n- ${notes.join('\n- ')}`
+  // since the dump carries current stats but no deltas. query-ranked, capped at 3, so the
+  // scope line carries the real totals — three bullets must never read as the whole patch.
+  const fresh = isOverlayFresh()
+  const notes = isMetaQuery && fresh ? selectNotes(query) : []
+  const scope = notes.length ? patchScope() : null
+  const scopeLine = scope
+    ? `\nscope: ${scope.newCards.length} new cards/skills${scope.newCards.length ? ` (${scope.newCards.join(', ')})` : ''}, ${scope.changed} existing cards changed. the bullets below are a sample, not the full list.`
     : ''
+  // a brand-new card asked by name before the card database has it — ground it from the notes
+  const newNote = !notes.length && fresh ? newCardNote(query, (n) => !!exact(n)) : null
+  const notesLine = notes.length
+    ? `\nPatch ${OVERLAY.version} "${OVERLAY.name}" notes (real, from the official notes — use these, don't invent others):${scopeLine}\n- ${notes.join('\n- ')}`
+    : newNote
+      ? `\nNew in patch ${OVERLAY.version} (official notes; the card database hasn't added it yet — use this, don't invent stats):\n- ${newNote}`
+      : ''
 
   // next-stream schedule — the command layer answers most "when's the stream?" asks
   // deterministically, but a conversationally-phrased one can slip through to AI. inject the

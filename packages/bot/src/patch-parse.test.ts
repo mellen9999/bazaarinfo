@@ -92,6 +92,10 @@ describe('parsePatchDoc on the published 17.0 notes', () => {
     expect(change('Burning Temper')!.text).toContain('5/10/15/20 Burn')
   })
 
+  test('lists brand-new cards from New Content, never the new hero', () => {
+    expect(parsed.newCards).toEqual(['Equipment Van', 'Ledger', 'Mama Bear', 'Uitar Center'])
+  })
+
   test('splits a shared heading into one entry per name', () => {
     for (const m of ['Chronos', 'Cobweb', 'Freiya', 'Hef', 'Knightshade']) {
       expect(parsed.changes.find((c) => c.card === m)?.text).toContain('spawn the right amount')

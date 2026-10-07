@@ -34,6 +34,8 @@ export interface PatchOverlay {
   released: string
   /** heroes shipped in this patch that the dump may not list yet */
   newHeroes: string[]
+  /** brand-new cards named in the notes. optional: caches written before it existed lack it */
+  newCards?: string[]
   /** general / meta bullets, terse enough to drop straight into a 480-char reply */
   notes: string[]
   changes: PatchChange[]
@@ -90,6 +92,7 @@ export function validateOverlay(o: unknown): o is PatchOverlay {
   if (typeof p.released !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(p.released)) return false
   if (isNaN(new Date(p.released + 'T00:00:00Z').getTime())) return false
   if (!Array.isArray(p.newHeroes) || p.newHeroes.some(h => typeof h !== 'string' || h.length > 40)) return false
+  if (p.newCards !== undefined && (!Array.isArray(p.newCards) || p.newCards.some(n => typeof n !== 'string' || n.length > 60))) return false
   if (!Array.isArray(p.notes) || p.notes.some(n => typeof n !== 'string' || n.length > 600)) return false
   if (!Array.isArray(p.changes) || p.changes.length < 5) return false
   return p.changes.every(
@@ -171,8 +174,8 @@ export async function fetchPatchNotes(): Promise<PatchOverlay | null> {
       'playthebazaar patch-notes.json parsed but had no usable entries — format changed.', 'default')
     return null
   }
-  // already have this patch and it came from a real parse — nothing to do
-  if (compareVersions(latest.version, OVERLAY.version) <= 0 && OVERLAY !== SEED) return null
+  // already have this patch from a real parse — nothing to do (unless that parse predates newCards)
+  if (compareVersions(latest.version, OVERLAY.version) <= 0 && OVERLAY !== SEED && OVERLAY.newCards) return null
 
   const doc = await getText(CDN_BASE + latest.path)
   if (!doc) return null
@@ -190,6 +193,7 @@ export async function fetchPatchNotes(): Promise<PatchOverlay | null> {
     date: parsed.date,
     released: parsed.released,
     newHeroes: parsed.newHeroes,
+    newCards: parsed.newCards,
     notes: parsed.notes,
     changes: parsed.changes,
   }
@@ -283,6 +287,34 @@ export function selectNotes(query: string, max = 3): string[] {
   })
   scored.sort((a, b) => b.score - a.score || a.i - b.i)
   return scored.slice(0, max).map(s => s.n)
+}
+
+/**
+ * what the patch touched, as counts — so "how many new/changed" is answered from the
+ * notes instead of from whichever three bullets selectNotes happened to rank.
+ */
+export function patchScope(): { newCards: string[]; changed: number } {
+  const fresh = new Set((OVERLAY.newCards ?? []).map(norm))
+  const changed = new Set(OVERLAY.changes.map(c => norm(c.card)).filter(c => !fresh.has(c)))
+  return { newCards: OVERLAY.newCards ?? [], changed: changed.size }
+}
+
+/**
+ * the official text for a brand-new card the query names, while the card database
+ * hasn't absorbed it yet. exact whole-name containment only — never fuzzy.
+ */
+export function newCardNote(query: string, known: (name: string) => boolean): string | null {
+  const q = ` ${query.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `
+  for (const name of OVERLAY.newCards ?? []) {
+    const n = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+    if (n.length < 4 || !q.includes(` ${n} `) || known(name)) continue
+    const key = norm(name)
+    const note = OVERLAY.notes.find(x => norm(x.split(':')[0]) === key)
+    if (note) return note
+    const change = byCard.get(key)
+    if (change) return `${change.card}: ${change.text}`
+  }
+  return null
 }
 
 /** the delta line for a card, or null. exact-name match only — no fuzzy, no guessing. */

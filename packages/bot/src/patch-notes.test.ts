@@ -8,6 +8,8 @@ import {
   getHeroChanges,
   isOverlayFresh,
   loadOverlayCache,
+  newCardNote,
+  patchScope,
   pendingHeroes,
   resetOverlay,
   resolvePatch,
@@ -283,5 +285,47 @@ describe('loadOverlayCache', () => {
     process.env.BAZAARINFO_NOTES_CACHE = `${path}.nope`
     expect(loadOverlayCache()).toBe(false)
     expect(notes.OVERLAY.version).toBe(SEED.version)
+  })
+})
+
+describe('patch scope + new-card grounding', () => {
+  afterEach(() => resetOverlay())
+
+  const withNew = {
+    version: '99.0',
+    name: '',
+    date: 'Oct 7',
+    released: '2026-10-07',
+    newHeroes: [],
+    newCards: ['Aged Cask', 'Weapon Bond'],
+    notes: ['Aged Cask: Medium Tool Food; CD 4; Heal 40', 'General: servers fixed'],
+    changes: [
+      { card: 'Weapon Bond', hero: 'Encounter', text: 'Vanessa; your weapons gain damage' },
+      ...Array.from({ length: 6 }, (_, i) => ({ card: `Card ${i}`, hero: 'Vanessa', text: 'buff: damage doubled' })),
+    ],
+  }
+
+  test('counts new and changed cards without double-counting new skills', () => {
+    expect(adoptOverlay(withNew)).toBe(true)
+    expect(patchScope()).toEqual({ newCards: ['Aged Cask', 'Weapon Bond'], changed: 6 })
+  })
+
+  test('grounds a new card the database lacks, from its note or its change row', () => {
+    adoptOverlay(withNew)
+    expect(newCardNote('aged cask', () => false)).toBe('Aged Cask: Medium Tool Food; CD 4; Heal 40')
+    expect(newCardNote('is weapon bond good?', () => false)).toBe('Weapon Bond: Vanessa; your weapons gain damage')
+  })
+
+  test('stays quiet once the database knows the card, or on partial words', () => {
+    adoptOverlay(withNew)
+    expect(newCardNote('aged cask', () => true)).toBeNull()
+    expect(newCardNote('aged caskets', () => false)).toBeNull()
+    expect(newCardNote('nothing here', () => false)).toBeNull()
+  })
+
+  test('an overlay cached before newCards existed still loads', () => {
+    const { newCards: _, ...old } = withNew
+    expect(validateOverlay(old)).toBe(true)
+    expect(validateOverlay({ ...withNew, newCards: [42] })).toBe(false)
   })
 })

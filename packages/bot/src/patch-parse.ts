@@ -20,6 +20,9 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 // sections that describe the patch rather than a card — their bullets become notes
 const PROSE_SECTIONS = /new content|season|tournament|general|balance philosophy|known issues/i
 
+// sections whose rows are brand-new cards — "New Content", "New Skills", "New Items"
+const NEW_SECTIONS = /^new (content|skills?|items?|cards?|monsters?)\b/i
+
 // a row title's parenthetical tells us what it is when the section doesn't
 const KIND_RE = /\s*\((Monster|Encounter|Merchant|Skill|Item|Hero)\)\s*$/i
 
@@ -236,6 +239,7 @@ export function parsePatchDoc(doc: string, heroes: string[], knownCards: string[
   const notes: string[] = []
   const emptySections: string[] = []
   const unmatchedCards: string[] = []
+  const newCards: string[] = []
   let newContent: string | undefined
 
   for (const sec of sections(doc)) {
@@ -244,6 +248,9 @@ export function parsePatchDoc(doc: string, heroes: string[], knownCards: string[
     if (/new content/i.test(sec.title)) newContent = sec.body
 
     const found = rows(sec.body)
+    if (NEW_SECTIONS.test(sec.title)) {
+      for (const row of found) newCards.push(...splitNames(row.title.replace(KIND_RE, '').trim()))
+    }
     if (!hero && !isProse && found.length === 0) emptySections.push(sec.title)
 
     for (const row of found) {
@@ -284,12 +291,17 @@ export function parsePatchDoc(doc: string, heroes: string[], knownCards: string[
 
   if (changes.length === 0 && notes.length === 0) return null
 
+  // a new hero gets a New Content row too — it's a hero, not a card
+  const newHeroes = detectNewHero(newContent)
+  const isHero = (n: string) => heroSet.has(n.toLowerCase()) || newHeroes.some((h) => norm(h) === norm(n))
+
   return {
     version,
     name,
     date: when.date,
     released: when.released,
-    newHeroes: detectNewHero(newContent),
+    newHeroes,
+    newCards: [...new Set(newCards)].filter((n) => n.length > 1 && n.length < 60 && !isHero(n)),
     notes: [...new Set(notes)].filter((n) => n.length < 600),
     changes,
     emptySections,
