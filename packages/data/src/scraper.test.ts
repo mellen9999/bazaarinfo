@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, applyCooldowns, cooldownsFromPages, applyPageArt, checkDeltaGuard, loadPrevCooldowns } from './scraper'
+import { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, applyCooldowns, carryCooldowns, cooldownsFromPages, applyPageArt, checkDeltaGuard, loadPrevCooldowns } from './scraper'
 import type { DumpEntry } from './scraper'
 import type { CardCache } from '@bazaarinfo/shared'
 import { tmpdir } from 'os'
@@ -407,5 +407,24 @@ describe('parseDumpWithStats — art coverage', () => {
     const dump: Record<string, any> = { a: makeDumpEntry({ Title: 'Sword', ArtKey: 'sword-key' }) }
     const { stats } = parseDumpWithStats(dump)
     expect(stats.artMisses).toBe(0)
+  })
+})
+
+describe('carryCooldowns', () => {
+  const passive = [{ text: 'your items gain value', type: 'Passive' as const }]
+  it('keeps old cooldowns until a page settles the card, but trusts a page that says passive', () => {
+    const cache = parseDump({
+      a: makeDumpEntry({ Title: 'Unfetched' }),
+      b: makeDumpEntry({ Title: 'Went Passive', Tooltips: passive }),
+      c: makeDumpEntry({ Title: 'Active Miss' }),
+    })
+    const prev = new Map<string, number>([['Unfetched', 5], ['Went Passive', 6], ['Active Miss', 7]])
+    const now = new Date().toISOString()
+    const pages = { cdn: 'z19.0', cards: { 'Went Passive': { cd: null, at: now }, 'Active Miss': { cd: null, at: now } } }
+    expect(carryCooldowns(cache, prev, pages)).toBe(2)
+    const cd = (t: string) => cache.items.find((i) => i.Title === t)!.Cooldown
+    expect(cd('Unfetched')).toBe(5)
+    expect(cd('Went Passive')).toBeUndefined()
+    expect(cd('Active Miss')).toBe(7)
   })
 })

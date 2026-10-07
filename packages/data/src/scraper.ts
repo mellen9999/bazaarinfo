@@ -259,6 +259,23 @@ function applyCooldowns(cache: CardCache, cooldowns: Map<string, CooldownValue>,
   return matched
 }
 
+// a blank cooldown keeps its previous value when the card's page hasn't been fetched yet,
+// or when the card has an active ability the page showed no cooldown for (parse miss).
+// a fetched page confirming a passive card (Atlas went passive in 19.0) stays blank.
+function carryCooldowns(cache: CardCache, prev: Map<string, CooldownValue>, pages: PageCache): number {
+  let carried = 0
+  for (const item of cache.items) {
+    if (item.Cooldown != null) continue
+    const cd = prev.get(item.Title)
+    if (cd == null) continue
+    const settled = item.Title in pages.cards && !item.Tooltips.some((t) => t.type === 'Active')
+    if (settled) continue
+    item.Cooldown = cd
+    carried++
+  }
+  return carried
+}
+
 // repo-root cache/items.json — the same file the bot's store.ts loads. read directly here
 // (rather than threaded through ScrapeOptions) so a cooldown-source outage can self-heal
 // without every caller having to pass the previous cache through.
@@ -279,7 +296,7 @@ async function loadPrevCooldowns(path: string = PREV_CACHE_PATH): Promise<Map<st
 }
 
 // exported for testing
-export { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, cooldownsFromPages, applyPageArt, applyCooldowns, loadPrevCooldowns }
+export { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, cooldownsFromPages, applyPageArt, applyCooldowns, carryCooldowns, loadPrevCooldowns }
 export type { DumpEntry, ScrapeStats, ParseResult as ScrapeResult }
 
 interface PrevCounts { items: number; skills: number; monsters: number }
@@ -357,17 +374,18 @@ export async function scrapeDump(onProgress?: (msg: string) => void, opts?: Scra
       // silently matched almost nothing (source drift / fetch failure). ~100 floor avoids
       // flapping on minor title drift.
       const cooldownsMatched = applyCooldowns(cache, cooldowns)
+      // keep the last known cooldown for any card the pages haven't settled yet. never
+      // aborts a perfectly good dump scrape (a retry re-downloads the full 50MB dump);
+      // only a genuine first run, with nothing to carry from, still hard-fails.
+      const prevCooldowns = await loadPrevCooldowns()
+      if (cooldownsMatched < 100 && prevCooldowns.size === 0) {
+        throw new Error(`cooldown enrichment matched only ${cooldownsMatched} items and no previous cache available to carry forward — refusing to ship a cooldown-less cache`)
+      }
+      const carried = carryCooldowns(cache, prevCooldowns, pages)
       if (cooldownsMatched < 100) {
-        // enrichment source is down or has drifted hard — carry forward cooldowns from the
-        // previous cache rather than aborting a perfectly good dump scrape (which would
-        // otherwise re-download the full 50MB dump on retry for no reason). only a genuine
-        // first run — no previous cache to carry from — still hard-fails here.
-        const prevCooldowns = await loadPrevCooldowns()
-        if (prevCooldowns.size === 0) {
-          throw new Error(`cooldown enrichment matched only ${cooldownsMatched} items and no previous cache available to carry forward — refusing to ship a cooldown-less cache`)
-        }
-        const carried = applyCooldowns(cache, prevCooldowns, true)
         onProgress?.(`ALERT: cooldown enrichment low (${cooldownsMatched} matched) — carried forward ${carried} cooldowns from the previous cache`)
+      } else if (carried) {
+        onProgress?.(`carried forward ${carried} cooldowns for cards whose page isn't settled yet`)
       }
       if (cache.items.length < 50) {
         throw new Error(`suspiciously few items (${cache.items.length}), refusing to use`)
