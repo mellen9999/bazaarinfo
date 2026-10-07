@@ -127,12 +127,12 @@ async function doRefreshData(opts: RefreshOpts) {
     ].filter(Boolean).join('; ')
     notify('unknown-enums', 'bazaarinfo: new tier/size values in dump', `${parts} — items kept, display degrades. add to scraper VALID sets + TIER_EMOJI.`, 'high')
   }
-  // any current card without art shows a blank tile in the overlay. it only fixes by
-  // hand (the scraper writes a tracked file), so page every refresh until it's done —
-  // notify's 6h dedupe keeps that to a few nags a day, not one per 15-min poll
+  // the refresh fills art from bazaardb pages itself, so a card still blank here means
+  // that fill failed or hasn't reached it yet: a real signal, not a to-do. notify's 6h
+  // dedupe keeps it to a few nags a day, not one per 15-min poll
   if (stats.artMisses > 0) {
     const more = stats.artMisses > stats.artMissSamples.length ? ` (+${stats.artMisses - stats.artMissSamples.length} more)` : ''
-    notify('art-missing', `bazaarinfo: ${stats.artMisses} card${stats.artMisses > 1 ? 's' : ''} missing overlay art`, `${stats.artMissSamples.join(', ')}${more}. fix: cd ~/projects/bazaarinfo && cp ~/bazaarinfo-prod/cache/items.json cache/ && bun scripts/scrape-images.ts, then commit packages/data/art-*.json and deploy`)
+    notify('art-missing', `bazaarinfo: ${stats.artMisses} card${stats.artMisses > 1 ? 's' : ''} missing overlay art`, `${stats.artMissSamples.join(', ')}${more}. auto-fill from bazaardb pages hasn't covered them (see cache/card-pages.json; backfill: bun scripts/backfill-card-pages.ts)`)
   }
   await writeAtomic(CACHE_PATH, JSON.stringify(cache, null, 2), 0o644)
 }

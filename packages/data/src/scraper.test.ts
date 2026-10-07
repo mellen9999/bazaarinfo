@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, applyCooldowns, extractCooldown, checkDeltaGuard, loadPrevCooldowns } from './scraper'
+import { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, applyCooldowns, cooldownsFromPages, applyPageArt, checkDeltaGuard, loadPrevCooldowns } from './scraper'
 import type { DumpEntry } from './scraper'
 import type { CardCache } from '@bazaarinfo/shared'
 import { tmpdir } from 'os'
@@ -236,37 +236,28 @@ describe('applyCooldowns', () => {
   })
 })
 
-describe('extractCooldown', () => {
-  it('returns single number when all tiers match', () => {
-    const cd = extractCooldown({ tiers: {
-      Bronze: { tooltips: ['Cooldown 4 seconds', 'Deal 20'] },
-      Silver: { tooltips: ['Cooldown 4 seconds', 'Deal 40'] },
-      Gold: { tooltips: ['Cooldown 4 seconds', 'Deal 60'] },
-    }})
-    expect(cd).toBe(4)
+describe('cooldownsFromPages', () => {
+  it('maps cached cooldowns and skips passives (cd null)', () => {
+    const m = cooldownsFromPages({ cdn: 'z19.0', cards: {
+      Boomerang: { cd: 4, at: 'x' },
+      Truck: { cd: { Silver: 9, Gold: 8 }, at: 'x' },
+      Charm: { cd: null, at: 'x' },
+    } })
+    expect(m.get('Boomerang')).toBe(4)
+    expect(m.get('Truck')).toEqual({ Silver: 9, Gold: 8 })
+    expect(m.has('Charm')).toBe(false)
   })
+})
 
-  it('returns per-tier object when values differ', () => {
-    const cd = extractCooldown({ tiers: {
-      Silver: { tooltips: ['Cooldown 12 seconds'] },
-      Gold: { tooltips: ['Cooldown 10 seconds'] },
-      Diamond: { tooltips: ['Cooldown 8 seconds'] },
-    }})
-    expect(cd).toEqual({ Silver: 12, Gold: 10, Diamond: 8 })
-  })
-
-  it('returns null when no cooldown found', () => {
-    const cd = extractCooldown({ tiers: {
-      Bronze: { tooltips: ['Deal 20 damage'] },
-    }})
-    expect(cd).toBeNull()
-  })
-
-  it('handles fractional cooldowns', () => {
-    const cd = extractCooldown({ tiers: {
-      Bronze: { tooltips: ['Cooldown 2.5 seconds'] },
-    }})
-    expect(cd).toBe(2.5)
+describe('applyPageArt', () => {
+  it('overrides seed art, fills blanks, and recounts misses', () => {
+    const cache: any = { items: [{ Title: 'A', ArtKey: 'old' }, { Title: 'B' }, { Title: 'C' }], skills: [], monsters: [], events: [] }
+    const stats: any = { artMisses: 2, artMissSamples: [] }
+    applyPageArt(cache, { cdn: 'z19.0', cards: { A: { art: 'new', at: 'x' }, B: { art: 'b'.repeat(40), at: 'x' } } }, stats)
+    expect(cache.items[0].ArtKey).toBe('new')
+    expect(cache.items[1].ArtKey).toBe('b'.repeat(40))
+    expect(stats.artMisses).toBe(1)
+    expect(stats.artMissSamples).toEqual(['C'])
   })
 })
 
@@ -390,9 +381,12 @@ describe('parseDumpWithStats — art coverage', () => {
       dump[`item${i}`] = makeDumpEntry({ Title: `No Art Card ${i}` }) // no ArtKey, not in ART_MAP
     }
     const msgs: string[] = []
-    const { stats } = parseDumpWithStats(dump, (m) => msgs.push(m))
+    const { cache, stats } = parseDumpWithStats(dump, (m) => msgs.push(m))
     expect(stats.artMisses).toBe(10)
     expect(stats.artMissSamples.length).toBe(5)
+    // judged after the page fill, never at parse time (new cards always miss art there)
+    expect(msgs.some((m) => m.startsWith('ALERT:'))).toBe(false)
+    applyPageArt(cache, { cdn: 'z19.0', cards: {} }, stats, (m) => msgs.push(m))
     expect(msgs.some((m) => m.startsWith('ALERT: art coverage low'))).toBe(true)
   })
 
@@ -403,7 +397,8 @@ describe('parseDumpWithStats — art coverage', () => {
     }
     dump.miss = makeDumpEntry({ Title: 'One Miss' }) // 1/10 = 10%, at (not over) the threshold
     const msgs: string[] = []
-    const { stats } = parseDumpWithStats(dump, (m) => msgs.push(m))
+    const { cache, stats } = parseDumpWithStats(dump, (m) => msgs.push(m))
+    applyPageArt(cache, { cdn: 'z19.0', cards: {} }, stats, (m) => msgs.push(m))
     expect(stats.artMisses).toBe(1)
     expect(msgs.some((m) => m.startsWith('ALERT:'))).toBe(false)
   })

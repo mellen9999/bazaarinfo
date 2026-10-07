@@ -141,7 +141,7 @@ describe('diffContent', () => {
 
     const alert = renderDiffAlert(d!)
     expect(alert).not.toBeNull()
-    expect(alert!.body).toContain('scripts/scrape-images.ts')
+    expect(alert!.body).toContain('after auto-fill')
     expect(alert!.body).toContain('1 item')
   })
 

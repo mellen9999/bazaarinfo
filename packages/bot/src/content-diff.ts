@@ -187,7 +187,7 @@ export function renderDiffAlert(d: ContentDiff): { title: string, body: string }
     lines.push(`new hidden tag${d.newHiddenTags.length > 1 ? 's' : ''} (${d.newHiddenTags.join(', ')}): possible new mechanic — consider glossary.ts entry`)
   }
   if (d.missingArtCount > 0) {
-    lines.push(`${d.missingArtCount} item${d.missingArtCount > 1 ? 's' : ''} missing art: run scripts/scrape-images.ts`)
+    lines.push(`${d.missingArtCount} item${d.missingArtCount > 1 ? 's' : ''} still missing art after auto-fill (page fetch failing?)`)
   }
 
   if (!lines.length) return null

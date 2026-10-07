@@ -1,14 +1,52 @@
 // GET /api/images/:hash — proxies bazaardb.gg CDN images
 // so the extension only needs to allowlist the EBS domain
 
+import { statSync, readFileSync } from 'fs'
+import { resolve } from 'path'
 import artCdn from '@bazaarinfo/data/art-cdn.json'
 
 // The z-segment tracks the game version. Newer segments serve every older hash, but
-// a new patch's cards exist ONLY under its own segment — pinned to z17.0, every 18.0
-// card 404'd. scripts/scrape-images.ts records the newest segment it sees alongside
-// the hashes, so running it on patch day moves both together. Env still overrides.
-const CDN_VERSION = process.env.BAZAARDB_CDN_VERSION ?? artCdn.version
-const CDN_BASE = `https://s.bazaardb.gg/v1/${CDN_VERSION}`
+// a new patch's cards exist ONLY under its own segment. The bot's data refresh records
+// the newest segment it sees in its card-page cache, so the proxy follows that file at
+// runtime (re-read on mtime change); the committed art-cdn.json is the fallback.
+// The ebs runs from another checkout than the bot, so point BAZAARINFO_CARD_PAGES at
+// the bot's cache/card-pages.json. BAZAARDB_CDN_VERSION still overrides everything.
+const CDN_RE = /^z[1-9]\d*\.\d+$/
+const PAGES_PATH = process.env.BAZAARINFO_CARD_PAGES || resolve(import.meta.dir, '../../../../cache/card-pages.json')
+
+const seen = new Map<string, { mtime: number, cdn: string | null }>()
+
+// "z19.0" vs "z9.9": segment by segment
+function newer(a: string, b: string): boolean {
+  const pa = a.slice(1).split('.').map(Number)
+  const pb = b.slice(1).split('.').map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (d) return d > 0
+  }
+  return false
+}
+
+// exported for testing; never throws — a missing/bad file means the committed segment
+export function resolveCdnVersion(path: string = PAGES_PATH, fallback: string = artCdn.version): string {
+  if (process.env.BAZAARDB_CDN_VERSION) return process.env.BAZAARDB_CDN_VERSION
+  let cdn: string | null = null
+  try {
+    const mtime = statSync(path).mtimeMs
+    let hit = seen.get(path)
+    if (!hit || hit.mtime !== mtime) {
+      const v = (JSON.parse(readFileSync(path, 'utf-8')) as { cdn?: unknown }).cdn
+      hit = { mtime, cdn: typeof v === 'string' && CDN_RE.test(v) ? v : null }
+      seen.set(path, hit)
+    }
+    cdn = hit.cdn
+  } catch {
+    seen.delete(path)
+  }
+  // never go backwards: the committed segment is a floor
+  return cdn && newer(cdn, fallback) ? cdn : fallback
+}
+
 const HASH_RE = /^[a-f0-9]{20,64}$/
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024 // 2MB
 
@@ -19,7 +57,7 @@ export async function handleImage(hash: string): Promise<Response> {
 
   // DNS failure / timeout must be a clean 502, not a throw into the generic
   // 500 handler — an upstream outage is not an internal error
-  const url = `${CDN_BASE}/${hash}@256.webp`
+  const url = `https://s.bazaardb.gg/v1/${resolveCdnVersion()}/${hash}@256.webp`
   let upstream: Response
   try {
     upstream = await fetch(url, {

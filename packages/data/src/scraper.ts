@@ -1,12 +1,11 @@
 import type { BazaarCard, Monster, CardCache, DumpTooltip, DumpEnchantment, ReplacementValue, TierName, ItemSize, MonsterBoardEntry } from '@bazaarinfo/shared'
 import { resolve } from 'path'
+import { fillPageCache, loadPageCache, readTextCapped, type CooldownValue, type PageCache } from './card-pages'
 
 import artKeys from '../art-keys.json'
 
 const DUMP_URL = 'https://bazaardb.gg/dump.json'
-const HOWBAZAAR_URL = 'https://www.howbazaar.gg/api/items'
 const USER_AGENT = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
-const COOLDOWN_RE = /^Cooldown\s+([\d.]+)\s+second/i
 const ART_MAP: Record<string, string> = artKeys as Record<string, string>
 
 const VALID_TIERS = new Set<string>(['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary'])
@@ -205,12 +204,7 @@ function parseDumpWithStats(dump: Record<string, DumpEntry>, onProgress?: (msg: 
   if (unknownTiers.size > 0) onProgress?.(`unknown tiers seen (kept): ${[...unknownTiers].join(', ')}`)
   if (unknownSizes.size > 0) onProgress?.(`unknown sizes seen (kept): ${[...unknownSizes].join(', ')}`)
   if (events.length > 0) onProgress?.(`parsed ${events.length} event encounters`)
-  if (artCards.length > 0 && artMisses / artCards.length > ART_MISS_RATIO_THRESHOLD) {
-    const names = artMissSamples.join(', ') + (artMisses > artMissSamples.length ? ` (+${artMisses - artMissSamples.length} more)` : '')
-    onProgress?.(`ALERT: art coverage low — ${artMisses}/${artCards.length} cards missing ArtKey: ${names}`)
-  } else if (artMisses > 0) {
-    onProgress?.(`${artMisses}/${artCards.length} cards missing art (below alert threshold)`)
-  }
+  // art coverage is judged after the page fill (applyPageArt), not here — new cards miss art until then
 
   return {
     cache: { items, skills, monsters, events, fetchedAt: new Date().toISOString() },
@@ -222,71 +216,35 @@ function parseDump(dump: Record<string, DumpEntry>, onProgress?: (msg: string) =
   return parseDumpWithStats(dump, onProgress).cache
 }
 
-type CooldownValue = number | Partial<Record<TierName, number>>
-
-interface HowbazaarTier { tooltips?: string[] }
-interface HowbazaarItem { name?: string; tiers?: Partial<Record<TierName, HowbazaarTier>> }
-
-function extractCooldown(it: HowbazaarItem): CooldownValue | null {
-  if (!it.tiers) return null
-  const perTier: Partial<Record<TierName, number>> = {}
-  for (const t of ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary'] as TierName[]) {
-    const tier = it.tiers[t]
-    if (!tier?.tooltips) continue
-    for (const tt of tier.tooltips) {
-      const m = COOLDOWN_RE.exec(tt)
-      if (m) { perTier[t] = parseFloat(m[1]); break }
-    }
-  }
-  const vals = Object.values(perTier)
-  if (!vals.length) return null
-  const first = vals[0]
-  return vals.every((v) => v === first) ? first : perTier
-}
-
-// read a response body with a hard byte ceiling, aborting past it — the only size
-// guard that holds against chunked transfer-encoding / a missing or lying content-length.
-async function readTextCapped(res: Response, maxBytes: number): Promise<string> {
-  if (!res.body) return ''
-  const reader = res.body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.byteLength
-    if (total > maxBytes) {
-      reader.cancel().catch(() => {})
-      throw new Error(`response exceeded ${maxBytes} bytes mid-stream`)
-    }
-    chunks.push(value)
-  }
-  const buf = new Uint8Array(total)
-  let off = 0
-  for (const c of chunks) { buf.set(c, off); off += c.byteLength }
-  return new TextDecoder().decode(buf)
-}
-
-async function fetchCooldowns(onProgress?: (msg: string) => void): Promise<Map<string, CooldownValue>> {
+// cooldowns and runtime art from the page cache. a cached `cd: null` is a passive card
+// (no cooldown), so only real values are returned.
+function cooldownsFromPages(pages: PageCache): Map<string, CooldownValue> {
   const map = new Map<string, CooldownValue>()
-  try {
-    const res = await fetch(HOWBAZAAR_URL, {
-      headers: { 'User-Agent': USER_AGENT },
-      signal: AbortSignal.timeout(15_000),
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const body = JSON.parse(await readTextCapped(res, 50_000_000)) as { data?: HowbazaarItem[] }
-    const list = body.data ?? []
-    for (const it of list) {
-      if (!it.name) continue
-      const cd = extractCooldown(it)
-      if (cd != null) map.set(it.name, cd)
-    }
-    onProgress?.(`fetched ${map.size} cooldowns from howbazaar`)
-  } catch (e) {
-    onProgress?.(`cooldown fetch failed (continuing without): ${e instanceof Error ? e.message : e}`)
-  }
+  for (const [title, f] of Object.entries(pages.cards)) if (f.cd != null) map.set(title, f.cd)
   return map
+}
+
+// runtime art overrides the committed seed; recount so stats reflect the fill
+function applyPageArt(cache: CardCache, pages: PageCache, stats: ScrapeStats, onProgress?: (msg: string) => void): void {
+  let misses = 0
+  const samples: string[] = []
+  const cards = [...cache.items, ...cache.skills, ...(cache.events ?? [])]
+  for (const c of cards) {
+    const art = pages.cards[c.Title]?.art
+    if (art) c.ArtKey = art
+    if (!c.ArtKey) {
+      misses++
+      if (samples.length < 5) samples.push(c.Title)
+    }
+  }
+  stats.artMisses = misses
+  stats.artMissSamples = samples
+  if (cards.length > 0 && misses / cards.length > ART_MISS_RATIO_THRESHOLD) {
+    const names = samples.join(', ') + (misses > samples.length ? ` (+${misses - samples.length} more)` : '')
+    onProgress?.(`ALERT: art coverage low — ${misses}/${cards.length} cards missing ArtKey: ${names}`)
+  } else if (misses > 0) {
+    onProgress?.(`${misses}/${cards.length} cards missing art (below alert threshold)`)
+  }
 }
 
 // onlyMissing=true skips items that already have a Cooldown (used for the carry-forward
@@ -321,7 +279,7 @@ async function loadPrevCooldowns(path: string = PREV_CACHE_PATH): Promise<Map<st
 }
 
 // exported for testing
-export { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, fetchCooldowns, applyCooldowns, extractCooldown, loadPrevCooldowns }
+export { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, cooldownsFromPages, applyPageArt, applyCooldowns, loadPrevCooldowns }
 export type { DumpEntry, ScrapeStats, ParseResult as ScrapeResult }
 
 interface PrevCounts { items: number; skills: number; monsters: number }
@@ -385,10 +343,19 @@ export async function scrapeDump(onProgress?: (msg: string) => void, opts?: Scra
         )
       }
       checkDeltaGuard(cache, opts?.prev, opts?.force)
-      const cooldowns = await fetchCooldowns(onProgress)
+      // new cards fill from their bazaardb page (capped per run, rest on later refreshes);
+      // fail-soft, a bad fetch only leaves the card pending
+      const pages = await loadPageCache()
+      const needy = [...cache.items, ...cache.skills, ...(cache.events ?? [])]
+        // cards with no committed art / no carried cooldown are the new ones: fetch those first
+        .sort((a, b) => Number(!!ART_MAP[a.Title]) - Number(!!ART_MAP[b.Title]))
+        .map((c) => c.Title)
+      await fillPageCache(needy, pages, { onProgress }).catch((e) => onProgress?.(`card pages failed: ${e instanceof Error ? e.message : e}`))
+      applyPageArt(cache, pages, stats, onProgress)
+      const cooldowns = cooldownsFromPages(pages)
       // cooldown is the #1 stat for a weapon — refuse to ship a cache where enrichment
       // silently matched almost nothing (source drift / fetch failure). ~100 floor avoids
-      // flapping on minor title drift; the per-item fail-soft in fetchCooldowns still applies.
+      // flapping on minor title drift.
       const cooldownsMatched = applyCooldowns(cache, cooldowns)
       if (cooldownsMatched < 100) {
         // enrichment source is down or has drifted hard — carry forward cooldowns from the

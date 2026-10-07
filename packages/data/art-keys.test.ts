@@ -13,8 +13,8 @@ import artCdn from './art-cdn.json'
 // no test, log line, or alert said a word.
 //
 // So these assertions are deliberately shape-specific. If bazaardb re-keys again
-// they will fail loudly and the fix is one command: delete packages/data/art-keys.json
-// and re-run scripts/scrape-images.ts.
+// they will fail loudly. the committed map is only a seed now (the bot's card-page
+// cache overrides it at runtime), but it still covers every card the cache hasn't seen.
 const map = artKeys as Record<string, string>
 const entries = Object.entries(map)
 
