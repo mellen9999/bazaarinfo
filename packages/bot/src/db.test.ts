@@ -28,6 +28,14 @@ describe('db', () => {
     cleanPath(dbPath)
   })
 
+  it('forgotten users: case-insensitive, reversible', () => {
+    expect(db.isForgotten('Bob')).toBe(false)
+    db.forgetUser('Bob'); db.forgetUser('bob')
+    expect(db.isForgotten('BOB')).toBe(true)
+    db.unforgetUser('bob')
+    expect(db.isForgotten('bob')).toBe(false)
+  })
+
   it('initializes without error', () => {
     expect(db.getDb()).toBeTruthy()
   })

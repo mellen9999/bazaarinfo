@@ -1047,6 +1047,14 @@ const migrations: (() => void)[] = [
   () => {
     db.run(`ALTER TABLE ignored_users ADD COLUMN forever INTEGER NOT NULL DEFAULT 0`)
   },
+  // migration 42: forgotten_users — chatters who asked to be erased. remote (heatsync) log
+  // rows by these names are dropped on arrival so a removal holds across both stores.
+  () => {
+    db.run(`CREATE TABLE IF NOT EXISTS forgotten_users (
+      username TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+  },
 ]
 
 function runMigrations() {
@@ -1785,6 +1793,18 @@ export function getSessionSummaries(channel: string, sessionId: number): Summary
 export function getMaxSessionId(channel: string): number {
   const row = stmts.maxSessionId.get(channel) as { max_id: number | null } | null
   return row?.max_id ?? 0
+}
+
+export function forgetUser(username: string): void {
+  db.run('INSERT OR IGNORE INTO forgotten_users (username) VALUES (?)', [username.toLowerCase()])
+}
+
+export function unforgetUser(username: string): void {
+  db.run('DELETE FROM forgotten_users WHERE username = ?', [username.toLowerCase()])
+}
+
+export function isForgotten(username: string): boolean {
+  return !!db.query('SELECT 1 FROM forgotten_users WHERE username = ?').get(username.toLowerCase())
 }
 
 export interface FTSResult { username: string; message: string; created_at: string }
