@@ -47,6 +47,8 @@ describe('parseAction (untrusted input)', () => {
   it('accepts well-formed actions', () => {
     expect(parseAction({ kind: 'pause', feature: 'ai', minutes: 60 })).toEqual({ kind: 'pause', feature: 'ai', minutes: 60 })
     expect(parseAction({ kind: 'ignore', user: '@Troll' })).toEqual({ kind: 'ignore', user: 'troll' })
+    expect(parseAction({ kind: 'ignore', user: 'troll', forever: true })).toEqual({ kind: 'ignore', user: 'troll', forever: true })
+    expect(parseAction({ kind: 'ignore', user: 'troll', forever: 'yes' })).toEqual({ kind: 'ignore', user: 'troll' })
     expect(parseAction({ kind: 'join', target: '#SomeChan' })).toEqual({ kind: 'join', target: 'somechan' })
   })
 
@@ -69,6 +71,7 @@ describe('parseAction (untrusted input)', () => {
   it('previews read like a person wrote them', () => {
     expect(say({ kind: 'ignore', user: 'x', minutes: 1440 })).toBe('ignore @x for 1d')
     expect(say({ kind: 'ignore', user: 'x' })).toBe('ignore @x until stream ends')
+    expect(say({ kind: 'ignore', user: 'x', forever: true })).toBe('ignore @x until a mod lifts it')
     expect([fmtMins(90), fmtMins(120), fmtMins(10080)]).toEqual(['90m', '2h', '7d'])
   })
 })

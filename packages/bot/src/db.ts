@@ -1042,6 +1042,11 @@ const migrations: (() => void)[] = [
     db.run(`ALTER TABLE trivia_games ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0`)
     db.run(`ALTER TABLE trivia_games ADD COLUMN flagged_by TEXT`)
   },
+  // migration 41: ignored_users.forever — a mod can pick "until lifted" over the default
+  // "until the stream ends". existing rows backfill as stream-scoped.
+  () => {
+    db.run(`ALTER TABLE ignored_users ADD COLUMN forever INTEGER NOT NULL DEFAULT 0`)
+  },
 ]
 
 function runMigrations() {
@@ -2594,15 +2599,15 @@ export function clearUserAiUnitsToday(user: string): void {
   }
 }
 
-export interface IgnoreRow { channel: string; login: string; by: string; created_at: number; expires_at: number | null }
+export interface IgnoreRow { channel: string; login: string; by: string; created_at: number; expires_at: number | null; forever: number }
 
 export function loadIgnores(): IgnoreRow[] {
-  return db.query(`SELECT channel, login, by, created_at, expires_at FROM ignored_users`).all() as IgnoreRow[]
+  return db.query(`SELECT channel, login, by, created_at, expires_at, forever FROM ignored_users`).all() as IgnoreRow[]
 }
 
 export function saveIgnore(r: IgnoreRow): void {
-  db.query(`INSERT OR REPLACE INTO ignored_users (channel, login, by, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`)
-    .run(r.channel, r.login, r.by, r.created_at, r.expires_at)
+  db.query(`INSERT OR REPLACE INTO ignored_users (channel, login, by, created_at, expires_at, forever) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(r.channel, r.login, r.by, r.created_at, r.expires_at, r.forever)
 }
 
 export function deleteIgnore(channel: string, login: string): void {

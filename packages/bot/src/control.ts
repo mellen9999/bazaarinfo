@@ -18,7 +18,7 @@ import {
 } from './ai-cache'
 import { hardStopReasonPure, hardStopResumeAt } from './ai-http'
 import { WEB_SEARCH_DAILY_CAP } from './ai-search-gate'
-import { ignoreUser, unignoreUser, listIgnored, IGNORE_MAX_MIN, LOGIN_RE } from './ignore'
+import { ignoreUser, unignoreUser, listIgnored, IGNORE_MAX_MIN, LOGIN_RE, type IgnoredRow } from './ignore'
 import { isGoalsEnabled, setGoalsEnabled } from './worldcup-goals'
 import { listTimedOut } from './moderation'
 import * as db from './db'
@@ -52,7 +52,7 @@ export type Action =
   | { kind: 'ask-purge'; id: number }
   | { kind: 'ai-trivia'; on: boolean }
   | { kind: 'say'; text: string }
-  | { kind: 'ignore'; user: string; minutes?: number }
+  | { kind: 'ignore'; user: string; minutes?: number; forever?: true }
   | { kind: 'unignore'; user: string }
   | { kind: 'join'; target: string }
   | { kind: 'part'; target: string }
@@ -177,6 +177,7 @@ export function parseAction(input: unknown): Action | null {
     case 'unignore': {
       const u = typeof a.user === 'string' ? a.user.trim().toLowerCase().replace(/^@/, '') : ''
       if (!LOGIN_RE.test(u)) return null
+      if (a.kind === 'ignore' && a.forever === true) return { kind: 'ignore', user: u, forever: true }
       if (a.kind === 'unignore' || a.minutes === undefined) return { kind: a.kind, user: u }
       const m = a.minutes
       if (typeof m !== 'number' || !Number.isInteger(m) || m < 1 || m > IGNORE_MAX_MIN) return null
@@ -196,6 +197,9 @@ export function parseAction(input: unknown): Action | null {
       return null
   }
 }
+
+const ignoreLengthText = (a: { minutes?: number; forever?: true }): string =>
+  a.forever ? ' until a mod lifts it' : a.minutes ? ` for ${fmtMins(a.minutes)}` : ' until stream ends'
 
 // 90 → "90m", 1440 → "24h", 10080 → "7d" — whole units only, else minutes
 export function fmtMins(m: number): string {
@@ -234,7 +238,7 @@ export function describe(a: Action): string {
     case 'ask-purge': return `remove reply #${a.id}`
     case 'ai-trivia': return `ai trivia ${a.on ? 'on' : 'off'} (every channel)`
     case 'say': return `say "${a.text}"`
-    case 'ignore': return `ignore @${a.user}${a.minutes ? ` for ${fmtMins(a.minutes)}` : ' until stream ends'}`
+    case 'ignore': return `ignore @${a.user}${ignoreLengthText(a)}`
     case 'unignore': return `stop ignoring @${a.user}`
     case 'join': return `join #${a.target}`
     case 'part': return `leave #${a.target}`
@@ -376,9 +380,9 @@ async function run(ch: string, by: string, a: Action, announce: boolean, isAdmin
       await send(ch, a.text)
       return { ok: true, msg: 'sent' }
     case 'ignore': {
-      const who = ignoreUser(ch, a.user, by, a.minutes)
+      const who = ignoreUser(ch, a.user, by, a.forever ? 'forever' : a.minutes ?? 'stream')
       return who
-        ? { ok: true, msg: `ignoring @${who}${a.minutes ? ` for ${fmtMins(a.minutes)}` : ' until stream ends'}` }
+        ? { ok: true, msg: `ignoring @${who}${ignoreLengthText(a)}` }
         : { ok: false, msg: `can't ignore @${a.user}` }
     }
     case 'unignore':
@@ -414,7 +418,7 @@ export interface Snapshot {
     aiTrivia: boolean; tokenCap: number
   }
   pauses: { feature: SuppressFeature; by: string; minutes: number }[]
-  ignored: { login: string; by: string; minutes: number | null }[]
+  ignored: IgnoredRow[]
   vibes: { n: number; mod: boolean; planter: string; mute: boolean; target: string | null; trigger: string[]; instruction: string; minutes: number }[]
   trivia: {
     round: { question: string; secondsLeft: number; guesses: number } | null

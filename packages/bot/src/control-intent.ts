@@ -138,11 +138,15 @@ function parseIgnoreMinutes(t: string): number | undefined {
 // "ignore @x" / "stop responding to x" / "don't answer x anymore" — mods only in
 // practice (see commands.ts wiring); a viewer's identical phrasing still plants the
 // existing chat mute-directive instead, unchanged.
+// a bare "ignore x" lasts the stream; permanence has to be asked for in words
+const FOREVER_RE = /\b(?:forever|for\s+good|permanent(?:ly)?|perma(?:nent)?|indefinitely|until\s+(?:i|we|a\s+mod)\s+(?:say|lift|unignore))/i
 function matchIgnore(t: string): Action | null {
   const m = t.match(IGNORE_RE)
   if (!m) return null
   const user = m[1].toLowerCase()
-  return LOGIN_RE.test(user) ? { kind: 'ignore', user, minutes: parseIgnoreMinutes(t) } : null
+  if (!LOGIN_RE.test(user)) return null
+  if (FOREVER_RE.test(t)) return { kind: 'ignore', user, forever: true }
+  return { kind: 'ignore', user, minutes: parseIgnoreMinutes(t) }
 }
 
 function matchUnignore(t: string): Action | null {

@@ -24,7 +24,7 @@ const PACES: Pace[] = ['fast', 'normal', 'slow']
 // cooldown chips — must match the server's whitelist (trivia-cd.ts), which rejects anything else
 const ROUND_CD_CHIPS: [number, string][] = [[0, 'off'], [30, '30s'], [60, '1m'], [120, '2m'], [300, '5m']]
 const USER_CD_CHIPS: [number, string][] = [[0, 'off'], [60, '1m'], [120, '2m'], [300, '5m'], [600, '10m']]
-const IGNORE_DURATIONS: [string, number | undefined][] = [['1h', 60], ['24h', 1440], ['7d', 10080], ['forever', undefined]]
+const IGNORE_DURATIONS: [string, { minutes?: number; forever?: true }][] = [['1h', { minutes: 60 }], ['24h', { minutes: 1440 }], ['7d', { minutes: 10080 }], ['stream', {}], ['forever', { forever: true }]]
 const BOX_ORDER: BoxKey[] = ['switches', 'chatrules', 'trivia', 'questions', 'activity', 'people', 'raidgeon', 'log']
 const CHANNEL_KEY = 'bzi-panel-channel'
 const SAY_MAX = 450
@@ -865,7 +865,7 @@ function renderPeople(snap: Snapshot): void {
     const r = el('div', { class: `row${isSelected('people', i) ? ' selected' : ''}` })
     r.append(el('span', { class: 'row-label', text: row.login, title: row.login }))
     r.append(el('span', { class: 'dim', text: `by ${row.by}` }))
-    r.append(el('span', { class: 'dim', text: row.minutes == null ? 'this stream' : ttl(row.minutes) }))
+    r.append(el('span', { class: 'dim', text: row.forever ? '∞' : row.minutes == null ? 'this stream' : ttl(row.minutes) }))
     r.append(btn('x', 'let the bot reply to this person again', () => doAct({ kind: 'unignore', user: row.login })))
     r.addEventListener('click', () => selectRow('people', i))
     peopleIgnoredEl.append(r)
@@ -1124,13 +1124,13 @@ function bindTrivia(): void {
 }
 
 function bindIgnore(): void {
-  const ids = ['ignore-1h-btn', 'ignore-24h-btn', 'ignore-7d-btn', 'ignore-forever-btn'] as const
+  const ids = ['ignore-1h-btn', 'ignore-24h-btn', 'ignore-7d-btn', 'ignore-stream-btn', 'ignore-forever-btn'] as const
   ids.forEach((id, i) => {
-    const [, minutes] = IGNORE_DURATIONS[i]
+    const [, length] = IGNORE_DURATIONS[i]
     $<HTMLButtonElement>(id).addEventListener('click', () => {
       const user = ignoreInput.value.trim().replace(/^@/, '')
       if (!user) return
-      doAct(minutes === undefined ? { kind: 'ignore', user } : { kind: 'ignore', user, minutes })
+      doAct({ kind: 'ignore', user, ...length })
       ignoreInput.value = ''
     })
   })

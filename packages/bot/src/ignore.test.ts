@@ -22,7 +22,7 @@ describe('persistent ignore', () => {
     expect(isIgnored('mellen', 'troll_1')).toBe(false)
     resetIgnoresForTest() // simulated restart: memory gone, db remains
     expect(isIgnored('nl_kripp', 'troll_1')).toBe(true)
-    expect(listIgnored('nl_kripp')).toEqual([{ login: 'troll_1', by: 'somemod', minutes: null }])
+    expect(listIgnored('nl_kripp')).toEqual([{ login: 'troll_1', by: 'somemod', minutes: null, forever: false }])
     expect(unignoreUser('nl_kripp', 'troll_1')).toBe(true)
     resetIgnoresForTest()
     expect(isIgnored('nl_kripp', 'troll_1')).toBe(false)
@@ -38,6 +38,19 @@ describe('persistent ignore', () => {
     expect(isIgnored('mellen', 'troll')).toBe(true) // other channels untouched
     resetIgnoresForTest()
     expect(isIgnored('nl_kripp', 'troll')).toBe(false) // gone from sqlite too
+  })
+
+  it('a forever ignore survives stream ends, boot sweeps and restarts', () => {
+    const now = Date.now()
+    ignoreUser('nl_kripp', 'perma', 'm', 'forever')
+    db.getDb().run('UPDATE ignored_users SET created_at = ?', [now - 20 * 3_600_000])
+    db.recordStreamSession('nl_kripp', now - 22 * 3_600_000, now - 18 * 3_600_000)
+    resetIgnoresForTest()
+    expect(onStreamEnded('nl_kripp')).toEqual([])
+    sweepEndedStreams(() => undefined)
+    resetIgnoresForTest()
+    expect(isIgnored('nl_kripp', 'perma')).toBe(true)
+    expect(listIgnored('nl_kripp')).toEqual([{ login: 'perma', by: 'm', minutes: null, forever: true }])
   })
 
   it('boot sweep lifts ignores whose stream ended while the bot was down', () => {
