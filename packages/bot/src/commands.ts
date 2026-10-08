@@ -4,6 +4,7 @@ import * as db from './db'
 import { snapshotSchedule, resolveScheduleChannel } from './schedule-query'
 import { formatSchedule, formatLastStream, isScheduleQuery, isPastStreamQuery, withTitleOverride } from './schedule'
 import { getChannelTitle } from './channel-title'
+import { formatFortniteCountdown, isFortniteFridayQuery } from './fortnite'
 import { getTriviaScore, formatStats, formatTop, invalidateAliasCache, isGameActive, skipTrivia } from './trivia'
 import { isMuted } from './directives'
 import { isSuppressed, suppressNotice } from './suppress'
@@ -404,6 +405,11 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
       // a failed trivia start/skip falls through to a normal answer, as it always did
       if (res.ok || !nlAction.kind.startsWith('trivia-')) return withSuffix(res.msg, sfx)
     }
+  }
+
+  // "when's fortnite friday" → exact countdown to fri 8:00pm PT, to the second
+  if (isFortniteFridayQuery(cleanArgs)) {
+    return withSuffix(formatFortniteCountdown(Date.now()), mentions.length ? ` ${mentions.join(' ')}` : '')
   }
 
   // "when's the next stream / stream schedule" → deterministic prediction from logged

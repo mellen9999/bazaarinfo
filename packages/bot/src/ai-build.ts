@@ -1,4 +1,5 @@
 import * as db from './db'
+import { fortniteContext } from './fortnite'
 import { isGameActive } from './trivia'
 import { getRedditDigest, getBgRedditDigest, getGrRedditDigest } from './reddit'
 import { getPatchInfo } from './patch'
@@ -434,6 +435,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // (fail-soft: '' on missing/stale cache or off-topic query, so nothing to hallucinate
   // from). the fetch itself is refreshed in doAiCall before this builder runs.
   const worldCupLine = getWorldCupLine(query)
+  const fortniteLine = fortniteContext(query, Date.now())
 
   // live local weather — real Open-Meteo data, injected only on weather-shaped queries
   // (fail-soft: honest "lookup down / place not found / which city?" lines on partial
@@ -836,6 +838,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'worldCup', text: worldCupLine, base: -107 },
     // next-stream prediction — direct answer to "when's the stream", never-evict tier
     { name: 'schedule', text: scheduleLine, base: -106 },
+    // fortnite friday countdown — exact, direct answer when it fires
+    { name: 'fortnite', text: fortniteLine, base: -105.9 },
     // live weather is the direct answer when it fires — same never-evict tier
     { name: 'weather', text: weatherLine, base: -105 },
     // the shirt bet is the direct answer when it fires — same never-evict tier
