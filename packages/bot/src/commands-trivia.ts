@@ -9,6 +9,7 @@ import { isSuppressed, remainingMinutes } from './suppress'
 import { aiTriviaEnabled, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest } from './ai-cache'
 import { userStandingLine } from './ai-build-user'
 import { getChannelSnapshotLine } from './twitch-profile'
+import { shadowProfile } from './hslogs-shadow'
 import { findEmote, isExactEmote } from './emotes'
 import { getRecent } from './chatbuf'
 import { log } from './log'
@@ -172,6 +173,7 @@ function buildPersonDossier(username: string, channel: string): string | null {
     const standing = userStandingLine(username, channel)
     if (standing) lines.push(`twitch standing: ${standing}`)
     const chat = db.getUserChatProfile(username, channel)
+    shadowProfile(channel, username, chat)
     if (chat) {
       // chat_messages is pruned at 180 days: an old regular's "first seen" is the prune
       // horizon, not their arrival — say the window, not a false start date. peak hour needs

@@ -7,6 +7,7 @@ import { buildFTSQuery, buildFTSQueryLoose, buildChatRecallFTS, findReferencedUs
 import { isPastaRecall, findChatPasta, pastaText } from './pasta'
 import { stripChatMessage } from './ai-build-chat'
 import { isTitleQuery } from './channel-title'
+import { shadowRecall, shadowPasta } from './hslogs-shadow'
 
 // --- timeline builder ---
 
@@ -65,6 +66,7 @@ const PASTA_INTENT_RE = /\b(copypasta|pasta|meme|bit|joke|rant|trend|spam(ming|m
 
 function buildPastaRecall(query: string, channel: string): string {
   const hit = findChatPasta(query, channel)
+  shadowPasta(channel, query, hit)
   if (!hit) {
     return 'Requested pasta: NOT in chat logs. Tell [USER] plainly you don\'t have that one logged — do NOT invent a "retired/burned/not reheating" excuse. Offer to write a fresh one if they want.'
   }
@@ -99,6 +101,7 @@ function buildContentRecall(query: string, channel: string, timeWindow: ReturnTy
   if (!ftsQuery) return ''
 
   const hits = db.searchChatFTS(channel, ftsQuery, 20)
+  shadowRecall(channel, ftsQuery, undefined, hits)
   if (hits.length === 0) return ''
 
   let filtered = hits
@@ -174,7 +177,9 @@ export function buildChatRecall(query: string, channel: string, asker?: string):
 
   const ftsQuery = buildChatRecallFTS(query, user)
   if (ftsQuery && !wantsOldest) {
-    for (const h of db.searchChatFTS(channel, ftsQuery, 8, user)) {
+    const hits = db.searchChatFTS(channel, ftsQuery, 8, user)
+    shadowRecall(channel, ftsQuery, user, hits)
+    for (const h of hits) {
       seen.add(h.message)
       lines.push(`[${formatAge(h.created_at, now)}] ${h.username}: ${stripChatMessage(h.message)}`)
     }
