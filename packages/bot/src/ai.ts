@@ -18,7 +18,7 @@ import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSi
 import { searchEligible, finalText, SEARCH_TALK, stripSearchTalk, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, SEARCH_HINT, SEARCH_FAILED_HINT } from './ai-search-gate'
 import { notify } from './notify'
 import { repairTruncation, isStub } from './ai-truncate'
-import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, isAiChannelEnabled, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, isUserOverDailyAiCap, noteUserAiRequest, getChannelRecentResponses, isLiveStateKnown, isChannelLive } from './ai-cache'
+import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, isAiChannelEnabled, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, isUserOverDailyAiCap, USER_CAP_LINE, noteUserAiRequest, getChannelRecentResponses, isLiveStateKnown, isChannelLive } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE, formatContextSummary } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
 import { hedged } from './ai-hedge'
@@ -175,7 +175,7 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
   if (!isVip && isUserOverDailyAiCap(ctx.user)) {
     log(`ai: user daily ai cap hit for ${ctx.user}, dropping`)
     try { db.logAskMiss(ctx, ctx.displayQuery ?? query, 'user_daily_cap') } catch {}
-    return ctx.direct && ctx.mention !== 'reply' ? { text: `that's all the ai you get today — lookups still work, fresh budget tomorrow`, mentions: [] } : null
+    return ctx.direct && ctx.mention !== 'reply' ? { text: USER_CAP_LINE, mentions: [] } : null
   }
   // repeat-query abuse — silent drop (VIP exempt). continuation asks ("continue",
   // "keep going", "more"…) are LEGITIMATELY repeated — each one extends the story with

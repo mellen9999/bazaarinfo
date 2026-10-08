@@ -12,7 +12,8 @@ import * as db from './db'
 delete process.env.USER_DAILY_AI_CAP
 // the budget is write-through to sqlite, so the counter needs a real db to survive a restart
 db.initDb(':memory:')
-const { USER_DAILY_AI_CAP, noteUserAiRequest, isUserOverDailyAiCap, resetUserAiBudgetForTests } = await import('./ai-cache')
+const { USER_DAILY_AI_CAP, noteUserAiRequest, isUserOverDailyAiCap, resetUserAiBudgetForTests, USER_CAP_LINE } = await import('./ai-cache')
+const { aiBusyLine } = await import('./commands-reply')
 
 describe('per-user daily AI budget', () => {
   beforeEach(() => resetUserAiBudgetForTests())
@@ -23,6 +24,14 @@ describe('per-user daily AI budget', () => {
 
   it('a fresh user is under the cap', () => {
     expect(isUserOverDailyAiCap('newperson')).toBe(false)
+  })
+
+  // a capped user's ai miss once got "ai servers are lagging rn, give it a few seconds" —
+  // a lie that invites a retry the cap will refuse too
+  it('a capped user is told the cap, never a fake outage', () => {
+    for (let i = 0; i < USER_DAILY_AI_CAP; i++) noteUserAiRequest('capped')
+    expect(aiBusyLine('capped')).toBe(USER_CAP_LINE)
+    expect(aiBusyLine('fresh')).not.toBe(USER_CAP_LINE)
   })
 
   it('a normal day of asks never trips it', () => {

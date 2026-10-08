@@ -669,7 +669,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
     if (aiUnavailableReason(ctx.channel) !== 'ok') return withSuffix(AI_OFF_LINE, suffix)
     // never go silent on a real creative/conversational ask — a transient AI miss
     // (timeout, retry-exhaustion) still gets an answer. every real !b is answered.
-    return withSuffix(aiBusyLine(), suffix)
+    return withSuffix(aiBusyLine(ctx.user), suffix)
   }
 
   const lookupResult = await itemLookup(cleanArgs, ctx, suffix)
@@ -715,7 +715,7 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // AI is up — it stays ahead of both AI-state lines.
   if (looksLikeItemQuery(cleanArgs)) return withSuffix(noMatchMsg(cleanArgs), suffix)
   if (aiUnavailableReason(ctx.channel) !== 'ok') return withSuffix(AI_OFF_LINE, suffix)
-  return withSuffix(aiBusyLine(), suffix)
+  return withSuffix(aiBusyLine(ctx.user), suffix)
 }
 
 const commands: Record<string, CommandHandler> = {

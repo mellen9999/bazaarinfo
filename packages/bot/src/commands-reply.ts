@@ -6,6 +6,7 @@ import type { CmdType } from './db'
 import type { CommandContext } from './commands'
 import { isSuppressed, suppressNotice } from './suppress'
 import { aiRespond, dedupeEmote, dedupeMention, fixEmoteCase, fixEmotePunctuation, capEmoteTotal, capRepeatedSpam } from './ai'
+import { AI_VIP, isUserOverDailyAiCap, USER_CAP_LINE } from './ai-cache'
 import { log } from './log'
 import { OVERLAY, isOverlayFresh, getCardChange } from './patch-notes'
 
@@ -70,7 +71,9 @@ const AI_BUSY_LINES = [
   'merchant fumbled the scroll — slow servers, ask again shortly',
 ]
 let aiBusyIdx = 0
-export function aiBusyLine(): string {
+export function aiBusyLine(user?: string): string {
+  // a capped user's miss isn't latency — say the true reason, not "give it a few seconds"
+  if (user && !AI_VIP.has(user.toLowerCase()) && isUserOverDailyAiCap(user)) return USER_CAP_LINE
   return AI_BUSY_LINES[aiBusyIdx++ % AI_BUSY_LINES.length]
 }
 

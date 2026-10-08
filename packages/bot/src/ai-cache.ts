@@ -477,6 +477,10 @@ export function noteUserAiRequest(user: string, weight = 1): void {
   db.bumpUserAiUnits(u, weight)
 }
 
+// the one true line for a capped user — ai.ts says it up front, and the commands fallback
+// says it instead of a "servers are lagging" excuse that would invite a doomed retry.
+export const USER_CAP_LINE = `that's all the ai you get today — lookups still work, fresh budget tomorrow`
+
 export function isUserOverDailyAiCap(user: string): boolean {
   if (USER_DAILY_AI_CAP === 0) return false
   return userEntry(user.toLowerCase(), db.ptDay()).n >= USER_DAILY_AI_CAP
