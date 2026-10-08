@@ -345,6 +345,21 @@ describe('isScheduleQuery — bare "back" (not glued to "on")', () => {
   ])('does not false-positive on the "back to X" idiom: %s', (q) => expect(isScheduleQuery(q)).toBe(false))
 })
 
+describe('isScheduleQuery — live false positives (oct 2026)', () => {
+  test.each([
+    'how far back are you logging data from chat?', // "back" was both stream + when word
+    'trivia back? test',
+    'hey B when we play roulette and the ball landed on red three times is it still 50% chance it lands on red next turn?',
+    'start speaking English again',
+    'is it still worth it',
+  ])('not a schedule ask: %s', (q) => expect(isScheduleQuery(q)).toBe(false))
+
+  test.each(['is he back', 'is he still live', 'when does he start again', 'when does the stream start'])(
+    'still a schedule ask: %s',
+    (q) => expect(isScheduleQuery(q)).toBe(true),
+  )
+})
+
 describe('isPastStreamQuery — tense routing', () => {
   test.each([
     'when did kripp start streaming yesterday',

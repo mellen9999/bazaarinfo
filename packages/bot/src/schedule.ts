@@ -323,7 +323,9 @@ const WHEN_WORD_RE = /\b(?:when|next|what\s*time|how\s*long|schedule|soon|again|
 // extra context line, a false negative costs a viewer a real answer.
 const START_WORD_RE = /\b(?:start(?:s|ing|ed)?|kick(?:s|ing)?\s*off)\b/i
 const NON_STREAM_SUBJ_RE = /\b(?:trivia|round|question|dungeon|descent|raid|match|tournament|episode|movie|video|patch|season|sale|item|build|event)\b/i
-const START_VERBAL_RE = /\bstart(?:s|ing|ed)?\s+(?:being|doing|to|talking|posting)\b/i
+// "start speaking english again" — start + any gerund is an activity, never a stream start
+// (a stream gerund like "start streaming" already matched STREAM_WORD_RE above).
+const START_VERBAL_RE = /\bstart(?:s|ing|ed)?\s+(?:to|\w+ing)\b/i
 // present-tense LIVE-STATUS ask ("is he live", "is he streaming right now", "is his channel
 // dark") needs no temporal word at all, but WHEN_WORD_RE requires one — a real ask fell
 // through to a false capability denial ("Is nl_kripp currently broadcasting his gameplay or
@@ -331,11 +333,15 @@ const START_VERBAL_RE = /\bstart(?:s|ing|ed)?\s+(?:being|doing|to|talking|postin
 // an is/are/'s frame near an unambiguous stream-status word (bare "on"/"up" stay out of the
 // general list — too generic, e.g. "is the shop up" — except the tight he/she/they/it + "on"
 // shape), and still gated by NON_STREAM_SUBJ_RE below so "is the new patch live" / "is the
-// item live" stay off this branch.
-const STATUS_ASK_RE = /\b(?:is|are|'s)\b(?:\s+\S+){0,4}\s+(?:currently|right\s+now|still|live|streaming|broadcasting|online)\b|\b(?:is|are)\s+(?:he|she|they|it)\s+on\b|\bchannel\s+dark\b/i
+// item live" stay off this branch. bare adverbs (still/currently/right now) are NOT status
+// words — "is it still 50% chance" (roulette) got a live-status reply.
+const STATUS_ASK_RE = /\b(?:is|are|'s)\b(?:\s+\S+){0,4}\s+(?:live|streaming|broadcasting|online)\b|\b(?:is|are)\s+(?:he|she|they|it)\s+on\b|\b(?:is|are)\s+(?:he|she|they)\s+back(?!\s+to\b)|\bchannel\s+dark\b/i
 export function isScheduleQuery(q: string): boolean {
   if (/\b(?:next\s+stream|stream\s+schedule|stream\s+predict\w*)\b/i.test(q)) return true
-  if (STREAM_WORD_RE.test(q) && WHEN_WORD_RE.test(q)) return true
+  // the when-word must be a DIFFERENT token than the stream word: "back" is in both lists,
+  // so "how far back are you logging" / "trivia back?" used to self-match into a prediction.
+  const sw = STREAM_WORD_RE.exec(q)
+  if (sw && WHEN_WORD_RE.test(`${q.slice(0, sw.index)} ${q.slice(sw.index + sw[0].length)}`)) return true
   if (STATUS_ASK_RE.test(q) && !NON_STREAM_SUBJ_RE.test(q)) return true
   return START_WORD_RE.test(q) && WHEN_WORD_RE.test(q) && !NON_STREAM_SUBJ_RE.test(q) && !START_VERBAL_RE.test(q)
 }
