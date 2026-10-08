@@ -34,6 +34,7 @@ import { loadDescriptionCache } from './emote-describe'
 import { preloadStyles } from './style'
 import { writeAtomic } from './fs-util'
 import { log } from './log'
+import { reconcilePins, pinChannel, unpinChannel } from './hslogs-pins'
 import { notify } from './notify'
 import { sweepVocabularyChunked } from './grounding-sweep'
 import { fetchPatchInfo } from './patch'
@@ -291,6 +292,7 @@ const joinChannelAsAdmin = async (target: string, _by: string): Promise<string> 
     await client.joinChannel(info)
     setChannelInfos(client.getChannels())
     await channelStore.add(target)
+    pinChannel(target)
     void backfillVods(target, targetId, getAccessToken(), CLIENT_ID)
     refreshChannelEmotes(target, targetId).then(() => {
       const setId = getEmoteSetId(target)
@@ -316,6 +318,7 @@ async function partChannel(target: string) {
   removeChannelEmotes(target)
   chatbuf.cleanupChannel(target)
   await channelStore.remove(target)
+  unpinChannel(target)
 }
 
 const partChannelAsAdmin = async (target: string, _by: string): Promise<string> => {
@@ -498,6 +501,7 @@ const client = new TwitchClient(
             await client.joinChannel(info)
             setChannelInfos(client.getChannels())
             await channelStore.add(target)
+            pinChannel(target)
             enableAiForChannel(target)
             void backfillVods(target, targetId, getAccessToken(), CLIENT_ID)
             refreshChannelEmotes(target, targetId).then(() => {
@@ -1014,4 +1018,5 @@ setInterval(() => {
 }, 30_000)
 
 client.connect()
+void reconcilePins(client.getChannels().map((ch) => ch.name))
 log(`bazaarinfo starting — ${channels.length} channel(s) (${envChannels.length} env, ${storedChannels.length} dynamic)`)

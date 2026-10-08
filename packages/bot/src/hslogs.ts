@@ -125,3 +125,65 @@ export async function getPastas(channel: string, o: Range & { min_len?: number; 
 export async function getTermFootprint(channel: string, term: string) {
   return get<Envelope<{ count: number; distinct_users: number; first_seen: string | null }>>(channel, '/term-footprint', { term }, true, TTL_AGG)
 }
+
+// --- pins: ask heatsync to keep logging a channel while it's offline. owned by this key. ---
+
+export type PinResult = { ok: true } | { ok: false; code: string }
+
+async function mutate(method: 'PUT' | 'DELETE', channel: string): Promise<PinResult | null> {
+  const key = process.env.HEATSYNC_LOGS_KEY
+  if (!key || Date.now() < openUntil) return null
+  try {
+    const res = await fetch(`${base()}/twitch/${encodeURIComponent(channel.toLowerCase())}/pin`, {
+      method,
+      headers: { Authorization: `Bearer ${key}`, 'User-Agent': UA, Accept: 'application/json' },
+      signal: AbortSignal.timeout(FAST_MS),
+    })
+    if (res.status === 429) {
+      const ra = Number(res.headers.get('retry-after'))
+      trip(Number.isFinite(ra) && ra > 0 ? Math.min(ra, 3600) * 1000 : OPEN_MS)
+      return null
+    }
+    if (res.status >= 500) return fail()
+    failures = 0
+    if (res.ok) return { ok: true }
+    // 4xx are answers, not outages: they never trip the breaker
+    let code = `http_${res.status}`
+    try {
+      const b = await res.json() as { error?: unknown; code?: unknown }
+      const c = typeof b.error === 'string' ? b.error : typeof b.code === 'string' ? b.code : ''
+      if (c) code = c
+    } catch {}
+    return { ok: false, code }
+  } catch {
+    return fail()
+  }
+}
+
+export const pin = (channel: string) => mutate('PUT', channel)
+export const unpin = (channel: string) => mutate('DELETE', channel)
+
+/** channels this key currently pins (lowercased), or null when unreachable */
+export async function listPins(): Promise<string[] | null> {
+  const key = process.env.HEATSYNC_LOGS_KEY
+  if (!key || Date.now() < openUntil) return null
+  try {
+    const res = await fetch(`${base()}/pins`, {
+      headers: { Authorization: `Bearer ${key}`, 'User-Agent': UA, Accept: 'application/json' },
+      signal: AbortSignal.timeout(FAST_MS),
+    })
+    if (res.status === 429) { trip(); return null }
+    if (!res.ok) return res.status >= 500 ? fail() : null
+    const body = await res.json() as { data?: unknown }
+    if (!Array.isArray(body.data)) return null
+    failures = 0
+    const out: string[] = []
+    for (const p of body.data) {
+      const n = typeof p === 'string' ? p : (p as { channel?: unknown })?.channel
+      if (typeof n === 'string' && n) out.push(n.toLowerCase())
+    }
+    return out
+  } catch {
+    return fail()
+  }
+}
