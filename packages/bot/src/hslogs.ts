@@ -53,6 +53,15 @@ function cacheSet(k: string, val: unknown, ttl: number): void {
   while (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value as string)
 }
 
+// api errors are {error: <sentence>, error_code: <code>}; fall back to the status
+async function errCode(res: Response): Promise<string> {
+  try {
+    const b = await res.json() as { error_code?: unknown }
+    if (typeof b.error_code === 'string' && b.error_code) return b.error_code
+  } catch {}
+  return `http_${res.status}`
+}
+
 async function get<T>(channel: string, path: string, params: Record<string, string | number | undefined>, heavy = false, ttl = TTL_FAST): Promise<T | null> {
   const key = process.env.HEATSYNC_LOGS_KEY
   if (!key) return null
@@ -72,7 +81,7 @@ async function get<T>(channel: string, path: string, params: Record<string, stri
       trip(Number.isFinite(ra) && ra > 0 ? Math.min(ra, 3600) * 1000 : OPEN_MS)
       return null
     }
-    if (!res.ok) { warn(`hslogs: ${res.status} ${path}`); return fail() }
+    if (!res.ok) { warn(`hslogs: ${res.status} ${await errCode(res)} ${path}`); return res.status >= 500 ? fail() : null }
     const json = await res.json() as T
     failures = 0
     cacheSet(url, json, ttl)
@@ -148,13 +157,7 @@ async function mutate(method: 'PUT' | 'DELETE', channel: string): Promise<PinRes
     failures = 0
     if (res.ok) return { ok: true }
     // 4xx are answers, not outages: they never trip the breaker
-    let code = `http_${res.status}`
-    try {
-      const b = await res.json() as { error?: unknown; code?: unknown }
-      const c = typeof b.error === 'string' ? b.error : typeof b.code === 'string' ? b.code : ''
-      if (c) code = c
-    } catch {}
-    return { ok: false, code }
+    return { ok: false, code: await errCode(res) }
   } catch {
     return fail()
   }
@@ -163,8 +166,10 @@ async function mutate(method: 'PUT' | 'DELETE', channel: string): Promise<PinRes
 export const pin = (channel: string) => mutate('PUT', channel)
 export const unpin = (channel: string) => mutate('DELETE', channel)
 
-/** channels this key currently pins (lowercased), or null when unreachable */
-export async function listPins(): Promise<string[] | null> {
+export interface PinList { channels: string[]; quota: { used: number; max: number } | null }
+
+/** twitch channels this key currently pins (lowercased), or null when unreachable */
+export async function listPins(): Promise<PinList | null> {
   const key = process.env.HEATSYNC_LOGS_KEY
   if (!key || Date.now() < openUntil) return null
   try {
@@ -174,15 +179,16 @@ export async function listPins(): Promise<string[] | null> {
     })
     if (res.status === 429) { trip(); return null }
     if (!res.ok) return res.status >= 500 ? fail() : null
-    const body = await res.json() as { data?: unknown }
-    if (!Array.isArray(body.data)) return null
+    const body = await res.json() as { data?: { quota?: { used?: unknown; max?: unknown }; pins?: unknown } }
+    const pins = body.data?.pins
+    if (!Array.isArray(pins)) return null
     failures = 0
-    const out: string[] = []
-    for (const p of body.data) {
-      const n = typeof p === 'string' ? p : (p as { channel?: unknown })?.channel
-      if (typeof n === 'string' && n) out.push(n.toLowerCase())
+    const channels: string[] = []
+    for (const p of pins as { platform?: unknown; channel?: unknown }[]) {
+      if (p?.platform === 'twitch' && typeof p.channel === 'string' && p.channel) channels.push(p.channel.toLowerCase())
     }
-    return out
+    const q = body.data?.quota
+    return { channels, quota: typeof q?.used === 'number' && typeof q.max === 'number' ? { used: q.used, max: q.max } : null }
   } catch {
     return fail()
   }

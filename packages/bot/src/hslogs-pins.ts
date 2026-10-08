@@ -7,6 +7,10 @@ const said = new Set<string>()
 
 const PLAIN: Record<string, string> = {
   pin_quota: 'this key hit its pin quota',
+  platform_unsupported: 'platform not supported for pins',
+  channel_denied: 'key is not allowed on this channel',
+  scope_denied: 'key lacks the pin scope',
+  api_key_invalid: 'key rejected by heatsync',
   pins_full: 'heatsync pin list is full',
   channel_unavailable: 'channel is delisted or does not exist',
   twitch_unavailable: 'heatsync could not reach twitch',
@@ -36,12 +40,12 @@ export async function reconcilePins(desired: string[]): Promise<void> {
   try {
     if (!hs.hslogsEnabled()) return
     const want = new Set(desired.map((c) => c.toLowerCase()))
-    const have = await hs.listPins()
-    if (!have) return
-    const haveSet = new Set(have)
+    const list = await hs.listPins()
+    if (!list) return
+    const haveSet = new Set(list.channels)
     for (const c of want) if (!haveSet.has(c)) await put(c)
     for (const c of haveSet) if (!want.has(c)) await del(c)
-    log(`hslogs-pins: reconciled want=${want.size} had=${haveSet.size}`)
+    log(`hslogs-pins: reconciled want=${want.size} had=${haveSet.size}${list.quota ? ` quota=${list.quota.used}/${list.quota.max}` : ''}`)
   } catch {}
 }
 

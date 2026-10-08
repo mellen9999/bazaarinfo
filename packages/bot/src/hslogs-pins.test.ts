@@ -18,11 +18,19 @@ beforeEach(() => {
     reqs.push({ method, url: String(url) })
     const o = override(method, String(url))
     if (o) return Promise.resolve(o)
-    if (method === 'GET') return Promise.resolve(new Response(JSON.stringify({ data: remote.map((channel) => ({ channel })) })))
+    if (method === 'GET') return Promise.resolve(new Response(JSON.stringify(pinsBody(remote))))
     return Promise.resolve(new Response('{}'))
   }) as unknown as typeof fetch
 })
 afterEach(() => { globalThis.fetch = realFetch; delete process.env.HEATSYNC_LOGS_KEY })
+
+// real shape of GET /api/v1/logs/pins (heatsync logs-api.ts)
+const pinsBody = (chs: string[]) => ({
+  data: {
+    quota: { used: chs.length, max: 25 },
+    pins: [...chs.map((channel) => ({ platform: 'twitch', channel, pinned_at: '2026-10-08T00:00:00Z' })), { platform: 'kick', channel: 'other', pinned_at: '2026-10-08T00:00:00Z' }],
+  },
+})
 
 const muts = () => reqs.filter((r) => r.method !== 'GET').map((r) => `${r.method} ${r.url.split('/twitch/')[1]}`)
 const tick = () => Bun.sleep(5)
@@ -63,7 +71,7 @@ describe('pins', () => {
   })
 
   it('errors never throw; outcomes log once and 4xx do not trip breaker', async () => {
-    override = (m) => (m === 'PUT' ? new Response('{"error":"pins_full"}', { status: 409 }) : undefined)
+    override = (m) => (m === 'PUT' ? new Response('{"error":"pins are full","error_code":"pins_full"}', { status: 409 }) : undefined)
     expect(() => pins.pinChannel('x')).not.toThrow()
     await tick()
     for (const c of ['a', 'b', 'c', 'd']) pins.pinChannel(c)
@@ -74,8 +82,18 @@ describe('pins', () => {
     await tick()
   })
 
+  it('listPins parses real shape, twitch only, with quota', async () => {
+    remote = ['a', 'b']
+    expect(await hs.listPins()).toEqual({ channels: ['a', 'b'], quota: { used: 2, max: 25 } })
+  })
+
+  it('missing error_code falls back to http status', async () => {
+    override = () => new Response('{"error":"x"}', { status: 409 })
+    expect(await hs.pin('x')).toEqual({ ok: false, code: 'http_409' })
+  })
+
   it('pin() surfaces the error code', async () => {
-    override = () => new Response('{"error":"channel_unavailable"}', { status: 404 })
+    override = () => new Response('{"error":"channel unavailable","error_code":"channel_unavailable"}', { status: 404 })
     expect(await hs.pin('x')).toEqual({ ok: false, code: 'channel_unavailable' })
     override = () => undefined
     expect(await hs.unpin('x')).toEqual({ ok: true })
