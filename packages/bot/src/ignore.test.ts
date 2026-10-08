@@ -5,17 +5,18 @@ import * as db from './db'
 // a mod's "stop responding to X" has to outlive a restart — the troll baiting the bot
 // toward a ban is still there after a deploy.
 db.initDb(':memory:')
-const { ignoreUser, unignoreUser, isIgnored, listIgnored, resetIgnoresForTest } = await import('./ignore')
+const { ignoreUser, unignoreUser, isIgnored, listIgnored, resetIgnoresForTest, onStreamEnded, sweepEndedStreams } = await import('./ignore')
 const { isMuted } = await import('./directives')
 const chatbuf = await import('./chatbuf')
 
 describe('persistent ignore', () => {
   beforeEach(() => {
     db.getDb().run('DELETE FROM ignored_users')
+    db.getDb().run('DELETE FROM stream_sessions')
     resetIgnoresForTest()
   })
 
-  it('ignores until lifted, and survives a reload from sqlite', () => {
+  it('ignores until the stream ends, and survives a reload from sqlite', () => {
     expect(ignoreUser('nl_kripp', '@Troll_1', 'somemod')).toBe('troll_1')
     expect(isIgnored('nl_kripp', 'TROLL_1')).toBe(true)
     expect(isIgnored('mellen', 'troll_1')).toBe(false)
@@ -25,6 +26,40 @@ describe('persistent ignore', () => {
     expect(unignoreUser('nl_kripp', 'troll_1')).toBe(true)
     resetIgnoresForTest()
     expect(isIgnored('nl_kripp', 'troll_1')).toBe(false)
+  })
+
+  it('an untimed ignore drops when the stream ends; a timed one keeps its clock', () => {
+    ignoreUser('nl_kripp', 'troll', 'm')
+    ignoreUser('nl_kripp', 'timed', 'm', 60 * 24)
+    ignoreUser('mellen', 'troll', 'm')
+    expect(onStreamEnded('nl_kripp')).toEqual(['troll'])
+    expect(isIgnored('nl_kripp', 'troll')).toBe(false)
+    expect(isIgnored('nl_kripp', 'timed')).toBe(true)
+    expect(isIgnored('mellen', 'troll')).toBe(true) // other channels untouched
+    resetIgnoresForTest()
+    expect(isIgnored('nl_kripp', 'troll')).toBe(false) // gone from sqlite too
+  })
+
+  it('boot sweep lifts ignores whose stream ended while the bot was down', () => {
+    const now = Date.now()
+    const h = 3_600_000
+    ignoreUser('nl_kripp', 'old', 'm')
+    ignoreUser('nl_kripp', 'current', 'm')
+    ignoreUser('nl_kripp', 'offline_plant', 'm')
+    const set = (login: string, at: number) => db.getDb().run('UPDATE ignored_users SET created_at = ? WHERE login = ?', [at, login])
+    set('old', now - 20 * h) // planted during yesterday's stream
+    set('current', now - 1 * h) // planted during today's still-live stream
+    set('offline_plant', now - 10 * h) // planted offline, between streams
+    db.recordStreamSession('nl_kripp', now - 22 * h, now - 18 * h) // yesterday
+    db.recordStreamSession('nl_kripp', now - 3 * h, now) // live now
+    resetIgnoresForTest()
+    sweepEndedStreams((ch) => (ch === 'nl_kripp' ? now - 3 * h : undefined))
+    expect(isIgnored('nl_kripp', 'old')).toBe(false)
+    expect(isIgnored('nl_kripp', 'current')).toBe(true)
+    expect(isIgnored('nl_kripp', 'offline_plant')).toBe(true) // lasts until today's stream ends
+    // bot boots after today's stream ended too → everything stream-scoped goes
+    sweepEndedStreams(() => undefined)
+    expect(listIgnored('nl_kripp')).toEqual([])
   })
 
   it('timed ignores expire on their own', () => {

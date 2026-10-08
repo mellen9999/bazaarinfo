@@ -865,7 +865,7 @@ function renderPeople(snap: Snapshot): void {
     const r = el('div', { class: `row${isSelected('people', i) ? ' selected' : ''}` })
     r.append(el('span', { class: 'row-label', text: row.login, title: row.login }))
     r.append(el('span', { class: 'dim', text: `by ${row.by}` }))
-    r.append(el('span', { class: 'dim', text: row.minutes == null ? '∞' : ttl(row.minutes) }))
+    r.append(el('span', { class: 'dim', text: row.minutes == null ? 'this stream' : ttl(row.minutes) }))
     r.append(btn('x', 'let the bot reply to this person again', () => doAct({ kind: 'unignore', user: row.login })))
     r.addEventListener('click', () => selectRow('people', i))
     peopleIgnoredEl.append(r)

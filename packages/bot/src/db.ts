@@ -990,7 +990,7 @@ const migrations: (() => void)[] = [
     db.run(`CREATE INDEX idx_panel_audit_channel ON panel_audit(channel, ts DESC)`)
   },
   // migration 36: ignored_users — a mod's "stop responding to X". unlike a directive mute
-  // it survives restarts; expires_at NULL = until a mod lifts it.
+  // it survives restarts; expires_at NULL = until the stream ends (see ignore.ts).
   () => {
     db.run(`CREATE TABLE ignored_users (
       channel TEXT NOT NULL,

@@ -234,7 +234,7 @@ export function describe(a: Action): string {
     case 'ask-purge': return `remove reply #${a.id}`
     case 'ai-trivia': return `ai trivia ${a.on ? 'on' : 'off'} (every channel)`
     case 'say': return `say "${a.text}"`
-    case 'ignore': return `ignore @${a.user}${a.minutes ? ` for ${fmtMins(a.minutes)}` : ' until lifted'}`
+    case 'ignore': return `ignore @${a.user}${a.minutes ? ` for ${fmtMins(a.minutes)}` : ' until stream ends'}`
     case 'unignore': return `stop ignoring @${a.user}`
     case 'join': return `join #${a.target}`
     case 'part': return `leave #${a.target}`
@@ -378,7 +378,7 @@ async function run(ch: string, by: string, a: Action, announce: boolean, isAdmin
     case 'ignore': {
       const who = ignoreUser(ch, a.user, by, a.minutes)
       return who
-        ? { ok: true, msg: `ignoring @${who}${a.minutes ? ` for ${fmtMins(a.minutes)}` : ' until lifted'}` }
+        ? { ok: true, msg: `ignoring @${who}${a.minutes ? ` for ${fmtMins(a.minutes)}` : ' until stream ends'}` }
         : { ok: false, msg: `can't ignore @${a.user}` }
     }
     case 'unignore':

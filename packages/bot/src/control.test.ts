@@ -68,7 +68,7 @@ describe('parseAction (untrusted input)', () => {
 
   it('previews read like a person wrote them', () => {
     expect(say({ kind: 'ignore', user: 'x', minutes: 1440 })).toBe('ignore @x for 1d')
-    expect(say({ kind: 'ignore', user: 'x' })).toBe('ignore @x until lifted')
+    expect(say({ kind: 'ignore', user: 'x' })).toBe('ignore @x until stream ends')
     expect([fmtMins(90), fmtMins(120), fmtMins(10080)]).toEqual(['90m', '2h', '7d'])
   })
 })

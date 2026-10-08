@@ -41,6 +41,7 @@ import { diffContent, renderDiffChat, renderDiffAlert } from './content-diff'
 import { readJson } from './http'
 import * as raid from './raid'
 import * as dungeon from './dungeon'
+import * as ignore from './ignore'
 import { backfillVods } from './vod-backfill'
 import { renderUserNotice, routesAsAsk, renderStoredEvent } from './stream-events'
 import { renderModeration, noteTimeout, isTimedOut, noteDeletedMessage, wasDeleted, noteSentLine, storedLineFor } from './moderation'
@@ -801,12 +802,15 @@ async function pollStreams(initial = false) {
       setChannelOffline(ch)
       dungeon.onStreamOffline(ch)
       noteStreamOffline(ch)
+      ignore.onStreamEnded(ch)
       chatbuf.recordEvent(ch, '* stream ended')
       liveState.delete(ch)
       offlineMisses.delete(ch)
     }
     // a poll completed, so "not in liveChannels" now genuinely means offline
     markLiveStateKnown()
+    // streams that ended while the bot was down still lift their untimed ignores
+    if (initial) ignore.sweepEndedStreams((ch) => getStreamInfo(ch)?.startedAt)
     if (initial) log(`live channels: ${data.data.map((s) => `${s.user_login}[${s.game_name}]`).join(', ') || 'none'}`)
   } catch (e) { log(`stream poll failed: ${e}`) }
 }

@@ -1,8 +1,12 @@
-// mod "stop responding to X" — a persistent per-channel ignore. the fix for a chatter who
+// mod "stop responding to X" — a per-channel ignore that outlives restarts. the fix for a chatter who
 // keeps baiting the bot into saying something bannable: they get no replies, no trivia
 // credit, and their lines never reach the ai's chat context (so they can't steer it
 // through someone else's ask either). mods/broadcaster are never subject to it — the
 // callers already exempt them, same as directive mutes.
+//
+// an untimed ignore (expiresAt null) lasts for the stream, not forever: it drops when the
+// channel's stream ends (or, if planted while offline, when the next one ends). a timed one
+// runs its clock regardless. nobody stays ignored because a mod forgot to lift it.
 
 import * as db from './db'
 import { log } from './log'
@@ -33,7 +37,7 @@ function put(channel: string, login: string, e: Entry): void {
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/^[@#]/, '')
 
-/** minutes undefined = until lifted. returns the normalized login, or null when refused. */
+/** minutes undefined = until the stream ends. returns the normalized login, or null when refused. */
 export function ignoreUser(channel: string, login: string, by: string, minutes?: number): string | null {
   const ch = norm(channel)
   const who = norm(login)
@@ -71,6 +75,45 @@ export function isIgnored(channel: string, login: string): boolean {
     return false
   }
   return true
+}
+
+function dropStreamScoped(ch: string, keep: (e: Entry) => boolean): string[] {
+  const dropped: string[] = []
+  for (const [login, e] of byChannel.get(ch) ?? []) {
+    if (e.expiresAt !== null || keep(e)) continue
+    unignoreUser(ch, login)
+    dropped.push(login)
+  }
+  if (dropped.length) log(`ignore #${ch}: stream over, lifted ${dropped.join(', ')}`)
+  return dropped
+}
+
+/** the stream ended — every untimed ignore on the channel is done. */
+export function onStreamEnded(channel: string): string[] {
+  ensureLoaded()
+  return dropStreamScoped(norm(channel), () => false)
+}
+
+// a stream ended while the bot was down. stream_sessions is the record: an untimed ignore is
+// over once a session that was live at or after it was planted is no longer the live one.
+// lastSeen is only refreshed per poll, so allow one poll of slack for an ignore planted in
+// a stream's final minute.
+const POLL_SLACK_MS = 2 * 60_000
+/** boot sweep, once live state is known. liveStart = the channel's current stream start, if live. */
+export function sweepEndedStreams(liveStart: (channel: string) => number | undefined): void {
+  ensureLoaded()
+  for (const ch of [...byChannel.keys()]) {
+    const entries = [...(byChannel.get(ch)?.values() ?? [])].filter((e) => e.expiresAt === null)
+    if (!entries.length) continue
+    let sessions: { startedAt: number; lastSeenAt: number }[]
+    try { sessions = db.getStreamSessions(ch, Math.min(...entries.map((e) => e.createdAt)) - 7 * 86_400_000) } catch (e) {
+      log(`ignore: session lookup failed: ${e}`)
+      continue
+    }
+    const cur = liveStart(ch)
+    const ended = sessions.filter((s) => s.startedAt !== cur)
+    dropStreamScoped(ch, (e) => !ended.some((s) => s.lastSeenAt + POLL_SLACK_MS >= e.createdAt))
+  }
 }
 
 export function listIgnored(channel: string): { login: string; by: string; minutes: number | null }[] {
