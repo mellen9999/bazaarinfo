@@ -60,6 +60,13 @@ function getIp(req: Request): string | null {
 let warnedNoIp = false
 
 export async function handleRequest(req: Request): Promise<Response> {
+  // HEAD is GET without the body (link checkers and uptime probes send it); routing it
+  // separately would 404 every public URL
+  if (req.method === 'HEAD') {
+    const res = await handleRequest(new Request(req.url, { method: 'GET', headers: req.headers }))
+    return new Response(null, { status: res.status, headers: res.headers })
+  }
+
   const url = new URL(req.url)
   const path = url.pathname
   const origin = allowedOrigin(req)

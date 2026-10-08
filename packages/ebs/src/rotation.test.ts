@@ -223,3 +223,15 @@ describe('jwtFailReason', () => {
     expect(jwtFailReason(tok({ exp: now + 900, channel_id: 'x\n[ebs] fake' }))).toBe('bad signature')
   })
 })
+
+// ── HEAD mirrors GET ────────────────────────────────────────────────────────
+
+describe('HEAD requests', () => {
+  it('answer like GET with no body', async () => {
+    const res = await handleRequest(new Request('http://x/download', { method: 'HEAD' }))
+    expect(res.status).toBe(302)
+    expect(res.headers.get('Location')).toContain('/releases/latest')
+    expect(await res.text()).toBe('')
+    expect((await handleRequest(new Request('http://x/health', { method: 'HEAD' }))).status).toBe(200)
+  })
+})
