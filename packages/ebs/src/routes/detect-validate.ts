@@ -24,7 +24,7 @@ const MAX_TIER_LEN = 32
 const MAX_OWNER_LEN = 64
 const MAX_TYPE_LEN = 64
 const MAX_ENCHANTMENT_LEN = 64
-const CHANNEL_ID_RE = /^\d{1,15}$/
+export const CHANNEL_ID_RE = /^\d{1,15}$/
 const MAX_SECRET_LEN = 256
 const MAX_ATTRS_KEYS = 100
 

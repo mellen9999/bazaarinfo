@@ -466,3 +466,30 @@ describe('/board (bot-internal latest frame)', () => {
     expect(body.cards).toEqual([])
   })
 })
+
+// ── companion traffic log: visible but never per-frame ──────────────────────
+
+import { spyOn } from 'bun:test'
+import { logCompanion, __clearCompanionLogForTest } from './companion-log'
+
+describe('logCompanion', () => {
+  beforeEach(() => __clearCompanionLogForTest())
+
+  it('logs each route/channel/outcome once per window', () => {
+    const spy = spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      for (let i = 0; i < 50; i++) logCompanion('detect', '123', 'rejected: wrong secret')
+      logCompanion('detect', '123', 'frames arriving')
+      logCompanion('detect', '456', 'rejected: wrong secret')
+      logCompanion('detect', null, 'rejected: body is not json')
+      expect(spy.mock.calls.map((c) => c[0])).toEqual([
+        '[ebs] companion detect channel=123: rejected: wrong secret',
+        '[ebs] companion detect channel=123: frames arriving',
+        '[ebs] companion detect channel=456: rejected: wrong secret',
+        '[ebs] companion detect channel=?: rejected: body is not json',
+      ])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})

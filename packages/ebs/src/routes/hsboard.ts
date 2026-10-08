@@ -11,6 +11,7 @@
 
 import { verifyCompanionSecret } from '../auth'
 import { rateOk } from '../ratelimit'
+import { logCompanion } from '../companion-log'
 import type { HsState } from '@bazaarinfo/shared'
 import { parseHsState, CHANNEL_ID_RE, MAX_SECRET_LEN } from './hsboard-validate'
 
@@ -56,8 +57,15 @@ export async function handleHsPost(req: Request): Promise<Response> {
   if (typeof b.channelId !== 'string' || !CHANNEL_ID_RE.test(b.channelId)) return new Response('bad request', { status: 400 })
   if (typeof b.secret !== 'string' || !b.secret || b.secret.length > MAX_SECRET_LEN) return new Response('bad request', { status: 400 })
 
-  if (!verifyCompanionSecret(b.secret, b.channelId)) return new Response('unauthorized', { status: 401 })
-  if (!rateOk(`hs:${b.channelId}`, MAX_CHANNEL_RATE)) return new Response('rate limited', { status: 429 })
+  if (!verifyCompanionSecret(b.secret, b.channelId)) {
+    logCompanion('hs', b.channelId, 'rejected: wrong secret')
+    return new Response('unauthorized', { status: 401 })
+  }
+  if (!rateOk(`hs:${b.channelId}`, MAX_CHANNEL_RATE)) {
+    logCompanion('hs', b.channelId, 'rejected: rate limited')
+    return new Response('rate limited', { status: 429 })
+  }
+  logCompanion('hs', b.channelId, 'frames arriving')
 
   // hs: null is the leave-the-game signal, and must be accepted as readily as a board
   if (b.hs === null || b.hs === undefined) {
@@ -65,7 +73,10 @@ export async function handleHsPost(req: Request): Promise<Response> {
     return new Response('ok', { status: 202 })
   }
   const hs = parseHsState(b.hs)
-  if (!hs) return new Response('bad request', { status: 400 })
+  if (!hs) {
+    logCompanion('hs', b.channelId, 'rejected: malformed board')
+    return new Response('bad request', { status: 400 })
+  }
   storeHsState(b.channelId, hs)
   return new Response('ok', { status: 202 })
 }
