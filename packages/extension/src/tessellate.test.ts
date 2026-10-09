@@ -35,9 +35,9 @@ describe('tessellate', () => {
     const [jacket, next] = tessellate(row([[0.2, 2 * S], [0.2 + 5 * S, S]]))
     const vanLo = 0.2 + 2 * S
     const vanHi = vanLo + 3 * S
-    // each side only gets edge slop, so most of the van stays tooltip-free
-    expect(jacket.x + jacket.w).toBeCloseTo(vanLo + S * 0.15)
-    expect(next.x).toBeCloseTo(vanHi - S * 0.15)
+    // zero reach into the van from either side
+    expect(jacket.x + jacket.w).toBeCloseTo(vanLo, 9)
+    expect(next.x).toBeCloseTo(vanHi, 9)
     expect(noOverlap([jacket, next])).toBe(true)
   })
 
@@ -59,9 +59,9 @@ describe('tessellate', () => {
 
   it('caps growth into a huge gap (far-apart cards do not balloon)', () => {
     const [a, b] = tessellate(row([[0.05, 0.05], [0.80, 0.05]]))
-    // gap 0.70 could hide cards, so each grows only edge slop 0.05*0.15=0.0075
-    expect(a.w).toBeCloseTo(0.0575)
-    expect(b.x).toBeCloseTo(0.7925)
+    // gap 0.70 could hide cards, so neither grows
+    expect(a.w).toBeCloseTo(0.05, 9)
+    expect(b.x).toBeCloseTo(0.80, 9)
     expect(noOverlap([a, b])).toBe(true)
   })
 

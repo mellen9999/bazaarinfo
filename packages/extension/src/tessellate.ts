@@ -15,7 +15,7 @@
 // companion couldn't name (loot, event rewards) and so never sent. Growing the
 // neighbours across it put their tooltips over that card (a medium jacket's zone
 // spread over a large van and read as "the extension thinks it's large"). Such a
-// gap only gets a thin edge slop, enough to forgive a near-miss on calibration.
+// gap is left exactly as sent: zero reach into a slot a card may occupy.
 
 interface Zone {
   x: number
@@ -27,7 +27,6 @@ interface Zone {
 }
 
 const HIDES_A_CARD = 0.5 // a gap at least this fraction of the narrower card could hide one
-const EDGE_SLOP = 0.15   // per-side growth into such a gap, as a fraction of the narrower card
 
 function sameRow(a: Zone, b: Zone): boolean {
   if ((a.owner ?? '') !== (b.owner ?? '')) return false
@@ -66,12 +65,12 @@ export function tessellate<T extends Zone>(zones: T[]): T[] {
         const bRight = b.x + b.w
         b.x = m
         b.w = Math.max(0, bRight - m)
-      } else {
-        const narrow = Math.min(a.w, b.w)
-        const grow = gap < narrow * HIDES_A_CARD ? gap / 2 : narrow * EDGE_SLOP
-        a.w = a.w + grow
-        b.x = b.x - grow
-        b.w = b.w + grow
+      } else if (gap < Math.min(a.w, b.w) * HIDES_A_CARD) {
+        // a gutter no card fits in — close it at the midpoint
+        const half = gap / 2
+        a.w = a.w + half
+        b.x = b.x - half
+        b.w = b.w + half
       }
     }
   }
