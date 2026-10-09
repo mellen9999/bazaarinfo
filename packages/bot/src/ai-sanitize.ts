@@ -78,6 +78,15 @@ export const ASK_COUNT_LEAK = new RegExp(
 // a capability lie, same class as SOURCE_LIE. narrow on purpose: requires schedule/stream-
 // time wording, so "i don't know his streaming setup" stays legal.
 export const SCHEDULE_DENIAL = /\b(?:schedule|stream\s+times?)\s+(?:isn'?t|is not|ain'?t)\s+something\s+i\s+(?:track|do|know|predict)\b|\bi\s+(?:don'?t|do not|can'?t|cannot|won'?t)\s+(?:track|predict|know)\s+(?:[\w'’]+\s+){0,3}?(?:schedules?|stream\s+times?|when\s+[\w'’]+\s+streams?)\b|\bschedule\s+access\b|\b(?:no|zero|without)\s+access\s+to\s+(?:[\w'’]+\s+){0,3}?schedules?\b|\bcalendar\s+app\b/i
+
+// the model narrating its own steering to chat: who planted a vibe, that a mod order is on,
+// "that was set for tea", "language settings aren't yours to command" (oct 2026, nl_kripp:
+// "plebber planted a chinese-only order, blame him"). a plant must be followed or ignored,
+// never announced, and a chatter is never named as its source. fixed at the context
+// (planter names left the prompt); this catches the model improvising the meta talk anyway.
+// narrow on purpose: "mod order", "planted <by|a|the|this>", "<was|got> set <for|by>", a
+// settings remark, "blame <name>" — a bare "vibe" is normal speech.
+export const SETTINGS_TALK = /\b(?:mod(?:erator)?(?:'s|s)?\s+(?:order|directive|decree)s?|(?:chat|channel)\s+(?:order|directive|decree)s?|plant(?:ed|s)\s+by\b|plant(?:ed|s)\s+(?:a|an|the|this|that)\s+(?:[\w-]+\s+){0,2}(?:order|vibe|directive|rule|decree|twist)\b|(?:was|were|got|been)\s+(?:set|planted|ordered|decreed)\s+(?:for|by)\b|(?:language|my|these|those)\s+(?:settings?|directives?)\s+(?:is|are|isn'?t|aren'?t|was|were)\b|not\s+(?:something|a thing)\s+you\s+can\s+(?:command|order|set|change)|blame\s+(?:him|her|them|@?\w+)\s+(?:if|for)\b)/i
 // "this is bazaar chat, not hearthstone's" shipped live — the article ("a") and noun ("bot")
 // were both hardcoded, so "chat/channel/stream" without "a" slipped past. article now
 // optional, noun widened to the shapes the model actually uses.

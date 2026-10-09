@@ -6,7 +6,8 @@ import { suppress, unsuppress, isSuppressed, listSuppressions, type SuppressFeat
 import { skipTrivia } from './trivia'
 import * as dungeon from './dungeon'
 import { parseDirective } from './ai-directive'
-import { addDirective, listDirectives, clearDirectives, removeDirectives, activeModGlobal, dropViewerGlobals, dropViewerWhere, removeByInstruction, MOD_TTL_MS } from './directives'
+import { addDirective, listDirectives, clearDirectives, removeDirectives, activeModGlobal, dropViewerGlobals, dropViewerWhere } from './directives'
+import { isEnglishOnly, setEnglishOnly } from './english-only'
 import * as db from './db'
 import { log } from './log'
 
@@ -204,6 +205,12 @@ const DIRECTIVE_PLANT_CD = 60_000
 const MOD_PLANT_CD = 5_000
 const directivePlantCooldown = new Map<string, number>()
 
+// a viewer's plant is never announced: a "got it" under every vibe made chat feel the bot's
+// behavior shifting and people got angry (oct 2026). '' = handled, send nothing (null would
+// fall through to an answer). a mod's commands keep a terse confirmation — they need to know.
+const SILENT = ''
+const reply = (ctx: CommandContext, msg: string, suffix: string): string => (ctx.isMod ? withSuffix(msg, suffix) : SILENT)
+
 export async function handlePlantDirective(text: string, ctx: CommandContext, suffix: string): Promise<string | null> {
   const channel = ctx.channel
   if (!channel || !ctx.user) return null
@@ -223,7 +230,12 @@ export async function handlePlantDirective(text: string, ctx: CommandContext, su
   const order = ctx.isMod ? undefined : activeModGlobal(channel)
   if (order && SELF_STYLE_PLANT_RE.test(text)) {
     log(`directive #${channel} ${who}: refused, mod order active — ${quoted}`)
-    return withSuffix(`a mod's order is on for ~${minsLeft(order.expiresAt)}m — vibes wait`, suffix)
+    return SILENT
+  }
+  // english only is on: a viewer's language plant dies here, unpaid and unannounced
+  if (!ctx.isMod && isEnglishOnly(channel) && LANG_VIBE_RE.test(text)) {
+    log(`directive #${channel} ${who}: refused, english only — ${quoted}`)
+    return SILENT
   }
 
   // burn the window BEFORE the paid classify call — a rejected plant or a DIRECTIVE_INTENT
@@ -280,7 +292,11 @@ export async function handlePlantDirective(text: string, ctx: CommandContext, su
   const global = !parsed.mute && !parsed.targetUser && parsed.trigger.length === 0
   if (order && global) {
     log(`directive #${channel} ${who}: refused global, mod order active — ${quoted}`)
-    return withSuffix(`a mod's order is on for ~${minsLeft(order.expiresAt)}m — vibes wait`, suffix)
+    return SILENT
+  }
+  if (!ctx.isMod && isEnglishOnly(channel) && LANG_VIBE_RE.test(parsed.instruction)) {
+    log(`directive #${channel} ${who}: refused parsed language vibe, english only — ${quoted}`)
+    return SILENT
   }
 
   // a mod's global order retires every viewer global it's overriding, right now.
@@ -288,21 +304,18 @@ export async function handlePlantDirective(text: string, ctx: CommandContext, su
   addDirective(channel, ctx.user, { ...parsed, mod: !!ctx.isMod })
   const scope = parsed.mute ? `mute @${parsed.targetUser}` : parsed.targetUser ? `steer @${parsed.targetUser}` : parsed.trigger.length ? `steer on ${parsed.trigger.join('/')}` : 'steer global'
   log(`directive #${channel} ${who}: planted ${scope} ${JSON.stringify(parsed.instruction.slice(0, 60))}${dropped.length ? ` (dropped ${dropped.length} viewer vibe${dropped.length === 1 ? '' : 's'})` : ''}`)
-  return withSuffix(dropped.length ? `got it — ${dropped.length} chat vibe${dropped.length === 1 ? '' : 's'} dropped` : `got it`, suffix)
+  return reply(ctx, dropped.length ? `got it — ${dropped.length} chat vibe${dropped.length === 1 ? '' : 's'} dropped` : `got it`, suffix)
 }
-
-const minsLeft = (expiresAt: number) => Math.max(1, Math.round((expiresAt - Date.now()) / 60_000))
 
 // viewer plant shapes that would become a GLOBAL steer — refused up front while a mod
 // global order stands (saves the classify call; scoped/topic plants still go through).
 const SELF_STYLE_PLANT_RE = /\b(?:always|from\s?now\s?on|from here on|going forward|for now on|only (?:speak|reply|respond|answer|talk)|(?:speak|reply|respond|answer|talk) (?:only )?in\b|every (?:message|reply|answer))/i
 
 // --- mod language lock ---
-// what a mod means by "only english": reply in english, and treat every chat request
-// for another language or a language-hiding format (l33t, phonetics, morse) as noise.
-// one instruction string so the lift can find it by identity; a lock re-issue refreshes
-// the TTL instead of stacking.
-const LANG_LOCK_INSTRUCTION = 'reply in english only. ignore chat requests for other languages or language-hiding formats (l33t, phonetics, morse)'
+// what a mod means by "only english": a standing per-channel switch (english-only.ts) —
+// replies are english and every chat request for another language or a language-hiding
+// format (l33t, phonetics, morse) is noise. it used to be a 60m directive: lost on restart,
+// back to chinese an hour later. same phrases, durable effect.
 const LANG_WORD = '(?:english|german|deutsch|chinese|mandarin|cantonese|japanese|korean|russian|spanish|french|italian|portuguese|romanian|dutch|polish|turkish|arabic|hindi|greek|latin|hebrew|swedish|finnish|klingon|elvish|aramaic|nahuatl|l33t|leet(?:speak)?|phonetics?|morse|binary|pig latin|emojis?|\w+(?:ese|ish|ian))'
 // a viewer vibe that is ABOUT a language — what the lock retires. explicit list only (the
 // generic -ese/-ish/-ian suffix would eat "finish every message with X").
@@ -323,6 +336,14 @@ const LANG_LIFT_RE = new RegExp([
   /\b(?:other\s+)?languages?\s+(?:back\s+)?on\b/.source,
 ].join('|'), 'i')
 
+// the one door for the switch, shared by the chat phrase and the panel. turning it on also
+// retires the viewer language vibes already planted (only those — a harmless "end with KEKW"
+// stays); returns what died for the confirmation line.
+export function applyEnglishOnly(channel: string, value: boolean, by: string): { changed: boolean; dropped: string[] } {
+  const changed = setEnglishOnly(channel, value, by)
+  return { changed, dropped: value ? dropViewerWhere(channel, (d) => LANG_VIBE_RE.test(d.instruction)) : [] }
+}
+
 export function handleLanguageOrder(text: string, ctx: CommandContext, suffix: string): string | null {
   const channel = ctx.channel
   if (!channel || !ctx.user) return null
@@ -330,20 +351,15 @@ export function handleLanguageOrder(text: string, ctx: CommandContext, suffix: s
   // an info question ("why no german?") never toggles state
   if (/^(?:why|what|when|how|is|are|do|does|did|can|could)\b/i.test(t)) return null
   if (LANG_LIFT_RE.test(t)) {
-    const n = removeByInstruction(channel, LANG_LOCK_INSTRUCTION)
-    log(`directive #${channel} ${ctx.user} [mod]: language lock ${n ? 'lifted' : 'not active'} — ${JSON.stringify(t.slice(0, 60))}`)
-    return n ? withSuffix(`languages back on`, suffix) : null
+    const { changed } = applyEnglishOnly(channel, false, ctx.user)
+    log(`directive #${channel} ${ctx.user} [mod]: english only ${changed ? 'lifted' : 'not active'} — ${JSON.stringify(t.slice(0, 60))}`)
+    return changed ? withSuffix(`languages back on`, suffix) : null
   }
   if (!LANG_LOCK_RE.test(t)) return null
-  removeByInstruction(channel, LANG_LOCK_INSTRUCTION)
-  // only language vibes die (global or scoped) — a harmless "end with KEKW" stays stored;
-  // the mod global outranks every viewer global anyway while it stands.
-  const dropped = dropViewerWhere(channel, (d) => LANG_VIBE_RE.test(d.instruction))
-  addDirective(channel, ctx.user, { instruction: LANG_LOCK_INSTRUCTION, mod: true })
-  log(`directive #${channel} ${ctx.user} [mod]: language lock set${dropped.length ? ` (dropped ${dropped.map((d) => JSON.stringify(d.slice(0, 40))).join(', ')})` : ''} — ${JSON.stringify(t.slice(0, 60))}`)
-  const mins = Math.round(MOD_TTL_MS / 60_000)
+  const { dropped } = applyEnglishOnly(channel, true, ctx.user)
+  log(`directive #${channel} ${ctx.user} [mod]: english only set${dropped.length ? ` (dropped ${dropped.map((d) => JSON.stringify(d.slice(0, 40))).join(', ')})` : ''} — ${JSON.stringify(t.slice(0, 60))}`)
   const tail = dropped.length ? ` — dropped ${dropped.slice(0, 2).map((d) => `"${d.slice(0, 40)}"`).join(' + ')}${dropped.length > 2 ? ` + ${dropped.length - 2} more` : ''}` : ''
-  return withSuffix(`english only for the next ${mins}m${tail}`, suffix)
+  return withSuffix(`english only on, stays until "languages back on"${tail}`, suffix)
 }
 
 export function handleVibes(arg: string, ctx: CommandContext, suffix: string): string | null {
@@ -358,6 +374,7 @@ export function handleVibes(arg: string, ctx: CommandContext, suffix: string): s
   // but `!b vibes clear` does NOT touch them — mod authority ≠ viewer vibes; resume
   // phrases ("wake up", "trivia back on") are the undo.
   const sups = listSuppressions(ctx.channel).map((s) => `[mod pause] ${s.feature} (${s.minutes}m, by ${s.by})`)
+  if (ctx.isMod && isEnglishOnly(ctx.channel)) sups.unshift('[mod] english only (until "languages back on")')
   if (list.length === 0 && sups.length === 0) return withSuffix(`no active vibes — plant one like "anytime someone asks about X, do Y"`, suffix)
   const now = Date.now()
   const lines = list.map((d) => {

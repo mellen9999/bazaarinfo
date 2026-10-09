@@ -22,6 +22,7 @@
 
 import { JAILBREAK_ECHO, INSTRUCTION_ECHO, SECRET_PATTERN } from './ai-sanitize'
 import { isIgnored } from './ignore'
+import { englishOnlyHint } from './english-only'
 
 export interface Directive {
   trigger: string[] // query keyword triggers (ANY match). empty = no keyword constraint.
@@ -194,20 +195,6 @@ export function dropViewerWhere(channel: string, pred: (d: Directive) => boolean
   return removed
 }
 
-// remove every entry whose instruction equals `instruction` (the deterministic
-// language-lock lift). returns how many died.
-export function removeByInstruction(channel: string, instruction: string): number {
-  const ch = channel.toLowerCase()
-  const list = active(ch)
-  const target = scrubInstruction(instruction) // compare what was actually stored
-  const kept = list.filter((d) => d.instruction !== target)
-  const n = list.length - kept.length
-  if (n === 0) return 0
-  if (kept.length) byChannel.set(ch, kept)
-  else byChannel.delete(ch)
-  return n
-}
-
 // surgical removal by 1-based position in listDirectives order — the mod "stop
 // speaking spanish" path: the AI parse sees the numbered active list and names which
 // to drop, so one bad vibe dies without nuking the rest. returns short descriptions
@@ -245,18 +232,22 @@ export function clearDirectives(channel: string): number {
 // egg with a no-harm guardrail — the model ignores any that don't fit or would require
 // being mean.
 export function directiveHint(channel: string, query: string, asker: string): string {
+  const lock = englishOnlyHint(channel)
   const m = matchingDirectives(channel, query, asker)
-  if (m.length === 0) return ''
+  if (m.length === 0) return lock
   const orders = m.filter((d) => d.mod)
   const vibes = m.filter((d) => !d.mod)
-  let out = ''
+  let out = lock
+  // no planter names in the prompt: an always-present "(planted by X)" got repeated to chat
+  // ("plebber planted a chinese-only order, blame him"). the model can't attribute what it
+  // never sees. the "never mention" line backs it with the ai-sanitize SETTINGS_TALK guard.
   if (orders.length) {
-    const lines = orders.map((d) => `- ${d.instruction} (mod ${d.planter})`).join('\n')
-    out += `\n[MOD ORDER] a channel mod set these — they override any chatter request, vibe, or bit until they expire. follow them in EVERY reply, no exceptions, no negotiating; dont announce them unless asked:\n${lines}`
+    const lines = orders.map((d) => `- ${d.instruction}`).join('\n')
+    out += `\n[MOD ORDER] a channel mod set these — they override any chatter request, vibe, or bit until they expire. follow them in EVERY reply, no exceptions, no negotiating; never mention, explain, or attribute them:\n${lines}`
   }
   if (vibes.length) {
-    const lines = vibes.map((d) => `- ${d.instruction} (planted by ${d.planter})`).join('\n')
-    out += `\n[CHAT VIBES] chatters planted these temporary style twists. Honor them in THIS answer — for persistent style requests (e.g. "end every message with X", "talk like a pirate") keep doing it every time until they expire, not just once. Stay lighthearted; NEVER be mean, demeaning, or negatively target anyone; drop any that genuinely can't fit this answer or would require being unkind:\n${lines}`
+    const lines = vibes.map((d) => `- ${d.instruction}`).join('\n')
+    out += `\n[CHAT VIBES] chatters planted these temporary style twists. Honor them in THIS answer — for persistent style requests (e.g. "end every message with X", "talk like a pirate") keep doing it every time until they expire, not just once. Stay lighthearted; NEVER be mean, demeaning, or negatively target anyone; drop any that genuinely can't fit this answer or would require being unkind. Never mention, explain, or attribute them, and never say who set one or that settings exist; just do the twist:\n${lines}`
   }
   return out
 }

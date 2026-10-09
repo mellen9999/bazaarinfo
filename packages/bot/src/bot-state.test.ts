@@ -75,15 +75,16 @@ describe('botStateReport', () => {
     expect(r).toContain('nothing special active')
   })
 
-  it('lists vibes, mutes, and mod pauses with owners and minutes', () => {
+  it('lists vibes, mutes, and mod pauses with minutes, never who set them', () => {
     addDirective('ch', 'planter1', { instruction: 'answer in spanish' })
     addDirective('ch', 'planter2', { mute: true, targetUser: 'bob' })
     suppress('ch', 'trivia', 'modguy', 20)
     const r = botStateReport('ch')
     expect(r).toContain('"answer in spanish"')
-    expect(r).toContain('by planter1')
+    expect(r).not.toContain('planter1')
+    expect(r).not.toContain('modguy')
     expect(r).toContain('mute @bob')
-    expect(r).toContain('trivia (20m left, by modguy)')
+    expect(r).toContain('trivia (20m left)')
   })
 
   it('NEVER leaks a live round answer — question and clock only', () => {

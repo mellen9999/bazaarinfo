@@ -644,6 +644,7 @@ function switchDefs(snap: Snapshot): SwitchDef[] {
     { label: 'trivia', tip: 'the trivia game', feature: 'trivia' },
     { label: 'dungeon', tip: 'the depths dungeon game', feature: 'depths' },
     { label: 'raid', tip: 'the raid game', on: snap.raid.enabled, toggle: (on) => doAct({ kind: 'raid', on }) },
+    { label: 'english only', tip: 'every reply is english, whatever chat asks or plants — stays on until you turn it off', on: snap.englishOnly, toggle: (on) => doAct({ kind: 'english-only', on }) },
     { label: 'goal alerts', tip: 'unprompted world cup goal announcements in this chat', on: snap.goals, toggle: (on) => doAct({ kind: 'goals', on }) },
   ]
 }
@@ -936,7 +937,7 @@ const SELECTABLE: ReadonlySet<BoxKey> = new Set(['chatrules', 'trivia', 'questio
 
 function sliceFor(key: BoxKey, snap: Snapshot): unknown {
   switch (key) {
-    case 'switches': return { ai: snap.ai.enabled, aiTrivia: snap.ai.aiTrivia, pauses: snap.pauses, raid: snap.raid.enabled, goals: snap.goals, admin: state.me?.admin }
+    case 'switches': return { ai: snap.ai.enabled, aiTrivia: snap.ai.aiTrivia, pauses: snap.pauses, raid: snap.raid.enabled, goals: snap.goals, englishOnly: snap.englishOnly, admin: state.me?.admin }
     case 'chatrules': return snap.vibes
     case 'trivia': return snap.trivia
     case 'questions': return state.questionsMode === 'asks' ? snap.asks : snap.misses

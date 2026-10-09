@@ -566,7 +566,8 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // a classify call is fine; ordinary mod lookups ("!b toaster") still skip it.
   if (ctx.channel && (DIRECTIVE_INTENT.test(cleanArgs) || (ctx.isMod && MOD_CONTROL_HINT.test(cleanArgs)))) {
     const planted = await handlePlantDirective(cleanArgs, ctx, suffix)
-    if (planted) return planted
+    // '' = a viewer plant handled in silence — send nothing, don't fall through to an answer
+    if (planted !== null) return planted
   }
 
   // generic enchant definition — deterministic, BEFORE item lookup + glossary so

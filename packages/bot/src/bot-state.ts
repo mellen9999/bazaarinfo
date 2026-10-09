@@ -15,6 +15,7 @@
 // live-game resolver.
 
 import { listDirectives } from './directives'
+import { isEnglishOnly } from './english-only'
 import { listSuppressions } from './suppress'
 import { activeRoundInfo } from './trivia'
 import { statusLine as dungeonStatusLine } from './dungeon'
@@ -66,7 +67,8 @@ export function botStateReport(channel: string): string {
     const now = Date.now()
     const vl = vibes.map((d, i) => {
       const mins = Math.max(1, Math.round((d.expiresAt - now) / 60_000))
-      const by = d.mod ? `mod order by ${d.planter}` : `by ${d.planter}`
+      // no names: who planted a vibe is never something the bot repeats to chat
+      const by = d.mod ? 'mod order' : 'chat vibe'
       if (d.mute) return `${i + 1}. mute @${d.targetUser} (${by}, ${mins}m left)`
       const scope = d.targetUser ? ` for @${d.targetUser}` : d.trigger.length ? ` on ${d.trigger.join('/')}` : ''
       return `${i + 1}. "${d.instruction}"${scope} (${by}, ${mins}m left)`
@@ -74,9 +76,12 @@ export function botStateReport(channel: string): string {
     lines.push(`vibes: ${vl.join(' · ')}`)
   }
 
+  // english only is a standing order, not a timed vibe
+  if (isEnglishOnly(channel)) lines.push('english only: on (mod order, until a mod lifts it)')
+
   // mod pauses
   const sups = listSuppressions(channel)
-  if (sups.length) lines.push(`mod pauses: ${sups.map((s) => `${s.feature} (${s.minutes}m left, by ${s.by})`).join(' · ')}`)
+  if (sups.length) lines.push(`mod pauses: ${sups.map((s) => `${s.feature} (${s.minutes}m left)`).join(' · ')}`)
 
   // registered extras (topic queue, topic bans)
   for (const p of providers) {

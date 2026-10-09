@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, setSystemTime } from 'bun:test'
-import { addDirective, matchingDirectives, isMuted, listDirectives, clearDirectives, directiveHint, resetForTest, MAX_INSTRUCTION, activeModGlobal, dropViewerGlobals, removeByInstruction } from './directives'
+import { addDirective, matchingDirectives, isMuted, listDirectives, clearDirectives, directiveHint, resetForTest, MAX_INSTRUCTION, activeModGlobal, dropViewerGlobals } from './directives'
 
 describe('directives', () => {
   beforeEach(() => resetForTest())
@@ -261,7 +261,7 @@ describe('directives: mod tier', () => {
     expect(isMuted('ch', 'subby', true)).toBe(true)
   })
 
-  it('activeModGlobal + dropViewerGlobals + removeByInstruction', () => {
+  it('activeModGlobal + dropViewerGlobals', () => {
     expect(activeModGlobal('ch')).toBeUndefined()
     addDirective('ch', 'plebber', { instruction: 'reply only in chinese' })
     addDirective('ch', 'b', { trigger: ['topology'], instruction: 'keep this' })
@@ -269,8 +269,6 @@ describe('directives: mod tier', () => {
     expect(activeModGlobal('ch')?.instruction).toBe('english only')
     expect(dropViewerGlobals('ch')).toEqual(['reply only in chinese'])
     expect(listDirectives('ch').map((d) => d.instruction).sort()).toEqual(['english only', 'keep this'])
-    expect(removeByInstruction('ch', 'english only')).toBe(1)
-    expect(activeModGlobal('ch')).toBeUndefined()
   })
 
   it('vibes clear leaves mod orders standing', () => {
@@ -286,7 +284,8 @@ describe('directives: mod tier', () => {
     const hint = directiveHint('ch', 'topology q', 'u')
     expect(hint.indexOf('[MOD ORDER]')).toBeGreaterThanOrEqual(0)
     expect(hint.indexOf('[MOD ORDER]')).toBeLessThan(hint.indexOf('[CHAT VIBES]'))
-    expect(hint).toContain('english only (mod rustic)')
+    expect(hint).toContain('- english only')
+    expect(hint).not.toContain('rustic')
     expect(hint).toContain('GachiBlacksmith')
   })
 })

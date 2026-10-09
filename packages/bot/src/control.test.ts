@@ -237,6 +237,30 @@ describe('persistence — survives a simulated restart', () => {
   })
 })
 
+describe('english only', () => {
+  it('defaults off, toggles through act, shows in the snapshot, survives a wipe, drops viewer language vibes', async () => {
+    const eo = await import('./english-only')
+    expect(snapshot('engchan').englishOnly).toBe(false)
+    addDirective('engchan', 'plebber', { instruction: 'reply entirely in traditional chinese' })
+    addDirective('engchan', 'other', { instruction: 'end with KEKW' })
+    expect((await act('engchan', 'mod1', { kind: 'english-only', on: true }, false)).ok).toBe(true)
+    expect(snapshot('engchan').englishOnly).toBe(true)
+    expect(listDirectives('engchan').map((d) => d.instruction)).toEqual(['end with KEKW'])
+    expect(eo.isEnglishOnly('otherchan')).toBe(false)
+    eo.__resetEnglishOnlyForTest() // memory gone, sqlite row stays
+    expect(eo.isEnglishOnly('engchan')).toBe(true)
+    expect((await act('engchan', 'mod1', { kind: 'english-only', on: false }, false)).ok).toBe(true)
+    eo.__resetEnglishOnlyForTest()
+    expect(eo.isEnglishOnly('engchan')).toBe(false)
+  })
+
+  it('parseAction needs a real boolean', () => {
+    expect(parseAction({ kind: 'english-only', on: true })).toEqual({ kind: 'english-only', on: true })
+    expect(parseAction({ kind: 'english-only', on: 'yes' })).toBeNull()
+    expect(parseAction({ kind: 'english-only' })).toBeNull()
+  })
+})
+
 describe('trivia cooldowns', () => {
   it('parseAction takes only whitelisted scopes and values', () => {
     expect(parseAction({ kind: 'trivia-cd', scope: 'round', seconds: 120 })).toEqual({ kind: 'trivia-cd', scope: 'round', seconds: 120 })
