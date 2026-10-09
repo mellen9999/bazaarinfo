@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import type { BazaarCard } from '@bazaarinfo/shared/src/types'
 import { NO_FILTERS, hasFilter, filterLabel, filterOptions, cycleValue, matchesFilters, applyFilters } from './card-filters'
+import { ENGLISH } from './i18n'
 
 const card = (o: Partial<BazaarCard>): BazaarCard => ({
   Type: 'Item', Title: 'x', Size: 'Small', BaseTier: 'Bronze', Tiers: ['Bronze', 'Silver'], Heroes: ['Common'],
@@ -107,10 +108,10 @@ describe('applyFilters', () => {
 
 describe('labels and state', () => {
   it('words the neutral hero the way viewers do, all lowercase', () => {
-    expect(filterLabel('hero', 'Common')).toBe('neutral')
-    expect(filterLabel('hero', 'The Dragons')).toBe('the dragons')
-    expect(filterLabel('tier', 'Gold')).toBe('gold')
-    expect(filterLabel('type', 'Common')).toBe('common')
+    expect(filterLabel('hero', 'Common', ENGLISH)).toBe('neutral')
+    expect(filterLabel('hero', 'The Dragons', ENGLISH)).toBe('the dragons')
+    expect(filterLabel('tier', 'Gold', ENGLISH)).toBe('gold')
+    expect(filterLabel('type', 'Common', ENGLISH)).toBe('common')
   })
 
   it('knows when a chip is set', () => {

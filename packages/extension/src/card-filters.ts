@@ -4,6 +4,7 @@
 // disagree about what "gold" or "neutral" means.
 
 import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
+import type { I18n } from './i18n'
 
 export type FilterKey = 'hero' | 'type' | 'size' | 'tier'
 export type Filters = Record<FilterKey, string | null>
@@ -24,8 +25,16 @@ export function hasFilter(f: Filters): boolean {
   return FILTER_KEYS.some((k) => f[k] !== null)
 }
 
-export function filterLabel(key: FilterKey, value: string): string {
-  return (key === 'hero' && value === NEUTRAL ? 'neutral' : value).toLowerCase()
+// The chip's own name: the game's word when it has one, else the key as we spell it.
+const FILTER_WORD: Record<FilterKey, string> = { hero: 'Hero', type: 'Type', size: 'Size', tier: 'Tier' }
+export function filterName(key: FilterKey, i18n: I18n): string {
+  return i18n.has(FILTER_WORD[key]) ? i18n.word(FILTER_WORD[key]) : key
+}
+
+export function filterLabel(key: FilterKey, value: string, i18n: I18n): string {
+  // "neutral" is our word, not the game's: only swap it if the game has a word for Common
+  if (key === 'hero' && value === NEUTRAL) return i18n.has(NEUTRAL) ? i18n.word(NEUTRAL) : 'neutral'
+  return i18n.word(value)
 }
 
 // Only values that exist in the loaded data, so a chip can never cycle into an empty

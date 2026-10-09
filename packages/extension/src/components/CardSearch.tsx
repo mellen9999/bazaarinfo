@@ -1,11 +1,13 @@
 import { useState, useLayoutEffect, useCallback, useRef, useMemo } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
-import { buildIndex, searchCards } from '@bazaarinfo/shared/src/search'
+import { buildIndex, searchCards, type SearchCard } from '@bazaarinfo/shared/src/search'
 import { CardTooltip } from './CardTooltip'
 import { tierColor } from '../tiers'
+import { useI18n } from '../i18n-context'
+import type { I18n } from '../i18n'
 import {
-  NO_FILTERS, FILTER_KEYS, hasFilter, filterLabel, filterOptions, cycleValue, applyFilters,
+  NO_FILTERS, FILTER_KEYS, hasFilter, filterLabel, filterName, filterOptions, cycleValue, applyFilters,
   type FilterKey, type Filters,
 } from '../card-filters'
 
@@ -23,13 +25,23 @@ interface Props {
 
 type Index = ReturnType<typeof buildIndex>
 const NONE = { list: [] as BazaarCard[], more: 0 }
-const byTitle = (a: BazaarCard, b: BazaarCard) => a.Title.localeCompare(b.Title)
+const byTitle = (i18n: I18n) => (a: BazaarCard, b: BazaarCard) =>
+  i18n.t(a.Title).localeCompare(i18n.t(b.Title), i18n.lang || undefined)
+
+// English-speaking viewers search the cards as they are; everyone else's copy also
+// carries the title they read on their own card, indexed beside the English one.
+function indexFor(cards: BazaarCard[], i18n: I18n) {
+  if (!i18n.lang) return buildIndex(cards)
+  return buildIndex(cards.map((c): SearchCard => ({ ...c, TitleLocal: i18n.t(c.Title) })), true)
+}
 
 // The search box, filter chips, result list and picked card — everything between
 // "viewer wants a card" and "viewer is reading it". Shared by the Twitch panel and
 // the video overlay, which differ only in where it sits and how big it draws
 // (their CSS), so a fix to either is a fix to both.
 export function CardSearch({ cards, error, autoFocus = false, idle }: Props) {
+  const i18n = useI18n()
+  const { t, word } = i18n
   const [query, setQuery] = useState('')
   // `query` follows the keys; `term` is what the results are computed from, a beat
   // behind so typing never waits on a search.
@@ -43,8 +55,8 @@ export function CardSearch({ cards, error, autoFocus = false, idle }: Props) {
   // asked for yet, and doing it during startup is the difference between a panel
   // that opens instantly and one that hitches on a phone. Dropped when the card list
   // is replaced (a refresh), so it can never answer from stale data.
-  const cache = useRef<{ cards: BazaarCard[] | null; index?: Index; sorted?: BazaarCard[] }>({ cards: null })
-  if (cache.current.cards !== cards) cache.current = { cards }
+  const cache = useRef<{ cards: BazaarCard[] | null; lang?: string; index?: Index; sorted?: BazaarCard[] }>({ cards: null })
+  if (cache.current.cards !== cards || cache.current.lang !== i18n.lang) cache.current = { cards, lang: i18n.lang }
 
   // Focus on open so it is usable without touching the mouse. The panel passes
   // autoFocus only where there is a mouse: on a phone an autofocused field throws up
@@ -65,17 +77,17 @@ export function CardSearch({ cards, error, autoFocus = false, idle }: Props) {
     const c = cache.current
     let pool: BazaarCard[]
     if (searching) {
-      c.index ??= buildIndex(cards)
+      c.index ??= indexFor(cards, i18n)
       // with a filter on, the best 8 matches may all be the wrong hero: rank them
       // all, then filter, then cut
       pool = searchCards(c.index, term, filtering ? cards.length : MAX_RESULTS).map((r) => r.item)
     } else {
-      c.sorted ??= [...cards].sort(byTitle)
+      c.sorted ??= [...cards].sort(byTitle(i18n))
       pool = c.sorted
     }
     const r = applyFilters(pool, filters, MAX_RESULTS)
     return { list: r.shown, more: r.more }
-  }, [cards, picked, searching, filtering, term, filters])
+  }, [cards, picked, searching, filtering, term, filters, i18n])
 
   const settle = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -96,9 +108,9 @@ export function CardSearch({ cards, error, autoFocus = false, idle }: Props) {
 
   const pick = useCallback((card: BazaarCard) => {
     setSelected({ card, tier: card.BaseTier })
-    setQuery(card.Title)
+    setQuery(t(card.Title))
     if (debounceRef.current) clearTimeout(debounceRef.current)
-  }, [])
+  }, [t])
 
   const pickTier = useCallback((tier: TierName) => {
     setSelected((s) => s ? { ...s, tier } : s)
@@ -210,12 +222,12 @@ export function CardSearch({ cards, error, autoFocus = false, idle }: Props) {
               type="button"
               class={`panel-chip${v !== null ? ' active' : ''}`}
               aria-pressed={v !== null}
-              aria-label={`${k} filter: ${v === null ? 'any' : filterLabel(k, v)}`}
+              aria-label={`${k} filter: ${v === null ? 'any' : filterLabel(k, v, i18n)}`}
               disabled={options[k].length === 0}
               onClick={() => cycleFilter(k, 1)}
               onKeyDown={(e) => handleChipKey(e, k)}
             >
-              {v === null ? k : `${k}: ${filterLabel(k, v)}`}
+              {v === null ? filterName(k, i18n) : `${filterName(k, i18n)}: ${filterLabel(k, v, i18n)}`}
             </button>
           )
         })}
@@ -233,7 +245,7 @@ export function CardSearch({ cards, error, autoFocus = false, idle }: Props) {
               onMouseEnter={() => setCursor(i)}
               onClick={() => pick(c)}
             >
-              {c.Title}
+              {t(c.Title)}
             </li>
           ))}
         </ul>
@@ -251,16 +263,16 @@ export function CardSearch({ cards, error, autoFocus = false, idle }: Props) {
             style={{ position: 'relative', width: '100%' }}
           />
           <div class="panel-tiers" role="group" aria-label="tier">
-            {selected.card.Tiers.map((t, i) => (
+            {selected.card.Tiers.map((tn, i) => (
               <button
-                key={t}
+                key={tn}
                 type="button"
-                class={`panel-tier${selected.tier === t ? ' active' : ''}`}
+                class={`panel-tier${selected.tier === tn ? ' active' : ''}`}
                 style={tierStyles[i]}
-                aria-pressed={selected.tier === t}
-                onClick={() => pickTier(t)}
+                aria-pressed={selected.tier === tn}
+                onClick={() => pickTier(tn)}
               >
-                {t.toLowerCase()}
+                {word(tn)}
               </button>
             ))}
           </div>

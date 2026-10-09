@@ -6,9 +6,10 @@ import type { TooltipPart, LadderStep } from '@bazaarinfo/shared/src/format'
 import { resolveTooltipParts, cooldownLadder, isDisplayTooltip } from '@bazaarinfo/shared/src/format'
 import { EBS_BASE } from '../twitch'
 import { tierColor } from '../tiers'
-import { KEYWORD_STYLE, tokenizeKeywords } from '../keywords'
+import { KEYWORD_STYLE } from '../keywords'
+import { useI18n } from '../i18n-context'
 
-const SIZE_LABEL: Record<string, string> = { Small: 'small', Medium: 'medium', Large: 'large' }
+const MAX_LABEL = 7
 const TIER_SEQ: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
 
 // Why a hovered card has no body. Each of these is a different truth and the
@@ -28,12 +29,13 @@ const MISSING_TEXT: Record<MissingReason, string> = {
 // left. The hue here IS the label — it's the cheapest way to say which is which, and
 // it costs no extra width in a 310px tooltip.
 function Ladder({ steps, suffix }: { steps: LadderStep[]; suffix?: string }) {
+  const { word } = useI18n()
   return (
     <span class="tt-ladder">
       {steps.map((s, i) => (
         <span key={s.tier}>
           {i > 0 && <span class="tt-step-sep">/</span>}
-          <span class="tt-step" style={{ color: tierColor(s.tier) }} title={s.tier.toLowerCase()}>
+          <span class="tt-step" style={{ color: tierColor(s.tier) }} title={word(s.tier)}>
             {s.value}
           </span>
         </span>
@@ -46,9 +48,10 @@ function Ladder({ steps, suffix }: { steps: LadderStep[]; suffix?: string }) {
 // Only prose is scanned for keywords — ladders are numbers and stay untouched. The
 // glyph is decoration (aria-hidden); the word beside it already says the same thing.
 function Keywords({ s }: { s: string }) {
+  const { tokenize } = useI18n()
   return (
     <>
-      {tokenizeKeywords(s).map((tok, i) => {
+      {tokenize(s).map((tok, i) => {
         if (typeof tok === 'string') return tok
         const style = KEYWORD_STYLE[tok.kw]
         return (
@@ -90,6 +93,8 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
 ) {
   const [imgLoaded, setImgLoaded] = useState(false)
   const [imgFailed, setImgFailed] = useState(false)
+  const i18n = useI18n()
+  const { t, word } = i18n
 
   const handleImgLoad = useCallback(() => setImgLoaded(true), [])
   const handleImgError = useCallback(() => setImgFailed(true), [])
@@ -105,8 +110,8 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
   } as Record<string, string>), [style, tier])
 
   const tags = useMemo(
-    () => card?.DisplayTags ?? card?.Tags ?? [],
-    [card?.DisplayTags, card?.Tags],
+    () => (card?.DisplayTags ?? card?.Tags ?? []).map(word),
+    [card?.DisplayTags, card?.Tags, word],
   )
 
   // The sender only knows the card's starting tier (Player.log carries no live tier,
@@ -118,10 +123,12 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
 
   const resolvedTooltips = useMemo(
     () => (card?.Tooltips ?? []).filter(isDisplayTooltip).map((tip) => ({
-      type: tip.type,
-      parts: resolveTooltipParts(tip.text, card?.TooltipReplacements ?? {}, ladderTier),
+      type: t(tip.type),
+      // translated first: the {ability.N} placeholders survive verbatim, so the
+      // ladders still substitute into the viewer's sentence
+      parts: resolveTooltipParts(t(tip.text), card?.TooltipReplacements ?? {}, ladderTier),
     })),
-    [card?.Tooltips, card?.TooltipReplacements, ladderTier],
+    [card?.Tooltips, card?.TooltipReplacements, ladderTier, t],
   )
 
   // Cooldown — the single most important stat on a Bazaar weapon. Flat number or
@@ -151,39 +158,46 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
     if (!enchantment) return null
     const e = card?.Enchantments?.[enchantment]
     if (!e?.tooltips?.length) return null
-    return e.tooltips.flatMap((t, i) => [
+    return e.tooltips.flatMap((tt, i) => [
       ...(i > 0 ? [{ t: 'text', s: ' ' } as TooltipPart] : []),
-      ...resolveTooltipParts(t.text, e.tooltipReplacements ?? {}, ladderTier),
+      ...resolveTooltipParts(t(tt.text), e.tooltipReplacements ?? {}, ladderTier),
     ])
-  }, [enchantment, card?.Enchantments, ladderTier])
+  }, [enchantment, card?.Enchantments, ladderTier, t])
 
   // One dense stat line instead of a row of chips — the chips were 9px and unreadable
   // over moving video, and the labels cost more pixels than the values they framed.
   // [slug, label, value]. The slug drives styling and stays fixed even when the
   // label changes, so the colour tracks the fact rather than the wording.
+  // The stat line is dense and wraps at four stats, so a label only swaps to the
+  // game's word when that word is short too ("Délai d'Activation" stays "cd").
+  const label = useCallback((english: string, terse: string) => {
+    const w = word(english)
+    return i18n.has(english) && [...w].length <= MAX_LABEL ? w : terse
+  }, [i18n, word])
+
   const stats = useMemo(() => {
     // A sender that only knows the card's *starting* tier says so, and we label it
     // "base" rather than "tier" — the tier itself is still a fact worth stating,
     // it's the numbers keyed off it that are a guess, and those now carry their own
     // tier below rather than silently borrowing this one.
     const out: Array<[string, string, string | LadderStep[]]> = [
-      ['tier', tierKnown === false ? 'base' : 'tier', tier.toLowerCase()],
+      ['tier', tierKnown === false ? 'base' : label('Tier', 'tier'), word(tier)],
     ]
     // Size and cooldown come from the dump, so without a card there is nothing
     // honest to put here — tier and enchantment came off the wire and still stand.
-    if (card) out.push(['size', 'size', SIZE_LABEL[card.Size] ?? String(card.Size).toLowerCase()])
+    if (card) out.push(['size', label('Size', 'size'), word(String(card.Size))])
     // Whose item this is. "Common" is the dump's word for neutral — no owner to name.
     const heroes = (card?.Heroes ?? []).filter((h) => h !== 'Common')
-    if (heroes.length) out.push(['hero', 'hero', heroes.map((h) => h.toLowerCase()).join('/')])
-    if (cooldownSteps) out.push(['cd', 'cd', cooldownSteps])
-    else if (cooldown != null) out.push(['cd', 'cd', `${cooldown}s`])
+    if (heroes.length) out.push(['hero', label('Hero', 'hero'), heroes.map(word).join('/')])
+    if (cooldownSteps) out.push(['cd', label('Cooldown', 'cd'), cooldownSteps])
+    else if (cooldown != null) out.push(['cd', label('Cooldown', 'cd'), `${cooldown}s`])
     // Named here too, not only as the effect block's label — an enchant whose text
     // we can't resolve would otherwise vanish from the card entirely.
-    if (enchantment) out.push(['ench', 'ench', enchantment.toLowerCase()])
+    if (enchantment) out.push(['ench', label('Enchantment', 'ench'), word(enchantment)])
     return out
-  }, [tier, card, cooldown, cooldownSteps, enchantment, tierKnown])
+  }, [tier, card, cooldown, cooldownSteps, enchantment, tierKnown, word, label])
 
-  const name = card?.Title ?? title ?? ''
+  const name = t(card?.Title ?? title ?? '')
 
   return (
     <div
@@ -242,7 +256,7 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
 
       {enchantParts && (
         <div class="tt-block tt-block--ench">
-          <div class="tt-label">{enchantment}</div>
+          <div class="tt-label">{t(enchantment ?? '')}</div>
           <div class="tt-text"><Parts parts={enchantParts} /></div>
         </div>
       )}
@@ -256,7 +270,7 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
       {tags.length > 0 && (
         <div class="tt-tags">
           {tags.map((tag, i) => (
-            <span class="tt-tag" key={`${tag}-${i}`}>{tag.toLowerCase()}</span>
+            <span class="tt-tag" key={`${tag}-${i}`}>{tag}</span>
           ))}
         </div>
       )}

@@ -7,18 +7,32 @@ export const EBS_BASE = 'https://ebs.bazaarinfo.com'
 // ms per attempt; the first is immediate.
 export const CARD_FETCH_BACKOFF = [0, 1_000, 5_000]
 
-export async function fetchCards(token: string): Promise<BazaarCard[]> {
+async function getJson<T>(path: string, token: string): Promise<T> {
   const ac = new AbortController()
   const tid = setTimeout(() => ac.abort(), 8000)
   try {
-    const res = await fetch(`${EBS_BASE}/api/cards`, {
+    const res = await fetch(`${EBS_BASE}${path}`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: ac.signal,
     })
     if (!res.ok) throw new Error(`${res.status}`)
-    const data = await res.json() as { items: BazaarCard[]; skills: BazaarCard[] }
-    return [...(data.items ?? []), ...(data.skills ?? [])]
+    return await res.json() as T
   } finally {
     clearTimeout(tid)
   }
+}
+
+export async function fetchCards(token: string): Promise<BazaarCard[]> {
+  const data = await getJson<{ items: BazaarCard[]; skills: BazaarCard[] }>('/api/cards', token)
+  return [...(data.items ?? []), ...(data.skills ?? [])]
+}
+
+// Which languages the EBS has strings for, and one language's english -> translated map.
+export async function fetchI18nLangs(token: string): Promise<string[]> {
+  const data = await getJson<{ langs?: string[] }>('/api/i18n', token)
+  return data.langs ?? []
+}
+
+export function fetchI18nMap(token: string, lang: string): Promise<Record<string, string>> {
+  return getJson<Record<string, string>>(`/api/i18n/${encodeURIComponent(lang)}`, token)
 }

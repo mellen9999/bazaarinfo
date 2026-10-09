@@ -13,13 +13,24 @@ const fuseOptions: IFuseOptions<BazaarCard> = {
   minMatchCharLength: 2, // reject single-char noise before scoring
 }
 
-export function buildIndex(cards: BazaarCard[]) {
-  return new Fuse(cards, fuseOptions)
+// A card carrying its title in the searcher's language, so a viewer can type either
+// the English name or the one printed on their own card.
+export type SearchCard = BazaarCard & { TitleLocal?: string }
+
+// Own options rather than an extra key on the shared ones: a key changes Fuse's
+// weight normalisation, and the bot's scores must not move for a feature it lacks.
+const fuseOptionsLocal: IFuseOptions<SearchCard> = {
+  ...fuseOptions,
+  keys: [...(fuseOptions.keys as { name: string; weight: number }[]), { name: 'TitleLocal', weight: 2 }],
+}
+
+export function buildIndex(cards: SearchCard[], withLocal = false): Fuse<SearchCard> {
+  return new Fuse(cards, withLocal ? fuseOptionsLocal : fuseOptions)
 }
 
 export type ScoredCard = { item: BazaarCard; score: number }
 
-export function searchCards(index: Fuse<BazaarCard>, query: string, limit = 5): ScoredCard[] {
+export function searchCards(index: Fuse<SearchCard>, query: string, limit = 5): ScoredCard[] {
   const results = index.search(query, { limit })
   return results.map((r) => ({ item: r.item, score: r.score ?? 1 }))
 }

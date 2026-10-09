@@ -1,6 +1,7 @@
 import { render } from 'preact'
 import { CardSearch } from './components/CardSearch'
 import { useCards } from './use-cards'
+import { I18nProvider } from './i18n-context'
 import './style.css'
 
 // two deliberate lines — a Twitch panel is 318px wide, and one long hint wraps into
@@ -34,4 +35,4 @@ function Panel() {
 }
 
 const root = document.getElementById('root')
-if (root) render(<Panel />, root)
+if (root) render(<I18nProvider><Panel /></I18nProvider>, root)

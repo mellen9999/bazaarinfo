@@ -11,6 +11,7 @@ import { join } from 'path'
 
 const DIST = join(import.meta.dir, '..', 'dist')
 const CACHE = join(import.meta.dir, '..', '..', '..', 'cache', 'items.json')
+const I18N_DIR = join(import.meta.dir, '..', '..', '..', 'cache', 'i18n')
 const PORT = Number(process.env.HARNESS_PORT ?? 8899)
 
 // ── pick a realistic board of cards (real data if present, else a fallback) ──
@@ -87,12 +88,12 @@ function page(crop: string | null): string {
   window.Twitch = { ext: {
     onAuthorized(cb){ setTimeout(()=>cb({token:'harness',channelId:'0',userId:'0',clientId:'0'}),0); },
     listen(t,cb){ if(t==='broadcast') window.__bcast=cb; }, unlisten(){},
-    onVisibilityChanged(cb){ window.__vis=cb; }, onContext(cb){ window.__ctx=cb; },
+    onVisibilityChanged(cb){ window.__vis=cb; }, onContext(cb){ (window.__ctxL ||= []).push(cb); window.__ctx = (c) => window.__ctxL.forEach((f) => f(c)); },
     configuration: { broadcaster: cropContent ? {segment:'broadcaster',version:'1',content:cropContent} : undefined,
       onChanged(cb){ window.__cfg=cb; }, set(){} },
   }};
   const _f = window.fetch.bind(window);
-  window.fetch = (u,o) => _f(String(u).includes('/api/cards') ? '/api/cards' : u, o);
+  window.fetch = (u,o) => _f(/\\/api\\/(cards|i18n)/.test(String(u)) ? new URL(String(u)).pathname : u, o);
   function board(){
     const it=CARDS.items, sk=CARDS.skills||[], D=[];
     const w=s=>s==='Small'?0.058:s==='Large'?0.14:0.092;
@@ -143,9 +144,10 @@ async function configPage(): Promise<string> {
 async function panelPage(): Promise<string> {
   const html = await Bun.file(join(DIST, 'panel.html')).text()
   const mock = `<script>
-  window.Twitch = { ext: { onAuthorized(cb){ setTimeout(()=>cb({token:'harness',channelId:'0',clientId:'0'}),0); } } };
+  window.Twitch = { ext: { onAuthorized(cb){ setTimeout(()=>cb({token:'harness',channelId:'0',clientId:'0'}),0); },
+    onContext(cb){ (window.__ctxL ||= []).push(cb); window.__ctx = (c) => window.__ctxL.forEach((f) => f(c)); } } };
   const _f=window.fetch.bind(window);
-  window.fetch=(u,o)=>_f(String(u).includes('/api/cards') ? '/api/cards' : u, o);
+  window.fetch=(u,o)=>_f(/\\/api\\/(cards|i18n)/.test(String(u)) ? new URL(String(u)).pathname : u, o);
   </script>`
   return html.replace(/<script [^>]*src="https:\/\/extension-files[^"]*"><\/script>/, mock)
 }
@@ -160,6 +162,15 @@ Bun.serve({
       return new Response(page(url.searchParams.get('crop')), { headers: { 'content-type': 'text/html' } })
     }
     if (path === '/api/cards') return Response.json(ALL)
+    // the EBS's translation routes, served from the same cache/i18n files
+    if (path === '/api/i18n') {
+      const langs = [...new Bun.Glob('*.json').scanSync(I18N_DIR)].map((f) => f.replace(/\.json$/, '')).sort()
+      return Response.json({ langs })
+    }
+    if (path.startsWith('/api/i18n/') && /^[a-z]{2}$/.test(path.slice(10))) {
+      const f = Bun.file(join(I18N_DIR, `${path.slice(10)}.json`))
+      return await f.exists() ? new Response(f, { headers: { 'content-type': 'application/json' } }) : new Response('not found', { status: 404 })
+    }
     if (path === '/panel' || path === '/panel.html') {
       return new Response(await panelPage(), { headers: { 'content-type': 'text/html' } })
     }
