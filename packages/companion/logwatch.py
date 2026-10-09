@@ -12,7 +12,7 @@ Usage:
     python logwatch.py [--config config.ini] [--debug] [--setup]
 """
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 import argparse
 import configparser
@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -89,11 +90,18 @@ def default_config_path() -> Path:
 STEAM_APPID = "1617400"
 GAME_DIR_NAME = "The Bazaar"
 LOG_SUBPATH = Path("Tempo Storm/The Bazaar/Player.log")
-# Current builds write cards.json to the runtime data dir (LocalLow, same tree as
-# Player.log — inside the Proton prefix on Linux). Older builds shipped it in the
-# install dir under StreamingAssets; kept as a fallback.
-CARDS_LOCALLOW_SUBPATH = Path("Tempo Storm/The Bazaar/prod/cache/cards.json")
+# The game keeps its card data in the runtime data dir (LocalLow, same tree as
+# Player.log — inside the Proton prefix on Linux). Current builds write GameData.db
+# (sqlite, one JSON row per card) and stopped updating cards.json, which froze in
+# early 2026: every card added since — whole new heroes — exists only in the db.
+# Older builds shipped cards.json in the install dir under StreamingAssets.
+CARD_CACHE_LOCALLOW_SUBPATH = Path("Tempo Storm/The Bazaar/prod/cache")
+GAMEDATA_NAME = "GameData.db"
+CARDS_JSON_NAME = "cards.json"
 CARDS_LEGACY_SUBPATH = Path("TheBazaar_Data/StreamingAssets/cards.json")
+
+# How often to look for a game update that rewrote the card data
+CARD_RELOAD_INTERVAL = 30
 
 # How often to re-send current state (handles EBS recovery)
 HEARTBEAT_INTERVAL = 30
@@ -196,39 +204,55 @@ def find_player_log() -> Path:
     )
 
 
-def find_cards_json() -> Path | None:
-    """Find the game's cards.json.
+def find_card_sources() -> list[Path]:
+    """Find the game's card data files, oldest format first.
 
     Primary location mirrors find_player_log() — the LocalLow runtime tree (inside
-    the Proton prefix on Linux) at prod/cache. Falls back to the legacy install-dir
-    StreamingAssets path for older game builds.
+    the Proton prefix on Linux) at prod/cache, where both cards.json and GameData.db
+    live. load_card_db() merges in this order, so GameData.db wins wherever the two
+    disagree and cards.json only fills ids the db lacks. Falls back to the legacy
+    install-dir StreamingAssets cards.json for older game builds.
     """
-    candidates: list[Path] = []
+    cache_dirs: list[Path] = []
     if os.name == "nt":
-        candidates.append(
+        cache_dirs.append(
             Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming")).parent
-            / "LocalLow" / CARDS_LOCALLOW_SUBPATH
+            / "LocalLow" / CARD_CACHE_LOCALLOW_SUBPATH
         )
     else:
         for lib in _find_steam_library_dirs():
-            candidates.append(
+            cache_dirs.append(
                 lib / "compatdata" / STEAM_APPID / "pfx/drive_c"
-                / "users/steamuser/AppData/LocalLow" / CARDS_LOCALLOW_SUBPATH
+                / "users/steamuser/AppData/LocalLow" / CARD_CACHE_LOCALLOW_SUBPATH
             )
-        candidates.append(
+        cache_dirs.append(
             Path.home()
             / ".local/share/Steam/steamapps/compatdata" / STEAM_APPID / "pfx/drive_c"
-            / "users/steamuser/AppData/LocalLow" / CARDS_LOCALLOW_SUBPATH
+            / "users/steamuser/AppData/LocalLow" / CARD_CACHE_LOCALLOW_SUBPATH
         )
+
+    for d in cache_dirs:
+        found = [d / name for name in (CARDS_JSON_NAME, GAMEDATA_NAME) if (d / name).exists()]
+        if found:
+            return found
+
     # Legacy fallback: install-dir StreamingAssets
     game = find_game_dir()
-    if game:
-        candidates.append(game / CARDS_LEGACY_SUBPATH)
+    if game and (game / CARDS_LEGACY_SUBPATH).exists():
+        return [game / CARDS_LEGACY_SUBPATH]
+    return []
 
-    for cards in candidates:
-        if cards.exists():
-            return cards
-    return None
+
+def card_sources_signature(sources: list[Path]) -> tuple:
+    """Identity of the card data on disk — changes when a game update rewrites it."""
+    sig = []
+    for p in sources:
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        sig.append((str(p), st.st_mtime_ns, st.st_size))
+    return tuple(sig)
 
 
 def wait_for_file(path: Path, label: str, timeout: float = 0) -> bool:
@@ -362,12 +386,11 @@ def _cap(t: str) -> str:
     return t[:_TITLE_MAX]
 
 
-def load_card_db(cards_json: Path) -> dict:
-    """Load template ID -> card info mapping from game's cards.json."""
-    with open(cards_json, encoding="utf-8") as f:
+def _read_cards_json(path: Path) -> list:
+    """Card dicts from a cards.json, which wraps them under a version key."""
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
-    # cards.json wraps cards under a version key — find the list.
     # Keys are dotted version strings; sort numerically to avoid "1.2.3" > "1.10.0".
     cards = data
     if isinstance(data, dict):
@@ -382,23 +405,64 @@ def load_card_db(cards_json: Path) -> dict:
                 break
 
     if not isinstance(cards, list):
-        logger.error("Unexpected cards.json format — expected a list of cards")
-        raise SystemExit(1)
+        raise ValueError(f"unexpected {path.name} format — expected a list of cards")
+    return cards
 
-    db = {}
-    for c in cards:
-        if not isinstance(c, dict):
+
+def _read_gamedata(path: Path) -> list:
+    """Card dicts from GameData.db — table cards(Id, Data), Data is one card's JSON.
+
+    Opened read-only so the companion can never write to (or lock out) the game's own
+    database. A row that doesn't parse is skipped rather than costing every other card.
+    """
+    con = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+    try:
+        rows = con.execute("SELECT Data FROM cards").fetchall()
+    finally:
+        con.close()
+    cards = []
+    for (data,) in rows:
+        try:
+            cards.append(json.loads(data))
+        except (TypeError, ValueError):
             continue
-        tid = c.get("Id", "")
-        title = c.get("Localization", {}).get("Title", {}).get("Text", "")
-        if not title:
-            title = c.get("InternalName", tid)
-        tier = c.get("StartingTier", "Unknown")
-        size = c.get("Size", "Medium")
-        card_type = c.get("Type", "Item")
-        db[tid] = {"title": _cap(title), "tier": tier, "size": size, "type": card_type}
+    return cards
 
-    logger.info("Loaded %d cards from %s", len(db), cards_json)
+
+def load_card_db(sources: list[Path]) -> dict:
+    """Load template ID -> card info, merged across the game's card data files.
+
+    Later sources win (find_card_sources lists GameData.db last). Raises OSError,
+    ValueError or sqlite3.Error when nothing usable could be read — the caller decides
+    whether that's fatal (startup) or a retry (mid-update).
+    """
+    db = {}
+    counts = []
+    for path in sources:
+        if path.suffix == ".db":
+            cards = _read_gamedata(path)
+        else:
+            cards = _read_cards_json(path)
+        n = 0
+        for c in cards:
+            if not isinstance(c, dict) or not c.get("Id"):
+                continue
+            tid = c["Id"]
+            title = ((c.get("Localization") or {}).get("Title") or {}).get("Text") or ""
+            if not title:
+                title = c.get("InternalName", tid)
+            db[tid] = {
+                "title": _cap(title),
+                "tier": c.get("StartingTier", "Unknown"),
+                "size": c.get("Size", "Medium"),
+                "type": c.get("Type", "Item"),
+            }
+            n += 1
+        counts.append(f"{n} from {path.name}")
+
+    if not db:
+        raise ValueError("no cards found in " + ", ".join(str(p) for p in sources))
+    logger.info("Loaded %d cards (%s)", len(db), ", ".join(counts))
     return db
 
 
@@ -703,6 +767,9 @@ def process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
     return changed
 
 
+_warned_unknown: set[str] = set()
+
+
 def _process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
     """Process a single log line, updating state. Returns True if state changed."""
 
@@ -739,8 +806,11 @@ def _process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
                 }
                 state["player_board"][instance_id] = entry
                 logger.info("+ %s (%s) -> Socket_%d", info["title"], info["tier"], socket_num)
-            elif debug:
-                logger.debug("Unknown template: %s", template_id)
+            elif template_id not in _warned_unknown:
+                # loud once per card: a bought card we can't name never reaches the
+                # overlay, and this line is how a streamer's log shows us why
+                _warned_unknown.add(template_id)
+                logger.warning("Bought a card missing from the game's card data (%s) — it won't show on the overlay", template_id)
             return True
         return False
 
@@ -996,7 +1066,43 @@ def backoff_delay(failures: int) -> float:
     return min(BACKOFF_CAP_S, BACKOFF_BASE_S * (2 ** (failures - 1)))
 
 
-def tail_log(log_path: Path, card_db: dict, ebs_url: str, channel_id: str, secret: str, debug: bool):
+class CardWatch:
+    """Notices a game update rewriting the card data while the companion runs.
+
+    Without it, every card a mid-stream patch adds stays nameless — and _named_only
+    drops nameless cards — until the streamer happens to restart the companion.
+    """
+
+    def __init__(self, sources: list[Path]):
+        self.sources = sources
+        self.sig = card_sources_signature(sources)
+        self._pending = None
+
+    def refresh(self) -> dict | None:
+        """The reloaded card db when the data changed, else None.
+
+        A change must hold still for one whole check before it's read: an update
+        rewrites these files in place, and a half-written db reads as fewer cards.
+        A failed read keeps the current db and tries again next check.
+        """
+        sources = find_card_sources() or self.sources
+        sig = card_sources_signature(sources)
+        if sig == self.sig:
+            self._pending = None
+            return None
+        if sig != self._pending:
+            self._pending = sig
+            return None
+        try:
+            db = load_card_db(sources)
+        except (OSError, ValueError, sqlite3.Error) as e:
+            logger.warning("Card data changed but is unreadable (%s) — retrying", e)
+            return None
+        self.sources, self.sig, self._pending = sources, sig, None
+        return db
+
+
+def tail_log(log_path: Path, card_db: dict, card_sources: list[Path], ebs_url: str, channel_id: str, secret: str, debug: bool):
     """Tail the log file and track game state."""
     logger.info("Building initial state from log...")
     state = build_initial_state(log_path, card_db)
@@ -1013,6 +1119,8 @@ def tail_log(log_path: Path, card_db: dict, ebs_url: str, channel_id: str, secre
 
     last_send = time.monotonic()
     last_inode = log_path.stat().st_ino
+    cards = CardWatch(card_sources)
+    last_card_check = time.monotonic()
     dirty = False
     last_change = 0.0
     fail_count = 0
@@ -1059,6 +1167,29 @@ def tail_log(log_path: Path, card_db: dict, ebs_url: str, channel_id: str, secre
                     if not dirty and state["show_overlay"] and (now - last_send) >= HEARTBEAT_INTERVAL:
                         if send_state(ebs_url, channel_id, secret, state):
                             last_send = now
+
+                    # A game update rewrote the card data: replay the log against the
+                    # new data so cards it couldn't name before get their names now.
+                    if (now - last_card_check) >= CARD_RELOAD_INTERVAL:
+                        last_card_check = now
+                        new_db = cards.refresh()
+                        if new_db is not None:
+                            logger.info("Game card data updated, rebuilding state...")
+                            try:
+                                state = build_initial_state(log_path, new_db)
+                            except OSError as e:
+                                # keep the old db + state; forget the new signature so
+                                # the next check reloads and replays again
+                                logger.warning("Log unreadable during card reload (%s) — retrying", e)
+                                cards.sig = ()
+                                continue
+                            card_db = new_db
+                            f.seek(0, 2)
+                            if state["show_overlay"]:
+                                send_state(ebs_url, channel_id, secret, state)
+                                last_send = time.monotonic()
+                            dirty = False
+                            continue
 
                     # Check for log rotation or truncation
                     try:
@@ -1376,36 +1507,36 @@ def main():
     if hs_running:
         logger.info("Battlegrounds board tracking is on")
 
-    # Find cards.json (wait if game not installed yet)
-    game_cards = find_cards_json()
-    if not game_cards:
+    # Find the game's card data
+    card_sources = find_card_sources()
+    if not card_sources:
         if hs_running:
             logger.info("The Bazaar isn't installed — running Battlegrounds only")
             while True:
                 time.sleep(3600)
-        logger.error("cards.json not found — is The Bazaar installed via Steam?")
+        logger.error("The Bazaar's card data not found — is The Bazaar installed via Steam?")
         logger.info("Install The Bazaar and run it once, then restart the companion")
         raise SystemExit(1)
 
-    # cards.json can be caught mid-write during a Steam update — retry instead of
+    # The card data can be caught mid-write during a Steam update — retry instead of
     # dying with a raw traceback on a streamer's machine.
     card_db = None
     for _attempt in range(3):
         try:
-            card_db = load_card_db(game_cards)
+            card_db = load_card_db(card_sources)
             break
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning("cards.json unreadable (%s) — retrying in 2s (game may be updating)", e)
+        except (OSError, ValueError, sqlite3.Error) as e:
+            logger.warning("Card data unreadable (%s) — retrying in 2s (game may be updating)", e)
             time.sleep(2)
     if card_db is None:
-        logger.error("cards.json is corrupt or locked — verify game files in Steam, then restart the companion")
+        logger.error("The Bazaar's card data is corrupt or locked — verify game files in Steam, then restart the companion")
         raise SystemExit(1)
 
     # Wait for Player.log (created on first game launch)
     log_path = args.log
     wait_for_file(log_path, "Player.log")
 
-    tail_log(log_path, card_db, ebs_url, channel_id, secret, args.debug)
+    tail_log(log_path, card_db, card_sources, ebs_url, channel_id, secret, args.debug)
 
 
 if __name__ == "__main__":

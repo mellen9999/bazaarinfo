@@ -165,7 +165,7 @@ Only the `!b` prefix — nothing else is hijacked from your chat.
 | problem | fix |
 |---------|-----|
 | companion says "waiting for Player.log" | launch The Bazaar once — the log is created on first game start |
-| companion says "cards.json not found" | launch The Bazaar into a run once — cards.json is written on first play |
+| companion says "card data not found" | launch The Bazaar into a run once — the game writes its card data on first play |
 | overlay not visible | confirm the extension is **activated**, not just installed. viewers must click the overlay icon on the video player, in fullscreen |
 | hover-zones don't line up with the cards | run the alignment tool in the extension's Configure view to calibrate for your capture (ultrawide, 4:3, borders, webcam boxing — all fixable) |
 | opponent cards or skills have no tooltip | expected — the game doesn't expose opponent/skill names to your client, so those aren't shown (only your named items are) |

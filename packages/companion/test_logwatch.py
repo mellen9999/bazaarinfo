@@ -611,3 +611,101 @@ def test_a_malformed_release_tag_is_never_newer():
     # a stray tag must not nag every streamer forever
     for bad in ("", "beta", "1.x.0", None):
         assert not logwatch.is_newer(bad, "1.0.0")
+
+
+# ── card data: GameData.db supersedes the frozen cards.json ─────────────────
+
+import json as _json
+import sqlite3 as _sqlite3
+
+from logwatch import load_card_db, CardWatch
+
+
+def _card(tid, title, tier="Bronze", **kw):
+    return {"Id": tid, "Localization": {"Title": {"Text": title}}, "StartingTier": tier,
+            "Size": "Small", "Type": "Item", **kw}
+
+
+def _write_json(path, cards):
+    path.write_text(_json.dumps({"5.0.0": cards}), encoding="utf-8")
+
+
+def _write_db(path, cards, extra_rows=()):
+    con = _sqlite3.connect(path)
+    con.execute("CREATE TABLE cards (Id TEXT NOT NULL PRIMARY KEY, Data BLOB NOT NULL)")
+    for c in cards:
+        con.execute("INSERT INTO cards VALUES (?, ?)", (c["Id"], _json.dumps(c).encode()))
+    for row in extra_rows:
+        con.execute("INSERT INTO cards VALUES (?, ?)", row)
+    con.commit()
+    con.close()
+
+
+def test_gamedata_db_cards_load(tmp_path):
+    db_path = tmp_path / "GameData.db"
+    _write_db(db_path, [_card("t-new", "dragon egg", "Gold")])
+    db = load_card_db([db_path])
+    assert db["t-new"]["title"] == "dragon egg"
+    assert db["t-new"]["tier"] == "Gold"
+
+
+def test_gamedata_db_wins_and_json_fills_gaps(tmp_path):
+    js, gd = tmp_path / "cards.json", tmp_path / "GameData.db"
+    _write_json(js, [_card("t-old", "old name"), _card("t-gone", "retired card")])
+    _write_db(gd, [_card("t-old", "new name", "Silver"), _card("t-new", "new card")])
+    db = load_card_db([js, gd])
+    assert db["t-old"]["title"] == "new name" and db["t-old"]["tier"] == "Silver"
+    assert db["t-new"]["title"] == "new card"
+    assert db["t-gone"]["title"] == "retired card"
+
+
+def test_gamedata_bad_rows_skipped_not_fatal(tmp_path):
+    gd = tmp_path / "GameData.db"
+    no_title = {"Id": "t-nt", "InternalName": "internal", "Localization": {"Title": None}}
+    _write_db(gd, [_card("t-ok", "fine"), no_title], extra_rows=[("t-bad", b"{not json")])
+    db = load_card_db([gd])
+    assert db["t-ok"]["title"] == "fine"
+    assert db["t-nt"]["title"] == "internal"
+    assert "t-bad" not in db
+
+
+def test_gamedata_opened_read_only(tmp_path):
+    gd = tmp_path / "GameData.db"
+    _write_db(gd, [_card("t", "x")])
+    before = gd.read_bytes()
+    load_card_db([gd])
+    assert gd.read_bytes() == before
+    assert not (tmp_path / "GameData.db-journal").exists()
+
+
+def test_empty_card_data_raises(tmp_path):
+    gd = tmp_path / "GameData.db"
+    _write_db(gd, [])
+    with pytest.raises(ValueError):
+        load_card_db([gd])
+
+
+def test_card_watch_reloads_after_change_holds_still(tmp_path, monkeypatch):
+    gd = tmp_path / "GameData.db"
+    _write_db(gd, [_card("t-a", "a")])
+    monkeypatch.setattr("logwatch.find_card_sources", lambda: [gd])
+    w = CardWatch([gd])
+    assert w.refresh() is None  # unchanged
+
+    gd.unlink()
+    _write_db(gd, [_card("t-a", "a"), _card("t-b", "b")])
+    os.utime(gd, ns=(1, 1))  # force a distinct mtime on fast filesystems
+    assert w.refresh() is None  # changed: wait one check in case it's mid-write
+    db = w.refresh()  # held still: reload
+    assert db is not None and "t-b" in db
+    assert w.refresh() is None  # settled
+
+
+def test_card_watch_keeps_old_db_when_unreadable(tmp_path, monkeypatch):
+    gd = tmp_path / "GameData.db"
+    _write_db(gd, [_card("t-a", "a")])
+    monkeypatch.setattr("logwatch.find_card_sources", lambda: [gd])
+    w = CardWatch([gd])
+    gd.write_bytes(b"half written garbage")
+    assert w.refresh() is None
+    assert w.refresh() is None  # unreadable: no db handed back, retried later
