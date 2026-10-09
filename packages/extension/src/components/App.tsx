@@ -6,6 +6,7 @@ import { CardTooltip } from './CardTooltip'
 import type { MissingReason } from './CardTooltip'
 import { TooltipBoundary } from './TooltipBoundary'
 import { fetchCards, CARD_FETCH_BACKOFF } from '../twitch'
+import { shouldRefetch } from '../card-refresh'
 import { deriveValidTiers, isPlausibleTierString } from '../tiers'
 import { parseCrop, applyCrop, IDENTITY_CROP } from '../viewport'
 import type { Crop } from '../viewport'
@@ -96,6 +97,14 @@ export function slotsEqual(a: DetectedSlot[], b: DetectedSlot[]): boolean {
   return true
 }
 
+// One place that turns a fetched card list into what the overlay holds, so the
+// initial load and a later refresh can't drift apart.
+function buildCardState(all: BazaarCard[]) {
+  const map = new Map<string, BazaarCard>()
+  for (const c of all) map.set(c.Title.toLowerCase(), c)
+  return { map, validator: makeSlotValidator(deriveValidTiers(all)) }
+}
+
 export function App() {
   const [cards, setCards] = useState<Map<string, BazaarCard>>(new Map())
   const [detected, setDetected] = useState<DetectedSlot[]>([])
@@ -120,6 +129,12 @@ export function App() {
   // Real wall-clock time of the last accepted frame, so visibility-on can re-judge
   // staleness against how much time actually passed — not just re-arm a fresh window.
   const lastFrameAtRef = useRef(0)
+  // Mirrors `cards` for the long-lived broadcast closure, plus what a refresh needs:
+  // the freshest token (Twitch re-fires onAuthorized), the last attempt, in-flight.
+  const cardsMapRef = useRef<Map<string, BazaarCard>>(new Map())
+  const tokenRef = useRef<string | null>(null)
+  const refreshAtRef = useRef<number | null>(null)
+  const refreshingRef = useRef(false)
 
   useEffect(() => {
     let mounted = true
@@ -147,6 +162,7 @@ export function App() {
     refit()
 
     twitch.onAuthorized(async (auth) => {
+      tokenRef.current = auth.token
       if (cardsLoaded.current) return
       for (let i = 0; i < CARD_FETCH_BACKOFF.length; i++) {
         if (CARD_FETCH_BACKOFF[i] > 0) {
@@ -159,10 +175,10 @@ export function App() {
           // An empty list is a failure wearing a success's clothes: it would leave
           // every card "unknown" forever with no sign anything went wrong.
           if (all.length === 0) throw new Error('empty')
-          const map = new Map<string, BazaarCard>()
-          for (const c of all) map.set(c.Title.toLowerCase(), c)
+          const { map, validator } = buildCardState(all)
+          cardsMapRef.current = map
           setCards(map)
-          validatorRef.current = makeSlotValidator(deriveValidTiers(all))
+          validatorRef.current = validator
           cardsLoaded.current = true
           setCardsState('ready')
           return
@@ -171,6 +187,29 @@ export function App() {
         }
       }
     })
+
+    // A frame naming a card we don't hold means this viewer's list predates a data
+    // refresh. One quiet refetch (throttled, never concurrent); on failure the old
+    // cards stay and cardsState is untouched — a failed refresh must not break a
+    // working overlay.
+    const maybeRefresh = async (slots: DetectedSlot[]) => {
+      if (!cardsLoaded.current || refreshingRef.current || !tokenRef.current) return
+      const missing = slots.some(s => !cardsMapRef.current.has(s.title.toLowerCase()))
+      const now = Date.now()
+      if (!shouldRefetch(missing, refreshAtRef.current, now)) return
+      refreshAtRef.current = now
+      refreshingRef.current = true
+      try {
+        const all = await fetchCards(tokenRef.current)
+        if (!mounted || all.length === 0) return
+        const { map, validator } = buildCardState(all)
+        cardsMapRef.current = map
+        setCards(map)
+        validatorRef.current = validator
+      } catch {} finally {
+        refreshingRef.current = false
+      }
+    }
 
     // Every valid frame (including the companion's heartbeat and empty clear
     // frames) proves the sender is alive, so arm a fresh expiry each time. If
@@ -201,6 +240,7 @@ export function App() {
           setDetected(prev => slotsEqual(prev, next) ? prev : next)
           lastFrameAtRef.current = Date.now()
           armStaleTimer()
+          void maybeRefresh(next)
         }
       } catch {}
     }
