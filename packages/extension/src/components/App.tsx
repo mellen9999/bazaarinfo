@@ -12,7 +12,8 @@ import { parseCrop, applyCrop, IDENTITY_CROP } from '../viewport'
 import type { Crop } from '../viewport'
 import { tessellate, separateRows, padVertical } from '../tessellate'
 import { uiScale, fitScale } from '../scale'
-import { createDelayLine, holdFor, parseLatency } from '../delay-line'
+import { createDelayLine, holdFor, parseLatency, totalDelay } from '../delay-line'
+import { parseDelay } from '../stream-delay'
 
 const VIEWPORT_MARGIN = 4
 const MAX_SLOTS = 50
@@ -117,6 +118,7 @@ export function App() {
   const [overlayRect, setOverlayRect] = useState<Rect>(() => computeOverlayRect(DEFAULT_ASPECT))
   const aspectRef = useRef(DEFAULT_ASPECT)
   const latencyRef = useRef(0) // this viewer's ms behind live; 0 = unknown
+  const extraDelayRef = useRef(0) // ms the broadcaster says they delay their own stream
   // Distinguishes "no tooltip yet because we're still fetching" from "we fetched
   // and this card genuinely isn't in the data" — the viewer sees a different line
   // for each, instead of the old silent nothing for both.
@@ -149,9 +151,13 @@ export function App() {
     // Read the broadcaster's calibrated game-area crop from the Twitch config
     // service, and re-read whenever they change it. parseCrop fails safe to
     // identity, so a missing/corrupt value simply leaves the overlay fullscreen.
-    const readCrop = () => setCrop(parseCrop(twitch.configuration?.broadcaster?.content))
-    readCrop()
-    twitch.configuration?.onChanged?.(readCrop)
+    const readConfig = () => {
+      const content = twitch.configuration?.broadcaster?.content
+      setCrop(parseCrop(content))
+      extraDelayRef.current = parseDelay(content) * 1000
+    }
+    readConfig()
+    twitch.configuration?.onChanged?.(readConfig)
 
     // Fit the overlay to the video rect; refine the aspect from the broadcast
     // resolution when Twitch reports it, and refit on every layout change.
@@ -224,7 +230,12 @@ export function App() {
       void maybeRefresh(next)
     })
 
-    const armStaleTimer = (delay = STALE_TTL_MS) => {
+    // Silence is judged on arrival, but frames are shown late. The window therefore
+    // has to cover the hold too, or a delayed viewer's queued board would be wiped
+    // before the video ever caught up to it.
+    const staleTtl = () => STALE_TTL_MS + totalDelay(latencyRef.current, extraDelayRef.current)
+
+    const armStaleTimer = (delay = staleTtl()) => {
       if (staleTimerRef.current) clearTimeout(staleTimerRef.current)
       staleTimerRef.current = setTimeout(() => {
         line.clear()
@@ -248,7 +259,7 @@ export function App() {
         if (Array.isArray(raw)) {
           const next = raw.slice(0, MAX_SLOTS).filter(validatorRef.current)
           const now = Date.now()
-          line.push(next, holdFor(data.t, latencyRef.current, now))
+          line.push(next, holdFor(data.t, latencyRef.current, now, extraDelayRef.current))
           // arrival, not display, proves the sender is alive
           lastFrameAtRef.current = now
           armStaleTimer()
@@ -270,10 +281,11 @@ export function App() {
       // companion that had already gone quiet before we hid must still hide the
       // board on return, not linger up to another full TTL past reappearing.
       const age = Date.now() - lastFrameAtRef.current
-      if (lastFrameAtRef.current === 0 || age >= STALE_TTL_MS) {
+      const ttl = staleTtl()
+      if (lastFrameAtRef.current === 0 || age >= ttl) {
         setDetected([])
       } else {
-        armStaleTimer(STALE_TTL_MS - age)
+        armStaleTimer(ttl - age)
       }
     })
 

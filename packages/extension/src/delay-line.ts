@@ -12,14 +12,32 @@
 // a little early beats holding it back indefinitely
 export const MAX_LATENCY_MS = 30_000
 
-// How long to hold a frame. The clamp to [0, latency] bounds a viewer clock that
+// A streamer who delays their own feed in OBS (say, to dodge stream snipers) shifts
+// the video by a number Twitch cannot see, so they declare it in the config view.
+// 10 minutes is the most that view lets them enter; a stored value past it is junk.
+export const MAX_EXTRA_DELAY_MS = 600_000
+
+// How far behind the companion this viewer's video runs: their own latency (capped,
+// it is a reading that can be garbage) plus the streamer's declared delay (trusted
+// up to its own cap — it is a deliberate number, not a measurement). Capping the
+// parts separately keeps the viewer-side cap at 30s whatever the delay, so a
+// 5-minute OBS delay is held in full instead of being truncated to 30s.
+export function totalDelay(latencyMs: number, extraMs: number): number {
+  const latency = Number.isFinite(latencyMs) && latencyMs > 0 ? Math.min(latencyMs, MAX_LATENCY_MS) : 0
+  const extra = Number.isFinite(extraMs) && extraMs > 0 ? Math.min(extraMs, MAX_EXTRA_DELAY_MS) : 0
+  return latency + extra
+}
+
+// How long to hold a frame. The clamp to [0, total] bounds a viewer clock that
 // runs fast or slow: the worst case is the arrival-time behaviour we had anyway.
-// No stamp or no latency reading (vod, some mobile players) → apply now.
-export function holdFor(t: unknown, latencyMs: number, now: number): number {
+// No stamp, or nothing to wait for (no latency reading — vod, some mobile players —
+// and no declared delay) → apply now. A declared delay with an unknown latency
+// still holds: it is the one part of the gap we do know.
+export function holdFor(t: unknown, latencyMs: number, now: number, extraMs = 0): number {
   if (typeof t !== 'number' || !Number.isFinite(t)) return 0
-  if (!Number.isFinite(latencyMs) || latencyMs <= 0) return 0
-  const latency = Math.min(latencyMs, MAX_LATENCY_MS)
-  return Math.min(Math.max(t + latency - now, 0), latency)
+  const total = totalDelay(latencyMs, extraMs)
+  if (total <= 0) return 0
+  return Math.min(Math.max(t + total - now, 0), total)
 }
 
 // Twitch reports seconds, sometimes as a string; anything else reads as "unknown"

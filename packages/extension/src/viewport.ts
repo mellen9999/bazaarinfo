@@ -76,11 +76,16 @@ export function parseCrop(raw: unknown): Crop {
   return isValidCrop(c) ? (c as Crop) : IDENTITY_CROP
 }
 
-// Serialize for storage. Rounded to keep the payload tiny and stable — sub-0.1%
-// precision is below what anyone can calibrate by eye anyway.
-export function serializeCrop(c: Crop): string {
+// The crop's stored fields. Rounded to keep the payload tiny and stable — sub-0.1%
+// precision is below what anyone can calibrate by eye anyway. Shared with the
+// combined config writer (stream-delay.ts) so the two can never round differently.
+export function cropFields(c: Crop) {
   const r = (n: number) => Math.round(n * 1e4) / 1e4
-  return JSON.stringify({ v: 1, x: r(c.x), y: r(c.y), scale: r(c.scale) })
+  return { v: 1, x: r(c.x), y: r(c.y), scale: r(c.scale) }
+}
+
+export function serializeCrop(c: Crop): string {
+  return JSON.stringify(cropFields(c))
 }
 
 interface Rect { x: number; y: number; w: number; h: number }

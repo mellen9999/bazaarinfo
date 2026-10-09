@@ -267,6 +267,19 @@ li { font-size: 14px; line-height: 1.8; color: var(--text-muted) }
   background: var(--code-bg);
 }
 
+.cal-delay { max-width: 480px; margin-top: 12px }
+.cal-delay input {
+  width: 7em;
+  font: inherit;
+  font-size: 14px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  color: var(--text);
+}
+.cal-delay input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+.cal-delay p { font-size: 13px; margin: 4px 0 0 }
+
 @media (prefers-reduced-motion: reduce) {
   .cal-btn { transition: none }
 }

@@ -40,6 +40,11 @@
       <div id="cal-handle" class="cal-handle" aria-hidden="true"></div>
     </div>
   </div>
+  <div class="field cal-delay">
+    <label for="cal-delay">stream delay (seconds)</label>
+    <input id="cal-delay" type="number" inputmode="numeric" min="0" max="600" step="1" value="0">
+    <p>only if you add a delay in OBS — twitch's own delay is handled automatically</p>
+  </div>
   <div class="cal-bar">
     <code id="cal-readout" class="cal-readout"></code>
     <div class="cal-btns">

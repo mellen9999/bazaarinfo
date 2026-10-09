@@ -8,8 +8,9 @@
 //
 // CSP-clean: no inline handlers, no eval. Pure DOM + the Twitch config service.
 
-import { parseCrop, clampCrop, serializeCrop, isIdentityCrop, IDENTITY_CROP } from './viewport'
+import { parseCrop, clampCrop, isIdentityCrop, IDENTITY_CROP } from './viewport'
 import type { Crop } from './viewport'
+import { parseDelay, parseDelayInput, serializeConfig, MAX_DELAY_S } from './stream-delay'
 
 const NUDGE = 0.005 // arrow-key step; Shift multiplies
 const NUDGE_BIG = 0.05
@@ -46,6 +47,7 @@ interface Els {
   shot: HTMLButtonElement
   file: HTMLInputElement
   drophint: HTMLElement
+  delay: HTMLInputElement
 }
 
 function getEls(): Els | null {
@@ -59,8 +61,9 @@ function getEls(): Els | null {
   const shot = document.getElementById('cal-shot') as HTMLButtonElement | null
   const file = document.getElementById('cal-file') as HTMLInputElement | null
   const drophint = document.getElementById('cal-drophint')
-  if (!stage || !box || !handle || !readout || !save || !reset || !status || !shot || !file || !drophint) return null
-  return { stage, box, handle, readout, save, reset, status, shot, file, drophint }
+  const delay = document.getElementById('cal-delay') as HTMLInputElement | null
+  if (!stage || !box || !handle || !readout || !save || !reset || !status || !shot || !file || !drophint || !delay) return null
+  return { stage, box, handle, readout, save, reset, status, shot, file, drophint, delay }
 }
 
 export function initCalibrator() {
@@ -70,6 +73,12 @@ export function initCalibrator() {
 
   let crop: Crop = IDENTITY_CROP
   let stored: Crop = IDENTITY_CROP
+  // The stream delay shares the crop's segment and its Save button, so a save always
+  // writes both as currently shown. `delayOk` is false while the field holds
+  // something we would not store; Save stays off until it is fixed.
+  let delay = 0
+  let storedDelay = 0
+  let delayOk = true
 
   const pct = (n: number) => `${(n * 100).toFixed(1)}%`
 
@@ -79,9 +88,9 @@ export function initCalibrator() {
     els.box.style.width = pct(crop.scale)
     els.box.style.height = pct(crop.scale)
     els.readout.textContent = `x ${pct(crop.x)}   y ${pct(crop.y)}   size ${pct(crop.scale)}`
-    const dirty = crop.x !== stored.x || crop.y !== stored.y || crop.scale !== stored.scale
-    els.save.disabled = !dirty
-    els.reset.disabled = isIdentityCrop(crop) && !dirty
+    const cropDirty = crop.x !== stored.x || crop.y !== stored.y || crop.scale !== stored.scale
+    els.save.disabled = !(cropDirty || delay !== storedDelay) || !delayOk
+    els.reset.disabled = isIdentityCrop(crop) && !cropDirty
     els.box.classList.toggle('cal-box--full', isIdentityCrop(crop))
   }
 
@@ -97,8 +106,13 @@ export function initCalibrator() {
 
   // ── load stored crop ──
   const readStored = () => {
-    stored = parseCrop(twitch?.configuration?.broadcaster?.content)
+    const content = twitch?.configuration?.broadcaster?.content
+    stored = parseCrop(content)
     crop = stored
+    storedDelay = parseDelay(content)
+    delay = storedDelay
+    delayOk = true
+    els.delay.value = String(delay)
     render()
   }
 
@@ -109,11 +123,12 @@ export function initCalibrator() {
   // default. It only runs inside onChanged, which carries the *loaded* config, so an
   // existing crop is never clobbered by a not-yet-loaded read. Harmless (identity is a
   // no-op crop) and idempotent: serializeCrop(IDENTITY) is a truthy string, so the
-  // next onChanged sees content and skips this.
+  // next onChanged sees content and skips this. (serializeConfig, not serializeCrop:
+  // every write to this segment carries the delay too, or it would erase it.)
   const ensureConfigured = () => {
     const setFn = twitch?.configuration?.set
     if (!setFn || twitch?.configuration?.broadcaster?.content) return
-    try { setFn('broadcaster', CONFIG_VERSION, serializeCrop(IDENTITY_CROP)) } catch { /* config service unavailable — non-fatal */ }
+    try { setFn('broadcaster', CONFIG_VERSION, serializeConfig(IDENTITY_CROP, 0)) } catch { /* config service unavailable — non-fatal */ }
   }
 
   readStored()
@@ -210,13 +225,23 @@ export function initCalibrator() {
     const setFn = twitch?.configuration?.set
     if (!setFn) { setStatus('config service unavailable', ''); return }
     try {
-      setFn('broadcaster', CONFIG_VERSION, serializeCrop(crop))
+      setFn('broadcaster', CONFIG_VERSION, serializeConfig(crop, delay))
       stored = crop
+      storedDelay = delay
       render()
       setStatus('saved — live for viewers now', 'ok')
     } catch {
       setStatus('save failed — try again', '')
     }
+  })
+
+  els.delay.addEventListener('input', () => {
+    const n = parseDelayInput(els.delay.value)
+    delayOk = n !== null
+    if (n !== null) delay = n
+    render()
+    if (n === null) setStatus(`delay: whole seconds, 0 to ${MAX_DELAY_S}`, '')
+    else setStatus('', '')
   })
 
   els.reset.addEventListener('click', () => {

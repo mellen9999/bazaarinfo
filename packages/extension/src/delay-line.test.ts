@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { holdFor, parseLatency, createDelayLine, MAX_LATENCY_MS } from './delay-line'
+import { holdFor, parseLatency, createDelayLine, totalDelay, MAX_LATENCY_MS, MAX_EXTRA_DELAY_MS } from './delay-line'
 
 describe('holdFor', () => {
   it('holds a fresh frame for the viewer latency, minus time already spent in transit', () => {
@@ -22,6 +22,46 @@ describe('holdFor', () => {
 
   it('caps absurd latency', () => {
     expect(holdFor(0, 600_000, 0)).toBe(MAX_LATENCY_MS)
+  })
+})
+
+describe('holdFor with a declared stream delay', () => {
+  it('adds the delay to the viewer latency', () => {
+    expect(holdFor(1000, 5000, 1000, 20_000)).toBe(25_000)
+    expect(holdFor(1000, 5000, 3000, 20_000)).toBe(23_000)
+  })
+
+  it('still holds when the latency is unknown, minus time already spent', () => {
+    expect(holdFor(1000, 0, 1000, 20_000)).toBe(20_000)
+    expect(holdFor(1000, NaN, 6000, 20_000)).toBe(15_000)
+    expect(holdFor(1000, 0, 1000 + 60_000, 20_000)).toBe(0)
+  })
+
+  it('does not let a declared delay widen the viewer-latency cap', () => {
+    expect(holdFor(0, 600_000, 0, 120_000)).toBe(MAX_LATENCY_MS + 120_000)
+  })
+
+  it('caps the delay itself and ignores junk', () => {
+    expect(holdFor(0, 0, 0, 9_999_999)).toBe(MAX_EXTRA_DELAY_MS)
+    expect(holdFor(1000, 5000, 1000, -5)).toBe(5000)
+    expect(holdFor(1000, 5000, 1000, NaN)).toBe(5000)
+  })
+
+  it('bounds a skewed clock to [0, total]', () => {
+    expect(holdFor(1000, 5000, 1000 - 60_000, 10_000)).toBe(15_000)
+    expect(holdFor(1000, 5000, 1000 + 60_000, 10_000)).toBe(0)
+  })
+
+  it('still needs a stamp', () => {
+    expect(holdFor(undefined, 0, 0, 10_000)).toBe(0)
+  })
+})
+
+describe('totalDelay', () => {
+  it('sums the capped parts', () => {
+    expect(totalDelay(5000, 10_000)).toBe(15_000)
+    expect(totalDelay(0, 0)).toBe(0)
+    expect(totalDelay(-1, -1)).toBe(0)
   })
 })
 
