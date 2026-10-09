@@ -137,11 +137,54 @@ function isDangerousCommand(prefix: string, word: string): boolean {
   return BLOCKED_BANG_CMDS.has(w) || isModAliasCommand(w)
 }
 
-// leading command = optional quote/space wrap, a single trigger char, optional space, the word.
-// twitch (and chat bots) only execute a command at the very start of a message, so only the
-// leading token can ever fire — anything mid-message is inert text.
-const LEADING_CMD_RE = /^["'`\s]*([!\\/.])\s*([a-z0-9_]+)/i
-const PEEL_LEADING_RE = /^["'`\s]*[!\\/.\s]+/
+// glyphs that render as nothing but are neither \s nor in INVISIBLE (word joiner + invisible
+// operators, mongolian vowel separator, hangul fillers, braille blank). a message padded with
+// them is not "starting with" its command to a human reader, and some bots trim them.
+const BLANKS = '\\u2060-\\u206f\\u180e\\u115f\\u1160\\u3164\\uffa0\\u2800'
+
+// leading command = optional quote/space/blank wrap, a single trigger char, optional space,
+// the word. twitch (and chat bots) only execute a command at the very start of a message, so
+// only the leading token can ever fire — anything mid-message is inert text. the word is
+// captured as any run of non-space chars and folded (below) before it is judged.
+const LEADING_CMD_RE = new RegExp('^["\'`\\s' + BLANKS + ']*([!\\\\/.])\\s*([^\\s!\\\\/.]+)')
+const PEEL_LEADING_RE = new RegExp('^["\'`\\s' + BLANKS + ']*[!\\\\/.\\s' + BLANKS + ']+')
+
+// letters from other scripts that read as a latin letter, so "!vani<cyrillic s>h" can't dodge
+// the denylist by not being ascii. the common ones, not every confusable: NFKD below already
+// takes fullwidth / ligature / accented forms back to ascii.
+const CONFUSABLES = new Map<string, string>()
+const confuse = (latin: string, ...codes: number[]) => { for (const c of codes) CONFUSABLES.set(cc(c), latin) }
+confuse('a', 0x0430, 0x03b1, 0x0251)
+confuse('c', 0x0441, 0x03f2)
+confuse('d', 0x0501)
+confuse('e', 0x0435, 0x0454)
+confuse('g', 0x0261)
+confuse('h', 0x04bb, 0x043d)
+confuse('i', 0x0456, 0x0131, 0x03b9)
+confuse('j', 0x0458)
+confuse('k', 0x043a, 0x03ba)
+confuse('l', 0x04cf)
+confuse('m', 0x043c)
+confuse('n', 0x043f)
+confuse('o', 0x043e, 0x03bf)
+confuse('p', 0x0440, 0x03c1)
+confuse('s', 0x0455)
+confuse('t', 0x0442, 0x03c4)
+confuse('u', 0x03c5)
+confuse('v', 0x03bd, 0x0475)
+confuse('w', 0x051d)
+confuse('x', 0x0445, 0x03c7)
+confuse('y', 0x0443)
+
+const MARKS = /\p{M}/gu
+// the command word as a bot would compare it: compatibility-decomposed, marks and invisibles
+// gone, lowercased, lookalike letters folded. detection only — never written back to the text.
+function foldWord(word: string): string {
+  const w = word.normalize('NFKD').replace(MARKS, '').replace(INVISIBLE, '').toLowerCase()
+  let out = ''
+  for (const ch of w) out += CONFUSABLES.get(ch) ?? ch
+  return out.match(/^[a-z0-9_]+/)?.[0] ?? ''
+}
 
 // peel EVERY leading command trigger (the legacy strip-all). used by ai-sanitize to judge
 // whether a model reply is a degenerate command-echo fragment, independent of what the
@@ -158,7 +201,8 @@ export function peelLeadingTriggers(text: string): string {
 export function stripLeadingCommands(text: string): string {
   const m = text.match(LEADING_CMD_RE)
   if (!m) return text
-  if (isDangerousCommand(m[1], m[2])) return text.replace(PEEL_LEADING_RE, '')
+  const word = foldWord(m[2])
+  if (word && isDangerousCommand(m[1], word)) return text.replace(PEEL_LEADING_RE, '')
   return text
 }
 

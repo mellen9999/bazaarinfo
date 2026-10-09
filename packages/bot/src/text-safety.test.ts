@@ -133,3 +133,52 @@ describe('isModAliasCommand suffix/embedded variants', () => {
     it(`allows ${w}`, () => expect(isModAliasCommand(w)).toBe(false))
   }
 })
+
+// whatever dresses up the front of a reply, a blocked command must never be the first thing
+// a chatbot would read. each case below is a disguise tried against the funnel; the result
+// may keep the words but must not START with a trigger char once the funnel is done.
+describe('disguised leading commands are neutralised', () => {
+  const startsWithTrigger = (s: string) => /^[\s"'`]*[!\\/.]/.test(s)
+  const cases: [string, string][] = [
+    ['zero-width space before the bang', '​!vanish'],
+    ['zero-width joiner between bang and word', '!‍vanish'],
+    ['zero-width inside the word', '!van​ish'],
+    ['fullwidth bang', '！vanish'],
+    ['fullwidth bang + fullwidth letters', '！ｖａｎｉｓｈ'],
+    ['leading space then slash', ' /vanish'],
+    ['leading space then slash timeout', ' /timeout self 600'],
+    ['dot prefix', '.vanish'],
+    ['dot prefix ban', '.ban someone'],
+    ['uppercase', '!VANISH'],
+    ['mixed case', '!VaNiSh'],
+    ['cyrillic s lookalike', '!vaniѕh'],
+    ['cyrillic a lookalike', '!vаnish'],
+    ['cyrillic e lookalike in sacrifice', '!sacrificе'],
+    ['greek iota lookalike', '!sacrιfice'],
+    ['combining mark on a letter', '!vani̇sh'],
+    ['nbsp before', ' !vanish'],
+    ['ideographic space before', '　!vanish'],
+    ['word joiner before', '⁠!vanish'],
+    ['bom + zwsp stack', '﻿​‌!vanish'],
+    ['hangul filler before', 'ㅤ!vanish'],
+    ['braille blank before', '⠀!vanish'],
+    ['space between bang and word', '! vanish'],
+    ['quoted', '"!vanish"'],
+    ['backslash trigger', '\\vanish'],
+    ['fullwidth backslash', '＼vanish'],
+    ['bang lookalike u+01c3', 'ǃvanish'],
+    ['heavy exclamation emoji', '❗vanish'],
+    ['mod alias', '!banuser someone'],
+    ['sacrifice', '!sacrifice'],
+  ]
+  for (const [name, input] of cases) {
+    it(name, () => {
+      const out = stripOutgoingCommands(input)
+      expect(startsWithTrigger(out), JSON.stringify(out)).toBe(false)
+    })
+  }
+
+  it('a harmless command in disguise still passes as a command', () => {
+    expect(stripOutgoingCommands('​!uptime')).toBe('!uptime')
+  })
+})
