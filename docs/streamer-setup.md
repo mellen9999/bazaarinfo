@@ -166,6 +166,8 @@ Only the `!b` prefix — nothing else is hijacked from your chat.
 |---------|-----|
 | companion says "waiting for Player.log" | launch The Bazaar once — the log is created on first game start |
 | companion says "card data not found" | launch The Bazaar into a run once — the game writes its card data on first play |
+| overlay shows few or no cards while you play | run `bazaarinfo-companion --check-cards` — it should say "Loaded N cards" with N in the thousands. an error means the game's card data is unreadable: verify game files in Steam |
+| some cards never get a tooltip | expected for cards you didn't buy (combat loot, level-up rewards, skills) — the game only logs a card's identity when it's bought |
 | overlay not visible | confirm the extension is **activated**, not just installed. viewers must click the overlay icon on the video player, in fullscreen |
 | hover-zones don't line up with the cards | run the alignment tool in the extension's Configure view to calibrate for your capture (ultrawide, 4:3, borders, webcam boxing — all fixable) |
 | opponent cards or skills have no tooltip | expected — the game doesn't expose opponent/skill names to your client, so those aren't shown (only your named items are) |
