@@ -493,3 +493,42 @@ describe('logCompanion', () => {
     }
   })
 })
+
+import { handleRequest } from './index'
+import { handleImage } from './routes/images'
+import { parseCompanionVersion } from './routes/detect'
+
+describe('/api/images (public, ahead of the JWT gate)', () => {
+  it('non-hex key → 404 and no auth-failed log', async () => {
+    const spy = spyOn(console, 'log').mockImplementation(() => {})
+    const err = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const res = await handleRequest(new Request('http://x/api/images/Reward_SmallWeapon_D.png'))
+      expect(res.status).toBe(404)
+      const logged = [...spy.mock.calls, ...err.mock.calls].flat().join(' ')
+      expect(logged).not.toContain('auth failed')
+    } finally {
+      spy.mockRestore()
+      err.mockRestore()
+    }
+  })
+
+  it('hex key still reaches handleImage (not a 401)', async () => {
+    const res = await handleRequest(new Request('http://x/api/images/' + 'a'.repeat(32)))
+    expect(res.status).not.toBe(401)
+  })
+
+  it('handleImage rejects bad keys with 404', async () => {
+    expect((await handleImage('nope.png')).status).toBe(404)
+  })
+})
+
+describe('parseCompanionVersion', () => {
+  it('valid', () => expect(parseCompanionVersion('bazaarinfo-companion/1.3.0')).toBe('1.3.0'))
+  it('missing', () => expect(parseCompanionVersion(null)).toBeNull())
+  it('garbage', () => {
+    expect(parseCompanionVersion('curl/8.0')).toBeNull()
+    expect(parseCompanionVersion('bazaarinfo-companion/1.3.0 evil\nline')).toBeNull()
+  })
+  it('overlong', () => expect(parseCompanionVersion('bazaarinfo-companion/' + '1'.repeat(100) + '.0.0')).toBeNull())
+})

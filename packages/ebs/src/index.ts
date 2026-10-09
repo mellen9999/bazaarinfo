@@ -21,7 +21,8 @@ const STARTED_AT = Date.now()
 const PORT = parseInt(process.env.EBS_PORT ?? '3100')
 
 const TWITCH_ORIGIN_RE = /\.ext-twitch\.tv$/
-const IMAGE_PATH_RE = /^\/api\/images\/([a-f0-9]+)$/
+// everything under here is the public image route; handleImage owns key validation
+const IMAGE_PREFIX = '/api/images/'
 
 function allowedOrigin(req: Request): string | null {
   const origin = req.headers.get('Origin')
@@ -92,7 +93,7 @@ export async function handleRequest(req: Request): Promise<Response> {
       console.error('[ebs] request with no client-ip header — proxy misconfigured? rate limiting skipped for such requests')
     }
   } else {
-    const image = IMAGE_PATH_RE.test(path)
+    const image = path.startsWith(IMAGE_PREFIX)
     const rateMax = (path === '/detect' || path === '/hs') ? 600 : image ? 300 : 60
     const bucket = image ? `img:${ip}` : ip
     if (!rateOk(bucket, rateMax)) {
@@ -135,9 +136,10 @@ export async function handleRequest(req: Request): Promise<Response> {
   // gate below or every tooltip falls back to a glyph. The art is public game data
   // (hashes come straight from the public card list) and is rate-limited, so there's
   // nothing to protect by gating it.
-  const imageMatch = path.match(IMAGE_PATH_RE)
-  if (req.method === 'GET' && imageMatch) {
-    return cors(await handleImage(imageMatch[1]), origin)
+  // Any key, not just hex: viewers holding a stale card blob request names like
+  // Reward_X.png, and letting those reach the JWT gate buried real auth failures.
+  if (req.method === 'GET' && path.startsWith(IMAGE_PREFIX)) {
+    return cors(await handleImage(path.slice(IMAGE_PREFIX.length)), origin)
   }
 
   // All other routes require valid Twitch JWT

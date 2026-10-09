@@ -50,9 +50,10 @@ export function resolveCdnVersion(path: string = PAGES_PATH, fallback: string = 
 const HASH_RE = /^[a-f0-9]{20,64}$/
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024 // 2MB
 
+// non-hash keys are 404 (not 400): they're stale client blobs, not malformed API use
 export async function handleImage(hash: string): Promise<Response> {
   if (!HASH_RE.test(hash)) {
-    return new Response('invalid hash', { status: 400 })
+    return new Response('not found', { status: 404 })
   }
 
   // DNS failure / timeout must be a clean 502, not a throw into the generic

@@ -15,6 +15,15 @@ const MAX_BODY = 100_000
 // without the secret can't exhaust the bucket and lock out the real companion.
 const MAX_CHANNEL_RATE = 600
 
+const UA_RE = /^bazaarinfo-companion\/(\d+\.\d+\.\d+)$/
+
+// The UA is attacker-controlled: length-capped and strictly matched, and only the
+// captured version is ever logged, never the raw header.
+export function parseCompanionVersion(ua: string | null): string | null {
+  if (!ua || ua.length > 64) return null
+  return UA_RE.exec(ua)?.[1] ?? null
+}
+
 export async function handleDetect(req: Request): Promise<Response> {
   const len = Number(req.headers.get('Content-Length') ?? 0)
   if (Number.isFinite(len) && len > MAX_BODY) return new Response('bad request', { status: 413 })
@@ -42,7 +51,8 @@ export async function handleDetect(req: Request): Promise<Response> {
     logCompanion('detect', payload.channelId, 'rejected: rate limited')
     return new Response('rate limited', { status: 429 })
   }
-  logCompanion('detect', payload.channelId, 'frames arriving')
+  const version = parseCompanionVersion(req.headers.get('User-Agent'))
+  logCompanion('detect', payload.channelId, `frames arriving (${version ? `v${version}` : 'version unknown'})`)
 
   // retain for the bot's /board reads regardless of PubSub outcome — a Helix outage
   // shouldn't also blind chat answers about the live board
