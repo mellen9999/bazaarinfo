@@ -28,7 +28,25 @@ WALKTHROUGH
 
 Purpose: viewers hover a card on the broadcaster's stream and see that card's stats and tooltip text for the game The Bazaar.
 
-Panel (needs no live stream and no broadcaster setup - see REVIEW ENVIRONMENT
+Panel (needs no live stream and no broadcaster setup - see REVIEW ENVIRONMENT below for slot details):
+1. Open the extension panel on the channel page.
+2. Type any card name to search the game's card list.
+3. Select a result to see full card detail. Keyboard navigable: arrow keys move the selection, Enter selects, Escape clears, left/right arrows step through tiers.
+
+Video overlay:
+1. The overlay draws only while the broadcaster's companion app is sending card positions. Hovering a card on the video shows a tooltip with the card's name, tier, size, cooldown and effect text.
+2. With no data present the overlay renders nothing and does not intercept mouse input.
+
+Config (broadcaster view):
+1. Shows the broadcaster's channel ID and a generated secret (masked until revealed), used to authenticate the companion app they run locally. A rotate button issues a new secret and invalidates the old one.
+2. Optional alignment box for windowed or cropped streams; a screenshot can be pasted or dropped onto it to calibrate.
+
+Data, permissions and privacy:
+- The only permission requested is "broadcast".
+- All network calls go to https://ebs.bazaarinfo.com, which is declared in the CSP. There are no other external hosts.
+- No analytics, no third-party trackers, and no personal data is collected. Card data is from bazaardb.gg.
+
+REVIEW ENVIRONMENT
 
 Channel: mellen
 
