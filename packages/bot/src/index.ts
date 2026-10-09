@@ -8,7 +8,7 @@ import { ensureValidToken, refreshToken, getAccessToken } from './auth'
 import { scheduleDaily, schedulePatchRefresh } from './scheduler'
 import { fetchWorldCup } from './worldcup'
 import { startGoalWatch } from './worldcup-goals'
-import { scrapeDump } from '@bazaarinfo/data'
+import { scrapeDump, extractI18n } from '@bazaarinfo/data'
 import * as channelStore from './channels'
 import * as db from './db'
 import { checkAnswer, isGameActive, setSay, rebuildTriviaMaps, cleanupChannel, carriesLiveQuestion, setLiveGameResolver, cancelUndeliveredRound } from './trivia'
@@ -137,6 +137,13 @@ async function doRefreshData(opts: RefreshOpts) {
     notify('art-missing', `bazaarinfo: ${stats.artMisses} card${stats.artMisses > 1 ? 's' : ''} missing overlay art`, `${stats.artMissSamples.join(', ')}${more}. auto-fill from bazaardb pages hasn't covered them (see cache/card-pages.json; backfill: bun scripts/backfill-card-pages.ts)`)
   }
   await writeAtomic(CACHE_PATH, JSON.stringify(cache, null, 2), 0o644)
+  // translations ride the same cadence: new cards need their text re-keyed. a failure here
+  // must never fail the card refresh — extractI18n keeps the old files on any problem
+  try {
+    extractI18n({ cache, log })
+  } catch (e) {
+    log(`i18n extract failed: ${e}`)
+  }
 }
 
 // wired to the lobby channel once the twitch client exists — content-news only, never failures
