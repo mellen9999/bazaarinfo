@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'preact/hooks'
+import { useState, useLayoutEffect, useCallback, useRef, useMemo } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
 import { buildIndex, searchCards } from '@bazaarinfo/shared/src/search'
@@ -49,7 +49,7 @@ export function CardSearch({ cards, error, autoFocus = false, idle }: Props) {
   // Focus on open so it is usable without touching the mouse. The panel passes
   // autoFocus only where there is a mouse: on a phone an autofocused field throws up
   // the soft keyboard before the viewer has asked for anything.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (autoFocus) inputRef.current?.focus()
   }, [autoFocus])
 

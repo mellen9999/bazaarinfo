@@ -5,6 +5,7 @@ import type { DetectedSlot } from './HoverZone'
 import { CardTooltip } from './CardTooltip'
 import type { MissingReason } from './CardTooltip'
 import { TooltipBoundary } from './TooltipBoundary'
+import { OverlaySearch } from './OverlaySearch'
 import { useCards } from '../use-cards'
 import { shouldRefetch } from '../card-refresh'
 import { deriveValidTiers, isPlausibleTierString } from '../tiers'
@@ -124,6 +125,8 @@ export function App() {
   // and this card genuinely isn't in the data" — the viewer sees a different line
   // for each, instead of the old silent nothing for both.
   const cardsState = cardList ? 'ready' : cardsError ? 'failed' : 'loading'
+  // Twitch's player bar showing; gates the search button (OverlaySearch)
+  const [controlsVisible, setControlsVisible] = useState(false)
   const [hovered, setHovered] = useState<DetectedSlot | null>(null)
   const [tooltipPos, setTooltipPos] = useState<{ left: string; top: string }>({ left: '0', top: '0' })
   const tooltipRef = useRef<HTMLDivElement | null>(null)
@@ -165,6 +168,7 @@ export function App() {
       const a = parseAspect(ctx?.videoResolution)
       if (a) aspectRef.current = a
       latencyRef.current = parseLatency(ctx?.hlsLatencyBroadcaster)
+      setControlsVisible(Boolean(ctx?.arePlayerControlsVisible))
       refit()
     })
     refit()
@@ -430,6 +434,7 @@ export function App() {
           />
         </TooltipBoundary>
       )}
+      <OverlaySearch cards={cardList} error={cardsError} controlsVisible={controlsVisible} />
     </div>
   )
 }

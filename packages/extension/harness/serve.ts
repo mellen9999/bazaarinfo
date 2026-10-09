@@ -121,9 +121,13 @@ async function configPage(): Promise<string> {
   window.Twitch = { ext: {
     onAuthorized(cb){ setTimeout(()=>cb({token:'harness',channelId:'0',clientId:'0'}),0); },
     onContext(){},
-    configuration: { broadcaster: undefined,
+    // set() is called detached (const setFn = configuration.set), so it reaches the
+    // config through this closure, not through this
+    configuration: (() => { const c = { broadcaster: undefined, _cb: null,
       // real Twitch fires onChanged once on load with the current (maybe empty) config
-      onChanged(cb){ this._cb=cb; setTimeout(()=>cb(),0); }, set(seg,ver,content){ this.broadcaster={segment:seg,version:ver,content}; document.title='SAVED '+content; this._cb&&this._cb(); } },
+      onChanged(cb){ c._cb=cb; setTimeout(()=>cb(),0); },
+      set(seg,ver,content){ c.broadcaster={segment:seg,version:ver,content}; document.title='SAVED '+content; c._cb&&c._cb(); } };
+      return c })(),
   }};
   const _f=window.fetch.bind(window);
   window.fetch=(u,o)=>String(u).includes('companion-setup')
