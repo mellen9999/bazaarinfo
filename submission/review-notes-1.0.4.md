@@ -50,6 +50,7 @@ Config (broadcaster view):
 
 Data, permissions and privacy:
 - The only permission requested is "broadcast".
+- Configuration: this version turns on the Extension Configuration Service (broadcaster segment only, no required version strings). The config view stores the broadcaster's optional game-area alignment and stream delay there; earlier versions had it set to "No configuration", so those settings could not persist.
 - All network calls go to https://ebs.bazaarinfo.com, declared in the CSP. No other external hosts.
 - No analytics, no third-party trackers, no personal data collected. The viewer's language setting is only used to choose which text file to load. Card data is from bazaardb.gg.
 
