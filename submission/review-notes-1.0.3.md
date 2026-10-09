@@ -32,7 +32,7 @@ Panel (needs no live stream and no broadcaster setup - see REVIEW ENVIRONMENT
 
 Channel: mellen
 
-Panel: fully testable at any time on the channel above - it needs no live stream and no companion app. Twitch allows only one active slot per channel at a time; the panel slot is the one active for review.
+Panel: fully testable on the channel above - it needs no live stream and no companion app. Twitch allows only one active slot per channel at a time; tell me when you begin and I will activate the panel slot right away.
 
 Video overlay: it only draws while a broadcaster is live with the companion app running beside the game, and I am not able to go live for the review. In its place:
 - A recording of this exact 1.0.3 build (the uploaded video_overlay.html/js, served locally with a sample board) showing the hover tooltips: https://github.com/mellen9999/bazaarinfo/blob/master/submission/overlay-demo-1.0.3.gif
