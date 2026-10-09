@@ -12,7 +12,7 @@ Usage:
     python logwatch.py [--config config.ini] [--debug] [--setup]
 """
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 import argparse
 import configparser
@@ -1377,11 +1377,109 @@ def load_config(config_path: Path) -> configparser.ConfigParser:
     return config
 
 
-def setup_config(config_path: Path):
-    """Interactive first-time setup — creates config.ini."""
+DEFAULT_EBS_URL = "https://ebs.bazaarinfo.com"
+
+# Public client id of the "bazaarinfo companion" twitch app — not a secret, and it
+# must match COMPANION_CLIENT_ID in packages/ebs/src/routes/link.ts.
+TWITCH_CLIENT_ID = "o36v0i410neguati8o1jbkbwbnod0b"  # gitleaks:allow — public client id, not a secret
+TWITCH_DEVICE_URL = "https://id.twitch.tv/oauth2/device"
+TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
+DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
+
+
+class LinkError(Exception):
+    """Twitch sign-in didn't produce credentials; the message is streamer-facing."""
+
+
+def _twitch_error(r) -> str:
+    try:
+        return str(r.json().get("message", ""))
+    except ValueError:
+        return ""
+
+
+def link_with_twitch(ebs_url: str, open_browser=None, sleep=time.sleep, now=time.monotonic) -> "tuple[str, str]":
+    """Sign in with twitch (device-code flow) and trade the sign-in for this
+    channel's companion secret. Returns (channel_id, secret).
+
+    The streamer never copies anything: the browser opens on twitch's own page with
+    the code already filled in, they press Activate, and we're done. The token only
+    proves which channel this is — the ebs revokes it straight after.
+    """
+    if open_browser is None:
+        import webbrowser
+        open_browser = webbrowser.open
+    try:
+        r = _session.post(TWITCH_DEVICE_URL, data={"client_id": TWITCH_CLIENT_ID, "scopes": ""}, timeout=10)
+    except Exception as e:
+        raise LinkError(f"couldn't reach twitch ({e})")
+    if not r.ok:
+        raise LinkError(f"twitch refused the sign-in request ({r.status_code} {_twitch_error(r)})")
+    d = r.json()
+    device_code, user_code, uri = d["device_code"], d["user_code"], d["verification_uri"]
+    interval = max(1, int(d.get("interval", 5)))
+    deadline = now() + int(d.get("expires_in", 1800))
+
+    print("  1. a twitch page is opening in your browser")
+    print("     (if it doesn't, open this link yourself:)")
+    print(f"     {uri}")
+    print(f"  2. check the code says  {user_code}  and press Activate")
     print()
-    print("=== BazaarInfo Companion Setup ===")
+    print("  waiting for twitch...")
+    try:
+        open_browser(uri)
+    except Exception:
+        pass  # the link is printed; a missing browser isn't fatal
+
+    token = None
+    while now() < deadline:
+        sleep(interval)
+        try:
+            r = _session.post(TWITCH_TOKEN_URL, data={
+                "client_id": TWITCH_CLIENT_ID,
+                "scopes": "",
+                "device_code": device_code,
+                "grant_type": DEVICE_GRANT,
+            }, timeout=10)
+        except Exception:
+            continue  # flaky wifi mid-wait: keep polling until the code expires
+        if r.ok:
+            token = r.json().get("access_token")
+            break
+        msg = _twitch_error(r)
+        if msg == "authorization_pending":
+            continue
+        if msg == "slow_down":
+            interval += 5
+            continue
+        if msg in ("access_denied", "authorization_denied"):
+            raise LinkError("the sign-in was declined on twitch")
+        raise LinkError(f"the code expired or was already used ({msg or r.status_code}) — run setup again")
+    if not token:
+        raise LinkError("the code expired before it was approved — run setup again")
+
+    try:
+        r = _session.post(f"{ebs_url}/companion/link", json={"token": token}, timeout=15)
+    except Exception as e:
+        raise LinkError(f"couldn't reach the overlay server ({e})")
+    if not r.ok:
+        try:
+            why = r.json().get("error", "")
+        except ValueError:
+            why = ""
+        raise LinkError(f"the overlay server said no ({r.status_code} {why})".rstrip())
+    body = r.json()
+    channel_id, secret = str(body.get("channelId", "")), str(body.get("secret", ""))
+    if not channel_id.isdigit() or not secret:
+        raise LinkError("the overlay server sent back nothing usable")
+    login = body.get("login")
+    print(f"  signed in as {login}" if login else "  signed in")
     print()
+    return channel_id, secret
+
+
+def ask_credentials() -> "tuple[str, str]":
+    """Manual fallback: paste the Channel ID + secret from the extension config page."""
     print("Get your Channel ID and Secret from the extension config page:")
     print("  Twitch Dashboard > Extensions > BazaarInfo > Configure")
     print()
@@ -1398,10 +1496,29 @@ def setup_config(config_path: Path):
     if not secret:
         print("Secret is required")
         raise SystemExit(1)
+    return channel_id, secret
+
+
+def setup_config(config_path: Path, manual: bool = False):
+    """First-time setup — signs in with twitch (or asks, with manual=True) and writes config.ini."""
+    print()
+    print("=== BazaarInfo Companion Setup ===")
+    print()
+
+    if manual:
+        channel_id, secret = ask_credentials()
+    else:
+        try:
+            channel_id, secret = link_with_twitch(DEFAULT_EBS_URL)
+        except LinkError as e:
+            print(f"  ! {e}")
+            print("    no problem — paste your details instead:")
+            print()
+            channel_id, secret = ask_credentials()
 
     config = configparser.ConfigParser()
     config["ebs"] = {
-        "url": "https://ebs.bazaarinfo.com",
+        "url": DEFAULT_EBS_URL,
         "channel_id": channel_id,
         "secret": secret,
     }
@@ -1460,8 +1577,6 @@ def verify_credentials(ebs_url: str, channel_id: str, secret: str) -> bool:
         return True
     if r.status_code == 401:
         print("  ! the server rejected your Channel ID or Secret")
-        print("    open the extension's Configure page and copy both again,")
-        print("    then re-run with --setup")
         print()
         return False
     print(f"  ! overlay server returned {r.status_code} — starting anyway")
@@ -1550,6 +1665,7 @@ def main():
     parser.add_argument("--log", type=Path, default=DEFAULT_LOG)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--setup", action="store_true", help="re-run first-time setup")
+    parser.add_argument("--manual", action="store_true", help="with --setup: paste channel id + secret instead of signing in with twitch")
     parser.add_argument("--version", action="version", version=f"bazaarinfo-companion {VERSION}")
     parser.add_argument("--check-cards", nargs="*", type=Path, metavar="FILE",
                         help="load the game's card data (or the given files), report, and exit")
@@ -1581,7 +1697,7 @@ def main():
     if args.setup or not args.config.exists():
         if args.config.exists() and args.setup:
             logger.info("Re-running setup (existing config will be overwritten)")
-        setup_config(args.config)
+        setup_config(args.config, manual=args.manual)
     else:
         logger.info("Using settings from %s", args.config)
 
@@ -1604,9 +1720,18 @@ def main():
     # and the url is normalized here so both paths hit the same "/detect" every time.
     ebs_url, channel_id, secret = resolve_ebs_config(config)
 
-    # fail on a bad secret here, not halfway through a live run
+    # fail on a bad secret here, not halfway through a live run. a rejected secret
+    # (rotated, or mistyped) gets one fresh sign-in instead of a dead end.
     if not verify_credentials(ebs_url, channel_id, secret):
-        raise SystemExit(1)
+        if args.manual or os.environ.get("EBS_SECRET"):
+            print("    copy both again from the extension's Configure page, then re-run with --setup --manual")
+            raise SystemExit(1)
+        print("  signing in again to get a fresh secret...")
+        setup_config(args.config)
+        config = load_config(args.config)
+        ebs_url, channel_id, secret = resolve_ebs_config(config)
+        if not verify_credentials(ebs_url, channel_id, secret):
+            raise SystemExit(1)
 
     # Battlegrounds watcher — starts on its own thread if Hearthstone is on this machine,
     # stays silent if it isn't. Started BEFORE the Bazaar assets are required so a

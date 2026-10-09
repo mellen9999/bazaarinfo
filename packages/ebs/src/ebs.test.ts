@@ -5,6 +5,7 @@
 //   #3  all-or-nothing frame validation: one bad card must not blank the whole overlay
 //   #4/#13 no server-side title length cap — oversized/empty titles accepted
 
+import './test-env'
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { isValidCard, parsePayload } from './routes/detect-validate'
 

@@ -36,24 +36,16 @@ Real-time card tooltips on your stream. Viewers in fullscreen hover a card to se
 3. **Install**, then **Activate** it as an Overlay
 4. it now shows on your video for every viewer
 
-### 2. get your credentials
-
-1. in the extension manager, find BazaarInfo → **Configure**
-2. you'll see your **Channel ID** and **Companion Secret**
-3. keep this page open — you need both in the next step
-
-Your secret is unique to your channel. Don't share it; it's the only thing that lets the overlay accept card data as yours.
-
-**shown it on stream by accident?** Open the extension's Configure view and press **rotate** — it issues a new secret and the old one stops working immediately. Copy the new one into `config.ini` (or your `EBS_SECRET` env var) and restart the companion.
-
-### 3. run the companion
+### 2. run the companion
 
 **Windows**
 
 1. download **`bazaarinfo-companion-windows.exe`** from [GitHub Releases](https://github.com/mellen9999/bazaarinfo/releases/latest)
 2. double-click to run
-3. paste in your **Channel ID** and **Companion Secret** when asked
-4. settings save to `config.ini` next to the exe — you only do this once (if that folder is read-only, it saves to `%APPDATA%\bazaarinfo` instead and tells you)
+3. a twitch page opens in your browser — check the code matches the one in the companion window and press **Activate**
+4. done. it saves to `config.ini` next to the exe so you only do this once (if that folder is read-only, it saves to `%APPDATA%\bazaarinfo` instead and tells you)
+
+Signing in only proves which channel is yours: the companion gets no access to your account, and the sign-in is thrown away the moment it's used.
 
 > **SmartScreen warning?** The exe isn't code-signed, so Windows may warn. Click **More info → Run anyway** — or run from source instead (below).
 
@@ -64,7 +56,7 @@ chmod +x bazaarinfo-companion-linux
 ./bazaarinfo-companion-linux
 ```
 
-Works with native and Proton/Steam. First run asks for your Channel ID and Secret.
+Works with native and Proton/Steam. First run opens twitch to sign in, same as Windows.
 
 **From source (any OS)**
 
@@ -72,10 +64,10 @@ Works with native and Proton/Steam. First run asks for your Channel ID and Secre
 git clone https://github.com/mellen9999/bazaarinfo.git
 cd bazaarinfo/packages/companion
 pip install -r requirements.txt
-python logwatch.py          # first run prompts for Channel ID + Secret
+python logwatch.py          # first run opens twitch to sign in
 ```
 
-### 4. play
+### 3. play
 
 1. launch The Bazaar on Steam and go live
 2. the companion detects your cards automatically and sends them to the overlay
@@ -85,7 +77,7 @@ Leave the companion open — it waits patiently if the game isn't running yet.
 
 > **capture the game 16:9, filling the frame** for the best out-of-the-box fit. Card positions are mapped to a standard 16:9 layout, so this lines up perfectly with no extra setup. If you play ultrawide/4:3, or box the game inside borders or a webcam-heavy scene, use the alignment tool in the extension's Configure view to calibrate your layout once — it corrects the overlay to match. This scales to any viewer resolution (720p → 4K, desktop or mobile).
 
-### 5. battlegrounds (optional, automatic)
+### 4. battlegrounds (optional, automatic)
 
 If Hearthstone is installed on the same machine, the companion also follows your
 Battlegrounds games — so the chat bot can answer "what's on his board", "what tier is
@@ -111,17 +103,20 @@ because there is nothing separate running.
 
 ```
 --setup       re-run first-time setup (overwrites config.ini)
+--manual      with --setup: paste Channel ID + Secret instead of signing in
 --config PATH use this config file instead of the default location
 --debug       verbose logging
 --log PATH    override the Player.log location
 --version     show version
 ```
 
-`--config` matters when the exe's own folder is read-only — settings fall back to `%APPDATA%\bazaarinfo` in that case (see step 3), and `--config` points the companion at that file directly instead of relying on the fallback search.
+`--config` matters when the exe's own folder is read-only — settings fall back to `%APPDATA%\bazaarinfo` in that case (see step 2), and `--config` points the companion at that file directly instead of relying on the fallback search.
 
 ### keeping your secret off disk
 
 Set the `EBS_SECRET` environment variable instead of putting it in `config.ini` — the companion uses it automatically and never writes it to a file. Leave `secret` out of `config.ini` entirely when doing this.
+
+**secret shown on stream by accident?** Open the extension's Configure view and press **rotate** — the old secret stops working immediately. Restart the companion and it signs you in again for the new one (env-var setups: copy the new secret into `EBS_SECRET`).
 
 ---
 
@@ -172,7 +167,7 @@ Only the `!b` prefix — nothing else is hijacked from your chat.
 | hover-zones don't line up with the cards | run the alignment tool in the extension's Configure view to calibrate for your capture (ultrawide, 4:3, borders, webcam boxing — all fixable) |
 | opponent cards or skills have no tooltip | expected — the game doesn't expose opponent/skill names to your client, so those aren't shown (only your named items are) |
 | cards linger after they leave your board | the overlay self-clears if the companion goes quiet; if it persists, the companion likely crashed — restart it |
-| "the server rejected your Channel ID or Secret" | re-run with `--setup` and re-paste both from the extension's Configure page — the companion checks them at startup, so this never surprises you mid-stream |
+| "the server rejected your Channel ID or Secret" | the companion signs you in again on its own — press **Activate** on the twitch page it opens. it checks at startup, so this never surprises you mid-stream |
 | SmartScreen blocks the exe | **More info → Run anyway** |
 | companion crashes on startup | delete `config.ini` next to the exe and re-run to reconfigure |
 | it asks for your Channel ID every launch | you're on v1.0.5 or older — grab the latest release; older builds saved settings to a temp folder Windows wipes |

@@ -10,6 +10,7 @@ import { handleCards, setCardCache, getCardCache } from './routes/cards'
 import { handleImage } from './routes/images'
 import { handleDetect } from './routes/detect'
 import { handleBoard } from './routes/board'
+import { handleLink } from './routes/link'
 import { handleHsPost, handleHsBoard } from './routes/hsboard'
 import { redirectTarget } from './routes/redirects'
 import { readyStatus } from './routes/health'
@@ -93,9 +94,12 @@ export async function handleRequest(req: Request): Promise<Response> {
       console.error('[ebs] request with no client-ip header — proxy misconfigured? rate limiting skipped for such requests')
     }
   } else {
+    // /companion/link is a once-per-install action that calls twitch on our behalf,
+    // so it gets its own tight bucket
     const image = path.startsWith(IMAGE_PREFIX)
-    const rateMax = (path === '/detect' || path === '/hs') ? 600 : image ? 300 : 60
-    const bucket = image ? `img:${ip}` : ip
+    const link = path === '/companion/link'
+    const rateMax = (path === '/detect' || path === '/hs') ? 600 : image ? 300 : link ? 10 : 60
+    const bucket = image ? `img:${ip}` : link ? `link:${ip}` : ip
     if (!rateOk(bucket, rateMax)) {
       return cors(new Response('rate limited', { status: 429 }), origin)
     }
@@ -111,6 +115,11 @@ export async function handleRequest(req: Request): Promise<Response> {
   // POST /detect — companion → PubSub (uses companion secret, not JWT)
   if (req.method === 'POST' && path === '/detect') {
     return cors(await handleDetect(req), origin)
+  }
+
+  // POST /companion/link — companion trades a twitch sign-in for its channel secret
+  if (req.method === 'POST' && path === '/companion/link') {
+    return cors(await handleLink(req, { derive: deriveChannelSecret }), origin)
   }
 
   // GET /board — bot-internal read of the latest companion frame (internal secret,
