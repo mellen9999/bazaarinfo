@@ -1,6 +1,6 @@
 # Review notes — 1.0.4
 
-Pasted into the **Walkthrough Guide and Change Log** box when submitting 1.0.4 for
+Submitted 2026-10-09 (1.0.3 withdrawn). Pasted into the **Walkthrough Guide and Change Log** box for
 review. Channel field: `mellen`.
 
 ---
@@ -10,7 +10,7 @@ CHANGE LOG - 1.0.4 (previous released version: 1.0.2)
 Version 1.0.3 was submitted on 2026-10-08 and withdrawn from review before a decision. 1.0.4 supersedes it and contains everything that was in 1.0.3 plus the changes below, so this log covers everything since 1.0.2.
 
 Overlay:
-- Each board frame is held until the viewer's own video shows it, using the stream latency Twitch reports for the viewer (hlsLatencyBroadcaster, from onContext) and a timestamp from the companion's update. Tooltips line up with the picture instead of running ahead of it. The broadcaster can add an extra stream delay in the config view if they delay the stream in OBS.
+- Each board frame is held until the viewer's own video shows it, using the stream latency Twitch reports for the viewer (hlsLatencyBroadcaster, from onContext) and a timestamp our backend adds when the board changes. Tooltips line up with the picture instead of running ahead of it. The broadcaster can add an extra stream delay in the config view if they delay the stream in OBS.
 - Card text shows keywords with a coloured glyph and a bold word, and the tooltip stat line shows the owning hero.
 - Card search for viewers, with filter chips (hero, type, size, tier). A square search button appears in the bottom right only while Twitch's player controls are visible (ctx.arePlayerControlsVisible); the / key opens it too. The button and the open search box are the only parts of the overlay that take mouse input.
 - Card text follows the viewer's Twitch language (ctx.language) for German, Spanish, French, Italian, Korean, Portuguese, Thai, Turkish and Chinese. Other languages stay English.
