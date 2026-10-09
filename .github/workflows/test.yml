@@ -11,6 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # self.ts reads the last 14 commits for "what's new"; a depth-1 clone whose
+          # head is a docs/chore commit leaves it nothing to show and fails the test
+          fetch-depth: 20
 
       - uses: oven-sh/setup-bun@v2
 
