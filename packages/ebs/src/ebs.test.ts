@@ -533,3 +533,15 @@ describe('parseCompanionVersion', () => {
   })
   it('overlong', () => expect(parseCompanionVersion('bazaarinfo-companion/' + '1'.repeat(100) + '.0.0')).toBeNull())
 })
+
+// ── frame timestamp for per-viewer video sync ───────────────────────────────
+
+import { stampFrame } from './pubsub'
+
+describe('stampFrame', () => {
+  it('prefixes t without disturbing the payload', () => {
+    const body = JSON.stringify({ v: 1, cards: [{ title: 'x' }] })
+    const out = JSON.parse(stampFrame(body, 1234.9))
+    expect(out).toEqual({ t: 1234, v: 1, cards: [{ title: 'x' }] })
+  })
+})

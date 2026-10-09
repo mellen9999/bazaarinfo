@@ -75,7 +75,7 @@ function page(crop: string | null): string {
   window.Twitch = { ext: {
     onAuthorized(cb){ setTimeout(()=>cb({token:'harness',channelId:'0',userId:'0',clientId:'0'}),0); },
     listen(t,cb){ if(t==='broadcast') window.__bcast=cb; }, unlisten(){},
-    onVisibilityChanged(cb){ window.__vis=cb; }, onContext(){},
+    onVisibilityChanged(cb){ window.__vis=cb; }, onContext(cb){ window.__ctx=cb; },
     configuration: { broadcaster: cropContent ? {segment:'broadcaster',version:'1',content:cropContent} : undefined,
       onChanged(cb){ window.__cfg=cb; }, set(){} },
   }};
@@ -93,6 +93,7 @@ function page(crop: string | null): string {
     let sx=0.06; sk.forEach(c=>{D.push({title:c.Title,tier:(c.Tiers||['Gold']).slice(-1)[0],x:sx,y:0.865,w:0.033,h:0.058,owner:'player',type:'Skill'}); sx+=0.043;});
     return D;
   }
+  window.__board = board;
   const fire = () => window.__bcast && window.__bcast('broadcast','application/json',JSON.stringify({v:1,cards:board()}));
   // heartbeat < the overlay's 75s stale-TTL so the board never self-wipes while you look
   const hb = setInterval(fire, 10000);

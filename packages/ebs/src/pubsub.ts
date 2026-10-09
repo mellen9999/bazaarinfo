@@ -72,17 +72,27 @@ function getState(channelId: string): ChannelState {
   return s
 }
 
+// twitch's pubsub ceiling is 5000 bytes; the rest is room for the `t` stamp
+const BODY_BUDGET = 4970
+
+// Stamp when the frame happened, so each viewer's overlay can hold it until their
+// own video shows it (extension delay-line.ts). Kept out of the dedupe hash: a
+// heartbeat repeating the same board is still the same board.
+export function stampFrame(body: string, at: number): string {
+  return `{"t":${Math.floor(at)},${body.slice(1)}`
+}
+
 function fitForLimit(payload: BroadcastPayload): string | null {
   const wrapped = { v: PROTOCOL_VERSION, ...payload }
   const full = JSON.stringify(wrapped)
-  if (full.length <= 5000) return full
+  if (full.length <= BODY_BUDGET) return full
   const slim = {
     v: PROTOCOL_VERSION,
     cards: payload.cards.map(({ title, tier, x, y, w, h, owner, type, enchantment }) =>
       ({ title, tier, x, y, w, h, owner, type, enchantment })),
   }
   const slimMsg = JSON.stringify(slim)
-  if (slimMsg.length <= 5000) return slimMsg
+  if (slimMsg.length <= BODY_BUDGET) return slimMsg
   console.error(`[pubsub] payload ${slimMsg.length} bytes after slim, dropping`)
   return null
 }
@@ -93,10 +103,11 @@ export function broadcastState(channelId: string, payload: BroadcastPayload): bo
     return false
   }
 
-  const message = fitForLimit(payload)
-  if (!message) return false
+  const body = fitForLimit(payload)
+  if (!body) return false
 
-  const hash = djb2(message)
+  const hash = djb2(body)
+  const message = stampFrame(body, Date.now())
   const state = getState(channelId)
 
   // dedupe: identical message currently last in queue or last sent → drop

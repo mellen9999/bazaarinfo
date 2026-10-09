@@ -12,6 +12,7 @@ import { parseCrop, applyCrop, IDENTITY_CROP } from '../viewport'
 import type { Crop } from '../viewport'
 import { tessellate, separateRows, padVertical } from '../tessellate'
 import { uiScale, fitScale } from '../scale'
+import { createDelayLine, holdFor, parseLatency } from '../delay-line'
 
 const VIEWPORT_MARGIN = 4
 const MAX_SLOTS = 50
@@ -115,6 +116,7 @@ export function App() {
   // % -positioned zones track the video through letterbox/pillarbox; no-op at 16:9.
   const [overlayRect, setOverlayRect] = useState<Rect>(() => computeOverlayRect(DEFAULT_ASPECT))
   const aspectRef = useRef(DEFAULT_ASPECT)
+  const latencyRef = useRef(0) // this viewer's ms behind live; 0 = unknown
   // Distinguishes "no tooltip yet because we're still fetching" from "we fetched
   // and this card genuinely isn't in the data" — the viewer sees a different line
   // for each, instead of the old silent nothing for both.
@@ -157,6 +159,7 @@ export function App() {
     twitch.onContext?.((ctx) => {
       const a = parseAspect(ctx?.videoResolution)
       if (a) aspectRef.current = a
+      latencyRef.current = parseLatency(ctx?.hlsLatencyBroadcaster)
       refit()
     })
     refit()
@@ -215,9 +218,16 @@ export function App() {
     // frames) proves the sender is alive, so arm a fresh expiry each time. If
     // the timer ever fires, the companion has gone silent past the heartbeat —
     // wipe the board so viewers never hover a stale detection.
+    // frames wait here until this viewer's video catches up to them (delay-line.ts)
+    const line = createDelayLine<DetectedSlot[]>((next) => {
+      setDetected(prev => slotsEqual(prev, next) ? prev : next)
+      void maybeRefresh(next)
+    })
+
     const armStaleTimer = (delay = STALE_TTL_MS) => {
       if (staleTimerRef.current) clearTimeout(staleTimerRef.current)
       staleTimerRef.current = setTimeout(() => {
+        line.clear()
         setDetected([])
         setHovered(null)
       }, delay)
@@ -237,10 +247,11 @@ export function App() {
         const raw = data?.cards
         if (Array.isArray(raw)) {
           const next = raw.slice(0, MAX_SLOTS).filter(validatorRef.current)
-          setDetected(prev => slotsEqual(prev, next) ? prev : next)
-          lastFrameAtRef.current = Date.now()
+          const now = Date.now()
+          line.push(next, holdFor(data.t, latencyRef.current, now))
+          // arrival, not display, proves the sender is alive
+          lastFrameAtRef.current = now
           armStaleTimer()
-          void maybeRefresh(next)
         }
       } catch {}
     }
@@ -269,6 +280,7 @@ export function App() {
     return () => {
       mounted = false
       twitch.unlisten('broadcast', onBroadcast)
+      line.clear()
       if (staleTimerRef.current) clearTimeout(staleTimerRef.current)
     }
   }, [])
