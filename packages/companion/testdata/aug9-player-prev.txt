@@ -1,0 +1,118 @@
+[AppState] State changed from [null] to [StartRunAppState]
+[AppState] State changed from [StartRunAppState] to [ChoiceState]
+[GameSimHandler] Cards Spawned: [itm_CZSk7en [Player] [Stash] [Socket_0] [Small] | [itm_uK1wHB1 [Player] [Stash] [Socket_1] [Medium] | [itm_HYr-H3q [Player] [Stash] [Socket_3] [Small] | [itm_8-wHCoY [Player] [Stash] [Socket_5] [Medium] | [itm_lbW6FJm [Player] [Stash] [Socket_8] [Medium] | 
+[CardOperationUtility] Successfully moved card itm_8-wHCoY to Socket_5
+[CardOperationUtility] Successfully moved card itm_HYr-H3q to Socket_3
+[CardOperationUtility] Successfully moved card itm_CZSk7en to Socket_4
+[AppState] State changed from [ChoiceState] to [PVPCombatState]
+[GameSimHandler] Cards Spawned: [iI6-C70 [Opponent] [Hand] [Socket_2] [Small] | [gAFINVr [Opponent] [Hand] [Socket_3] [Small] | [amoIldx [Opponent] [Hand] [Socket_4] [Small] | [oJHOj6n [Opponent] [Hand] [Socket_5] [Small] | [Culqo5v [Opponent] [Hand] [Socket_6] [Small] | [qEpOwsR [Opponent] [Hand] [Socket_7] [Small] | [I_H-HtH [Opponent] [Stash] [Socket_0] [Small] | [1bePsOa [Opponent] [Stash] [Socket_1] [Small] | [y7X_8SD [Opponent] [Stash] [Socket_2] [Small] | [ZEE9WWJ [Opponent] [Stash] [Socket_3] [Small] | [AtZVmc6 [Opponent] [Stash] [Socket_4] [Small] | [btdjxrL [Opponent] [Hand] [Socket_3] [Small] | [iA5UVun [Opponent] [Medium] | 
+[BoardManager] Card Purchased: InstanceId: pvp_Q-O-pHb - TemplateIdb79845a7-f806-4e7a-9011-d98ebd22a323 - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: itm_CZSk7en  |  itm_HYr-H3q  |  itm_8-wHCoY  |  iI6-C70  |  gAFINVr  |  amoIldx  |  oJHOj6n  |  Culqo5v  |  qEpOwsR  |  
+[GameSimHandler] Cards Spawned: [itm_CZSk7en [Player] [Hand] [Socket_4] [Small] | [itm_HYr-H3q [Player] [Hand] [Socket_3] [Small] | [itm_8-wHCoY [Player] [Hand] [Socket_5] [Medium] | 
+[AppState] State changed from [PVPCombatState] to [ReplayState]
+[GameSimHandler] Cards Spawned: [iI6-C70 [Opponent] [Hand] [Socket_2] [Small] | [gAFINVr [Opponent] [Hand] [Socket_3] [Small] | [amoIldx [Opponent] [Hand] [Socket_4] [Small] | [oJHOj6n [Opponent] [Hand] [Socket_5] [Small] | [Culqo5v [Opponent] [Hand] [Socket_6] [Small] | [qEpOwsR [Opponent] [Hand] [Socket_7] [Small] | [I_H-HtH [Opponent] [Stash] [Socket_0] [Small] | [1bePsOa [Opponent] [Stash] [Socket_1] [Small] | [y7X_8SD [Opponent] [Stash] [Socket_2] [Small] | [ZEE9WWJ [Opponent] [Stash] [Socket_3] [Small] | [AtZVmc6 [Opponent] [Stash] [Socket_4] [Small] | [btdjxrL [Opponent] [Hand] [Socket_3] [Small] | [iA5UVun [Opponent] [Medium] | 
+[AppState] State changed from [ReplayState] to [LevelUpState]
+[GameSimHandler] Cards Disposed: iI6-C70  |  gAFINVr  |  amoIldx  |  oJHOj6n  |  Culqo5v  |  qEpOwsR  |  I_H-HtH  |  1bePsOa  |  y7X_8SD  |  ZEE9WWJ  |  AtZVmc6  |  iA5UVun  |  btdjxrL  |  
+[BoardManager] Card Purchased: InstanceId: ste_CaFXAAD - TemplateIde286d583-65b1-4fc3-b76e-c182c5c34604 - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: ste_CaFXAAD  |  enc_53SfRLR  |  
+[CardOperationUtility] Successfully moved card to: [itm_LBkrtEM [Player] [Hand] [Socket_2] [Small]
+[AppState] State changed from [LevelUpState] to [ChoiceState]
+[GameSimHandler] Cards Spawned: [itm_AfJ4dOf [Player] [Hand] [Socket_7] [Small] | 
+[BoardManager] Card Purchased: InstanceId: itm_LBkrtEM - TemplateId189c31f3-1641-4e05-bf78-800e71ffc0e7 - Target:PlayerSocket_2 - SectionPlayer
+[GameSimHandler] Cards Disposed: itm_oZbyG_c  |  itm_1pgZy8L  |  
+[AppState] State changed from [ChoiceState] to [ChoiceState]
+[AppState] State changed from [ChoiceState] to [EncounterState]
+[BoardManager] Card Purchased: InstanceId: enc_C3Ush0s - TemplateId34dc624d-1046-4e2d-906d-1fd8d19647d8 - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: enc_8jsn_r3  |  enc_LLATidb  |  
+[BoardManager] Card Purchased: InstanceId: ste_NoPALzp - TemplateIdd5b9355d-de5e-4650-a8d4-51440605488c - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: ste_7fhVGHy  |  ste_NoPALzp  |  
+[BoardManager] Card Purchased: InstanceId: ste_8yBX5Dj - TemplateId1badcdb2-37f1-4a4c-be32-82358c6d238f - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: ste_8yBX5Dj  |  
+[BoardManager] Card Purchased: InstanceId: ste_j7s_9Q0 - TemplateId92576975-0576-4ca4-a655-a794fdc6c888 - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: ste_j7s_9Q0  |  
+[BoardManager] Card Purchased: InstanceId: ste_RoojYXT - TemplateIded836a4f-298b-45be-b012-cbba1560847a - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: ste_RoojYXT  |  
+[BoardManager] Card Purchased: InstanceId: ste_G5nW1CL - TemplateId89d80c47-d125-4597-a498-1f0d100bd34d - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: ste_G5nW1CL  |  
+[CardOperationUtility] Successfully moved card to: [itm_OaYRGJN [Player] [Stash] [Socket_0] [Small]
+[AppState] State changed from [EncounterState] to [ChoiceState]
+[BoardManager] Card Purchased: InstanceId: itm_OaYRGJN - TemplateId9e1173c2-c44d-4aa5-9aa3-10271be80943 - Target:PlayerStorageSocket_0 - SectionStorage
+[GameSimHandler] Cards Disposed: enc_C3Ush0s  |  
+[AppState] State changed from [ChoiceState] to [EncounterState]
+[BoardManager] Card Purchased: InstanceId: enc_u9UE6xM - TemplateIdb8f55bb0-536e-4d5f-a328-d38f88c6d479 - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: enc_sucIKty  |  enc_DOONz2z  |  
+[CardOperationUtility] Successfully moved card itm_uK1wHB1 to Socket_3
+[CardOperationUtility] Successfully removed item itm_uK1wHB1 from player's inventory
+[GameSimHandler] Cards Disposed: 
+[BoardManager] Sold Card itm_uK1wHB1 for 4 gold.
+[CardOperationUtility] Successfully removed item itm_lbW6FJm from player's inventory
+[GameSimHandler] Cards Disposed: 
+[BoardManager] Sold Card itm_lbW6FJm for 4 gold.
+[CardOperationUtility] Successfully removed item itm_AfJ4dOf from player's inventory
+[GameSimHandler] Cards Disposed: 
+[BoardManager] Sold Card itm_AfJ4dOf for 1 gold.
+[CardOperationUtility] Successfully moved card to: [itm_Wio3EZm [Player] [Hand] [Socket_7] [Small]
+[BoardManager] Card Purchased: InstanceId: itm_Wio3EZm - TemplateId302d710c-335d-4fd4-af3c-34789e55acd3 - Target:PlayerSocket_7 - SectionPlayer
+[GameSimHandler] Cards Disposed: itm_ZYpfy4M  |  itm_EMYT0bR  |  
+[AppState] State changed from [EncounterState] to [ChoiceState]
+[GameSimHandler] Cards Disposed: itm_DUnrItR  |  itm__r3giGu  |  itm_FxX2Gus  |  enc_u9UE6xM  |  
+[AppState] State changed from [ChoiceState] to [CombatState]
+[GameSimHandler] Cards Spawned: [HZsJJrC [Opponent] [Hand] [Socket_1] [Small] | [NIOUps3 [Opponent] [Hand] [Socket_2] [Small] | [AFqMdIW [Opponent] [Hand] [Socket_3] [Large] | [LoGZL2- [Opponent] [Hand] [Socket_6] [Small] | [1sqXKSQ [Opponent] [Hand] [Socket_7] [Small] | [pIKe58e [Opponent] [Hand] [Socket_8] [Small] | [lctdgQ4 [Opponent] [Medium] | 
+[BoardManager] Card Purchased: InstanceId: com_Li5Ft-m - TemplateId325c88c3-9496-44bf-b900-4adf1f84bf2f - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: com_uOgkaZT  |  com_-gaR7Z8  |  
+[GameSimHandler] Cards Disposed: itm_8-wHCoY  |  itm_HYr-H3q  |  itm_CZSk7en  |  itm_Wio3EZm  |  itm_LBkrtEM  |  pIKe58e  |  NIOUps3  |  AFqMdIW  |  LoGZL2-  |  HZsJJrC  |  1sqXKSQ  |  
+[GameSimHandler] Cards Spawned: [itm_8-wHCoY [Player] [Hand] [Socket_5] [Medium] | [itm_HYr-H3q [Player] [Hand] [Socket_3] [Small] | [itm_CZSk7en [Player] [Hand] [Socket_4] [Small] | [itm_Wio3EZm [Player] [Hand] [Socket_7] [Small] | [itm_LBkrtEM [Player] [Hand] [Socket_2] [Small] | 
+[AppState] State changed from [CombatState] to [ReplayState]
+[GameSimHandler] Cards Spawned: [HZsJJrC [Opponent] [Hand] [Socket_1] [Small] | [NIOUps3 [Opponent] [Hand] [Socket_2] [Small] | [AFqMdIW [Opponent] [Hand] [Socket_3] [Large] | [LoGZL2- [Opponent] [Hand] [Socket_6] [Small] | [1sqXKSQ [Opponent] [Hand] [Socket_7] [Small] | [pIKe58e [Opponent] [Hand] [Socket_8] [Small] | [lctdgQ4 [Opponent] [Medium] | 
+[AppState] State changed from [ReplayState] to [ChoiceState]
+[GameSimHandler] Cards Disposed: HZsJJrC  |  NIOUps3  |  AFqMdIW  |  LoGZL2-  |  1sqXKSQ  |  pIKe58e  |  lctdgQ4  |  
+[AppState] State changed from [ChoiceState] to [EncounterState]
+[BoardManager] Card Purchased: InstanceId: enc_H3cl0i- - TemplateId85db60ee-3619-4e39-bfb2-2f4ac56f172b - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: enc_uQCSnGR  |  enc_kD1vEM1  |  
+[GameSimHandler] Cards Disposed: itm_YYrYHzJ  |  itm_xBJR8Gq  |  itm_gZsxtju  |  
+[AppState] State changed from [EncounterState] to [ChoiceState]
+[GameSimHandler] Cards Disposed: itm_vtjXETk  |  itm_bjaCF3Z  |  itm_Qo1TUcs  |  enc_H3cl0i-  |  
+[AppState] State changed from [ChoiceState] to [EncounterState]
+[BoardManager] Card Purchased: InstanceId: enc_c-UMgOw - TemplateIddc12f4bd-6c33-41f0-b7ad-d62a0be09a47 - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: enc_qV-Tgj4  |  enc_cf_Aj3i  |  
+[CardOperationUtility] Successfully removed item itm_CZSk7en from player's inventory
+[GameSimHandler] Cards Disposed: 
+[BoardManager] Sold Card itm_CZSk7en for 1 gold.
+[CardOperationUtility] Successfully removed item itm_HYr-H3q from player's inventory
+[GameSimHandler] Cards Disposed: 
+[BoardManager] Sold Card itm_HYr-H3q for 1 gold.
+[CardOperationUtility] Successfully moved card to: [itm_TYHzrmz [Player] [Hand] [Socket_3] [Medium]
+[BoardManager] Card Purchased: InstanceId: itm_TYHzrmz - TemplateId4b1eb7a7-3e65-43ed-905f-72fc7be4233f - Target:PlayerSocket_3 - SectionPlayer
+[GameSimHandler] Cards Disposed: itm_tBspjbv  |  itm_CIeoIyH  |  
+[AppState] State changed from [EncounterState] to [ChoiceState]
+[GameSimHandler] Cards Disposed: itm_9zwlwo1  |  itm_Zh-jo8F  |  itm_o3EszzO  |  enc_c-UMgOw  |  
+[AppState] State changed from [ChoiceState] to [PVPCombatState]
+[GameSimHandler] Cards Spawned: [ssv1PVC [Opponent] [Hand] [Socket_1] [Medium] | [4esOZun [Opponent] [Hand] [Socket_3] [Small] | [_FuE5c8 [Opponent] [Hand] [Socket_4] [Medium] | [i-4oU2l [Opponent] [Hand] [Socket_6] [Small] | [E8uYnAP [Opponent] [Hand] [Socket_7] [Small] | [scyEX6F [Opponent] [Hand] [Socket_8] [Small] | [_mZlnvQ [Opponent] [Stash] [Socket_0] [Medium] | [SrbBMTF [Opponent] [Stash] [Socket_4] [Small] | [nKWAVAt [Opponent] [Stash] [Socket_5] [Small] | [uuhHuMq [Opponent] [Stash] [Socket_7] [Small] | [ollHjN4 [Opponent] [Medium] | [z6jfwX1 [Opponent] [Medium] | 
+[BoardManager] Card Purchased: InstanceId: pvp_gfp-L2K - TemplateIdb79845a7-f806-4e7a-9011-d98ebd22a323 - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: itm_LBkrtEM  |  itm_Wio3EZm  |  itm_8-wHCoY  |  itm_TYHzrmz  |  4esOZun  |  scyEX6F  |  ssv1PVC  |  E8uYnAP  |  _FuE5c8  |  i-4oU2l  |  
+[GameSimHandler] Cards Spawned: [itm_LBkrtEM [Player] [Hand] [Socket_2] [Small] | [itm_Wio3EZm [Player] [Hand] [Socket_7] [Small] | [itm_8-wHCoY [Player] [Hand] [Socket_5] [Medium] | [itm_TYHzrmz [Player] [Hand] [Socket_3] [Medium] | 
+[AppState] State changed from [PVPCombatState] to [ReplayState]
+[GameSimHandler] Cards Spawned: [ssv1PVC [Opponent] [Hand] [Socket_1] [Medium] | [4esOZun [Opponent] [Hand] [Socket_3] [Small] | [_FuE5c8 [Opponent] [Hand] [Socket_4] [Medium] | [i-4oU2l [Opponent] [Hand] [Socket_6] [Small] | [E8uYnAP [Opponent] [Hand] [Socket_7] [Small] | [scyEX6F [Opponent] [Hand] [Socket_8] [Small] | [_mZlnvQ [Opponent] [Stash] [Socket_0] [Medium] | [SrbBMTF [Opponent] [Stash] [Socket_4] [Small] | [nKWAVAt [Opponent] [Stash] [Socket_5] [Small] | [uuhHuMq [Opponent] [Stash] [Socket_7] [Small] | [ollHjN4 [Opponent] [Medium] | [z6jfwX1 [Opponent] [Medium] | 
+[AppState] State changed from [ReplayState] to [ChoiceState]
+[GameSimHandler] Cards Spawned: [itm_oU7aj89 [Player] [Stash] [Socket_1] [Small] | 
+[GameSimHandler] Cards Disposed: ssv1PVC  |  4esOZun  |  _FuE5c8  |  i-4oU2l  |  E8uYnAP  |  scyEX6F  |  _mZlnvQ  |  SrbBMTF  |  nKWAVAt  |  uuhHuMq  |  ollHjN4  |  z6jfwX1  |  
+[AppState] State changed from [ChoiceState] to [EncounterState]
+[BoardManager] Card Purchased: InstanceId: enc_QRBlYj2 - TemplateId85db60ee-3619-4e39-bfb2-2f4ac56f172b - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: enc_oFIIhQs  |  enc_y2h1hXB  |  
+[CardOperationUtility] Successfully moved card itm_8-wHCoY to Socket_0
+[CardOperationUtility] Successfully moved card itm_OaYRGJN to Socket_2
+[CardOperationUtility] Successfully moved card itm_oU7aj89 to Socket_3
+[CardOperationUtility] Successfully moved card to: [itm_c-L4k3n [Player] [Hand] [Socket_5] [Small]
+[BoardManager] Card Purchased: InstanceId: itm_c-L4k3n - TemplateIdf8b41c46-8adc-4e84-835a-831e2e3d84d1 - Target:PlayerSocket_5 - SectionPlayer
+[GameSimHandler] Cards Disposed: itm_ltRLGe3  |  itm_-7ZMBkg  |  
+[CardOperationUtility] Successfully moved card to: [itm_LQKw-xq [Player] [Hand] [Socket_6] [Small]
+[BoardManager] Card Purchased: InstanceId: itm_LQKw-xq - TemplateIdf321478b-7741-4d36-a567-ef428ad11ea9 - Target:PlayerSocket_6 - SectionPlayer
+[CardOperationUtility] Successfully moved card itm_Wio3EZm to Socket_6
+[CardOperationUtility] Successfully moved card itm_LQKw-xq to Socket_7
+[AppState] State changed from [EncounterState] to [LevelUpState]
+[GameSimHandler] Cards Disposed: itm_yXfHUbC  |  itm_rSZrvUg  |  enc_QRBlYj2  |  
+[AppState] State changed from [LevelUpState] to [ChoiceState]
+[GameSimHandler] Cards Spawned: [skl_dJ3c1J6 [Player] [Medium] | 
+[BoardManager] Card Purchased: InstanceId: ste_doKN0RS - TemplateId0c71aef1-c049-483a-b9a0-19c5005b4fc7 - Target:OpponentSocket_5 - SectionOpponent
+[GameSimHandler] Cards Disposed: ste_doKN0RS  |  enc_RcDLff-  |  enc_TuiKqY4  |  ste_JTIPHoE  |  
+[AppState] State changed from [ChoiceState] to [ChoiceState]

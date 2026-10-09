@@ -12,7 +12,7 @@ Usage:
     python logwatch.py [--config config.ini] [--debug] [--setup]
 """
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 import argparse
 import configparser
@@ -29,6 +29,8 @@ import requests
 
 # Module-global session for connection reuse across requests
 _session = requests.Session()
+# the ebs logs this per channel, so "did the streamer update?" is answerable
+_session.headers["User-Agent"] = f"bazaarinfo-companion/{VERSION}"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1016,7 +1018,10 @@ def _process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
             state["player_board"].clear()
             state["opponent_board"].clear()
             state["player_skills"].clear()
-            state["instance_map"].clear()
+            # instance_map is NOT cleared: instance ids are random per card and keep
+            # their identity across a game restart, and every session — a resumed run
+            # included — opens with this same transition. Clearing here forgot the name
+            # of every card bought before a restart.
             state["show_overlay"] = False
             return True
 
@@ -1031,9 +1036,15 @@ def _process_line(line: str, state: dict, card_db: dict, debug: bool) -> bool:
     return False
 
 
-def build_initial_state(log_path: Path, card_db: dict) -> dict:
-    """Parse full log to build current game state."""
+def build_initial_state(log_path: Path, card_db: dict, instance_map: dict | None = None) -> dict:
+    """Parse full log to build current game state.
+
+    instance_map, when given, is used (and grown) in place, so names learned from
+    earlier logs survive the rebuild.
+    """
     state = new_state()
+    if instance_map is not None:
+        state["instance_map"] = instance_map
 
     with open(log_path, encoding="utf-8", errors="replace") as f:
         for line in f:
@@ -1070,6 +1081,67 @@ def backoff_delay(failures: int) -> float:
     if failures <= 0:
         return 0.0
     return min(BACKOFF_CAP_S, BACKOFF_BASE_S * (2 ** (failures - 1)))
+
+
+class CardNames:
+    """instance id -> template id, remembered across game and companion restarts.
+
+    A card's template id is only ever logged when it's bought. The game rewrites
+    Player.log on every launch, so without this every card bought before a restart
+    would come back nameless. Sources: the saved map, then Player-prev.log (the
+    session before the restart), then the live log as it's read.
+    """
+
+    CAP = 5000
+
+    def __init__(self, path: Path | None):
+        self.path = path
+        self.map: dict = {}
+        self._saved = 0
+        self._warned = False
+        if path is None:
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                self.map = {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)}
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError) as e:
+            logger.warning("Saved card names unreadable (%s) — starting fresh", e)
+        self._saved = len(self.map)
+
+    def seed_from_log(self, log_path: Path) -> int:
+        """Learn every purchase in a finished log. Missing file is fine."""
+        n = 0
+        try:
+            with open(log_path, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if "Card Purchased" not in line:
+                        continue
+                    m = RE_CARD_PURCHASED.search(line)
+                    if m:
+                        self.map[m.group(1)] = m.group(2)
+                        n += 1
+        except OSError:
+            return 0
+        return n
+
+    def save(self) -> None:
+        """Persist if anything was learned since the last save. Never raises."""
+        if self.path is None or len(self.map) == self._saved:
+            return
+        while len(self.map) > self.CAP:  # oldest first — dicts keep insertion order
+            del self.map[next(iter(self.map))]
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        try:
+            tmp.write_text(json.dumps(self.map), encoding="utf-8")
+            os.replace(tmp, self.path)
+            self._saved = len(self.map)
+        except OSError as e:
+            if not self._warned:
+                self._warned = True
+                logger.warning("Couldn't save card names (%s) — they'll be relearned", e)
 
 
 class CardWatch:
@@ -1112,10 +1184,14 @@ class CardWatch:
         return db
 
 
-def tail_log(log_path: Path, card_db: dict, card_sources: list[Path], cards_complete: bool, ebs_url: str, channel_id: str, secret: str, debug: bool):
+def tail_log(log_path: Path, card_db: dict, card_sources: list[Path], cards_complete: bool, names: CardNames, ebs_url: str, channel_id: str, secret: str, debug: bool):
     """Tail the log file and track game state."""
+    seeded = names.seed_from_log(log_path.with_name("Player-prev.log"))
+    if seeded:
+        logger.info("Recovered %d card names from the previous game session", seeded)
     logger.info("Building initial state from log...")
-    state = build_initial_state(log_path, card_db)
+    state = build_initial_state(log_path, card_db, names.map)
+    names.save()
 
     p_items = [v["title"] for v in state["player_board"].values()]
     p_skills = [v["title"] for v in state["player_skills"].values()]
@@ -1130,6 +1206,7 @@ def tail_log(log_path: Path, card_db: dict, card_sources: list[Path], cards_comp
     last_send = time.monotonic()
     last_inode = log_path.stat().st_ino
     cards = CardWatch(card_sources, cards_complete)
+    last_names_save = time.monotonic()
     last_card_check = time.monotonic()
     dirty = False
     last_change = 0.0
@@ -1177,6 +1254,9 @@ def tail_log(log_path: Path, card_db: dict, card_sources: list[Path], cards_comp
                     if not dirty and state["show_overlay"] and (now - last_send) >= HEARTBEAT_INTERVAL:
                         if send_state(ebs_url, channel_id, secret, state):
                             last_send = now
+                    if (now - last_names_save) >= HEARTBEAT_INTERVAL:
+                        last_names_save = now
+                        names.save()
 
                     # A game update rewrote the card data: replay the log against the
                     # new data so cards it couldn't name before get their names now.
@@ -1186,7 +1266,7 @@ def tail_log(log_path: Path, card_db: dict, card_sources: list[Path], cards_comp
                         if new_db is not None:
                             logger.info("Game card data updated, rebuilding state...")
                             try:
-                                state = build_initial_state(log_path, new_db)
+                                state = build_initial_state(log_path, new_db, names.map)
                             except OSError as e:
                                 # keep the old db + state; forget the new signature so
                                 # the next check reloads and replays again
@@ -1222,9 +1302,13 @@ def tail_log(log_path: Path, card_db: dict, card_sources: list[Path], cards_comp
                         # (log replaced again mid-rebuild, game restarting), retry until
                         # it succeeds. Bailing to the outer loop instead would readline()
                         # a closed file forever and the companion would never recover.
+                        # the log that just rotated out is Player-prev.log now — its
+                        # purchases are already in the map, but re-read it in case we
+                        # missed its tail
+                        names.seed_from_log(log_path.with_name("Player-prev.log"))
                         while True:
                             try:
-                                state = build_initial_state(log_path, card_db)
+                                state = build_initial_state(log_path, card_db, names.map)
                                 f = open(log_path, encoding="utf-8", errors="replace")
                                 break
                             except OSError as e:
@@ -1250,6 +1334,7 @@ def tail_log(log_path: Path, card_db: dict, card_sources: list[Path], cards_comp
                 time.sleep(1)
     finally:
         f.close()
+        names.save()
 
 
 def validate_config(config: configparser.ConfigParser) -> bool:
@@ -1568,7 +1653,8 @@ def main():
     log_path = args.log
     wait_for_file(log_path, "Player.log")
 
-    tail_log(log_path, card_db, card_sources, complete, ebs_url, channel_id, secret, args.debug)
+    names = CardNames(args.config.parent / "instance-map.json")
+    tail_log(log_path, card_db, card_sources, complete, names, ebs_url, channel_id, secret, args.debug)
 
 
 if __name__ == "__main__":

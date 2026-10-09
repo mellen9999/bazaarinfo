@@ -765,3 +765,79 @@ def test_gamedata_path_with_uri_special_chars(tmp_path, monkeypatch):
     assert "t" in load_card_db([d / "GameData.db"])
     monkeypatch.chdir(d)
     assert "t" in load_card_db([Path("GameData.db")])  # relative paths too
+
+
+# ── card names survive a game restart (real aug-9 restart, card lines only) ──
+
+from logwatch import CardNames, build_initial_state, build_payload, RE_CARD_PURCHASED
+
+_TD = Path(__file__).parent / "testdata"
+
+
+def _db_for(*logs):
+    """A card db naming every template the logs ever bought."""
+    db = {}
+    for log in logs:
+        for line in log.read_text(encoding="utf-8").splitlines():
+            m = RE_CARD_PURCHASED.search(line)
+            if m:
+                db[m.group(2)] = {"title": f"card {m.group(2)[:6]}", "tier": "Bronze",
+                                  "size": "Small", "type": "Item"}
+    return db
+
+
+def _named_player_cards(state):
+    return [c for c in build_payload(state)["cards"] if c.get("owner") == "player" and c.get("type") != "Skill"]
+
+
+def test_real_restart_without_memory_loses_names():
+    prev, cur = _TD / "aug9-player-prev.txt", _TD / "aug9-player.txt"
+    state = build_initial_state(cur, _db_for(prev))
+    assert _named_player_cards(state) == []  # the bug: every card dark after a restart
+
+
+def test_real_restart_recovers_names_from_previous_session():
+    prev, cur = _TD / "aug9-player-prev.txt", _TD / "aug9-player.txt"
+    names = CardNames(None)
+    assert names.seed_from_log(prev) > 0
+    state = build_initial_state(cur, _db_for(prev), names.map)
+    # all 5 cards on the board after the restart were bought the session before
+    # (the stash also holds older cards, but the overlay only shows the board)
+    assert len(_named_player_cards(state)) == 5
+
+
+def test_run_start_keeps_learned_names():
+    s = new_state()
+    db = {"tid_a": {"title": "A", "tier": "Bronze", "size": "Small", "type": "Item"}}
+    process_line("[BoardManager] Card Purchased: InstanceId: itm_a - TemplateIdtid_a - Target:PlayerSocket_0 - SectionPlayer", s, db, False)
+    process_line("[AppState] State changed from [null] to [StartRunAppState]", s, db, False)
+    assert s["instance_map"]["itm_a"] == "tid_a"
+    assert s["player_board"] == {}  # the board itself still resets
+
+
+def test_card_names_persist_and_cap(tmp_path):
+    p = tmp_path / "instance-map.json"
+    n = CardNames(p)
+    n.map.update({f"itm_{i}": f"t{i}" for i in range(CardNames.CAP + 10)})
+    n.save()
+    again = CardNames(p)
+    assert len(again.map) == CardNames.CAP
+    assert "itm_0" not in again.map and f"itm_{CardNames.CAP + 9}" in again.map  # oldest dropped
+    assert not (tmp_path / "instance-map.json.tmp").exists()
+
+
+def test_card_names_corrupt_file_starts_empty(tmp_path):
+    p = tmp_path / "instance-map.json"
+    p.write_text("{half", encoding="utf-8")
+    n = CardNames(p)
+    assert n.map == {}
+    n.map["itm_x"] = "t"
+    n.save()
+    assert CardNames(p).map == {"itm_x": "t"}
+
+
+def test_card_names_save_failure_never_raises(tmp_path):
+    n = CardNames(tmp_path / "missing-dir" / "instance-map.json")
+    n.map["itm_x"] = "t"
+    n.save()  # unwritable: warns once, keeps running
+    n.save()
