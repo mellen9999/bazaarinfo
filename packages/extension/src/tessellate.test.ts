@@ -20,12 +20,25 @@ describe('tessellate', () => {
     expect(tessellate([])).toEqual([])
   })
 
-  it('fills the gap between two adjacent cards at the midpoint', () => {
-    const [a, b] = tessellate(row([[0.10, 0.05], [0.20, 0.05]]))
-    // gap was 0.05 (0.15..0.20); each grows 0.025 → meet at 0.175
-    expect(a.x + a.w).toBeCloseTo(0.175)
-    expect(b.x).toBeCloseTo(0.175)
+  it('fills a gutter too narrow to hide a card at the midpoint', () => {
+    const [a, b] = tessellate(row([[0.10, 0.05], [0.17, 0.05]]))
+    // gap 0.02 (0.15..0.17) < half a card; each grows 0.01 → meet at 0.16
+    expect(a.x + a.w).toBeCloseTo(0.16)
+    expect(b.x).toBeCloseTo(0.16)
     expect(noOverlap([a, b])).toBe(true)
+  })
+
+  it('never grows across a gap that could hide an unsent card', () => {
+    // real geometry: medium jacket, an unnamed large van the companion dropped
+    // (3 empty-looking sockets), then a small card
+    const S = 0.058604
+    const [jacket, next] = tessellate(row([[0.2, 2 * S], [0.2 + 5 * S, S]]))
+    const vanLo = 0.2 + 2 * S
+    const vanHi = vanLo + 3 * S
+    // each side only gets edge slop, so most of the van stays tooltip-free
+    expect(jacket.x + jacket.w).toBeCloseTo(vanLo + S * 0.15)
+    expect(next.x).toBeCloseTo(vanHi - S * 0.15)
+    expect(noOverlap([jacket, next])).toBe(true)
   })
 
   it('never overlaps and leaves the shared boundary seamless', () => {
@@ -46,9 +59,9 @@ describe('tessellate', () => {
 
   it('caps growth into a huge gap (far-apart cards do not balloon)', () => {
     const [a, b] = tessellate(row([[0.05, 0.05], [0.80, 0.05]]))
-    // half-gap 0.35 >> cap 0.05*0.6=0.03, so each grows only 0.03
-    expect(a.w).toBeCloseTo(0.08)
-    expect(b.x).toBeCloseTo(0.77)
+    // gap 0.70 could hide cards, so each grows only edge slop 0.05*0.15=0.0075
+    expect(a.w).toBeCloseTo(0.0575)
+    expect(b.x).toBeCloseTo(0.7925)
     expect(noOverlap([a, b])).toBe(true)
   })
 

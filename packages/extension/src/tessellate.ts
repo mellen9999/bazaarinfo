@@ -9,8 +9,13 @@
 // Overlap is worse than a gap: a gap shows no tooltip (safe), an overlap could
 // show the WRONG card's tooltip (misinformation). So boundaries are always set
 // to the split point between two zones — never past it — which also cleans up
-// any overlap the companion itself sent. Growth into a large gap is capped so
-// two genuinely far-apart cards don't balloon into each other's empty space.
+// any overlap the companion itself sent.
+//
+// A gap wide enough to hold a card is never filled: it may BE a card — one the
+// companion couldn't name (loot, event rewards) and so never sent. Growing the
+// neighbours across it put their tooltips over that card (a medium jacket's zone
+// spread over a large van and read as "the extension thinks it's large"). Such a
+// gap only gets a thin edge slop, enough to forgive a near-miss on calibration.
 
 interface Zone {
   x: number
@@ -21,7 +26,8 @@ interface Zone {
   type?: string
 }
 
-const GAP_GROWTH_CAP = 0.6 // a zone may grow at most 60% of its own width per side
+const HIDES_A_CARD = 0.5 // a gap at least this fraction of the narrower card could hide one
+const EDGE_SLOP = 0.15   // per-side growth into such a gap, as a fraction of the narrower card
 
 function sameRow(a: Zone, b: Zone): boolean {
   if ((a.owner ?? '') !== (b.owner ?? '')) return false
@@ -61,12 +67,11 @@ export function tessellate<T extends Zone>(zones: T[]): T[] {
         b.x = m
         b.w = Math.max(0, bRight - m)
       } else {
-        const half = gap / 2
-        const aGrow = Math.min(half, a.w * GAP_GROWTH_CAP)
-        const bGrow = Math.min(half, b.w * GAP_GROWTH_CAP)
-        a.w = a.w + aGrow
-        b.x = b.x - bGrow
-        b.w = b.w + bGrow
+        const narrow = Math.min(a.w, b.w)
+        const grow = gap < narrow * HIDES_A_CARD ? gap / 2 : narrow * EDGE_SLOP
+        a.w = a.w + grow
+        b.x = b.x - grow
+        b.w = b.w + grow
       }
     }
   }
