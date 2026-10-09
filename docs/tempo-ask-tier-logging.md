@@ -1,74 +1,71 @@
-# Ask to Tempo Storm: log the card tier and template
+# Ask to Tempo Storm: bring the board back to Player.log
 
 Draft. Not sent — mellen's call on whether and where to send it.
 
-The one thing that would fix tier accuracy for every log-reading tool at once.
+Updated 2026-10-09: the current build (1.0.12650, public 2026-10-07) stopped logging
+the board at all, which turns the old "please add tier" ask into "please don't take
+the board away". That's the stronger, simpler request, so it leads now.
 
 ---
 
 ## The message
 
-**Subject: one-line logging request — card template + tier in Player.log**
+**Subject: Player.log stopped listing the board in 1.0.12650 — could it come back?**
 
 Hi,
 
 I build [BazaarInfo](https://github.com/mellen9999/bazaarinfo), a free Twitch
-extension and chat bot for The Bazaar. The overlay lets viewers hover a card on
-stream and see what it does; the bot answers card questions in chat. It's built on
-bazaardb.gg's data and it reads the client's own `Player.log` — no memory reading, no
-injection, nothing touching the game process.
+extension and chat bot for The Bazaar. Viewers hover a card on stream and see what
+it does; the bot answers card questions in chat. It runs on bazaardb.gg's data and
+reads the client's own `Player.log`: no memory reading, no injection, nothing
+touching the game process.
 
-There are two things I can't get from the log: **which card a spawned item is**, and
-**its current tier.**
+On the current build the log no longer says what's on the board. In August a
+board change looked like this:
 
-The first matters most. A card's template id is only logged when it's bought
-(`[BoardManager] Card Purchased: InstanceId ... TemplateId ...`). Anything that
-arrives another way — combat loot, a level-up bonus item, a level-up skill — is
-spawned with only its instance id, so no tool can say what it is. On a real run
-that's a meaningful share of the board, and viewers hovering it get nothing.
+```
+[GameSimHandler] Cards Spawned: [itm_…] [Player] [Hand] [Socket_2] [Small] | …
+[CardOperationUtility] Successfully moved card itm_… to Socket_4
+```
 
-I went looking properly before writing to you, and I'm fairly confident it isn't
-there to be found:
+On 1.0.12650 the same moment is only counts:
 
-- `GetCardInfo()` writes the `Cards Spawned` block as
-  `[id] [Owner] [Section] [Socket_N] [Size]` — no tier field.
-- The one tier line that exists, `[BoardManager] Upgraded Card {id} Tier from: {old}
-  to: {new}`, is skipped when `value.CanFuse()` or when
-  `PedestalState.CanHandleCurrentUpgradeMessage` — so pedestal upgrades, a common
-  path, emit nothing.
-- Across a full real run: 6 pedestal visits, 110 spawn lines, **zero** tier lines and
-  no occurrence of "tier" anywhere in the file.
-- Enchantments are the same story — `OnCardEnchantedHandler` logs nothing usable.
+```
+GameSim cards: id=…, dealt=1, spawned=2, disposed=0
+```
 
-So a log-reading tool has to fall back to the item's base tier from the static data,
-which goes stale the moment the player upgrades anything. A Silver item shows Bronze
-damage to the whole chat.
+Purchases, sells, upgrades, transforms and skill picks are still there, so a tool
+can follow what the player *buys*. Everything else is invisible: starting items,
+loot, level-up rewards, and any card the player drags to another slot. Live, that
+means a streamer's overlay shows three of their eight items, some in the wrong place.
 
-**The ask:** include the template id and tier (and ideally the enchantment) in the
-card info the client already logs. Either would do it:
+I'm fairly confident this was a cleanup of noisy logging rather than a decision about
+tools, which is why I'm asking.
 
-1. Add the fields to the existing tuple —
-   `[id] [Owner] [Section] [Socket_N] [Size] [TemplateId] [Tier] [Enchantment]`, or
-2. Emit the existing `Upgraded Card ... Tier from/to` line unconditionally, including
-   the pedestal and fuse paths.
+**The ask, smallest first:**
 
-Option 1 is more robust for tools, since it doesn't depend on catching every
-transition — and it's the only one that also names loot and skills (option 2 covers
-tier alone).
+1. **Restore the `Cards Spawned` / `Cards Disposed` lines and the card-moved line**
+   as they were. That alone puts every log-reading tool back where it was in August.
+2. While it's open, **add the template id, tier and enchantment** to that same
+   per-card tuple:
+   `[id] [Owner] [Section] [Socket_N] [Size] [TemplateId] [Tier] [Enchantment]`.
+   Today the template id is only logged on purchase, and tier only on some
+   upgrades (`Upgraded Card … Tier from/to` is skipped on the fuse and pedestal
+   paths), so loot can't be named and an upgraded item shows its base stats to the
+   whole chat.
 
-**Why I think this is safe to add:** it's the player's own client logging the
-player's own board — information already rendered on their own screen. It's not
-opponent state, and it's nothing a player couldn't read by looking at their monitor.
-The log already carries card identity, owner, section, socket and size — and the
-template id for anything bought; template and tier are the attributes of the same
-kind that are missing.
+If a per-change line is too chatty, one line at the end of each `GameSim` message
+listing the player's board would do just as well.
 
-The alternative for tools that want live tier is to read it out of the running game,
-which I won't do — I'm not asking streamers to run anything that touches the game
-process on their main account. A log line keeps every tool on the safe side of that.
+**Why I think it's safe:** it's the player's own client logging the player's own
+board, information already drawn on their screen. No opponent state, nothing a
+viewer couldn't read off the stream.
 
-Happy to test a build, share the parser, or give you whatever's useful from what
-we've already mapped out.
+The other way for tools to get this is to read it out of the running game. I won't
+do that, and I won't ask streamers to run anything that touches the game on their
+main account. A log line keeps every tool on the safe side of that.
+
+Happy to test a build, share the parser, or send exact before/after log excerpts.
 
 Thanks for reading,
 mellen
@@ -77,11 +74,17 @@ mellen
 
 ## Notes for us
 
-- Don't overstate. The decompile findings are from our own reading of the assemblies;
-  say "I'm fairly confident", not "it is proven".
-- Lead with the ask being one line. The easier it looks, the likelier it lands.
-- Don't name any modding framework, ours or anyone's. The point stands without it,
-  and naming one invites the reply "so you've been modding the game".
-- If they say no: the tier ladder (`resolveTooltipParts`, shipped) is the answer, and
-  it stays regardless — showing the whole upgrade curve is genuinely useful even when
+- Evidence: the August lines are from our own `Player-prev.log` (2026-08-09). The
+  1.0.12650 format strings and the list of what survived come from reading the
+  current client: `GameSimHandler.LogCardOperations` now logs counts only, and the
+  move/remove lines are gone. Still logged: `Card Purchased` (with TemplateId),
+  `Sold Card`, `Upgraded Card`, `Transformed:`, `Selected skill`, `State changed`.
+  See memory `project_log_board_removed`.
+- Lead with "restore", not "add". Putting a removed line back is the cheapest ask
+  they'll get this week.
+- Don't overstate. Say "I'm fairly confident", not "proven".
+- Don't name any modding framework, ours or anyone's, and don't mention rival tools.
+  The point stands without it.
+- If they say no: the overlay keeps working on purchases, and the tier ladder
+  (`resolveTooltipParts`) stays. Showing the whole upgrade curve is useful even when
   the live tier is known.
