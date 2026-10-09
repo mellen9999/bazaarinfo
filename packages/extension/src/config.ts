@@ -178,7 +178,7 @@ function setupSecretHandlers() {
       if (!res.ok) throw new Error(String(res.status))
       const data = await res.json() as { secret: string }
       currentSecret = data.secret
-      setSecretStatus('rotated — copy the new secret into your companion config and restart it')
+      setSecretStatus('rotated — restart your companion, it signs in again for the new secret')
     } catch {
       setSecretStatus('rotation failed — old secret still works, try again', true)
     } finally {

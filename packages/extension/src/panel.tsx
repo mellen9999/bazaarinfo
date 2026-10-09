@@ -244,7 +244,7 @@ function Panel() {
             target="_blank"
             rel="noopener noreferrer"
           >
-            full card ↗
+            full card <span class="panel-glyph" aria-hidden="true">↗</span>
           </a>
         )}
         <a class="panel-link" href="https://bazaardb.gg" target="_blank" rel="noopener noreferrer">

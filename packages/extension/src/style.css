@@ -155,10 +155,12 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 
 .tt-art-img.loaded { opacity: 1; }
 
+/* glyphs are icons, so they're drawn like icons: big and heavy, never hairline */
 .tt-art-fallback {
-  font-size: 1.0714em;
+  font-size: 1.6em;
+  font-weight: 700;
   line-height: 1;
-  color: #949494;
+  color: #d0d0d0;
 }
 
 .tt-head-text {
@@ -367,11 +369,12 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 
 .panel-keys kbd {
   font-family: inherit;
-  font-size: inherit;
+  font-size: 1.15em;
+  font-weight: 700;
   padding: 0 4px;
   border: 1px solid #303030;
   background: #080808;
-  color: #949494;
+  color: #d0d0d0;
 }
 
 .panel-foot {
@@ -388,6 +391,7 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 .panel-link:hover,
 .panel-link:focus-visible { background: #fff; color: #000; outline: none; }
 .panel-link--card { color: #949494; }
+.panel-glyph { font-size: 1.15em; font-weight: 700; }
 
 /* ── Accessibility ── */
 
