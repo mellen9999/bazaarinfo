@@ -1,12 +1,13 @@
 // BazaarInfo EBS — Extension Backend Service
 // Relays companion card detections to viewers via Twitch PubSub
 
-import { readFileSync, watch } from 'fs'
-import { resolve, dirname, basename } from 'path'
+import { readFileSync, watch, mkdirSync } from 'fs'
+import { resolve, dirname, basename, join } from 'path'
 import type { CardCache } from '@bazaarinfo/shared'
 import { verifyTwitchJwt, deriveChannelSecret, jwtFailReason } from './auth'
 import { loadRotations, bumpVersion, rotationCount } from './rotation'
 import { handleCards, setCardCache, getCardCache } from './routes/cards'
+import { handleI18n, handleI18nList, loadI18n } from './routes/i18n'
 import { handleImage } from './routes/images'
 import { handleDetect } from './routes/detect'
 import { handleBoard } from './routes/board'
@@ -24,6 +25,7 @@ const PORT = parseInt(process.env.EBS_PORT ?? '3100')
 const TWITCH_ORIGIN_RE = /\.ext-twitch\.tv$/
 // everything under here is the public image route; handleImage owns key validation
 const IMAGE_PREFIX = '/api/images/'
+const I18N_PREFIX = '/api/i18n/'
 
 function allowedOrigin(req: Request): string | null {
   const origin = req.headers.get('Origin')
@@ -196,6 +198,14 @@ export async function handleRequest(req: Request): Promise<Response> {
     return cors(handleCards(req), origin)
   }
 
+  // GET /api/i18n — which languages are loaded; /api/i18n/<lang> — that language's strings
+  if (req.method === 'GET' && path === '/api/i18n') {
+    return cors(handleI18nList(), origin)
+  }
+  if (req.method === 'GET' && path.startsWith(I18N_PREFIX)) {
+    return cors(handleI18n(path.slice(I18N_PREFIX.length), req), origin)
+  }
+
   // GET /health/live — process is up
   if (req.method === 'GET' && path === '/health/live') {
     return cors(new Response('ok'), origin)
@@ -235,6 +245,9 @@ export async function handleRequest(req: Request): Promise<Response> {
 }
 
 const CACHE_PATH = process.env.CACHE_PATH ?? 'cache/items.json'
+
+// translations live beside the card cache; the bot's extractor rewrites them after each card refresh
+const I18N_DIR = process.env.I18N_DIR ?? join(dirname(resolve(CACHE_PATH)), 'i18n')
 
 // atomic read-then-swap: parse the full file and only swap the in-memory cache on success,
 // so a partial/corrupt read (the bot writes via temp+rename) never clobbers good data.
@@ -281,6 +294,21 @@ function init() {
     })
   } catch (e) {
     console.error('[ebs] could not watch card cache for changes:', e)
+  }
+
+  // translations are optional: a missing dir just means English-only until the bot writes them.
+  // created up front so the watcher below has something to attach to on a fresh box.
+  try {
+    mkdirSync(I18N_DIR, { recursive: true })
+    console.log(`[ebs] loaded ${loadI18n(I18N_DIR)} i18n language(s)`)
+    let i18nTimer: ReturnType<typeof setTimeout> | null = null
+    watch(I18N_DIR, (_event, filename) => {
+      if (!filename?.endsWith('.json')) return
+      if (i18nTimer) clearTimeout(i18nTimer)
+      i18nTimer = setTimeout(() => { console.log('[ebs] i18n changed, reloading'); loadI18n(I18N_DIR) }, 1000)
+    })
+  } catch (e) {
+    console.error('[ebs] i18n unavailable:', e)
   }
 
   const server = Bun.serve({
