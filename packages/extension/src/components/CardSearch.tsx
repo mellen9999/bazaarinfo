@@ -3,6 +3,7 @@ import type { ComponentChildren } from 'preact'
 import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
 import { buildIndex, searchCards, type SearchCard } from '@bazaarinfo/shared/src/search'
 import { CardTooltip } from './CardTooltip'
+import { Glyph } from './Glyph'
 import { tierColor } from '../tiers'
 import { useI18n } from '../i18n-context'
 import type { I18n } from '../i18n'
@@ -220,7 +221,7 @@ export function CardSearch({ cards, error, autoFocus = false, idle }: Props) {
             <button
               key={k}
               type="button"
-              class={`panel-chip${v !== null ? ' active' : ''}`}
+              class={`panel-chip xc${v !== null ? ' active' : ''}`}
               aria-pressed={v !== null}
               aria-label={`${k} filter: ${v === null ? 'any' : filterLabel(k, v, i18n)}`}
               disabled={options[k].length === 0}
@@ -239,7 +240,7 @@ export function CardSearch({ cards, error, autoFocus = false, idle }: Props) {
             <li
               key={`${i} ${c.Title}`}
               id={`panel-opt-${i}`}
-              class="panel-result"
+              class="panel-result xc"
               role="option"
               aria-selected={i === cursor}
               onMouseEnter={() => setCursor(i)}
@@ -267,7 +268,7 @@ export function CardSearch({ cards, error, autoFocus = false, idle }: Props) {
               <button
                 key={tn}
                 type="button"
-                class={`panel-tier${selected.tier === tn ? ' active' : ''}`}
+                class={`panel-tier xc${selected.tier === tn ? ' active' : ''}`}
                 style={tierStyles[i]}
                 aria-pressed={selected.tier === tn}
                 onClick={() => pickTier(tn)}
@@ -283,7 +284,7 @@ export function CardSearch({ cards, error, autoFocus = false, idle }: Props) {
               target="_blank"
               rel="noopener noreferrer"
             >
-              full card <span class="panel-glyph" aria-hidden="true">↗</span>
+              full card <Glyph class="panel-glyph">↗</Glyph>
             </a>
           )}
         </div>

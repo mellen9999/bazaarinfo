@@ -2,6 +2,8 @@ import { render } from 'preact'
 import { CardSearch } from './components/CardSearch'
 import { useCards } from './use-cards'
 import { I18nProvider } from './i18n-context'
+import { Glyph } from './components/Glyph'
+import { watchGlyphs } from './glyph-center'
 import './style.css'
 
 // two deliberate lines — a Twitch panel is 318px wide, and one long hint wraps into
@@ -11,8 +13,8 @@ const KEYS = (
     {/* the only place we can say the overlay exists without putting anything on the
         broadcaster's video */}
     <div class="panel-lede">hover any card on the stream for its tooltip</div>
-    <div><kbd>↑</kbd><kbd>↓</kbd> move · <kbd>⏎</kbd> pick</div>
-    <div><kbd>←</kbd><kbd>→</kbd> tier · <kbd>esc</kbd> clear</div>
+    <div><Glyph as="kbd">↑</Glyph><Glyph as="kbd">↓</Glyph> move · <Glyph as="kbd">⏎</Glyph> pick</div>
+    <div><Glyph as="kbd">←</Glyph><Glyph as="kbd">→</Glyph> tier · <Glyph as="kbd" class="glyph--wide">esc</Glyph> clear</div>
   </div>
 )
 
@@ -35,4 +37,7 @@ function Panel() {
 }
 
 const root = document.getElementById('root')
-if (root) render(<I18nProvider><Panel /></I18nProvider>, root)
+if (root) {
+  render(<I18nProvider><Panel /></I18nProvider>, root)
+  watchGlyphs()
+}

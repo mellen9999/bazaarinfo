@@ -3,6 +3,7 @@
 // Loaded as a static script via <script src>. CSP-clean: no inline handlers.
 
 import { initCalibrator } from './calibrate'
+import { watchGlyphs } from './glyph-center'
 
 const EBS_URL = 'https://ebs.bazaarinfo.com'
 
@@ -197,6 +198,7 @@ function init() {
   setupCopyHandlers()
   setupSecretHandlers()
   initCalibrator()
+  watchGlyphs()
   const twitch = window.Twitch?.ext
   if (!twitch) {
     setStatus('twitch extension helper unavailable', 'error')

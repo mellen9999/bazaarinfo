@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'preact/hooks'
 import type { BazaarCard } from '@bazaarinfo/shared/src/types'
 import { CardSearch } from './CardSearch'
+import { Glyph } from './Glyph'
 
 interface Props {
   cards: BazaarCard[] | null
@@ -53,7 +54,7 @@ export function OverlaySearch({ cards, error, controlsVisible }: Props) {
           title="search cards ( / )"
           onClick={() => setOpen((o) => !o)}
         >
-          <span class="search-glyph" aria-hidden="true">⌕</span>
+          <Glyph class="search-glyph">⌕</Glyph>
         </button>
       )}
     </>

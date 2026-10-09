@@ -61,9 +61,16 @@ function loadAll(): { items: Card[]; skills: Card[] } {
 
 const ALL = loadAll()
 
+// the in-page alignment audit (harness/audit.ts), bundled once and served at /audit.js
+const AUDIT_JS = await (async () => {
+  const r = await Bun.build({ entrypoints: [join(import.meta.dir, 'audit.ts')], target: 'browser', minify: false })
+  return r.success && r.outputs[0] ? `(() => {\n${await r.outputs[0].text()}\n})()` : `console.error('audit bundle failed')`
+})()
+const withAudit = (html: string, on: boolean) => on ? html.replace('</body>', '<script src="/audit.js"></script></body>') : html
+
 // ── the harness page: mock Twitch + stub fetch + broadcast a board on a heartbeat ──
 // Pass ?crop=x,y,scale to preload a game-area crop and eyeball the aligned board.
-function page(crop: string | null): string {
+function page(crop: string | null, audit = false): string {
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>overlay harness</title>
@@ -107,7 +114,8 @@ function page(crop: string | null): string {
   window.__board = board;
   const fire = () => window.__bcast && window.__bcast('broadcast','application/json',JSON.stringify({v:1,cards:board()}));
   // heartbeat < the overlay's 75s stale-TTL so the board never self-wipes while you look
-  const hb = setInterval(fire, 10000);
+  // (the audit holds one state still for seconds at a time: no re-broadcast under it)
+  const hb = ${audit ? 'null' : 'setInterval(fire, 10000)'};
   const t = setInterval(()=>{ if(window.__bcast){ fire(); clearInterval(t);} }, 300);
 </script>
 <script src="/video_overlay.js"></script>
@@ -159,8 +167,9 @@ Bun.serve({
     const url = new URL(req.url)
     const path = url.pathname
     if (path === '/' || path === '/index.html') {
-      return new Response(page(url.searchParams.get('crop')), { headers: { 'content-type': 'text/html' } })
+      return new Response(withAudit(page(url.searchParams.get('crop'), url.searchParams.has('audit')), url.searchParams.has('audit')), { headers: { 'content-type': 'text/html' } })
     }
+    if (path === '/audit.js') return new Response(AUDIT_JS, { headers: { 'content-type': 'text/javascript' } })
     if (path === '/api/cards') return Response.json(ALL)
     // the EBS's translation routes, served from the same cache/i18n files
     if (path === '/api/i18n') {
@@ -172,10 +181,10 @@ Bun.serve({
       return await f.exists() ? new Response(f, { headers: { 'content-type': 'application/json' } }) : new Response('not found', { status: 404 })
     }
     if (path === '/panel' || path === '/panel.html') {
-      return new Response(await panelPage(), { headers: { 'content-type': 'text/html' } })
+      return new Response(withAudit(await panelPage(), url.searchParams.has('audit')), { headers: { 'content-type': 'text/html' } })
     }
     if (path === '/config' || path === '/config.html') {
-      return new Response(await configPage(), { headers: { 'content-type': 'text/html' } })
+      return new Response(withAudit(await configPage(), url.searchParams.has('audit')), { headers: { 'content-type': 'text/html' } })
     }
     const file = Bun.file(join(DIST, path))
     if (await file.exists()) return new Response(file)

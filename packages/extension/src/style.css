@@ -1,6 +1,44 @@
+/* ── Alignment rules ──
+   Every number below is checked by `bun run ui-audit` across fonts and scales.
+   1. Icon glyphs (art fallback, ↗, keyword glyphs, ⌕, arrow keys, separators) live
+      in a .glyph box and are centred on their INK, both axes. CSS can only centre
+      the em cell, so glyph-center.ts measures the ink and sets --gx/--gy on .gi.
+   2. Buttons, chips and key caps are flex-centred at line-height 1. A single-glyph
+      key is a square; keys of one role share one box; "esc" is wider, centred.
+   3. Rows share a baseline. Separators (·, /) are .glyph--sep boxes on that
+      baseline whose ink is centred on the x-height middle of their line.
+   4. The tooltip art box is centred against the name+stats block.
+   5. One spacing scale: 0.29 / 0.5 / 0.64em. Adjacent blocks never stack two
+      1px rules, and nothing overflows its parent or the frame. */
+
 :root {
   --mono: ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace;
 }
+
+/* the glyph box: a square (or advance-wide for separators) with line-height 1.
+   .gi carries the measured ink offset — only it moves, never the box. */
+.glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.1em;
+  height: 1.1em;
+  line-height: 1;
+  vertical-align: middle;
+  text-align: center;
+}
+
+.glyph > .gi {
+  display: block;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translate(calc(var(--gx, 0) * 1em), calc(var(--gy, 0) * 1em));
+}
+
+/* separators keep the width of the character they replace, sit on the text's own
+   baseline, and glyph-center.ts puts their ink on the x-height middle of that text */
+.glyph--sep { width: auto; height: 1em; vertical-align: baseline; }
 
 * {
   box-sizing: border-box;
@@ -127,7 +165,7 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 
 .tt-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.57em;
   padding: 0.5em 0.64em;
   border-bottom: 1px solid #303030;
@@ -157,9 +195,10 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 
 /* glyphs are icons, so they're drawn like icons: big and heavy, never hairline */
 .tt-art-fallback {
+  width: 100%;
+  height: 100%;
   font-size: 1.6em;
   font-weight: 700;
-  line-height: 1;
   color: #d0d0d0;
 }
 
@@ -190,8 +229,10 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 }
 
 /* wraps as a whole, never mid-pair — a stat split across two lines reads as two
-   different facts */
-.tt-stat { white-space: nowrap; }
+   different facts. The one value that can outgrow a line on its own is a long hero
+   list; it breaks after a slash (the invisible break the list is joined with). */
+.tt-stat { white-space: nowrap; min-width: 0; }
+.tt-stat-v--hero { white-space: normal; }
 
 .tt-sep { color: #4e4e4e; padding: 0 0.3846em; }
 .tt-stat-k { color: #949494; }
@@ -229,18 +270,13 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 /* Keyword = coloured glyph + bold white word. The glyph sits in a fixed square box so
    every keyword's word starts at the same offset whatever the font's glyph width;
    the colour is inline (it belongs to the keyword, see keywords.ts). Glyph and word
-   never split across a wrap. --kw-glyph-lift is the one knob for vertical
-   alignment: it centres the glyph on the x-height middle of the text. */
-.kw { white-space: nowrap; --kw-glyph-lift: -0.1em; }
+   never split across a wrap. It is a .glyph box, so the ink is centred in it and the
+   box rides the x-height middle of the text (vertical-align: middle). */
+.kw { white-space: nowrap; }
 .kw-glyph {
-  display: inline-block;
-  width: 1.2em;
-  margin-right: 0.15em;
-  text-align: center;
-  line-height: 1;
+  margin-right: 0.25em;
   font-weight: 700;
   font-size: 1.15em;
-  vertical-align: var(--kw-glyph-lift);
 }
 .kw-word { color: #ffffff; font-weight: 700; }
 
@@ -259,6 +295,11 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 .tt-block--note { border-top: 1px solid #1c1c1c; }
 .tt-note { color: #949494; }
 
+/* a head rule already closes the head; the block under it must not draw a second */
+.tt-head + .tt-block--ench,
+.tt-head + .tt-block--note,
+.tt-head + .tt-tags { border-top: 0; }
+
 .tt-tags {
   display: flex;
   flex-wrap: wrap;
@@ -268,12 +309,13 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 }
 
 .tt-tag {
+  --pt: 0.15em;
   padding: 0 0.3846em;
   background: #1c1c1c;
   border: 1px solid #303030;
   color: #949494;
   font-size: 0.9286em;
-  line-height: 1.35;
+  line-height: 1.05;
 }
 
 /* ── Panel ──
@@ -332,7 +374,8 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 }
 
 .panel-result {
-  padding: 0.2857em 0.6429em;
+  --pt: 0.2857em;
+  padding: 0 0.6429em;
   cursor: pointer;
   color: #d0d0d0;
   white-space: nowrap;
@@ -358,13 +401,17 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 /* Filter chips: grey text on a 1px frame while off, inverted while on — the same
    "this is the one you're on" signal as the tier row, minus the tier hue. */
 .panel-chip {
-  padding: 0.0714em 0.5714em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  --pt: 0.3231em;
+  padding: 0 0.5714em;
   border: 1px solid #303030;
   background: #080808;
   color: #949494;
   font-family: inherit;
   font-size: 0.9286em;
-  line-height: 1.5;
+  line-height: 1;
   cursor: pointer;
 }
 
@@ -384,13 +431,17 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
    The active one inverts like every other control here; its hue is still stated,
    in colour, one line up in the card's stat line. */
 .panel-tier {
-  padding: 0.0714em 0.5714em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  --pt: 0.3231em;
+  padding: 0 0.5714em;
   border: 1px solid #303030;
   background: #080808;
   color: var(--tier, #8a8a8a);
   font-family: inherit;
   font-size: 0.9286em;
-  line-height: 1.5;
+  line-height: 1;
   cursor: pointer;
 }
 
@@ -426,7 +477,6 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
   font-family: inherit;
   font-size: 1.15em;
   font-weight: 700;
-  padding: 0 4px;
   border: 1px solid #303030;
   background: #080808;
   color: #d0d0d0;
@@ -441,6 +491,10 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
   gap: 4px 10px;
   font-size: 13px;
 }
+
+/* one box for every arrow/enter key; "esc" is the same height, wider, text centred */
+.panel-keys kbd.glyph { width: 1.5em; height: 1.5em; margin: 0 0.12em; }
+.panel-keys kbd.glyph--wide { width: auto; min-width: 1.5em; padding: 0 0.4em; }
 
 .panel-link { color: #949494; text-decoration: none; }
 .panel-link:hover,
@@ -487,9 +541,10 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 }
 
 .search-glyph {
+  width: 100%;
+  height: 100%;
   font-size: 1.6em;
   font-weight: 700;
-  line-height: 1;
 }
 
 .search-btn:hover,
@@ -520,6 +575,14 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 /* the surface scrolls, so the card inside must not clip itself against a scrollbar
    it cannot own */
 .search-surface .card-tooltip { max-height: none; }
+
+/* text boxes centred on the x-height middle: --xc (em, set by glyph-center.ts) moves
+   padding from one side to the other, so the box never changes size. Each user
+   declares its own --pt (and --pb if it differs). */
+.xc {
+  padding-top: calc(var(--pt, 0em) + var(--xc, 0) * 1em);
+  padding-bottom: calc(var(--pb, var(--pt, 0em)) - var(--xc, 0) * 1em);
+}
 
 /* ── Accessibility ── */
 

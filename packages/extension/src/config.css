@@ -224,7 +224,9 @@ li { font-size: 14px; line-height: 1.8; color: var(--text-muted) }
 .cal-btn {
   font: inherit;
   font-size: 13px;
-  padding: 5px 12px;
+  --pt: 6px;
+  line-height: 1;
+  padding: 0 12px;
   border: 1px solid var(--border);
   background: var(--bg-card);
   color: var(--text);
@@ -282,4 +284,10 @@ li { font-size: 14px; line-height: 1.8; color: var(--text-muted) }
 
 @media (prefers-reduced-motion: reduce) {
   .cal-btn { transition: none }
+}
+
+/* text centred on its x-height middle: glyph-center.ts sets --xc, padding carries it */
+.xc {
+  padding-top: calc(var(--pt, 0px) + var(--xc, 0) * 1em);
+  padding-bottom: calc(var(--pt, 0px) - var(--xc, 0) * 1em);
 }

@@ -8,6 +8,7 @@ import { EBS_BASE } from '../twitch'
 import { tierColor } from '../tiers'
 import { KEYWORD_STYLE } from '../keywords'
 import { useI18n } from '../i18n-context'
+import { Glyph } from './Glyph'
 
 const MAX_LABEL = 7
 const TIER_SEQ: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
@@ -34,7 +35,7 @@ function Ladder({ steps, suffix }: { steps: LadderStep[]; suffix?: string }) {
     <span class="tt-ladder">
       {steps.map((s, i) => (
         <span key={s.tier}>
-          {i > 0 && <span class="tt-step-sep">/</span>}
+          {i > 0 && <Glyph class="glyph--sep glyph--xmid tt-step-sep">/</Glyph>}
           <span class="tt-step" style={{ color: tierColor(s.tier) }} title={word(s.tier)}>
             {s.value}
           </span>
@@ -56,7 +57,7 @@ function Keywords({ s }: { s: string }) {
         const style = KEYWORD_STYLE[tok.kw]
         return (
           <span class="kw" key={i}>
-            <span class="kw-glyph" style={{ color: style.color }} aria-hidden="true">{style.glyph}</span>
+            <Glyph class="kw-glyph" style={{ color: style.color }}>{style.glyph}</Glyph>
             <span class="kw-word">{tok.text}</span>
           </span>
         )
@@ -188,7 +189,7 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
     if (card) out.push(['size', label('Size', 'size'), word(String(card.Size))])
     // Whose item this is. "Common" is the dump's word for neutral — no owner to name.
     const heroes = (card?.Heroes ?? []).filter((h) => h !== 'Common')
-    if (heroes.length) out.push(['hero', label('Hero', 'hero'), heroes.map(word).join('/')])
+    if (heroes.length) out.push(['hero', label('Hero', 'hero'), heroes.map(word).join('/\u200b')])
     if (cooldownSteps) out.push(['cd', label('Cooldown', 'cd'), cooldownSteps])
     else if (cooldown != null) out.push(['cd', label('Cooldown', 'cd'), `${cooldown}s`])
     // Named here too, not only as the effect block's label — an enchant whose text
@@ -218,9 +219,9 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
               aria-hidden="true"
             />
           ) : (
-            <div class="tt-art-fallback" aria-hidden="true">
+            <Glyph class="tt-art-fallback">
               {!card ? '?' : card.Type === 'Skill' ? '*' : '#'}
-            </div>
+            </Glyph>
           )}
         </div>
         <div class="tt-head-text">
@@ -232,7 +233,7 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
                     a trailing separator strands a lone dot at the end of the first
                     line; leading, the last stat can never end on punctuation and the
                     wrapped line opens on a continuation mark instead. */}
-                {i > 0 && <span class="tt-sep">·</span>}
+                {i > 0 && <Glyph class="glyph--sep glyph--xmid tt-sep">·</Glyph>}
                 <span class="tt-stat-k">{label}</span>
                 <span class={`tt-stat-v tt-stat-v--${slug}`}>
                   {typeof v === 'string' ? v : <Ladder steps={v} suffix="s" />}
@@ -270,7 +271,7 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
       {tags.length > 0 && (
         <div class="tt-tags">
           {tags.map((tag, i) => (
-            <span class="tt-tag" key={`${tag}-${i}`}>{tag}</span>
+            <span class="tt-tag xc" key={`${tag}-${i}`}>{tag}</span>
           ))}
         </div>
       )}
