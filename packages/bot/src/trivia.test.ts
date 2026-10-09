@@ -203,6 +203,9 @@ const {
   startQuizCultureTrivia,
   carriesLiveQuestion,
   roundCdLeft,
+  topicGapLeft,
+  topicGapMs,
+  TOPIC_GAP_FLOOR_MS,
   cancelUndeliveredRound,
   scheduleQueueDrain,
   setRoundEndHook,
@@ -555,6 +558,51 @@ describe('round cooldown (panel setting)', () => {
     await new Promise((r) => setTimeout(r, 2_700))
     expect(hook).toHaveBeenCalledTimes(1)
     setRoundEndHook(null)
+  })
+})
+
+describe('topic gap floor', () => {
+  const win = () => {
+    const game = getActiveGameForTest('#test')!
+    checkAnswer('#test', 'winner', game.acceptedAnswers[0], mockSay)
+  }
+
+  it('with the panel gap on auto, a topic round waits the built-in floor; plain rounds do not', () => {
+    startTrivia('#test')
+    win()
+    expect(topicGapMs('#test')).toBe(TOPIC_GAP_FLOOR_MS)
+    expect(topicGapLeft('#test')).toBeGreaterThan(TOPIC_GAP_FLOOR_MS - 2_000)
+    expect(roundCdLeft('#test')).toBe(0)
+    expect(startTrivia('#test')).toStartWith('Trivia!')
+  })
+
+  it('a gap the panel sets wins over the floor, in both directions', () => {
+    tcd.setTriviaCd('#test', 'round', 300, 'mod')
+    startTrivia('#test')
+    win()
+    expect(topicGapMs('#test')).toBe(300_000)
+    tcd.setTriviaCd('#test', 'round', 30, 'mod')
+    expect(topicGapMs('#test')).toBe(30_000)
+  })
+
+  it('is free in a channel that has never finished a round', () => {
+    expect(topicGapLeft('#never')).toBe(0)
+  })
+})
+
+describe('the chatter who picked a topic cannot score on it', () => {
+  it('their correct answer is ignored; someone else still wins the round', () => {
+    startCustomTrivia('#ask1', { question: 'what is X?', answer: 'archaeopteryx', accept: [] }, 'TopicPicker')
+    expect(checkAnswer('#ask1', 'topicpicker', 'archaeopteryx', mockSay)).toBe(false)
+    expect(isGameActive('#ask1')).toBe(true)
+    expect(mockSay).not.toHaveBeenCalledWith('#ask1', expect.stringContaining('topicpicker'))
+    expect(checkAnswer('#ask1', 'someoneelse', 'archaeopteryx', mockSay)).toBe(true)
+    expect(isGameActive('#ask1')).toBe(false)
+  })
+
+  it('rounds with no picked topic are open to everyone, starter included', () => {
+    startCustomTrivia('#ask2', { question: 'what is X?', answer: 'archaeopteryx', accept: [] })
+    expect(checkAnswer('#ask2', 'topicpicker', 'archaeopteryx', mockSay)).toBe(true)
   })
 })
 

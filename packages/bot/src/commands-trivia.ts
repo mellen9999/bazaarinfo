@@ -6,7 +6,7 @@ import { buildLoreDossier, isKnownChatter } from './lore'
 import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
 import { registerStateProvider } from './bot-state'
 import { isSuppressed, remainingMinutes } from './suppress'
-import { aiTriviaEnabled, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest } from './ai-cache'
+import { aiTriviaEnabled, aiUnavailableReason, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest } from './ai-cache'
 import { userStandingLine } from './ai-build-user'
 import { getChannelSnapshotLine } from './twitch-profile'
 import { shadowProfile } from './hslogs-shadow'
@@ -14,8 +14,8 @@ import { findEmote, isExactEmote } from './emotes'
 import { getRecent } from './chatbuf'
 import { log } from './log'
 import * as db from './db'
-import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, recentAnswerList, isRecentAnswer, startKrippTrivia, startFallbackTrivia, startQuizCultureTrivia, setRoundEndHook, scheduleQueueDrain, roundCdLeft, activeGameId, fmtWait } from './trivia'
-import { getTriviaCd, userCdLeft, shouldNotifyUser, chargeUser, refundUser, noteStarter } from './trivia-cd'
+import { startTrivia, startCustomTrivia, getTriviaScore, formatStats, isGameActive, skipTrivia, recentQuestionList, isRecentQuestion, recentAnswerList, isRecentAnswer, startKrippTrivia, startFallbackTrivia, startQuizCultureTrivia, setRoundEndHook, scheduleQueueDrain, topicGapLeft, topicGapMs, activeGameId, fmtWait } from './trivia'
+import { userCdLeft, shouldNotifyUser, chargeUser, refundUser, noteStarter } from './trivia-cd'
 import type { CommandContext, CommandHandler } from './commands'
 import { withSuffix } from './commands-reply'
 import { bannedTriviaTopic, triviaBanStateLine, onSuppressClearQueue } from './commands-mod'
@@ -227,7 +227,7 @@ const topicQueue = new Map<string, QueuedTopic[]>()
 function liveQueue(channel: string): QueuedTopic[] {
   const now = Date.now()
   // a topic waiting out the round cooldown must not expire before it can be served
-  const ttl = QUEUE_TTL + getTriviaCd(channel).round * 1000
+  const ttl = QUEUE_TTL + topicGapMs(channel)
   const q = (topicQueue.get(channel) ?? []).filter((e) => now - e.at < ttl)
   if (q.length) topicQueue.set(channel, q)
   else topicQueue.delete(channel)
@@ -254,7 +254,7 @@ function queueTopic(channel: string, topic: string, user: string, behindCd = fal
   // arm the drain for when the cooldown ends
   if (behindCd) {
     scheduleQueueDrain(channel)
-    return `trivia is on cooldown — "${topic.slice(0, 30)}" is up in ${fmtWait(roundCdLeft(channel))}`
+    return `trivia is on cooldown — "${topic.slice(0, 30)}" is up in ${fmtWait(topicGapLeft(channel))}`
   }
   return q.length === 1
     ? `a round is already running — "${topic.slice(0, 30)}" is up next`
@@ -362,6 +362,13 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   if (!aiTriviaEnabled()) {
     return withSuffix(`custom topics are off — bazaar round instead: ${startTrivia(channel, undefined, !!ctx.isMod)}`, suffix)
   }
+  // bot replies are off here (panel switch) or there is no key: the generator refuses to run,
+  // and the miss path below would say "couldn't cook one about X" while quietly serving a
+  // curated round per ask — that was 70 minutes of nl_kripp on oct 8 (a mod had the switch
+  // off; no api call was ever made). say what is true, and don't bill the asker for it.
+  if (aiUnavailableReason(channel) !== 'ok') {
+    return withSuffix(`custom topics need bot replies on — bazaar round instead: ${startTrivia(channel, undefined, !!ctx.isMod)}`, suffix)
+  }
   // a custom round fans out to ~a dozen generate/verify calls, so it bills 10 units
   // against the asker's daily AI budget — one person gets a handful of rounds a day,
   // not four unattended days of them. falls back to a free deterministic round.
@@ -457,7 +464,7 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
         if (!q) {
           return withSuffix(`couldn't cook that exact one — bazaar question instead: ${startTrivia(channel, undefined, !!ctx.isMod)}`, suffix)
         }
-        return withSuffix(startCustomTrivia(channel, q), suffix)
+        return withSuffix(startCustomTrivia(channel, q, ctx.user), suffix)
       }
       // a topic that is this channel's OWN in-joke ("the tidolar crime family") is not
       // world knowledge — the model has never heard of it and invents a plausible-sounding
@@ -468,7 +475,7 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
       if (lore) {
         const lq = await generateLoreTrivia(lore.text, t, channel, avoid, avoidAnswers)
         if (lq && !isRecentQuestion(channel, lq.question) && !isRecentAnswer(channel, lq.answer)) {
-          return withSuffix(startCustomTrivia(channel, lq), suffix)
+          return withSuffix(startCustomTrivia(channel, lq, ctx.user), suffix)
         }
         // do NOT fall through to the world model. the gate that got us here means this is
         // chat's own in-joke, and the world model has nothing true to say about one — it
@@ -493,10 +500,11 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
         if (!fb) return withSuffix(`trivia's catching its breath — try again in a sec`, suffix)
         return withSuffix(`couldn't cook one about "${t.slice(0, 40)}" — random one instead: ${fb}`, suffix)
       }
-      return withSuffix(startCustomTrivia(channel, q), suffix)
+      return withSuffix(startCustomTrivia(channel, q, ctx.user), suffix)
     }
     if (!q) return withSuffix(missMsg, suffix)
-    return withSuffix(startCustomTrivia(channel, q), suffix)
+    // chat-derived rounds have no topic the asker picked; person rounds do
+    return withSuffix(startCustomTrivia(channel, q, isChatTrivia ? undefined : ctx.user), suffix)
   } finally {
     customPending.delete(channel)
     const now = Date.now()
@@ -541,7 +549,7 @@ export async function runTrivia(ctx: CommandContext, rawArg: string, suffix: str
   // must already see the cooldown. refunded below if the ask never landed (paused, banned
   // topic, generation miss, already queued) — a refused ask costs nothing.
   chargeUser(ch, user)
-  const out = await routeTrivia(ctx, arg, lower, suffix, roundCdLeft(ch) > 0)
+  const out = await routeTrivia(ctx, arg, lower, suffix, topicGapLeft(ch) > 0)
   const launched = isGameActive(ch) && activeGameId(ch) !== gameBefore
   const queued = listTopicQueue(ch).filter((e) => e.user === user).length > queuedBefore
   if (!launched && !queued) refundUser(ch, user)

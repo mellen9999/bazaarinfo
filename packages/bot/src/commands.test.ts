@@ -7,8 +7,15 @@ import type { BazaarCard, TierName, Monster } from '@bazaarinfo/shared'
 // enough even though the modules are already imported.
 process.env.AI_TRIVIA = '1'
 
-import { resetUserAiBudgetForTests } from './ai-cache'
+import { resetUserAiBudgetForTests, AI_CHANNELS } from './ai-cache'
 import { isEnglishOnly, __resetEnglishOnlyForTest } from './english-only'
+
+// custom topics check the channel's real ai switch + key before generating. the trivia suites
+// below use many throwaway channels, so they run with every channel switched on.
+const realHas = AI_CHANNELS.has.bind(AI_CHANNELS)
+const hadKey = process.env.ANTHROPIC_API_KEY
+const aiOn = () => { AI_CHANNELS.has = () => true; process.env.ANTHROPIC_API_KEY ||= 'test-key' }
+const aiRestore = () => { AI_CHANNELS.has = realHas; if (hadKey === undefined) delete process.env.ANTHROPIC_API_KEY }
 
 // --- mock store before importing commands ---
 const mockExact = mock<(name: string) => BazaarCard | undefined>(() => undefined)
@@ -145,10 +152,13 @@ const mockStartQuizCultureTrivia = mock<(ch: string) => string | null>(() => 'Tr
 // cooldown tests drive these: startTrivia launches a "round" by bumping the game id
 const mockStartTrivia = mock<(ch: string, cat?: string, bypass?: boolean) => string>(() => 'Trivia! test question (30s to answer)')
 const mockRoundCdLeft = mock<(ch: string) => number>(() => 0)
+const mockStartCustomTrivia = mock<(...a: any[]) => string>(() => 'Trivia! custom question (30s)')
 const mockActiveGameId = mock<(ch: string) => number | null>(() => null)
 mock.module('./trivia', () => ({
   startTrivia: mockStartTrivia,
   roundCdLeft: mockRoundCdLeft,
+  topicGapLeft: mockRoundCdLeft, // the topic path reads the gap through this one
+  topicGapMs: () => 0,
   activeGameId: mockActiveGameId,
   scheduleQueueDrain: mock(() => {}),
   fmtWait: (ms: number) => { const s = Math.ceil(ms / 1000); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s` },
@@ -164,7 +174,7 @@ mock.module('./trivia', () => ({
   resetForTest: mock(() => {}),
   getActiveGameForTest: mock(() => undefined),
   skipTrivia: mockSkipTrivia,
-  startCustomTrivia: mock(() => 'Trivia! custom question (30s)'),
+  startCustomTrivia: mockStartCustomTrivia,
   recentQuestionList: mock(() => [] as string[]),
   isRecentQuestion: mock(() => false),
   recentAnswerList: mock(() => [] as string[]),
@@ -2439,6 +2449,8 @@ describe('bare !b: regression guardrails — usage string is dead', () => {
 })
 
 describe('custom-topic trivia: !trivia <topic>', () => {
+  beforeEach(aiOn)
+  afterEach(aiRestore)
   beforeEach(() => {
     mockIsGameActive.mockImplementation(() => false)
     mockGenerateCustomTrivia.mockClear()
@@ -2589,6 +2601,21 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     const res = await handleCommand('!b trivia roman history', { user: 'u', channel: 'ct-1' })
     expect(mockGenerateCustomTrivia).toHaveBeenCalledWith('roman history', 'ct-1', [], [], expect.any(Function))
     expect(res).toBe('Trivia! custom question (30s)')
+  })
+
+  it('the asker is handed to the round, so they cannot score on their own topic', async () => {
+    await handleCommand('!b trivia roman history', { user: 'TopicPicker', channel: 'ct-ask' })
+    expect(mockStartCustomTrivia).toHaveBeenCalledWith('ct-ask', expect.anything(), 'TopicPicker')
+  })
+
+  it('bot replies off: says so, makes no generator call, starts a bazaar round, bills nobody', async () => {
+    AI_CHANNELS.has = realHas // the real switch: this throwaway channel is not enabled
+    mockStartTrivia.mockClear()
+    const res = await handleCommand('!b trivia roman history', { user: 'u', channel: 'ct-aioff' })
+    expect(res).toContain('custom topics need bot replies on')
+    expect(res).not.toContain("couldn't cook")
+    expect(mockGenerateCustomTrivia).not.toHaveBeenCalled()
+    expect(mockStartTrivia).toHaveBeenCalledTimes(1)
   })
 
   it('topic-first form starts a round ("bakugon trivia")', async () => {
@@ -2759,6 +2786,8 @@ describe('custom-topic trivia: !trivia <topic>', () => {
 })
 
 describe('person-targeted trivia: !trivia about @user', () => {
+  beforeEach(aiOn)
+  afterEach(aiRestore)
   beforeEach(() => {
     mockIsGameActive.mockImplementation(() => false)
     mockGenerateCustomTrivia.mockClear()
@@ -2894,6 +2923,8 @@ describe('person-targeted trivia: !trivia about @user', () => {
 })
 
 describe('trivia-result questions answered from real data (no AI fabrication)', () => {
+  beforeEach(aiOn)
+  afterEach(aiRestore)
   beforeEach(() => {
     mockGetLastTriviaResult.mockClear(); mockGetLastTriviaResult.mockImplementation(() => null)
     mockIsGameActive.mockImplementation(() => false)
@@ -3250,6 +3281,8 @@ describe('stripTopicConnector — natural-language trivia topic cleanup', () => 
 })
 
 describe('natural-language + chat trivia routing', () => {
+  beforeEach(aiOn)
+  afterEach(aiRestore)
   beforeEach(() => {
     mockIsGameActive.mockImplementation(() => false)
     mockGenerateCustomTrivia.mockClear()
@@ -3823,6 +3856,8 @@ describe('scaffolding is never logged as the user ask', () => {
 })
 
 describe('queued trivia topics — "wait for it" has to mean something', () => {
+  beforeEach(aiOn)
+  afterEach(aiRestore)
   beforeEach(() => {
     mockIsGameActive.mockReset()
     mockIsGameActive.mockImplementation(() => true)  // a round is running
@@ -3891,6 +3926,8 @@ describe('queued trivia topics — "wait for it" has to mean something', () => {
 })
 
 describe('trivia cooldowns — per-user start cd + channel round cd', () => {
+  beforeEach(aiOn)
+  afterEach(aiRestore)
   let gameId = 0
   let live = false
   beforeEach(() => {

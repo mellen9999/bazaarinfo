@@ -22,7 +22,7 @@ interface Me { login: string; admin: boolean; channels: string[] }
 
 const PACES: Pace[] = ['fast', 'normal', 'slow']
 // cooldown chips — must match the server's whitelist (trivia-cd.ts), which rejects anything else
-const ROUND_CD_CHIPS: [number, string][] = [[0, 'off'], [30, '30s'], [60, '1m'], [120, '2m'], [300, '5m']]
+const ROUND_CD_CHIPS: [number, string][] = [[0, 'auto'], [30, '30s'], [60, '1m'], [120, '2m'], [300, '5m']]
 const USER_CD_CHIPS: [number, string][] = [[0, 'off'], [60, '1m'], [120, '2m'], [300, '5m'], [600, '10m']]
 const IGNORE_DURATIONS: [string, { minutes?: number; forever?: true }][] = [['1h', { minutes: 60 }], ['24h', { minutes: 1440 }], ['7d', { minutes: 10080 }], ['stream', {}], ['forever', { forever: true }]]
 const BOX_ORDER: BoxKey[] = ['switches', 'chatrules', 'trivia', 'questions', 'activity', 'people', 'raidgeon', 'log']
@@ -728,7 +728,7 @@ function renderTrivia(snap: Snapshot): void {
 
   clear(triviaCdEl)
   const cdRows: [string, 'round' | 'user', [number, string][], string][] = [
-    ['round cd', 'round', ROUND_CD_CHIPS, 'how long after a round ends before the next one can start'],
+    ['round cd', 'round', ROUND_CD_CHIPS, 'how long after a round ends before the next one can start — auto: a topic round waits 1m, plain rounds have no wait'],
     ['user cd', 'user', USER_CD_CHIPS, 'how often one person can start a round — mods skip it'],
   ]
   for (const [label, scope, chips, tip] of cdRows) {

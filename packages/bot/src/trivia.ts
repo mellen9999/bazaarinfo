@@ -243,6 +243,8 @@ interface TriviaState {
   hintTimers: Timer[]
   closeMissCount: number
   say: SayFn
+  // lowercased login of the chatter who picked this round's TOPIC; they can't score on it
+  asker?: string
 }
 
 // clear all pending hint timers for a round — single chokepoint so no timer can leak
@@ -260,6 +262,24 @@ export function roundCdLeft(channel: string): number {
   const cd = getTriviaCd(channel).round * 1000
   if (cd <= 0) return 0
   return Math.max(0, cd - (Date.now() - (lastGameEnd.get(channel) ?? 0)))
+}
+
+// topic rounds with the panel gap on "auto" still wait this long after the last round
+// ended. the per-user cd alone is dodged by rotating chatters (oct 2026: six people ran 17
+// topic rounds in 31 min, gaps from 12s). a round lasts 30s, so 60s means a topic round
+// at most every ~90s; the topic is queued and served, not refused. plain `!trivia` rounds
+// are unaffected, and a gap the panel sets explicitly always wins.
+export const TOPIC_GAP_FLOOR_MS = 60_000
+
+/** the gap a topic round waits after the previous round ends: the panel's, else the floor. */
+export function topicGapMs(channel: string): number {
+  const cd = getTriviaCd(channel).round * 1000
+  return cd > 0 ? cd : TOPIC_GAP_FLOOR_MS
+}
+
+/** ms left before a topic round may start in this channel. 0 = free to go. */
+export function topicGapLeft(channel: string): number {
+  return Math.max(0, topicGapMs(channel) - (Date.now() - (lastGameEnd.get(channel) ?? 0)))
 }
 const recentTypes = new Map<string, number[]>()
 const recentQuestions = new Map<string, string[]>()
@@ -1166,7 +1186,7 @@ const CUSTOM_TYPE = 21
 // launch a round from a ready question object — shared by built-in (startTrivia)
 // and custom AI (startCustomTrivia) paths. assumes the channel has no active game
 // (callers guard); purely creates the DB row, timers, hint schedule, and state.
-function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>): string {
+function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>, asker?: string): string {
   // mod-pause wall: every start path (built-in categories, kripp/fallback/quiz-culture
   // packs, custom AI, queue drain) funnels through here, so a paused channel can never
   // sneak a round in through a side door.
@@ -1231,6 +1251,7 @@ function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>): 
     hintTimers,
     closeMissCount: 0,
     say: globalSay,
+    asker: asker?.toLowerCase(),
   })
 
   // record the question for BOTH built-in and custom rounds so neither repeats it
@@ -1285,6 +1306,7 @@ export function isRecentAnswer(channel: string, answer: string): boolean {
 export function startCustomTrivia(
   channel: string,
   raw: { question: string; answer: string; accept: string[] },
+  asker?: string,
 ): string {
   if (activeGames.has(channel)) {
     const game = activeGames.get(channel)!
@@ -1298,7 +1320,7 @@ export function startCustomTrivia(
     answer: raw.answer,
     accepted,
     type: CUSTOM_TYPE,
-  })
+  }, asker)
 }
 
 // --- round-end hook ---
@@ -1332,7 +1354,7 @@ export function scheduleQueueDrain(channel: string): void {
     hook(channel)
       .then((msg) => { if (msg) globalSay(channel, msg) })
       .catch((e) => log(`trivia: queued-topic drain failed: ${e}`))
-  }, Math.max(QUEUE_DRAIN_DELAY, roundCdLeft(channel)))
+  }, Math.max(QUEUE_DRAIN_DELAY, topicGapLeft(channel)))
   t.unref?.()
   drainTimers.set(channel, t)
 }
@@ -1409,6 +1431,10 @@ export function checkAnswer(
 ): boolean {
   const game = activeGames.get(channel)
   if (!game) return false
+  // whoever picked the topic can't score on it (they chose a subject they know; chat called
+  // it out). ignored outright: not a participant, no streak reset, no reply — the least
+  // noisy answer, and the round carries on for everyone else.
+  if (game.asker === username.toLowerCase()) return false
 
   const trimmed = text.trim()
   if (!trimmed) return false
