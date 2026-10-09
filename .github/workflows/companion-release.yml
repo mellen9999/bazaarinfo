@@ -30,6 +30,16 @@ jobs:
           cd packages/companion
           pyinstaller --onefile --name bazaarinfo-companion --console --icon NONE logwatch.py
 
+      # the frozen exe must read the game's GameData.db (bundled sqlite3, Windows
+      # file URIs) — a build that can't would ship an overlay that names nothing
+      - name: Smoke test card data
+        shell: bash
+        run: |
+          cd packages/companion
+          python -c "import sqlite3,json; c=sqlite3.connect('Game Data.db'); c.execute('CREATE TABLE cards (Id TEXT PRIMARY KEY, Data BLOB)'); c.execute('insert into cards values (?,?)', ('t', json.dumps({'Id':'t','Localization':{'Title':{'Text':'x'}}}).encode())); c.commit()"
+          ./dist/bazaarinfo-companion.exe --check-cards "Game Data.db" 2>&1 | tee out.txt
+          grep -q "Loaded 1 cards" out.txt
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -56,6 +66,16 @@ jobs:
         run: |
           cd packages/companion
           pyinstaller --onefile --name bazaarinfo-companion --console logwatch.py
+
+      # the frozen exe must read the game's GameData.db (bundled sqlite3, Windows
+      # file URIs) — a build that can't would ship an overlay that names nothing
+      - name: Smoke test card data
+        shell: bash
+        run: |
+          cd packages/companion
+          python -c "import sqlite3,json; c=sqlite3.connect('Game Data.db'); c.execute('CREATE TABLE cards (Id TEXT PRIMARY KEY, Data BLOB)'); c.execute('insert into cards values (?,?)', ('t', json.dumps({'Id':'t','Localization':{'Title':{'Text':'x'}}}).encode())); c.commit()"
+          ./dist/bazaarinfo-companion --check-cards "Game Data.db" 2>&1 | tee out.txt
+          grep -q "Loaded 1 cards" out.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

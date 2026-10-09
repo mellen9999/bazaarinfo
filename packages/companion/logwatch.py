@@ -412,10 +412,12 @@ def _read_cards_json(path: Path) -> list:
 def _read_gamedata(path: Path) -> list:
     """Card dicts from GameData.db — table cards(Id, Data), Data is one card's JSON.
 
-    Opened read-only so the companion can never write to (or lock out) the game's own
-    database. A row that doesn't parse is skipped rather than costing every other card.
+    Opened read-only and immutable: no write, no lock taken, so the companion can never
+    block the game or be refused by one holding the db. A torn read mid-update surfaces
+    as sqlite3.Error or missing rows — callers retry, CardWatch waits for the file to
+    hold still. A row that doesn't parse is skipped rather than costing every other card.
     """
-    con = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+    con = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
     try:
         rows = con.execute("SELECT Data FROM cards").fetchall()
     finally:
@@ -429,20 +431,24 @@ def _read_gamedata(path: Path) -> list:
     return cards
 
 
-def load_card_db(sources: list[Path]) -> dict:
+def load_card_db(sources: list[Path], allow_partial: bool = False) -> dict:
     """Load template ID -> card info, merged across the game's card data files.
 
     Later sources win (find_card_sources lists GameData.db last). Raises OSError,
-    ValueError or sqlite3.Error when nothing usable could be read — the caller decides
-    whether that's fatal (startup) or a retry (mid-update).
+    ValueError or sqlite3.Error when a source can't be read — unless allow_partial,
+    which keeps whatever did load (a stale name beats no overlay) and raises only when
+    nothing loaded at all.
     """
     db = {}
     counts = []
     for path in sources:
-        if path.suffix == ".db":
-            cards = _read_gamedata(path)
-        else:
-            cards = _read_cards_json(path)
+        try:
+            cards = _read_gamedata(path) if path.suffix == ".db" else _read_cards_json(path)
+        except (OSError, ValueError, sqlite3.Error) as e:
+            if not allow_partial:
+                raise
+            logger.warning("Skipping unreadable %s (%s) — newer cards may be missing", path.name, e)
+            continue
         n = 0
         for c in cards:
             if not isinstance(c, dict) or not c.get("Id"):
@@ -1073,10 +1079,12 @@ class CardWatch:
     drops nameless cards — until the streamer happens to restart the companion.
     """
 
-    def __init__(self, sources: list[Path]):
+    def __init__(self, sources: list[Path], complete: bool = True):
         self.sources = sources
-        self.sig = card_sources_signature(sources)
+        # an incomplete startup load never counts as current, so refresh() retries it
+        self.sig = card_sources_signature(sources) if complete else ()
         self._pending = None
+        self._failed = None
 
     def refresh(self) -> dict | None:
         """The reloaded card db when the data changed, else None.
@@ -1096,13 +1104,15 @@ class CardWatch:
         try:
             db = load_card_db(sources)
         except (OSError, ValueError, sqlite3.Error) as e:
-            logger.warning("Card data changed but is unreadable (%s) — retrying", e)
+            if sig != self._failed:  # once per file version, not every check
+                self._failed = sig
+                logger.warning("Card data changed but is unreadable (%s) — retrying", e)
             return None
         self.sources, self.sig, self._pending = sources, sig, None
         return db
 
 
-def tail_log(log_path: Path, card_db: dict, card_sources: list[Path], ebs_url: str, channel_id: str, secret: str, debug: bool):
+def tail_log(log_path: Path, card_db: dict, card_sources: list[Path], cards_complete: bool, ebs_url: str, channel_id: str, secret: str, debug: bool):
     """Tail the log file and track game state."""
     logger.info("Building initial state from log...")
     state = build_initial_state(log_path, card_db)
@@ -1119,7 +1129,7 @@ def tail_log(log_path: Path, card_db: dict, card_sources: list[Path], ebs_url: s
 
     last_send = time.monotonic()
     last_inode = log_path.stat().st_ino
-    cards = CardWatch(card_sources)
+    cards = CardWatch(card_sources, cards_complete)
     last_card_check = time.monotonic()
     dirty = False
     last_change = 0.0
@@ -1456,7 +1466,21 @@ def main():
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--setup", action="store_true", help="re-run first-time setup")
     parser.add_argument("--version", action="version", version=f"bazaarinfo-companion {VERSION}")
+    parser.add_argument("--check-cards", nargs="*", type=Path, metavar="FILE",
+                        help="load the game's card data (or the given files), report, and exit")
     args = parser.parse_args()
+
+    if args.check_cards is not None:
+        sources = args.check_cards or find_card_sources()
+        if not sources:
+            logger.error("The Bazaar's card data not found")
+            raise SystemExit(1)
+        try:
+            load_card_db(sources)
+        except (OSError, ValueError, sqlite3.Error) as e:
+            logger.error("Card data unreadable: %s", e)
+            raise SystemExit(1)
+        return
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
@@ -1521,13 +1545,21 @@ def main():
     # The card data can be caught mid-write during a Steam update — retry instead of
     # dying with a raw traceback on a streamer's machine.
     card_db = None
+    complete = False
     for _attempt in range(3):
         try:
             card_db = load_card_db(card_sources)
+            complete = True
             break
         except (OSError, ValueError, sqlite3.Error) as e:
             logger.warning("Card data unreadable (%s) — retrying in 2s (game may be updating)", e)
             time.sleep(2)
+    if card_db is None:
+        # run on whatever is readable; tail_log's CardWatch keeps retrying the rest
+        try:
+            card_db = load_card_db(card_sources, allow_partial=True)
+        except (OSError, ValueError, sqlite3.Error):
+            pass
     if card_db is None:
         logger.error("The Bazaar's card data is corrupt or locked — verify game files in Steam, then restart the companion")
         raise SystemExit(1)
@@ -1536,7 +1568,7 @@ def main():
     log_path = args.log
     wait_for_file(log_path, "Player.log")
 
-    tail_log(log_path, card_db, card_sources, ebs_url, channel_id, secret, args.debug)
+    tail_log(log_path, card_db, card_sources, complete, ebs_url, channel_id, secret, args.debug)
 
 
 if __name__ == "__main__":

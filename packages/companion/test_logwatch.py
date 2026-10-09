@@ -9,6 +9,7 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 import configparser
+from pathlib import Path
 
 import pytest
 
@@ -709,3 +710,58 @@ def test_card_watch_keeps_old_db_when_unreadable(tmp_path, monkeypatch):
     gd.write_bytes(b"half written garbage")
     assert w.refresh() is None
     assert w.refresh() is None  # unreadable: no db handed back, retried later
+
+
+def test_partial_load_keeps_readable_sources(tmp_path):
+    js, gd = tmp_path / "cards.json", tmp_path / "GameData.db"
+    _write_json(js, [_card("t-old", "old")])
+    gd.write_bytes(b"not a database")
+    with pytest.raises(_sqlite3.Error):
+        load_card_db([js, gd])
+    db = load_card_db([js, gd], allow_partial=True)
+    assert set(db) == {"t-old"}
+
+
+def test_card_watch_retries_an_incomplete_startup(tmp_path, monkeypatch):
+    js, gd = tmp_path / "cards.json", tmp_path / "GameData.db"
+    _write_json(js, [_card("t-old", "old")])
+    _write_db(gd, [_card("t-new", "new")])
+    monkeypatch.setattr("logwatch.find_card_sources", lambda: [js, gd])
+    w = CardWatch([js, gd], complete=False)
+    assert w.refresh() is None  # first sight: wait one check
+    db = w.refresh()
+    assert db is not None and "t-new" in db
+
+
+def test_gamedata_read_while_another_connection_holds_a_write_lock(tmp_path):
+    gd = tmp_path / "GameData.db"
+    _write_db(gd, [_card("t", "x")])
+    holder = _sqlite3.connect(gd, isolation_level=None)
+    holder.execute("BEGIN EXCLUSIVE")
+    try:
+        assert "t" in load_card_db([gd])
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+
+
+def test_check_cards_flag(tmp_path, monkeypatch, capsys):
+    import logwatch
+    gd = tmp_path / "GameData.db"
+    _write_db(gd, [_card("t", "x")])
+    monkeypatch.setattr(sys, "argv", ["logwatch", "--check-cards", str(gd)])
+    logwatch.main()  # returns without touching config, network or the log
+    monkeypatch.setattr(sys, "argv", ["logwatch", "--check-cards", str(tmp_path / "missing.db")])
+    with pytest.raises(SystemExit) as e:
+        logwatch.main()
+    assert e.value.code == 1
+
+
+def test_gamedata_path_with_uri_special_chars(tmp_path, monkeypatch):
+    # Windows usernames and Steam libraries can hold spaces, %, #, ? and non-ascii
+    d = tmp_path / "Tempo Storm 100% #1? é"
+    d.mkdir()
+    _write_db(d / "GameData.db", [_card("t", "x")])
+    assert "t" in load_card_db([d / "GameData.db"])
+    monkeypatch.chdir(d)
+    assert "t" in load_card_db([Path("GameData.db")])  # relative paths too
