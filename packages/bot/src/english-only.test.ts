@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'bun:test'
+import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
 import { isEnglishOnly, setEnglishOnly, englishOnlyHint, looksNonEnglish, __resetEnglishOnlyForTest } from './english-only'
 import { directiveHint, addDirective, resetForTest } from './directives'
 import { SETTINGS_TALK } from './ai-sanitize'
@@ -9,6 +9,13 @@ db.initDb(':memory:')
 beforeEach(() => {
   __resetEnglishOnlyForTest()
   resetForTest()
+})
+
+// the switch persists in sqlite, and bun runs a whole test group in one process sharing
+// that db — a channel left on here turned english-only on for later files (ci order only)
+afterEach(() => {
+  for (const r of db.loadControls()) if (r.key === 'english-only') setEnglishOnly(r.channel, false, 'test')
+  __resetEnglishOnlyForTest()
 })
 
 describe('english only switch', () => {
