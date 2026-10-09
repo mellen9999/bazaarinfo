@@ -12,7 +12,7 @@
 
 import { Database } from 'bun:sqlite'
 import { createHash } from 'crypto'
-import { existsSync, mkdirSync, renameSync, writeFileSync, statSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { join, resolve } from 'path'
 import type { CardCache } from '@bazaarinfo/shared'
@@ -20,7 +20,7 @@ import type { CardCache } from '@bazaarinfo/shared'
 // twitch's language codes -> the game's file stems
 export const LANGS: Record<string, string> = {
   de: 'de-DE', es: 'es-ES', fr: 'fr-FR', it: 'it-IT',
-  ko: 'ko-KR', pt: 'pt-BR', tr: 'tr-TR', zh: 'zh-CN',
+  ko: 'ko-KR', pt: 'pt-BR', th: 'th-TH', tr: 'tr-TR', zh: 'zh-CN',
 }
 
 // words the overlay prints that are not read off a card (labels, keywords, enums).
@@ -89,6 +89,7 @@ export interface Coverage { total: number, hit: number }
 export interface LangReport {
   lang: string
   entries: number
+  carried: number
   bytes: number
   titles: Coverage
   tooltips: Coverage
@@ -108,15 +109,23 @@ function readTable(file: string): Map<string, string> | null {
 }
 
 // english -> translated for one language, identity entries dropped (the client falls
-// back to English on a miss, so storing them is dead weight)
-export function buildLang(table: Map<string, string>, wanted: Wanted): { map: Record<string, string>, report: Omit<LangReport, 'lang' | 'bytes'> } {
+// back to English on a miss, so storing them is dead weight).
+//
+// `prior` is the last file we wrote. The game's table and our card text update on
+// different days: after a patch the game re-keys its table to the NEW english while
+// bazaardb still shows the old wording, so the fresh table alone loses translations
+// for text viewers still see (measured: 97.3% -> 90.7% on one refresh). A string
+// still on our cards keeps its last known translation until the table has it again.
+export function buildLang(table: Map<string, string>, wanted: Wanted, prior: Record<string, string> = {}): { map: Record<string, string>, report: Omit<LangReport, 'lang' | 'bytes'> } {
   const out = new Map<string, string>()
+  let carried = 0
   const cov = (set: Set<string>): Coverage => {
     const c: Coverage = { total: set.size, hit: 0 }
     for (const s of set) {
       // exact match only: against the live dump, trimming/squashing whitespace recovered
       // nothing — every miss is text newer than the game's cache, not formatting drift
-      const t = table.get(md5(s))
+      let t = table.get(md5(s))
+      if (!t && Object.hasOwn(prior, s)) { t = prior[s]; carried++ }
       if (!t) continue
       c.hit++
       if (t !== s) out.set(s, t)
@@ -128,7 +137,17 @@ export function buildLang(table: Map<string, string>, wanted: Wanted): { map: Re
   const words = cov(wanted.words)
   const map: Record<string, string> = {}
   for (const k of [...out.keys()].sort()) map[k] = out.get(k)!
-  return { map, report: { entries: out.size, titles, tooltips, words } }
+  return { map, report: { entries: out.size, carried, titles, tooltips, words } }
+}
+
+// a missing or corrupt previous file just means nothing to carry over
+function readPrior(path: string): Record<string, string> {
+  try {
+    const v = JSON.parse(readFileSync(path, 'utf8'))
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {}
+  } catch {
+    return {}
+  }
 }
 
 function writeAtomicSync(path: string, data: string) {
@@ -163,10 +182,10 @@ export function extractI18n(opts: ExtractOpts): LangReport[] {
     try {
       const table = readTable(file)
       if (!table || table.size === 0) { log(`i18n: ${stem}.bytes unreadable or empty, keeping existing ${lang}`); continue }
-      const { map, report } = buildLang(table, wanted)
+      const path = join(outDir, `${lang}.json`)
+      const { map, report } = buildLang(table, wanted, readPrior(path))
       // a tiny map means the hashing scheme or the dump changed under us; never overwrite good data with that
       if (report.entries === 0) { log(`i18n: ${lang} matched nothing, keeping existing`); continue }
-      const path = join(outDir, `${lang}.json`)
       writeAtomicSync(path, JSON.stringify(map))
       reports.push({ lang, bytes: statSync(path).size, ...report })
     } catch (e) {
@@ -180,5 +199,5 @@ const pct = (c: Coverage) => c.total ? (100 * c.hit / c.total).toFixed(1) : '0.0
 
 export function formatReport(r: LangReport): string {
   const { titles: t, tooltips: x, words: w } = r
-  return `${r.lang}: ${r.entries} entries, ${(r.bytes / 1024).toFixed(0)}KB, titles ${pct(t)}% (${t.hit}/${t.total}), tooltips ${pct(x)}% (${x.hit}/${x.total}), words ${w.hit}/${w.total}`
+  return `${r.lang}: ${r.entries} entries (${r.carried} kept from last run), ${(r.bytes / 1024).toFixed(0)}KB, titles ${pct(t)}% (${t.hit}/${t.total}), tooltips ${pct(x)}% (${x.hit}/${x.total}), words ${w.hit}/${w.total}`
 }

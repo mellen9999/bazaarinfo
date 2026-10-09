@@ -91,6 +91,16 @@ describe('buildLang', () => {
     expect(report.tooltips).toEqual({ total: 3, hit: 2 })
   })
 
+  it('keeps last run\'s translation for text still shown that the fresh table dropped', () => {
+    const prior = { 'Brand new text': 'Ganz neuer Text', Gone: 'Weg', Fang: 'Alter Zahn' }
+    const { map, report } = buildLang(table, collectWanted(CACHE), prior)
+    expect(map['Brand new text']).toBe('Ganz neuer Text') // carried
+    expect(map.Fang).toBe('Reißzahn') // fresh table wins
+    expect('Gone' in map).toBe(false) // no longer on any card
+    expect(report.carried).toBe(1)
+    expect(report.tooltips).toEqual({ total: 3, hit: 3 })
+  })
+
   it('output keys are sorted for deterministic files', () => {
     const { map } = buildLang(table, collectWanted(CACHE))
     const keys = Object.keys(map)
@@ -142,6 +152,17 @@ describe('extractI18n', () => {
     makeBytes(join(src, 'de-DE.bytes'), { Unrelated: 'Anderes' })
     expect(run()).toEqual([])
     expect(readFileSync(join(out, 'de.json'), 'utf-8')).toBe('{"keep":"me"}')
+  })
+
+  it('a refresh never loses a translation our cards still need', () => {
+    makeBytes(join(src, 'de-DE.bytes'), { ...DE, 'Brand new text': 'Ganz neuer Text' })
+    run()
+    rmSync(join(src, 'de-DE.bytes'))
+    makeBytes(join(src, 'de-DE.bytes'), { Fang: 'Reißzahn' }) // game re-keyed to newer english
+    run()
+    const de = JSON.parse(readFileSync(join(out, 'de.json'), 'utf-8'))
+    expect(de['Brand new text']).toBe('Ganz neuer Text')
+    expect(de['Deal {ability.0} damage']).toBe('Verursache {ability.0} Schaden')
   })
 
   it('writes atomically: no temp file left behind, rerun is byte-identical', () => {
