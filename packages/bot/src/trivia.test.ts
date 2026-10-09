@@ -624,7 +624,11 @@ describe('a question twitch held (automod) never reaches chat', () => {
   it('still matches when the sent line was truncated or re-punctuated', () => {
     startTrivia('#test')
     const q = getActiveGameForTest('#test')!.question
-    const mangled = `Trivia! ${q.replace(/[—-]/g, ' ').slice(0, Math.max(45, q.length - 10))}…`
+    // cut where at least 40 letters/digits survive (what the matcher keys on), not at a fixed
+    // character count — a random question heavy in spaces or punctuation fell short of 40
+    let cut = 0
+    for (let n = 0; cut < q.length && n < 40; cut++) if (/[a-z0-9]/i.test(q[cut])) n++
+    const mangled = `Trivia! ${q.replace(/[—-]/g, ' ').slice(0, Math.max(cut, q.length - 10))}…`
     expect(cancelUndeliveredRound('#test', mangled)).toBe(true)
   })
 
