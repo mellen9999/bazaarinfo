@@ -298,14 +298,24 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
   gap: 8px;
 }
 
+/* The search block (CardSearch) is drawn in em off whatever font-size it sits in:
+   14px in the panel, 14px x --ui in the video overlay. Same 1em == 14px proportions
+   as before, so the panel is pixel-identical and the overlay just scales. */
+.card-search {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5714em;
+  min-width: 0;
+}
+
 .panel-search {
   width: 100%;
-  padding: 7px 9px;
+  padding: 0.5em 0.6429em;
   border: 1px solid #303030;
   background: #080808;
   color: #e4e4e4;
   font-family: inherit;
-  font-size: 14px;
+  font-size: 1em;
   outline: none;
 }
 
@@ -322,7 +332,7 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 }
 
 .panel-result {
-  padding: 4px 9px;
+  padding: 0.2857em 0.6429em;
   cursor: pointer;
   color: #d0d0d0;
   white-space: nowrap;
@@ -335,24 +345,51 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
   color: #000;
 }
 
-.panel-selected { display: flex; flex-direction: column; gap: 8px; }
+.panel-selected { display: flex; flex-direction: column; gap: 0.5714em; }
+.panel-selected .panel-link { align-self: flex-start; }
 
-.panel-tiers {
+.panel-tiers,
+.panel-filters {
   display: flex;
-  gap: 4px;
+  gap: 0.2857em;
   flex-wrap: wrap;
 }
+
+/* Filter chips: grey text on a 1px frame while off, inverted while on — the same
+   "this is the one you're on" signal as the tier row, minus the tier hue. */
+.panel-chip {
+  padding: 0.0714em 0.5714em;
+  border: 1px solid #303030;
+  background: #080808;
+  color: #949494;
+  font-family: inherit;
+  font-size: 0.9286em;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.panel-chip:hover:not(:disabled),
+.panel-chip:focus-visible,
+.panel-chip.active {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
+  outline: none;
+}
+
+.panel-chip.active { font-weight: 700; }
+.panel-chip:disabled { cursor: default; opacity: 0.5; }
 
 /* Inactive tiers wear their own hue — the row doubles as the card's tier ladder.
    The active one inverts like every other control here; its hue is still stated,
    in colour, one line up in the card's stat line. */
 .panel-tier {
-  padding: 1px 8px;
+  padding: 0.0714em 0.5714em;
   border: 1px solid #303030;
   background: #080808;
   color: var(--tier, #8a8a8a);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 0.9286em;
   line-height: 1.5;
   cursor: pointer;
 }
@@ -374,7 +411,7 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 
 .panel-note {
   color: #949494;
-  font-size: 13px;
+  font-size: 0.9286em;
 }
 
 .panel-keys {

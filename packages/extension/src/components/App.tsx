@@ -5,7 +5,7 @@ import type { DetectedSlot } from './HoverZone'
 import { CardTooltip } from './CardTooltip'
 import type { MissingReason } from './CardTooltip'
 import { TooltipBoundary } from './TooltipBoundary'
-import { fetchCards, CARD_FETCH_BACKOFF } from '../twitch'
+import { useCards } from '../use-cards'
 import { shouldRefetch } from '../card-refresh'
 import { deriveValidTiers, isPlausibleTierString } from '../tiers'
 import { parseCrop, applyCrop, IDENTITY_CROP } from '../viewport'
@@ -108,7 +108,8 @@ function buildCardState(all: BazaarCard[]) {
 }
 
 export function App() {
-  const [cards, setCards] = useState<Map<string, BazaarCard>>(new Map())
+  const { cards: cardList, error: cardsError, refresh } = useCards()
+  const { map: cards, validator } = useMemo(() => buildCardState(cardList ?? []), [cardList])
   const [detected, setDetected] = useState<DetectedSlot[]>([])
   // Broadcaster's game-area crop (identity = fullscreen; the default). Applied to
   // every slot before it is painted so windowed/letterboxed captures line up.
@@ -122,26 +123,24 @@ export function App() {
   // Distinguishes "no tooltip yet because we're still fetching" from "we fetched
   // and this card genuinely isn't in the data" — the viewer sees a different line
   // for each, instead of the old silent nothing for both.
-  const [cardsState, setCardsState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  const cardsState = cardList ? 'ready' : cardsError ? 'failed' : 'loading'
   const [hovered, setHovered] = useState<DetectedSlot | null>(null)
   const [tooltipPos, setTooltipPos] = useState<{ left: string; top: string }>({ left: '0', top: '0' })
-  const cardsLoaded = useRef(false)
   const tooltipRef = useRef<HTMLDivElement | null>(null)
   const lastSlotRef = useRef<DetectedSlot | null>(null)
-  const validatorRef = useRef<(s: unknown) => s is DetectedSlot>(makeSlotValidator(new Set<string>()))
   const staleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Real wall-clock time of the last accepted frame, so visibility-on can re-judge
   // staleness against how much time actually passed — not just re-arm a fresh window.
   const lastFrameAtRef = useRef(0)
-  // Mirrors `cards` for the long-lived broadcast closure, plus what a refresh needs:
-  // the freshest token (Twitch re-fires onAuthorized), the last attempt, in-flight.
-  const cardsMapRef = useRef<Map<string, BazaarCard>>(new Map())
-  const tokenRef = useRef<string | null>(null)
+  // Mirror `cards` and its slot validator for the long-lived broadcast closure,
+  // which is built once and would otherwise keep the first (empty) ones forever.
+  const cardsMapRef = useRef(cards)
+  const validatorRef = useRef(validator)
+  cardsMapRef.current = cards
+  validatorRef.current = validator
   const refreshAtRef = useRef<number | null>(null)
-  const refreshingRef = useRef(false)
 
   useEffect(() => {
-    let mounted = true
     const twitch = window.Twitch?.ext
     // An overlay sits on top of gameplay, so it stays visually silent even when
     // broken — no banner belongs on someone's stream — but a console line means
@@ -170,54 +169,17 @@ export function App() {
     })
     refit()
 
-    twitch.onAuthorized(async (auth) => {
-      tokenRef.current = auth.token
-      if (cardsLoaded.current) return
-      for (let i = 0; i < CARD_FETCH_BACKOFF.length; i++) {
-        if (CARD_FETCH_BACKOFF[i] > 0) {
-          await new Promise((r) => setTimeout(r, CARD_FETCH_BACKOFF[i]))
-          if (!mounted || cardsLoaded.current) return
-        }
-        try {
-          const all = await fetchCards(auth.token)
-          if (!mounted) return
-          // An empty list is a failure wearing a success's clothes: it would leave
-          // every card "unknown" forever with no sign anything went wrong.
-          if (all.length === 0) throw new Error('empty')
-          const { map, validator } = buildCardState(all)
-          cardsMapRef.current = map
-          setCards(map)
-          validatorRef.current = validator
-          cardsLoaded.current = true
-          setCardsState('ready')
-          return
-        } catch {
-          if (i === CARD_FETCH_BACKOFF.length - 1 && mounted) setCardsState('failed')
-        }
-      }
-    })
-
     // A frame naming a card we don't hold means this viewer's list predates a data
-    // refresh. One quiet refetch (throttled, never concurrent); on failure the old
-    // cards stay and cardsState is untouched — a failed refresh must not break a
-    // working overlay.
-    const maybeRefresh = async (slots: DetectedSlot[]) => {
-      if (!cardsLoaded.current || refreshingRef.current || !tokenRef.current) return
+    // refresh. Ask for one quiet refetch, throttled here (useCards never runs two at
+    // once, and keeps the old cards if it fails).
+    const maybeRefresh = (slots: DetectedSlot[]) => {
+      // nothing loaded yet: every card would read as missing and burn the throttle
+      if (cardsMapRef.current.size === 0) return
       const missing = slots.some(s => !cardsMapRef.current.has(s.title.toLowerCase()))
       const now = Date.now()
       if (!shouldRefetch(missing, refreshAtRef.current, now)) return
       refreshAtRef.current = now
-      refreshingRef.current = true
-      try {
-        const all = await fetchCards(tokenRef.current)
-        if (!mounted || all.length === 0) return
-        const { map, validator } = buildCardState(all)
-        cardsMapRef.current = map
-        setCards(map)
-        validatorRef.current = validator
-      } catch {} finally {
-        refreshingRef.current = false
-      }
+      void refresh()
     }
 
     // Every valid frame (including the companion's heartbeat and empty clear
@@ -227,7 +189,7 @@ export function App() {
     // frames wait here until this viewer's video catches up to them (delay-line.ts)
     const line = createDelayLine<DetectedSlot[]>((next) => {
       setDetected(prev => slotsEqual(prev, next) ? prev : next)
-      void maybeRefresh(next)
+      maybeRefresh(next)
     })
 
     // Silence is judged on arrival, but frames are shown late. The window therefore
@@ -290,7 +252,6 @@ export function App() {
     })
 
     return () => {
-      mounted = false
       twitch.unlisten('broadcast', onBroadcast)
       line.clear()
       if (staleTimerRef.current) clearTimeout(staleTimerRef.current)

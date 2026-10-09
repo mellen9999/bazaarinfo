@@ -48,6 +48,18 @@ function loadBoard(): { items: Card[]; skills: Card[] } {
 
 const BOARD = loadBoard()
 
+// The whole dump, for search and the panel. The board above stays a handful of
+// cards so the overlay has something sane to draw; search wants everything.
+function loadAll(): { items: Card[]; skills: Card[] } {
+  try {
+    const cache = JSON.parse(require('fs').readFileSync(CACHE, 'utf8'))
+    if (cache.items?.length) return { items: cache.items, skills: cache.skills ?? [] }
+  } catch { /* fall through */ }
+  return BOARD
+}
+
+const ALL = loadAll()
+
 // ── the harness page: mock Twitch + stub fetch + broadcast a board on a heartbeat ──
 // Pass ?crop=x,y,scale to preload a game-area crop and eyeball the aligned board.
 function page(crop: string | null): string {
@@ -80,9 +92,7 @@ function page(crop: string | null): string {
       onChanged(cb){ window.__cfg=cb; }, set(){} },
   }};
   const _f = window.fetch.bind(window);
-  window.fetch = (u,o) => String(u).includes('/api/cards')
-    ? Promise.resolve(new Response(JSON.stringify(CARDS), {headers:{'content-type':'application/json'}}))
-    : _f(u,o);
+  window.fetch = (u,o) => _f(String(u).includes('/api/cards') ? '/api/cards' : u, o);
   function board(){
     const it=CARDS.items, sk=CARDS.skills||[], D=[];
     const w=s=>s==='Small'?0.058:s==='Large'?0.14:0.092;
@@ -125,6 +135,17 @@ async function configPage(): Promise<string> {
   return html
 }
 
+// The Twitch panel, with the same mocked helper and card route as the overlay.
+async function panelPage(): Promise<string> {
+  const html = await Bun.file(join(DIST, 'panel.html')).text()
+  const mock = `<script>
+  window.Twitch = { ext: { onAuthorized(cb){ setTimeout(()=>cb({token:'harness',channelId:'0',clientId:'0'}),0); } } };
+  const _f=window.fetch.bind(window);
+  window.fetch=(u,o)=>_f(String(u).includes('/api/cards') ? '/api/cards' : u, o);
+  </script>`
+  return html.replace(/<script [^>]*src="https:\/\/extension-files[^"]*"><\/script>/, mock)
+}
+
 Bun.serve({
   port: PORT,
   hostname: '127.0.0.1',
@@ -133,6 +154,10 @@ Bun.serve({
     const path = url.pathname
     if (path === '/' || path === '/index.html') {
       return new Response(page(url.searchParams.get('crop')), { headers: { 'content-type': 'text/html' } })
+    }
+    if (path === '/api/cards') return Response.json(ALL)
+    if (path === '/panel' || path === '/panel.html') {
+      return new Response(await panelPage(), { headers: { 'content-type': 'text/html' } })
     }
     if (path === '/config' || path === '/config.html') {
       return new Response(await configPage(), { headers: { 'content-type': 'text/html' } })
@@ -145,5 +170,6 @@ Bun.serve({
 
 console.log(`[harness] overlay running → http://127.0.0.1:${PORT}`)
 console.log(`[harness]   overlay (cropped): http://127.0.0.1:${PORT}/?crop=0.15,0.1,0.7`)
-console.log(`[harness]   calibrator:        http://127.0.0.1:${PORT}/config`)
+console.log(`[harness]   panel:             http://127.0.0.1:${PORT}/panel`)
+console.log(`[harness]   calibrator:       http://127.0.0.1:${PORT}/config`)
 console.log('[harness] hover any slot to see the tooltip. ctrl-c to stop.')
