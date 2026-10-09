@@ -172,6 +172,9 @@ export const CardTooltip = memo(forwardRef<HTMLDivElement, Props>(function CardT
     // Size and cooldown come from the dump, so without a card there is nothing
     // honest to put here — tier and enchantment came off the wire and still stand.
     if (card) out.push(['size', 'size', SIZE_LABEL[card.Size] ?? String(card.Size).toLowerCase()])
+    // Whose item this is. "Common" is the dump's word for neutral — no owner to name.
+    const heroes = (card?.Heroes ?? []).filter((h) => h !== 'Common')
+    if (heroes.length) out.push(['hero', 'hero', heroes.map((h) => h.toLowerCase()).join('/')])
     if (cooldownSteps) out.push(['cd', 'cd', cooldownSteps])
     else if (cooldown != null) out.push(['cd', 'cd', `${cooldown}s`])
     // Named here too, not only as the effect block's label — an enchant whose text
