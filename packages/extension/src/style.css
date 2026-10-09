@@ -226,6 +226,24 @@ body[data-twitch-mode="panel"] .card-tooltip { max-height: none; }
 
 .tt-text { color: #d0d0d0; }
 
+/* Keyword = coloured glyph + bold white word. The glyph sits in a fixed square box so
+   every keyword's word starts at the same offset whatever the font's glyph width;
+   the colour is inline (it belongs to the keyword, see keywords.ts). Glyph and word
+   never split across a wrap. --kw-glyph-lift is the one knob for vertical
+   alignment: it centres the glyph on the x-height middle of the text. */
+.kw { white-space: nowrap; --kw-glyph-lift: -0.1em; }
+.kw-glyph {
+  display: inline-block;
+  width: 1.2em;
+  margin-right: 0.15em;
+  text-align: center;
+  line-height: 1;
+  font-weight: 700;
+  font-size: 1.15em;
+  vertical-align: var(--kw-glyph-lift);
+}
+.kw-word { color: #ffffff; font-weight: 700; }
+
 .tt-block--ench {
   border-top: 1px solid #1c1c1c;
   border-left: 2px solid #af87ff;

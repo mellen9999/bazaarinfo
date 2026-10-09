@@ -17,6 +17,7 @@
 // line here. Game-term capitalization (Freeze, Shield, Poison…) is intentional.
 
 import * as store from './store'
+import { KEYWORD_ALIASES, KEYWORD_LABEL } from '@bazaarinfo/shared/src/keywords'
 
 // placeholder spliced with the live dump-derived enchant roster at answer time (see
 // lookupKeywords) — keeps the enchant entry's name list from going stale when a
@@ -84,22 +85,8 @@ export const GLOSSARY: Record<string, string> = {
 // the common inflections players actually type. enrage/enraged/rage route to the
 // Karnok KNOWLEDGE entry instead (hero-level), so they're intentionally not here.
 const ALIASES: Record<string, string> = {
-  fly: 'flying', flies: 'flying', flight: 'flying',
-  poisoned: 'poison', poisons: 'poison',
-  burned: 'burn', burning: 'burn', burns: 'burn',
-  frozen: 'freeze', freezes: 'freeze', freezing: 'freeze',
-  slowed: 'slow', slows: 'slow', slowing: 'slow',
-  hasted: 'haste', hastes: 'haste',
-  shields: 'shield', shielded: 'shield',
-  heals: 'heal', healing: 'heal',
-  regeneration: 'regen', regenerate: 'regen', regenerating: 'regen',
-  critical: 'crit', crits: 'crit', critting: 'crit',
-  lifesteals: 'lifesteal', lifesteel: 'lifesteal',
-  charges: 'charge', charging: 'charge', charged: 'charge',
+  ...KEYWORD_ALIASES,
   cooldowns: 'cooldown',
-  reloads: 'reload', reloading: 'reload',
-  multicasts: 'multicast',
-  damages: 'damage',
   sandstorms: 'sandstorm',
   heat: 'heated', heats: 'heated', heating: 'heated',
   chill: 'chilled', chills: 'chilled', chilling: 'chilled',
@@ -111,10 +98,8 @@ const ALIASES: Record<string, string> = {
 
 // canonical key -> label shown in output (the keyword, Title-cased)
 export const LABEL: Record<string, string> = {
-  flying: 'Flying', poison: 'Poison', burn: 'Burn', freeze: 'Freeze', slow: 'Slow',
-  haste: 'Haste', shield: 'Shield', heal: 'Heal', regen: 'Regen', crit: 'Crit',
-  lifesteal: 'Lifesteal', charge: 'Charge', cooldown: 'Cooldown', ammo: 'Ammo',
-  reload: 'Reload', multicast: 'Multicast', damage: 'Damage', sandstorm: 'Sandstorm',
+  ...KEYWORD_LABEL,
+  cooldown: 'Cooldown', sandstorm: 'Sandstorm',
   heated: 'Heated', chilled: 'Chilled', destroy: 'Destroy', transform: 'Transform',
   cleanse: 'Cleanse', enchant: 'Enchant', tempo: 'Tempo',
 }

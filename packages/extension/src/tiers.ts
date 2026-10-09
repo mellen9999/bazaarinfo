@@ -16,6 +16,11 @@ import type { BazaarCard, TierName } from '@bazaarinfo/shared/src/types'
 // bronze/silver. Without the hue the row is ambiguous; that is the test for whether
 // a colour has earned its place.
 //
+// Keyword glyphs are the third: each game keyword in ability text (Burn, Poison,
+// Shield…) carries a glyph in its own keyword colour, 8-colour palette only. The
+// word beside it stays bold white and the body text stays grey, so the hue marks
+// WHICH mechanic at a glance without ever colouring prose. See keywords.ts.
+//
 // Painting the tier hue on the border, the art frame, the name and the hover outline
 // all at once — as this did — says "tier" four times and everything else zero times,
 // so it reads as decoration and buries the one place a reader is actually looking.

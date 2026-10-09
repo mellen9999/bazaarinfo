@@ -6,6 +6,7 @@ import type { TooltipPart, LadderStep } from '@bazaarinfo/shared/src/format'
 import { resolveTooltipParts, cooldownLadder, isDisplayTooltip } from '@bazaarinfo/shared/src/format'
 import { EBS_BASE } from '../twitch'
 import { tierColor } from '../tiers'
+import { KEYWORD_STYLE, tokenizeKeywords } from '../keywords'
 
 const SIZE_LABEL: Record<string, string> = { Small: 'small', Medium: 'medium', Large: 'large' }
 const TIER_SEQ: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
@@ -42,11 +43,30 @@ function Ladder({ steps, suffix }: { steps: LadderStep[]; suffix?: string }) {
   )
 }
 
+// Only prose is scanned for keywords — ladders are numbers and stay untouched. The
+// glyph is decoration (aria-hidden); the word beside it already says the same thing.
+function Keywords({ s }: { s: string }) {
+  return (
+    <>
+      {tokenizeKeywords(s).map((tok, i) => {
+        if (typeof tok === 'string') return tok
+        const style = KEYWORD_STYLE[tok.kw]
+        return (
+          <span class="kw" key={i}>
+            <span class="kw-glyph" style={{ color: style.color }} aria-hidden="true">{style.glyph}</span>
+            <span class="kw-word">{tok.text}</span>
+          </span>
+        )
+      })}
+    </>
+  )
+}
+
 function Parts({ parts }: { parts: TooltipPart[] }) {
   return (
     <>
       {parts.map((p, i) =>
-        p.t === 'text' ? p.s : <Ladder key={i} steps={p.steps} />,
+        p.t === 'text' ? <Keywords key={i} s={p.s} /> : <Ladder key={i} steps={p.steps} />,
       )}
     </>
   )
