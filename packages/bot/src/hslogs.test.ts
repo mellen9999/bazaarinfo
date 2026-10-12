@@ -209,4 +209,20 @@ describe('hslogs contract', () => {
     await hs.getTopChatters('c', 'all', 100)
     expect(calls[2]).toContain('limit=25')
   })
+
+  it('budget_ms is clamped, sent, and kept out of the cache key', async () => {
+    await hs.search('c', 'x', { budget_ms: 50 })
+    expect(calls[0]).toContain('budget_ms=300')
+    await hs.search('c', 'x', { budget_ms: 900 })
+    expect(calls).toHaveLength(1) // same query, different budget → cache hit
+    await hs.getUserMessages('c', 'bob', { budget_ms: 99_999 })
+    expect(calls[1]).toContain('budget_ms=5000')
+  })
+
+  it('a page the budget cut short is never cached', async () => {
+    impl = async () => new Response(JSON.stringify({ data: [], coverage: { ...cov, partial: true, exhausted: false }, next_cursor: 'c1' }), { status: 200 })
+    await hs.search('c', 'y', { budget_ms: 400 })
+    await hs.search('c', 'y', { budget_ms: 400 })
+    expect(calls).toHaveLength(2)
+  })
 })

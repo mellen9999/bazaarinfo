@@ -24,7 +24,8 @@ export interface TermCount { term: string; count: number; first_at: string | nul
 export interface Computed<T> { status: string; computed_at: string; data: T; coverage: Coverage }
 // signal: an outer budget (hslogs-context) that cuts the call short alongside its own timeout
 // from/to: full ISO with Z (date-only 400s)
-export interface Range { from?: string; to?: string; limit?: number; signal?: AbortSignal }
+// budget_ms: the server stops walking days at this point and returns what it has + next_cursor
+export interface Range { from?: string; to?: string; limit?: number; signal?: AbortSignal; budget_ms?: number }
 
 // common third-party chat bots; they top message rankings and are never "regulars"
 const BOT_LOGINS = new Set(['nightbot', 'streamelements', 'streamlabs', 'fossabot', 'moobot', 'wizebot', 'sery_bot', 'soundalerts'])
@@ -79,7 +80,9 @@ async function get<T>(channel: string, path: string, params: Record<string, stri
     const qs = new URLSearchParams()
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') qs.set(k, String(v))
     const url = `${base()}/twitch/${encodeURIComponent(channel.toLowerCase())}${path}${qs.size ? '?' + qs : ''}`
-    const hit = cacheGet(url)
+    // budget_ms changes per call, so it stays out of the cache key
+    const ck = url.replace(/[?&]budget_ms=\d+/, '').replace(/\?&/, '?').replace(/\?$/, '')
+    const hit = cacheGet(ck)
     if (hit !== undefined) return hit as T
     if (Date.now() < openUntil) return null
     const send = () => fetch(url, {
@@ -104,7 +107,9 @@ async function get<T>(channel: string, path: string, params: Record<string, stri
     if (!res.ok) { warn(`hslogs: ${res.status} ${await errCode(res)} ${path}`); return res.status >= 500 ? fail() : null }
     const json = await res.json() as T
     failures = 0
-    cacheSet(url, json, ttl)
+    // a page the budget cut short isn't the answer a roomier caller would get
+    const cut = params.budget_ms !== undefined && (json as { coverage?: { partial?: boolean } }).coverage?.partial === true
+    if (!cut) cacheSet(ck, json, ttl)
     return json
   } catch {
     return fail()
@@ -123,20 +128,23 @@ const clamp = (v: number | undefined, lo: number, hi: number) => (v === undefine
 const MAX_USER_MESSAGES = 200
 const MAX_TOP_CHATTERS = 25
 const MAX_PASTAS = 20
+const MIN_BUDGET_MS = 300
+const MAX_BUDGET_MS = 5000
+const budget = (v?: number) => clamp(v, MIN_BUDGET_MS, MAX_BUDGET_MS)
 const MIN_PASTA_LEN = 80 // the rollup only stores pastas of 80+ chars
 const MIN_PASTA_REPEATS = 2
 
 export async function getMessages(channel: string, r: Range & { order?: 'new' | 'old'; cursor?: string } = {}) {
-  return clean(await get<Envelope<LogRow[]>>(channel, '/messages', { from: r.from, to: r.to, limit: r.limit, cursor: r.cursor, order: order(r.order) }, false, TTL_FAST, r.signal))
+  return clean(await get<Envelope<LogRow[]>>(channel, '/messages', { from: r.from, to: r.to, limit: r.limit, cursor: r.cursor, order: order(r.order), budget_ms: budget(r.budget_ms) }, false, TTL_FAST, r.signal))
 }
 
 export async function search(channel: string, q: string, r: Range & { user?: string } = {}) {
-  return clean(await get<Envelope<LogRow[]>>(channel, '/search', { q, user: r.user?.toLowerCase(), from: r.from, to: r.to, limit: r.limit }, false, TTL_FAST, r.signal))
+  return clean(await get<Envelope<LogRow[]>>(channel, '/search', { q, user: r.user?.toLowerCase(), from: r.from, to: r.to, limit: r.limit, budget_ms: budget(r.budget_ms) }, false, TTL_FAST, r.signal))
 }
 
 export async function getUserMessages(channel: string, user: string, r: Range & { order?: 'new' | 'old'; q?: string; cursor?: string } = {}) {
   if (forgottenCheck(user)) return null
-  return clean(await get<Envelope<LogRow[]>>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/messages`, { from: r.from, to: r.to, limit: clamp(r.limit, 1, MAX_USER_MESSAGES), order: r.order, q: r.q, cursor: r.cursor }, false, TTL_FAST, r.signal))
+  return clean(await get<Envelope<LogRow[]>>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/messages`, { from: r.from, to: r.to, limit: clamp(r.limit, 1, MAX_USER_MESSAGES), order: r.order, q: r.q, cursor: r.cursor, budget_ms: budget(r.budget_ms) }, false, TTL_FAST, r.signal))
 }
 
 // the profile is a bare object, not enveloped: {exists, username, first_seen, ...}

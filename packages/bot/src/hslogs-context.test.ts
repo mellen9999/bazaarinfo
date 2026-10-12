@@ -141,6 +141,14 @@ describe('api quirks', () => {
     expect(r?.content?.map((x) => x.message)).toEqual(['boomerang and shield together', 'just boomerang'])
   })
 
+  it('hands the server a walk budget that ends before our own deadline', async () => {
+    withKey()
+    await ctx.prefetchHistory('c', { content: 'boomerang', before: '2026-09-01T00:00:00.000Z' })
+    const b = Number(new URL(calls[0]).searchParams.get('budget_ms'))
+    expect(b).toBeGreaterThanOrEqual(300)
+    expect(b).toBeLessThanOrEqual(ctx.BUDGET_MS - 300)
+  })
+
   it('follows next_cursor while rows are short', async () => {
     withKey()
     impl = async (url) => {

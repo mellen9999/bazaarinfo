@@ -8,6 +8,8 @@ import * as hs from './hslogs'
 import { findChatPasta, pastaKeywords, pastaKeywordCoverage, type PastaHit } from './pasta'
 
 export const BUDGET_MS = 1500
+// headroom for the round trip, so a server-side walk ends before our own deadline
+const NET_MS = 400
 
 export interface HistoryNeed {
   pasta?: string // pasta query (only when local missed)
@@ -147,6 +149,8 @@ export async function prefetchHistory(channel: string, need: HistoryNeed, budget
   const out: RemoteHistory = {}
   let closed = false
   const signal = ctl.signal
+  const t0 = Date.now()
+  const left = () => Math.max(0, budgetMs - (Date.now() - t0) - NET_MS)
   const user = need.user?.toLowerCase()
   const tasks: Promise<void>[] = []
   const run = (job: () => Promise<void>) => tasks.push((async () => { try { await job() } catch {} })())
@@ -158,20 +162,20 @@ export async function prefetchHistory(channel: string, need: HistoryNeed, budget
     if (e && !closed) out.pastas = e.data
   })
   if (need.content) run(async () => {
-    const e = await hs.search(channel, need.content!, { to, limit: 50, signal })
+    const e = await hs.search(channel, need.content!, { to, limit: 50, signal, budget_ms: left() })
     if (e && !closed && !(e.data.length === 0 && e.coverage?.partial)) out.content = rankByTerms(e.data, need.content!)
   })
   if (user && need.userSearch) run(async () => {
-    const rows = await paged((cursor) => hs.getUserMessages(channel, user, { q: need.userSearch, to, order: 'new', limit: 50, cursor, signal }), 20, signal)
+    const rows = await paged((cursor) => hs.getUserMessages(channel, user, { q: need.userSearch, to, order: 'new', limit: 50, cursor, signal, budget_ms: left() }), 20, signal)
     if (rows && !closed) out.userSearch = rankByTerms(rows, need.userSearch!)
   })
   if (user && need.userRecent) run(async () => {
     const n = need.userRecentLimit ?? 10
-    const rows = await paged((cursor) => hs.getUserMessages(channel, user, { to, order: 'new', limit: Math.min(n, 100), cursor, signal }), n, signal)
+    const rows = await paged((cursor) => hs.getUserMessages(channel, user, { to, order: 'new', limit: Math.min(n, 100), cursor, signal, budget_ms: left() }), n, signal)
     if (rows && !closed) out.userRecent = rows
   })
   if (user && need.userOldest) run(async () => {
-    const rows = await paged((cursor) => hs.getUserMessages(channel, user, { order: 'old', limit: 10, cursor, signal }), 10, signal)
+    const rows = await paged((cursor) => hs.getUserMessages(channel, user, { order: 'old', limit: 10, cursor, signal, budget_ms: left() }), 10, signal)
     if (rows && !closed) out.userOldest = rows
   })
   if (user && need.words) run(async () => {
