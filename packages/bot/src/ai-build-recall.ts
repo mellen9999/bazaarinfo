@@ -140,7 +140,8 @@ function countWord(query: string): RegExpMatchArray | null {
     ?? query.match(/'([^']+)'/)
 }
 
-const dayAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
+const dayAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString()
+const isoZ = (localTs: string) => localTs.replace(' ', 'T') + '.000Z'
 
 /**
  * what buildChatRecall would ask heatsync for, decided from the same gates, or null when
@@ -157,6 +158,8 @@ export function planRecallPrefetch(query: string, channel: string, asker?: strin
   if (!RECALL_INTENT.test(query) && !at && !timeWindow) return null
 
   const need: HistoryNeed = {}
+  const floor = db.getOldestChatTs(channel)
+  if (floor) need.before = isoZ(floor) // remote only needs the days local no longer holds
   const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
   let user = findReferencedUser(query, channel)
   if (!user && at && at !== botName) {
@@ -181,8 +184,8 @@ export function planRecallPrefetch(query: string, channel: string, asker?: strin
       const days = timeWindow.sinceExpr ? Number(timeWindow.sinceExpr.match(/-(\d+) days/)?.[1] ?? 0) : null
       const from = days === null ? undefined : dayAgo(days)
       // window reaches before the oldest local row: the remote count covers that gap only
-      if (horizon && (from === undefined || from < horizon.slice(0, 10))) {
-        need.words = { term: word, from, to: horizon.replace(' ', 'T') + '.000Z' }
+      if (horizon && (from === undefined || from < isoZ(horizon))) {
+        need.words = { term: word, from, to: isoZ(horizon) }
       } else if (!horizon) need.words = { term: word, from }
     }
     return need.profiles || need.words ? need : null

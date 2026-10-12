@@ -189,7 +189,8 @@ function buildPersonDossier(username: string, channel: string, remote?: RemoteHi
         span = ageDays > db.CHAT_RETENTION_DAYS - 10 ? `in the last ${db.CHAT_RETENTION_DAYS} days (older lines are pruned)` : `since ${chat!.firstSeen.slice(0, 7)}`
       }
       // peak hour needs a real sample or it's noise
-      const peak = !chat || chat.peakHourUtc === null || messages < 30 ? '' : `, most active around ${String(chat.peakHourUtc).padStart(2, '0')}:00 UTC`
+      const peakHour = real?.peak_hour_utc ?? chat?.peakHourUtc ?? null
+      const peak = peakHour === null || messages < 30 ? '' : `, most active around ${String(peakHour).padStart(2, '0')}:00 UTC`
       lines.push(`chat history: ${messages} messages logged here ${span}${peak}`)
     }
     const own = getChannelSnapshotLine(username)

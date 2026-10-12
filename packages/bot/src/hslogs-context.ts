@@ -11,6 +11,7 @@ export const BUDGET_MS = 1500
 
 export interface HistoryNeed {
   pasta?: string // pasta query (only when local missed)
+  before?: string // local horizon, full ISO Z: searches only scan older days (unwindowed search takes 5-6s)
   content?: string // keyword search across everyone
   user?: string // target for the user* calls
   userSearch?: string // keyword search within `user`
@@ -69,6 +70,30 @@ export function mergeHistory(local: HistRow[], remote: hs.LogRow[] | undefined |
   return [...local, ...extras.reverse()] // newest-first like the local reads
 }
 
+/** the api search is recency-ordered AND-match, not relevance: rank by distinct query terms hit, recency breaks ties */
+export function rankByTerms(rows: hs.LogRow[], q: string): hs.LogRow[] {
+  const terms = [...new Set(q.toLowerCase().split(/\s+/).filter((t) => t.length >= 3))]
+  if (terms.length === 0) return rows
+  const score = (r: hs.LogRow) => { const m = r.message.toLowerCase(); return terms.reduce((n, t) => n + (m.includes(t) ? 1 : 0), 0) }
+  return rows.map((r, i) => ({ r, i, s: score(r) })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.r)
+}
+
+/** follow next_cursor while rows are short and budget remains; empty + partial = unknown, not "none" */
+async function paged(page: (cursor?: string) => Promise<hs.Envelope<hs.LogRow[]> | null>, want: number, signal: AbortSignal): Promise<hs.LogRow[] | undefined> {
+  const rows: hs.LogRow[] = []
+  let cursor: string | undefined
+  for (let i = 0; i < 6; i++) {
+    const env = await page(cursor)
+    if (!env) break
+    rows.push(...env.data)
+    if (rows.length >= want || !env.next_cursor || signal.aborted) {
+      return rows.length === 0 && env.coverage?.partial ? undefined : rows
+    }
+    cursor = env.next_cursor
+  }
+  return rows.length ? rows : undefined
+}
+
 /** pasta recall off the remote rollup — same PastaHit shape the local path produces */
 export function pickRemotePasta(query: string, rows: hs.RemotePasta[] | undefined | null): PastaHit | null {
   const kw = pastaKeywords(query)
@@ -116,10 +141,23 @@ export async function prefetchHistory(channel: string, need: HistoryNeed, budget
   const run = (job: () => Promise<void>) => tasks.push((async () => { try { await job() } catch {} })())
 
   if (need.pasta) run(async () => { const h = await remotePasta(channel, need.pasta!, signal); if (h && !closed) out.pasta = h })
-  if (need.content) run(async () => { const e = await hs.search(channel, need.content!, { limit: 20, signal }); if (e && !closed) out.content = e.data })
-  if (user && need.userSearch) run(async () => { const e = await hs.search(channel, need.userSearch!, { user, limit: 8, signal }); if (e && !closed) out.userSearch = e.data })
-  if (user && need.userRecent) run(async () => { const e = await hs.getUserMessages(channel, user, { order: 'new', limit: 10, signal }); if (e && !closed) out.userRecent = e.data })
-  if (user && need.userOldest) run(async () => { const e = await hs.getUserMessages(channel, user, { order: 'old', limit: 10, signal }); if (e && !closed) out.userOldest = e.data })
+  const to = need.before
+  if (need.content) run(async () => {
+    const e = await hs.search(channel, need.content!, { to, limit: 50, signal })
+    if (e && !closed && !(e.data.length === 0 && e.coverage?.partial)) out.content = rankByTerms(e.data, need.content!)
+  })
+  if (user && need.userSearch) run(async () => {
+    const rows = await paged((cursor) => hs.getUserMessages(channel, user, { q: need.userSearch, to, order: 'new', limit: 50, cursor, signal }), 20, signal)
+    if (rows && !closed) out.userSearch = rankByTerms(rows, need.userSearch!)
+  })
+  if (user && need.userRecent) run(async () => {
+    const rows = await paged((cursor) => hs.getUserMessages(channel, user, { to, order: 'new', limit: 10, cursor, signal }), 10, signal)
+    if (rows && !closed) out.userRecent = rows
+  })
+  if (user && need.userOldest) run(async () => {
+    const rows = await paged((cursor) => hs.getUserMessages(channel, user, { order: 'old', limit: 10, cursor, signal }), 10, signal)
+    if (rows && !closed) out.userOldest = rows
+  })
   if (user && need.words) run(async () => {
     const c = await hs.getTermCount(channel, user, need.words!.term, { from: need.words!.from, to: need.words!.to, signal })
     if (c && !closed) out.wordCount = c.data.count

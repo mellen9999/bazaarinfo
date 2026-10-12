@@ -64,9 +64,9 @@ describe('prefetchHistory', () => {
     impl = (url) => (url.includes('/profile') ? Promise.resolve(profile(5)) : new Promise(() => {}))
     const p = ctx.prefetchHistory('c', { user: 'Bob', userSearch: 'boomerang', userOldest: true, profiles: ['bob'] }, 60)
     await Bun.sleep(10)
-    expect(calls.length).toBe(3) // search, messages, profile — all in flight before any resolved
-    expect(calls.some((u) => u.includes('/search?q=boomerang&user=bob'))).toBe(true)
-    expect(calls.some((u) => u.includes('/users/bob/messages') && u.includes('order=old'))).toBe(true)
+    expect(calls.length).toBe(3) // q-filtered messages, oldest messages, profile — all in flight before any resolved
+    expect(calls.some((u) => u.includes('/users/bob/messages') && u.includes('q=boomerang'))).toBe(true)
+    expect(calls.some((u) => u.includes('order=old'))).toBe(true)
     const r = await p
     expect(r?.profiles?.get('bob')?.messages).toBe(5)
     expect(r?.userSearch).toBeUndefined()
@@ -128,6 +128,54 @@ describe('prefetchHistory', () => {
     hs.setForgottenCheck((u) => u === 'gone')
     expect(await ctx.prefetchHistory('c', { user: 'gone', userOldest: true, profiles: ['gone'] })).toBeNull()
     expect(calls.length).toBe(0)
+  })
+})
+
+describe('api quirks', () => {
+  it('content search is windowed to the local horizon, asks for 50, ranks by term overlap', async () => {
+    withKey()
+    impl = async () => ok([row('a', 'just boomerang', '2026-03-03T00:00:00.000Z'), row('b', 'boomerang and shield together', '2026-03-02T00:00:00.000Z')])
+    const r = await ctx.prefetchHistory('c', { content: 'boomerang shield', before: '2026-09-01T00:00:00.000Z' })
+    expect(calls[0]).toContain('limit=50')
+    expect(calls[0]).toContain('to=2026-09-01T00%3A00%3A00.000Z')
+    expect(r?.content?.map((x) => x.message)).toEqual(['boomerang and shield together', 'just boomerang'])
+  })
+
+  it('follows next_cursor while rows are short', async () => {
+    withKey()
+    impl = async (url) => {
+      const second = url.includes('cursor=c1')
+      return new Response(JSON.stringify({ data: [row('bob', second ? 'two' : 'one', '2026-03-01T00:00:00.000Z')], coverage: cov, next_cursor: second ? undefined : 'c1' }), { status: 200 })
+    }
+    const r = await ctx.prefetchHistory('c', { user: 'bob', userOldest: true })
+    expect(r?.userOldest?.map((x) => x.message)).toEqual(['one', 'two'])
+    expect(calls.length).toBe(2)
+  })
+
+  it('empty + partial is unknown, not none', async () => {
+    withKey()
+    impl = async () => new Response(JSON.stringify({ data: [], coverage: { ...cov, partial: true }, next_cursor: undefined }), { status: 200 })
+    expect(await ctx.prefetchHistory('c', { user: 'bob', userOldest: true, content: 'zzz yyy' })).toBeNull()
+    hs.resetHslogs()
+    impl = async () => ok([])
+    expect((await ctx.prefetchHistory('c', { user: 'bob', userOldest: true }))?.userOldest).toEqual([])
+  })
+
+  it('202 then 200 inside the budget is retried once', async () => {
+    withKey()
+    let n = 0
+    impl = async () => (n++ === 0
+      ? new Response('{"status":"computing"}', { status: 202, headers: { 'retry-after': '0.05' } })
+      : new Response(JSON.stringify({ status: 'ready', computed_at: 'x', data: { term: 't', count: 3, distinct_users: 1, first_seen: null }, coverage: cov }), { status: 200 }))
+    const r = await ctx.prefetchHistory('c', { footprint: 't' }, 3000)
+    expect(r?.footprint?.count).toBe(3)
+    expect(calls.length).toBe(2)
+  })
+
+  it('top-chatters drops the bot itself and known bots', async () => {
+    withKey()
+    impl = async () => ok([{ username: 'bazaarinfo', messages: 9, active_days: 1 }, { username: 'Nightbot', messages: 8, active_days: 1 }, { username: 'amy', messages: 7, active_days: 1 }])
+    expect((await hs.getTopChatters('c', 7))?.data.map((c) => c.username)).toEqual(['amy'])
   })
 })
 

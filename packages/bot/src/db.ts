@@ -1706,6 +1706,12 @@ export function getUserMessagesDetailed(username: string, channel: string, limit
   return stmts.userMessagesDetailed.all(username.toLowerCase(), channel, limit) as FTSResult[]
 }
 
+// the local horizon: oldest chat row we still hold for a channel ('YYYY-MM-DD HH:MM:SS' UTC)
+export function getOldestChatTs(channel: string): string | null {
+  const r = db.query('SELECT MIN(created_at) AS t FROM chat_messages WHERE channel = ?').get(channel) as { t: string | null } | null
+  return r?.t ?? null
+}
+
 // per-user oldest messages (for "earliest/first message" queries)
 export function getUserMessagesOldest(username: string, channel: string, limit = 10): FTSResult[] {
   return db.query(

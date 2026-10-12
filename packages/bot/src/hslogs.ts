@@ -15,7 +15,7 @@ const UA = 'bazaarinfo/0.1.0'
 export interface Coverage { tier: string; from: string; to: string; rolled_through: string | null; days_scanned: number; days_skipped: number; exhausted: boolean; partial: boolean; note?: string }
 export interface Envelope<T> { data: T; coverage: Coverage; next_cursor?: string }
 export interface LogRow { username: string; display_name: string; message: string; message_id: string; timestamp: string; reply_to_id: string | null }
-export interface UserProfile { exists: boolean; username: string; first_seen: string | null; last_seen: string | null; messages: number; active_days: number }
+export interface UserProfile { exists: boolean; username: string; first_seen: string | null; last_seen: string | null; messages: number; active_days: number; peak_hour_utc?: number | null }
 export interface Chatter { username: string; messages: number; active_days: number }
 export interface RemotePasta { text: string; repeats: number; users: number; days: number; first_at: string; last_at: string }
 export interface TermFootprint { term: string; count: number; distinct_users: number; first_seen: string | null }
@@ -23,7 +23,11 @@ export interface TermCount { term: string; count: number; first_at: string | nul
 // term endpoints compute asynchronously: {status, computed_at, data, coverage}, 202 while computing
 export interface Computed<T> { status: string; computed_at: string; data: T; coverage: Coverage }
 // signal: an outer budget (hslogs-context) that cuts the call short alongside its own timeout
+// from/to: full ISO with Z (date-only 400s)
 export interface Range { from?: string; to?: string; limit?: number; signal?: AbortSignal }
+
+// common third-party chat bots; they top message rankings and are never "regulars"
+const BOT_LOGINS = new Set(['nightbot', 'streamelements', 'streamlabs', 'fossabot', 'moobot', 'wizebot', 'sery_bot', 'soundalerts'])
 
 let failures = 0
 let openUntil = 0
@@ -78,10 +82,19 @@ async function get<T>(channel: string, path: string, params: Record<string, stri
     const hit = cacheGet(url)
     if (hit !== undefined) return hit as T
     if (Date.now() < openUntil) return null
-    const res = await fetch(url, {
+    const send = () => fetch(url, {
       headers: { Authorization: `Bearer ${key}`, 'User-Agent': UA, Accept: 'application/json' },
       signal: outer ? AbortSignal.any([AbortSignal.timeout(heavy ? HEAVY_MS : FAST_MS), outer]) : AbortSignal.timeout(heavy ? HEAVY_MS : FAST_MS),
     })
+    let res = await send()
+    // 202 = still computing; the same url answers 200 within ~3s. one retry, but only when a
+    // caller budget (outer) is running — it cuts the wait short; budgetless callers just miss.
+    if (res.status === 202 && outer && !outer.aborted) {
+      const ra = Number(res.headers.get('retry-after'))
+      await new Promise<void>((r) => { const t = setTimeout(r, Math.min(Number.isFinite(ra) && ra > 0 ? ra : 2, 2) * 1000); outer.addEventListener('abort', () => { clearTimeout(t); r() }, { once: true }) })
+      if (outer.aborted) return null
+      res = await send()
+    }
     if (res.status === 429) {
       const ra = Number(res.headers.get('retry-after'))
       trip(Number.isFinite(ra) && ra > 0 ? Math.min(ra, 3600) * 1000 : OPEN_MS)
@@ -113,9 +126,9 @@ export async function search(channel: string, q: string, r: Range & { user?: str
   return clean(await get<Envelope<LogRow[]>>(channel, '/search', { q, user: r.user?.toLowerCase(), from: r.from, to: r.to, limit: r.limit }, false, TTL_FAST, r.signal))
 }
 
-export async function getUserMessages(channel: string, user: string, r: Range & { order?: 'new' | 'old'; q?: string } = {}) {
+export async function getUserMessages(channel: string, user: string, r: Range & { order?: 'new' | 'old'; q?: string; cursor?: string } = {}) {
   if (forgottenCheck(user)) return null
-  return clean(await get<Envelope<LogRow[]>>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/messages`, { from: r.from, to: r.to, limit: r.limit, order: r.order, q: r.q }, false, TTL_FAST, r.signal))
+  return clean(await get<Envelope<LogRow[]>>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/messages`, { from: r.from, to: r.to, limit: r.limit, order: r.order, q: r.q, cursor: r.cursor }, false, TTL_FAST, r.signal))
 }
 
 // the profile is a bare object, not enveloped: {exists, username, first_seen, ...}
@@ -134,7 +147,9 @@ export async function getTermCount(channel: string, user: string, term: string, 
 export async function getTopChatters(channel: string, days: 7 | 30 | 90 | 'all' = 30, limit = 10, signal?: AbortSignal) {
   const env = await get<Envelope<Chatter[]>>(channel, '/top-chatters', { days, limit }, false, TTL_AGG, signal)
   if (!env || !Array.isArray(env.data)) return null
-  return { ...env, data: env.data.filter((c) => !forgottenCheck(c.username)) }
+  // the all-time ranking includes bots (bazaarinfo itself was #3 over 7d)
+  const bot = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
+  return { ...env, data: env.data.filter((c) => !forgottenCheck(c.username) && c.username.toLowerCase() !== bot && !BOT_LOGINS.has(c.username.toLowerCase())) }
 }
 
 // pastas carry no usernames, so there is nothing for the forgotten filter to act on
