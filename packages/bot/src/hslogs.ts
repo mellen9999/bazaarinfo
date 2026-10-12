@@ -124,7 +124,7 @@ const MAX_USER_MESSAGES = 200
 const MAX_TOP_CHATTERS = 25
 const MAX_PASTAS = 20
 const MIN_PASTA_LEN = 80 // the rollup only stores pastas of 80+ chars
-const MIN_PASTA_REPEATS = 3 // until heatsync ships >=2
+const MIN_PASTA_REPEATS = 2
 
 export async function getMessages(channel: string, r: Range & { order?: 'new' | 'old'; cursor?: string } = {}) {
   return clean(await get<Envelope<LogRow[]>>(channel, '/messages', { from: r.from, to: r.to, limit: r.limit, cursor: r.cursor, order: order(r.order) }, false, TTL_FAST, r.signal))

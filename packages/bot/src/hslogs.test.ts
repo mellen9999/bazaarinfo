@@ -195,7 +195,7 @@ describe('hslogs contract', () => {
     await hs.getPastas('c', { min_len: 25, limit: 24, min_repeats: 1 })
     expect(calls[0]).toContain('min_len=80')
     expect(calls[0]).toContain('limit=20')
-    expect(calls[0]).toContain('min_repeats=3')
+    expect(calls[0]).toContain('min_repeats=2')
     calls = []
     await hs.getPastas('c', { q: 'x' })
     expect(calls[0]).not.toContain('min_len') // unset stays unset (server default)

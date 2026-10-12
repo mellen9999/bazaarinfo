@@ -157,6 +157,7 @@ function signatureEmote(messages: string[]): string | null {
 // newest older lines to ground the sample
 const SAMPLE_WANT = 80
 const THIN_LOCAL = 20
+const PEAK_MIN_LOCAL = 20
 export function personNeed(user: string, channel: string): HistoryNeed {
   const need: HistoryNeed = { profiles: [user] }
   try {
@@ -218,9 +219,15 @@ export function buildPersonDossier(username: string, channel: string, remote?: R
         const ageDays = (Date.now() - new Date(chat!.firstSeen + 'Z').getTime()) / 86_400_000
         span = ageDays > db.CHAT_RETENTION_DAYS - 10 ? `in the last ${db.CHAT_RETENTION_DAYS} days (older lines are pruned)` : `since ${chat!.firstSeen.slice(0, 7)}`
       }
-      // peak hour needs a real sample or it's noise
-      const peakHour = real?.peak_hour_utc ?? chat?.peakHourUtc ?? null
-      const peak = peakHour === null || messages < 30 ? '' : `, most active around ${String(peakHour).padStart(2, '0')}:00 UTC`
+      // peak hour needs a real sample or it's noise. the local one is scoped to this channel;
+      // heatsync's spans every channel the chatter is in, so it is only a fallback and is
+      // worded as their general habit, never as this channel's.
+      let peak = ''
+      if (chat && chat.peakHourUtc !== null && chat.messages >= PEAK_MIN_LOCAL) {
+        peak = `, most active around ${String(chat.peakHourUtc).padStart(2, '0')}:00 UTC`
+      } else if (typeof real?.peak_hour_utc === 'number' && messages >= 30) {
+        peak = `, most active hour overall: ${String(real.peak_hour_utc).padStart(2, '0')}:00 UTC`
+      }
       lines.push(`chat history: ${messages} messages logged here ${span}${peak}`)
     }
     const own = getChannelSnapshotLine(username)
