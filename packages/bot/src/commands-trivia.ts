@@ -159,13 +159,15 @@ const SAMPLE_WANT = 80
 const THIN_LOCAL = 20
 export function personNeed(user: string, channel: string): HistoryNeed {
   const need: HistoryNeed = { profiles: [user] }
-  if (db.getUserMessages(user, channel, THIN_LOCAL).length < THIN_LOCAL) {
-    const floor = db.getOldestChatTs(channel)
-    need.user = user
-    need.userRecent = true
-    need.userRecentLimit = SAMPLE_WANT
-    if (floor) need.before = floor.replace(' ', 'T') + '.000Z'
-  }
+  try {
+    if (db.getUserMessages(user, channel, THIN_LOCAL).length < THIN_LOCAL) {
+      const floor = db.getOldestChatTs(channel)
+      need.user = user
+      need.userRecent = true
+      need.userRecentLimit = SAMPLE_WANT
+      if (floor) need.before = floor.replace(' ', 'T') + '.000Z'
+    }
+  } catch {} // a local read failing just means profile-only
   return need
 }
 
