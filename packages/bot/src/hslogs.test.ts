@@ -190,4 +190,18 @@ describe('hslogs contract', () => {
     ac.abort()
     expect(await p).toBeNull()
   })
+
+  it('clamps params the api rejects (400 bad_query)', async () => {
+    await hs.getPastas('c', { min_len: 25, limit: 24, min_repeats: 1 })
+    expect(calls[0]).toContain('min_len=80')
+    expect(calls[0]).toContain('limit=20')
+    expect(calls[0]).toContain('min_repeats=3')
+    calls = []
+    await hs.getPastas('c', { q: 'x' })
+    expect(calls[0]).not.toContain('min_len') // unset stays unset (server default)
+    await hs.getUserMessages('c', 'bob', { limit: 999 })
+    expect(calls[1]).toContain('limit=200')
+    await hs.getTopChatters('c', 'all', 100)
+    expect(calls[2]).toContain('limit=25')
+  })
 })

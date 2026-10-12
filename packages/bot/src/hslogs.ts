@@ -118,6 +118,14 @@ function clean(env: Envelope<LogRow[]> | null): Envelope<LogRow[]> | null {
 
 const order = (o?: 'new' | 'old') => o
 
+// the api 400s (bad_query) on out-of-range params, so clamp here and no caller can send one
+const clamp = (v: number | undefined, lo: number, hi: number) => (v === undefined ? undefined : Math.min(hi, Math.max(lo, Math.floor(v))))
+const MAX_USER_MESSAGES = 200
+const MAX_TOP_CHATTERS = 25
+const MAX_PASTAS = 20
+const MIN_PASTA_LEN = 80 // the rollup only stores pastas of 80+ chars
+const MIN_PASTA_REPEATS = 3 // until heatsync ships >=2
+
 export async function getMessages(channel: string, r: Range & { order?: 'new' | 'old'; cursor?: string } = {}) {
   return clean(await get<Envelope<LogRow[]>>(channel, '/messages', { from: r.from, to: r.to, limit: r.limit, cursor: r.cursor, order: order(r.order) }, false, TTL_FAST, r.signal))
 }
@@ -128,7 +136,7 @@ export async function search(channel: string, q: string, r: Range & { user?: str
 
 export async function getUserMessages(channel: string, user: string, r: Range & { order?: 'new' | 'old'; q?: string; cursor?: string } = {}) {
   if (forgottenCheck(user)) return null
-  return clean(await get<Envelope<LogRow[]>>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/messages`, { from: r.from, to: r.to, limit: r.limit, order: r.order, q: r.q, cursor: r.cursor }, false, TTL_FAST, r.signal))
+  return clean(await get<Envelope<LogRow[]>>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/messages`, { from: r.from, to: r.to, limit: clamp(r.limit, 1, MAX_USER_MESSAGES), order: r.order, q: r.q, cursor: r.cursor }, false, TTL_FAST, r.signal))
 }
 
 // the profile is a bare object, not enveloped: {exists, username, first_seen, ...}
@@ -145,7 +153,7 @@ export async function getTermCount(channel: string, user: string, term: string, 
 }
 
 export async function getTopChatters(channel: string, days: 7 | 30 | 90 | 'all' = 30, limit = 10, signal?: AbortSignal) {
-  const env = await get<Envelope<Chatter[]>>(channel, '/top-chatters', { days, limit }, false, TTL_AGG, signal)
+  const env = await get<Envelope<Chatter[]>>(channel, '/top-chatters', { days, limit: clamp(limit, 1, MAX_TOP_CHATTERS) }, false, TTL_AGG, signal)
   if (!env || !Array.isArray(env.data)) return null
   // the all-time ranking includes bots (bazaarinfo itself was #3 over 7d)
   const bot = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
@@ -154,7 +162,7 @@ export async function getTopChatters(channel: string, days: 7 | 30 | 90 | 'all' 
 
 // pastas carry no usernames, so there is nothing for the forgotten filter to act on
 export async function getPastas(channel: string, o: Range & { min_len?: number; min_repeats?: number; q?: string } = {}) {
-  const env = await get<Envelope<RemotePasta[]>>(channel, '/pastas', { from: o.from, to: o.to, min_len: o.min_len, min_repeats: o.min_repeats, q: o.q, limit: o.limit }, true, TTL_AGG, o.signal)
+  const env = await get<Envelope<RemotePasta[]>>(channel, '/pastas', { from: o.from, to: o.to, min_len: clamp(o.min_len, MIN_PASTA_LEN, 10_000), min_repeats: clamp(o.min_repeats, MIN_PASTA_REPEATS, 10_000), q: o.q, limit: clamp(o.limit, 1, MAX_PASTAS) }, true, TTL_AGG, o.signal)
   return env && Array.isArray(env.data) ? env : null
 }
 

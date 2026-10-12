@@ -146,7 +146,7 @@ export async function prefetchHistory(channel: string, need: HistoryNeed, budget
   if (need.pasta) run(async () => { const h = await remotePasta(channel, need.pasta!, signal); if (h && !closed) out.pasta = h })
   const to = need.before
   if (need.lorePastas) run(async () => {
-    const e = await hs.getPastas(channel, { q: need.lorePastas, min_len: 25, limit: 24, signal })
+    const e = await hs.getPastas(channel, { q: need.lorePastas, min_len: 80, limit: 20, signal })
     if (e && !closed) out.pastas = e.data
   })
   if (need.content) run(async () => {
