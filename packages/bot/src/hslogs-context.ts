@@ -16,6 +16,8 @@ export interface HistoryNeed {
   user?: string // target for the user* calls
   userSearch?: string // keyword search within `user`
   userRecent?: boolean
+  userRecentLimit?: number // default 10; a person dossier wants a bigger sample
+  lorePastas?: string // pasta rollup query for lore bits (older bits the 30d window no longer holds)
   userOldest?: boolean
   profiles?: string[] // existence / first_seen / message count
   words?: { term: string; from?: string; to?: string } // `user`'s term-count
@@ -27,6 +29,7 @@ export interface RemoteHistory {
   content?: hs.LogRow[]
   userSearch?: hs.LogRow[]
   userRecent?: hs.LogRow[]
+  pastas?: hs.RemotePasta[]
   userOldest?: hs.LogRow[]
   profiles?: Map<string, hs.UserProfile>
   wordCount?: number
@@ -142,6 +145,10 @@ export async function prefetchHistory(channel: string, need: HistoryNeed, budget
 
   if (need.pasta) run(async () => { const h = await remotePasta(channel, need.pasta!, signal); if (h && !closed) out.pasta = h })
   const to = need.before
+  if (need.lorePastas) run(async () => {
+    const e = await hs.getPastas(channel, { q: need.lorePastas, min_len: 25, limit: 24, signal })
+    if (e && !closed) out.pastas = e.data
+  })
   if (need.content) run(async () => {
     const e = await hs.search(channel, need.content!, { to, limit: 50, signal })
     if (e && !closed && !(e.data.length === 0 && e.coverage?.partial)) out.content = rankByTerms(e.data, need.content!)
@@ -151,7 +158,8 @@ export async function prefetchHistory(channel: string, need: HistoryNeed, budget
     if (rows && !closed) out.userSearch = rankByTerms(rows, need.userSearch!)
   })
   if (user && need.userRecent) run(async () => {
-    const rows = await paged((cursor) => hs.getUserMessages(channel, user, { to, order: 'new', limit: 10, cursor, signal }), 10, signal)
+    const n = need.userRecentLimit ?? 10
+    const rows = await paged((cursor) => hs.getUserMessages(channel, user, { to, order: 'new', limit: Math.min(n, 100), cursor, signal }), n, signal)
     if (rows && !closed) out.userRecent = rows
   })
   if (user && need.userOldest) run(async () => {

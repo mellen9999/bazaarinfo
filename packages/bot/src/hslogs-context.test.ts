@@ -9,6 +9,7 @@ const ctx = await import('./hslogs-context')
 const { buildChatRecall, planRecallPrefetch } = await import('./ai-build-recall')
 const { findReferencedUser } = await import('./ai-query')
 const { isKnownChatter, planLorePrefetch, buildLoreDossier } = await import('./lore')
+const { personNeed, buildPersonDossier } = await import('./commands-trivia')
 
 const realFetch = globalThis.fetch
 let calls: string[] = []
@@ -393,5 +394,65 @@ describe('regulars and lore', () => {
     expect(wide?.text).toContain('777 messages from 55 different chatters')
     expect(wide?.text).toContain('first seen 2026-03-01')
     expect(buildLoreDossier('the tidolar crime family', 'c', null)?.text).toBe(local!.text)
+  })
+})
+
+describe('older history keeps lore and person dossiers grounded', () => {
+  const PASTA = 'trumpBirdge MANY PEOPLE ARE SAYING THAT mellen IS WORKING WITH THE TRICKY-TIDOLAR CRIME FAMILY! SAD!! THEY SHOULD BOTH BE LOCKED UP IF YOU ASK ME'
+  const OLD = 'the tidolar crime family was founded in march by a very sneaky chatter'
+
+  it('lore: remote pastas supply bits local no longer holds', () => {
+    db.logChat('c', 'tidolar', 'anyone else running boomerang')
+    db.flushWrites() // local has the anchor but no bits at all
+    expect(buildLoreDossier('the tidolar crime family', 'c')).toBeNull()
+    const remote = { pastas: [{ text: OLD, repeats: 30, users: 9, days: 5, first_at: 'x', last_at: 'y' }] }
+    const d = buildLoreDossier('the tidolar crime family', 'c', remote)
+    expect(d?.text).toContain('x30')
+    expect(d?.text).toContain('founded in march')
+  })
+
+  it('lore: a wording local already counted is not double counted', () => {
+    db.logChat('c', 'tidolar', 'hi')
+    for (const u of ['a', 'b', 'c2']) db.logChat('c', u, PASTA)
+    db.flushWrites()
+    const remote = { pastas: [{ text: PASTA, repeats: 999, users: 9, days: 5, first_at: 'x', last_at: 'y' }] }
+    const d = buildLoreDossier('the tidolar crime family', 'c', remote)
+    expect(d?.text).toContain('x3 ')
+    expect(d?.text).not.toContain('999')
+  })
+
+  it('planLorePrefetch asks for the pasta rollup', () => {
+    withKey()
+    expect(planLorePrefetch('the tidolar crime family', 'c')?.lorePastas).toBe('tidolar crime family')
+  })
+
+  it('prefetch carries pastas through', async () => {
+    withKey()
+    impl = async () => ok([{ text: OLD, repeats: 30, users: 9, days: 5, first_at: 'x', last_at: 'y' }])
+    const r = await ctx.prefetchHistory('c', { lorePastas: 'tidolar crime family' })
+    expect(r?.pastas?.[0].repeats).toBe(30)
+    expect(calls[0]).toContain('/pastas?')
+  })
+
+  it('person: thin local → asks for 80 older lines before the local floor; plenty local → profile only', () => {
+    db.logChat('c', 'lapsed', 'x one two three')
+    db.flushWrites()
+    const thin = personNeed('lapsed', 'c')
+    expect(thin.userRecent).toBe(true)
+    expect(thin.userRecentLimit).toBe(80)
+    expect(thin.before).toMatch(/Z$/)
+    for (let i = 0; i < 25; i++) db.logChat('c', 'busy', `line ${i}`)
+    db.flushWrites()
+    expect(personNeed('busy', 'c')).toEqual({ profiles: ['busy'] })
+  })
+
+  it('person: remote lines top up a thin sample so a lapsed regular still grounds', () => {
+    db.logChat('c', 'lapsed', 'only local line')
+    db.flushWrites()
+    expect(buildPersonDossier('lapsed', 'c')).toBeNull()
+    const userRecent = Array.from({ length: 10 }, (_, i) => ({ username: 'lapsed', display_name: 'lapsed', message: `older line number ${i} about boomerang`, message_id: `m${i}`, timestamp: '2026-03-01T00:00:00.000Z', reply_to_id: null }))
+    const d = buildPersonDossier('lapsed', 'c', { userRecent })
+    expect(d).toContain('older line number 3')
+    expect(d).toContain('only local line')
   })
 })

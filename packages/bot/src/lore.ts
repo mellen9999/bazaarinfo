@@ -86,10 +86,12 @@ export function planLorePrefetch(topic: string, channel: string): HistoryNeed | 
   if (!hslogsEnabled()) return null
   const tokens = contentTokens(topic)
   if (tokens.length < 2) return null
+  // bits chat posted before the local window live in heatsync's pasta rollup
+  const lorePastas = tokens.join(' ')
   const anchor = findAnchor(tokens, channel)
-  if (anchor) return { footprint: anchor }
+  if (anchor) return { footprint: anchor, lorePastas }
   const names = tokens.filter((t) => !findEmote(t)).slice(0, 4)
-  return names.length ? { profiles: names } : null
+  return { profiles: names, lorePastas }
 }
 
 // how many times chat must have POSTED the whole phrase before we call it a bit. counted
@@ -112,10 +114,12 @@ interface Bit { text: string; reps: number; topReps: number }
 // The surviving wording is the one chat posted MOST, not the longest: the spaced-out
 // "M E L L E N" variant is longer, and shipping it as the canonical text invites a
 // question whose answer is a spelling nobody would type.
+const variantKey = (m: string) => m.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 120)
+
 function mergeVariants(rows: { message: string; reps: number }[]): Bit[] {
   const byKey = new Map<string, Bit>()
   for (const r of rows) {
-    const key = r.message.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 120)
+    const key = variantKey(r.message)
     if (!key) continue
     const prev = byKey.get(key)
     if (prev) {
@@ -151,7 +155,19 @@ export function buildLoreDossier(topic: string, channel: string, remote?: Remote
   if (!anchor) return null
 
   const phrase = ftsPhrase(tokens)
-  const bits = mergeVariants(db.searchPastaFTS(channel, phrase, MIN_BIT_LEN, 1, 24))
+  const localRows = db.searchPastaFTS(channel, phrase, MIN_BIT_LEN, 1, 24)
+  // local first: a remote pasta whose wording local already counted is the same posts
+  // (the rollup spans the local window too), so only unseen wordings are added.
+  const seenKeys = new Set(localRows.map((r) => variantKey(r.message)))
+  const remoteRows: { message: string; reps: number }[] = []
+  for (const p of remote?.pastas ?? []) {
+    if (!p || typeof p.text !== 'string' || typeof p.repeats !== 'number') continue
+    if (p.text.length < MIN_BIT_LEN) continue
+    const k = variantKey(p.text)
+    if (!k || seenKeys.has(k)) continue
+    remoteRows.push({ message: p.text, reps: p.repeats })
+  }
+  const bits = mergeVariants([...localRows, ...remoteRows])
   const posts = bits.reduce((n, b) => n + b.reps, 0)
   if (posts < MIN_PHRASE_POSTS) return null
 

@@ -153,8 +153,36 @@ function signatureEmote(messages: string[]): string | null {
 // actually answer; hidden stats come last. returns null if the profile is too thin to make
 // a fair question, so the caller misses honestly instead of inventing. gated on the message
 // sample, not a users-table row, so a chat-only regular (never runs a command) still counts.
-function buildPersonDossier(username: string, channel: string, remote?: RemoteHistory | null): string | null {
-  const msgs = db.getUserMessages(username, channel, 80)
+// profile always; a lapsed regular has few local lines (30d window), so also pull their
+// newest older lines to ground the sample
+const SAMPLE_WANT = 80
+const THIN_LOCAL = 20
+export function personNeed(user: string, channel: string): HistoryNeed {
+  const need: HistoryNeed = { profiles: [user] }
+  if (db.getUserMessages(user, channel, THIN_LOCAL).length < THIN_LOCAL) {
+    const floor = db.getOldestChatTs(channel)
+    need.user = user
+    need.userRecent = true
+    need.userRecentLimit = SAMPLE_WANT
+    if (floor) need.before = floor.replace(' ', 'T') + '.000Z'
+  }
+  return need
+}
+
+export function buildPersonDossier(username: string, channel: string, remote?: RemoteHistory | null): string | null {
+  const msgs = db.getUserMessages(username, channel, SAMPLE_WANT)
+  // thin local sample: top up with older remote lines (local first, deduped by text)
+  if (msgs.length < THIN_LOCAL && remote?.userRecent) {
+    const seen = new Set(msgs.map((m) => m.toLowerCase().replace(/\s+/g, ' ').trim()))
+    for (const r of remote.userRecent) {
+      if (msgs.length >= SAMPLE_WANT) break
+      if (typeof r?.message !== 'string') continue
+      const k = r.message.toLowerCase().replace(/\s+/g, ' ').trim()
+      if (!k || seen.has(k)) continue
+      seen.add(k)
+      msgs.push(r.message)
+    }
+  }
   const sample = msgs
     .map((m) => m.replace(/\n/g, ' ').trim())
     .filter((m) => m.length > 0 && m.length <= 120 && !m.startsWith('!'))
@@ -417,7 +445,7 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
       : mention && PERSON_CONNECTOR_RE.test(t) ? mention
       : !PERSON_CONNECTOR_RE.test(t) && BARE_NAME_RE.test(t) && !gameTopic ? t
       : null
-    const need: HistoryNeed | null = cand ? { profiles: [cand] } : gameTopic ? null : planLorePrefetch(t, channel)
+    const need: HistoryNeed | null = cand ? personNeed(cand, channel) : gameTopic ? null : planLorePrefetch(t, channel)
     if (need) {
       // the fetch awaits: hold the slot so a second ask can't slip past the busy gate meanwhile
       customPending.add(channel)
