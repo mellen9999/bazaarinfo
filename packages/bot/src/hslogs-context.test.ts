@@ -356,6 +356,18 @@ describe('builders with a remote result, and the fallback when it is null', () =
     expect(buildChatRecall('how many messages did @oldtimer send all time', 'c', 'asker', null)).toContain('1 total')
   })
 
+  it('recall seen-set: a reply-prefixed userSearch row and its unprefixed userRecent twin show once', () => {
+    db.logChat('c', 'oldtimer', 'a recent line about stuff')
+    db.flushWrites()
+    const mk = (message: string) => ({ username: 'oldtimer', display_name: 'oldtimer', message, message_id: message, timestamp: new Date(Date.now() - 90 * 86_400_000).toISOString(), reply_to_id: null })
+    const out = buildChatRecall('what did @oldtimer say about boomerang', 'c', 'asker', {
+      userSearch: [mk('@parent my boomerang take is spicy')],
+      userRecent: [mk('my boomerang take is spicy'), mk('another unrelated old line')],
+    })
+    expect(out.match(/boomerang take is spicy/g)?.length).toBe(1)
+    expect(out).toContain('another unrelated old line')
+  })
+
   it('remote pasta beats the local "most repeated" fallback but not a real local match', () => {
     for (let i = 0; i < 4; i++) db.logChat('c', `u${i}`, 'something entirely different that chat repeats '.repeat(5))
     db.flushWrites()
