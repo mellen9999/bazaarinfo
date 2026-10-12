@@ -416,7 +416,7 @@ describe('db', () => {
 
   // --- retention + FTS sync ---
 
-  it('pruneOldChats removes old messages and FTS stays in sync', () => {
+  it('pruneOldChats removes old messages and FTS stays in sync', async () => {
     db.logChat('test', 'alice', 'old message about boomerang')
     db.logChat('test', 'bob', 'new message about shield')
     db.flushWrites()
@@ -429,7 +429,7 @@ describe('db', () => {
     expect(db.searchChatFTS('test', 'shield').length).toBe(1)
 
     // prune at 180 days — alice's message should be deleted
-    db.pruneOldChats(180)
+    await db.pruneOldChats(180)
 
     // old message gone from FTS, new message survives
     expect(db.searchChatFTS('test', 'boomerang').length).toBe(0)
@@ -441,15 +441,33 @@ describe('db', () => {
     expect(ftsCount.n).toBe(chatCount.n)
   })
 
-  it('messages at exactly 180 days survive prune', () => {
+  it('messages at exactly 180 days survive prune', async () => {
     db.logChat('test', 'alice', 'boundary message')
     db.flushWrites()
 
     // set to exactly 179 days ago — should survive
     db.getDb().run(`UPDATE chat_messages SET created_at = datetime('now', '-179 days')`)
-    db.pruneOldChats(180)
+    await db.pruneOldChats(180)
 
     expect(db.searchChatFTS('test', 'boundary').length).toBe(1)
+  })
+
+  it('pruneOldChats deletes in chunks, yields between them, keeps fts in sync', async () => {
+    for (let i = 0; i < 25; i++) db.logChat('test', 'chunker', `ancient chunkword${i}`)
+    db.logChat('test', 'bob', 'fresh chunkword')
+    db.flushWrites()
+    db.getDb().run(`UPDATE chat_messages SET created_at = datetime('now', '-200 days') WHERE username = 'chunker'`)
+    let ticks = 0
+    const t = setInterval(() => { ticks++ }, 0)
+    const n = await db.pruneOldChats(180, 10)
+    clearInterval(t)
+    expect(n).toBeGreaterThanOrEqual(25) // plus any rows earlier tests backdated
+    expect(ticks).toBeGreaterThan(0) // the loop gave the event loop a turn
+    expect(db.searchChatFTS('test', 'chunkword0').length).toBe(0)
+    expect(db.searchChatFTS('test', 'fresh').length).toBe(1)
+    const chatCount = db.getDb().query('SELECT COUNT(*) as n FROM chat_messages').get() as { n: number }
+    const ftsCount = db.getDb().query('SELECT COUNT(*) as n FROM chat_fts').get() as { n: number }
+    expect(ftsCount.n).toBe(chatCount.n)
   })
 
   it('summaries are never pruned when not called', () => {

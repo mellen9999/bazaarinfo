@@ -1171,16 +1171,30 @@ export function getScheduleChannels(): string[] {
   return (db.query('SELECT DISTINCT channel FROM stream_sessions').all() as { channel: string }[]).map((r) => r.channel)
 }
 
-export function pruneOldChats(days = 30) {
+const PRUNE_CHUNK = 5000
+
+// chunked + yielding: the first run after a retention cut removes hundreds of thousands of
+// rows through the fts delete trigger, which must not stall the event loop in one go.
+export async function pruneOldChats(days = 30, chunk = PRUNE_CHUNK): Promise<number> {
+  let total = 0
   try {
-    const result = db.run(
-      `DELETE FROM chat_messages WHERE created_at < datetime('now', ?)`,
-      [`-${days} days`],
-    )
-    if (result.changes > 0) log(`pruned ${result.changes} chat messages older than ${days}d`)
+    const cutoff = `-${days} days`
+    for (;;) {
+      const result = db.run(
+        `DELETE FROM chat_messages WHERE id IN (
+           SELECT id FROM chat_messages WHERE created_at < datetime('now', ?) LIMIT ?
+         )`,
+        [cutoff, chunk],
+      )
+      total += result.changes
+      if (result.changes < chunk) break
+      await new Promise<void>((r) => setTimeout(r, 0))
+    }
+    if (total > 0) log(`pruned ${total} chat messages older than ${days}d`)
   } catch (e) {
     log(`prune error: ${e}`)
   }
+  return total
 }
 
 export function closeDb() {

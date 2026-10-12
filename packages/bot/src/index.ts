@@ -945,7 +945,7 @@ scheduleDaily(4, async () => {
     await refreshActivity()
   } catch (e) { log(`daily activity refresh failed: ${e}`) }
   try {
-    db.pruneOldChats(180)
+    await db.pruneOldChats(180)
     db.pruneOldSummaries(365)
     db.pruneZeroHitLessons()
     db.pruneOldAskQueries(90)
