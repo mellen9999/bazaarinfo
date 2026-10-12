@@ -15,7 +15,7 @@ const UA = 'bazaarinfo/0.1.0'
 export interface Coverage { tier: string; from: string; to: string; rolled_through: string | null; days_scanned: number; days_skipped: number; exhausted: boolean; partial: boolean; note?: string }
 export interface Envelope<T> { data: T; coverage: Coverage; next_cursor?: string }
 export interface LogRow { username: string; display_name: string; message: string; message_id: string; timestamp: string; reply_to_id: string | null }
-export interface UserProfile { exists: boolean; username: string; first_seen: string | null; last_seen: string | null; messages: number; active_days: number; peak_hour_utc?: number | null }
+export interface UserProfile { exists: boolean; username: string; first_seen: string | null; last_seen: string | null; messages: number; active_days: number }
 export interface Chatter { username: string; messages: number; active_days: number }
 export interface RemotePasta { text: string; repeats: number; users: number; days: number; first_at: string; last_at: string }
 export interface TermFootprint { term: string; count: number; distinct_users: number; first_seen: string | null }

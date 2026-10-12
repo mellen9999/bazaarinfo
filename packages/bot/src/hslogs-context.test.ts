@@ -468,22 +468,21 @@ describe('older history keeps lore and person dossiers grounded', () => {
     expect(d).toContain('only local line')
   })
 
-  const prof = (peak: number | null, messages = 500) => new Map([['lapsed', { exists: true, username: 'lapsed', first_seen: '2026-03-01T00:00:00.000Z', last_seen: 'y', messages, active_days: 9, peak_hour_utc: peak }]])
+  const prof = (messages = 500) => new Map([['lapsed', { exists: true, username: 'lapsed', first_seen: '2026-03-01T00:00:00.000Z', last_seen: 'y', messages, active_days: 9 }]])
   const seed = (n: number) => { for (let i = 0; i < n; i++) db.logChat('c', 'lapsed', `line ${i} about boomerang builds`); db.flushWrites() }
 
   it('peak hour: local channel-scoped wins with >=20 local msgs', () => {
     seed(25)
     db.getDb().run(`UPDATE chat_messages SET created_at = date('now', '-1 day') || ' 07:15:00'`)
-    const d = buildPersonDossier('lapsed', 'c', { profiles: prof(21) })
+    const d = buildPersonDossier('lapsed', 'c', { profiles: prof() })
     expect(d).toContain('most active around 07:00 UTC')
     expect(d).not.toContain('21:00')
   })
 
-  it('peak hour: thin local falls back to the remote hour, worded as overall', () => {
+  it('peak hour: thin local says nothing (no remote peak exists)', () => {
     seed(5)
-    const d = buildPersonDossier('lapsed', 'c', { profiles: prof(21), userRecent: Array.from({ length: 20 }, (_, i) => ({ username: 'lapsed', display_name: 'lapsed', message: `older ${i} thing`, message_id: `o${i}`, timestamp: '2026-03-01T00:00:00.000Z', reply_to_id: null })) })
-    expect(d).toContain('most active hour overall: 21:00 UTC')
-    expect(d).not.toContain('most active around')
+    const d = buildPersonDossier('lapsed', 'c', { profiles: prof(), userRecent: Array.from({ length: 20 }, (_, i) => ({ username: 'lapsed', display_name: 'lapsed', message: `older ${i} thing`, message_id: `o${i}`, timestamp: '2026-03-01T00:00:00.000Z', reply_to_id: null })) })
+    expect(d).not.toContain('most active')
   })
 
   it('reply prefix and dup-bypass invisibles do not defeat dedupe (merge, lore, sample)', () => {
