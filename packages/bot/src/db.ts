@@ -1171,6 +1171,8 @@ export function getScheduleChannels(): string[] {
   return (db.query('SELECT DISTINCT channel FROM stream_sessions').all() as { channel: string }[]).map((r) => r.channel)
 }
 
+// how long chat_messages keeps rows; heatsync holds the rest. the single knob for retention.
+export const CHAT_RETENTION_DAYS = 180
 const PRUNE_CHUNK = 5000
 
 // chunked + yielding: the first run after a retention cut removes hundreds of thousands of

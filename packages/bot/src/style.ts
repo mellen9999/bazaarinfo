@@ -3,6 +3,7 @@ import { formatAccountAge } from './db'
 import { getEmotesForChannel } from './emotes'
 import { anthropicCall } from './ai-http'
 import { log } from './log'
+import { hslogsEnabled, getTopChatters } from './hslogs'
 
 // --- channel style ---
 
@@ -101,6 +102,29 @@ function buildStyle(channel: string): ChannelStyle {
   return { topEmotes, profile, regulars }
 }
 
+// local keeps a short window, so a long-time regular who has been quiet lately is missing
+// from the local top-15. heatsync's all-time top chatters fill them in, off the hot path:
+// the sync reads (getUserProfile) just see a fuller cache once this lands. fail-soft.
+async function mergeRemoteRegulars(channel: string): Promise<void> {
+  if (!hslogsEnabled()) return
+  try {
+    const top = await getTopChatters(channel, 'all', 15)
+    const style = styleCache.get(channel)
+    if (!top || !style) return
+    const knownEmotes = new Set(getEmotesForChannel(channel))
+    let added = 0
+    for (const c of top.data) {
+      const name = c.username.toLowerCase()
+      if (c.messages < 10 || style.regulars.has(name)) continue
+      const profile = buildUserProfile(name, channel, knownEmotes)
+      if (!profile) continue
+      style.regulars.set(name, profile)
+      added++
+    }
+    if (added > 0) log(`style #${channel}: +${added} regulars from heatsync`)
+  } catch {}
+}
+
 export function getChannelStyle(channel: string): string {
   ensureCache(channel)
   return styleCache.get(channel)?.profile ?? ''
@@ -122,6 +146,7 @@ function buildAndStore(channel: string, now: number) {
     const style = buildStyle(channel)
     styleCache.set(channel, style)
     lastRefresh.set(channel, now)
+    void mergeRemoteRegulars(channel)
   } finally {
     buildingStyle.delete(channel)
   }
@@ -143,6 +168,7 @@ function ensureCache(channel: string) {
         const style = buildStyle(channel)
         styleCache.set(channel, style)
         lastRefresh.set(channel, now)
+        void mergeRemoteRegulars(channel)
       } finally {
         buildingStyle.delete(channel)
       }

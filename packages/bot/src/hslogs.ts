@@ -12,12 +12,18 @@ const FAIL_LIMIT = 3
 const OPEN_MS = 60_000
 const UA = 'bazaarinfo/0.1.0'
 
-export interface Coverage { tier: string; from: string; to: string; rolled_through: string | null; partial: boolean; exhausted: boolean; note?: string }
+export interface Coverage { tier: string; from: string; to: string; rolled_through: string | null; days_scanned: number; days_skipped: number; exhausted: boolean; partial: boolean; note?: string }
 export interface Envelope<T> { data: T; coverage: Coverage; next_cursor?: string }
 export interface LogRow { username: string; display_name: string; message: string; message_id: string; timestamp: string; reply_to_id: string | null }
-export interface UserProfile { exists: boolean; count: number; first_day: string | null; last_day: string | null; active_days: number; peak_hour: { hour: number; scope: string } | null }
-export interface PastaRow { sample: string; n: number; users: number; first_at: string; last_at: string }
-export interface Range { from?: string; to?: string; limit?: number }
+export interface UserProfile { exists: boolean; username: string; first_seen: string | null; last_seen: string | null; messages: number; active_days: number }
+export interface Chatter { username: string; messages: number; active_days: number }
+export interface RemotePasta { text: string; repeats: number; users: number; days: number; first_at: string; last_at: string }
+export interface TermFootprint { term: string; count: number; distinct_users: number; first_seen: string | null }
+export interface TermCount { term: string; count: number; first_at: string | null; last_at: string | null }
+// term endpoints compute asynchronously: {status, computed_at, data, coverage}, 202 while computing
+export interface Computed<T> { status: string; computed_at: string; data: T; coverage: Coverage }
+// signal: an outer budget (hslogs-context) that cuts the call short alongside its own timeout
+export interface Range { from?: string; to?: string; limit?: number; signal?: AbortSignal }
 
 let failures = 0
 let openUntil = 0
@@ -62,7 +68,7 @@ async function errCode(res: Response): Promise<string> {
   return `http_${res.status}`
 }
 
-async function get<T>(channel: string, path: string, params: Record<string, string | number | undefined>, heavy = false, ttl = TTL_FAST): Promise<T | null> {
+async function get<T>(channel: string, path: string, params: Record<string, string | number | undefined>, heavy = false, ttl = TTL_FAST, outer?: AbortSignal): Promise<T | null> {
   const key = process.env.HEATSYNC_LOGS_KEY
   if (!key) return null
   try {
@@ -74,13 +80,14 @@ async function get<T>(channel: string, path: string, params: Record<string, stri
     if (Date.now() < openUntil) return null
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${key}`, 'User-Agent': UA, Accept: 'application/json' },
-      signal: AbortSignal.timeout(heavy ? HEAVY_MS : FAST_MS),
+      signal: outer ? AbortSignal.any([AbortSignal.timeout(heavy ? HEAVY_MS : FAST_MS), outer]) : AbortSignal.timeout(heavy ? HEAVY_MS : FAST_MS),
     })
     if (res.status === 429) {
       const ra = Number(res.headers.get('retry-after'))
       trip(Number.isFinite(ra) && ra > 0 ? Math.min(ra, 3600) * 1000 : OPEN_MS)
       return null
     }
+    if (res.status === 202) return null // still computing — not an answer, never cached
     if (!res.ok) { warn(`hslogs: ${res.status} ${await errCode(res)} ${path}`); return res.status >= 500 ? fail() : null }
     const json = await res.json() as T
     failures = 0
@@ -99,40 +106,46 @@ function clean(env: Envelope<LogRow[]> | null): Envelope<LogRow[]> | null {
 const order = (o?: 'new' | 'old') => o
 
 export async function getMessages(channel: string, r: Range & { order?: 'new' | 'old'; cursor?: string } = {}) {
-  return clean(await get<Envelope<LogRow[]>>(channel, '/messages', { from: r.from, to: r.to, limit: r.limit, cursor: r.cursor, order: order(r.order) }))
+  return clean(await get<Envelope<LogRow[]>>(channel, '/messages', { from: r.from, to: r.to, limit: r.limit, cursor: r.cursor, order: order(r.order) }, false, TTL_FAST, r.signal))
 }
 
 export async function search(channel: string, q: string, r: Range & { user?: string } = {}) {
-  return clean(await get<Envelope<LogRow[]>>(channel, '/search', { q, user: r.user?.toLowerCase(), from: r.from, to: r.to, limit: r.limit }))
+  return clean(await get<Envelope<LogRow[]>>(channel, '/search', { q, user: r.user?.toLowerCase(), from: r.from, to: r.to, limit: r.limit }, false, TTL_FAST, r.signal))
 }
 
 export async function getUserMessages(channel: string, user: string, r: Range & { order?: 'new' | 'old'; q?: string } = {}) {
   if (forgottenCheck(user)) return null
-  return clean(await get<Envelope<LogRow[]>>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/messages`, { from: r.from, to: r.to, limit: r.limit, order: r.order, q: r.q }))
+  return clean(await get<Envelope<LogRow[]>>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/messages`, { from: r.from, to: r.to, limit: r.limit, order: r.order, q: r.q }, false, TTL_FAST, r.signal))
 }
 
-export async function getUserProfile(channel: string, user: string) {
+// the profile is a bare object, not enveloped: {exists, username, first_seen, ...}
+export async function getUserProfile(channel: string, user: string, signal?: AbortSignal) {
   if (forgottenCheck(user)) return null
-  return get<Envelope<UserProfile>>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/profile`, {}, false, TTL_AGG)
+  const p = await get<UserProfile>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/profile`, {}, false, TTL_AGG, signal)
+  return p && typeof p.exists === 'boolean' ? p : null
 }
 
 export async function getTermCount(channel: string, user: string, term: string, r: Range = {}) {
   if (forgottenCheck(user)) return null
-  return get<Envelope<{ count: number; partial: boolean }>>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/term-count`, { term, from: r.from, to: r.to }, true, TTL_AGG)
+  const c = await get<Computed<TermCount>>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/term-count`, { term, from: r.from, to: r.to }, true, TTL_AGG, r.signal)
+  return c && c.data && typeof c.data.count === 'number' ? c : null
 }
 
-export async function getTopChatters(channel: string, days: 7 | 30 | 90 | 'all' = 30, limit = 10) {
-  const env = await get<Envelope<{ username: string; count: number }[]>>(channel, '/top-chatters', { days, limit }, false, TTL_AGG)
+export async function getTopChatters(channel: string, days: 7 | 30 | 90 | 'all' = 30, limit = 10, signal?: AbortSignal) {
+  const env = await get<Envelope<Chatter[]>>(channel, '/top-chatters', { days, limit }, false, TTL_AGG, signal)
   if (!env || !Array.isArray(env.data)) return null
   return { ...env, data: env.data.filter((c) => !forgottenCheck(c.username)) }
 }
 
+// pastas carry no usernames, so there is nothing for the forgotten filter to act on
 export async function getPastas(channel: string, o: Range & { min_len?: number; min_repeats?: number; q?: string } = {}) {
-  return get<Envelope<PastaRow[]>>(channel, '/pastas', { from: o.from, to: o.to, min_len: o.min_len, min_repeats: o.min_repeats, q: o.q, limit: o.limit }, true, TTL_AGG)
+  const env = await get<Envelope<RemotePasta[]>>(channel, '/pastas', { from: o.from, to: o.to, min_len: o.min_len, min_repeats: o.min_repeats, q: o.q, limit: o.limit }, true, TTL_AGG, o.signal)
+  return env && Array.isArray(env.data) ? env : null
 }
 
-export async function getTermFootprint(channel: string, term: string) {
-  return get<Envelope<{ count: number; distinct_users: number; first_seen: string | null }>>(channel, '/term-footprint', { term }, true, TTL_AGG)
+export async function getTermFootprint(channel: string, term: string, signal?: AbortSignal) {
+  const c = await get<Computed<TermFootprint>>(channel, '/term-footprint', { term }, true, TTL_AGG, signal)
+  return c && c.data && typeof c.data.count === 'number' ? c : null
 }
 
 // --- pins: ask heatsync to keep logging a channel while it's offline. owned by this key. ---

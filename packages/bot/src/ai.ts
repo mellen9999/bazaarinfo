@@ -35,6 +35,8 @@ import { refreshGrNewsIfNeeded } from './guildrun-news'
 import { prefetchGameDossier, canonicalGameName, isUngroundedGame } from './game-dossier'
 import { isStreamerAsk, FOLLOW_ASK_RE, channelNamedIn, maybeFetchChannelSnapshot, maybeFetchFollowageFor } from './twitch-profile'
 import { findReferencedUser } from './ai-query'
+import { planRecallPrefetch } from './ai-build-recall'
+import { prefetchHistory } from './hslogs-context'
 import { refreshBoardIfNeeded } from './board'
 import { refreshHsBoardIfNeeded } from './hs-board'
 import { isScheduleQuery } from './schedule'
@@ -318,7 +320,11 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
     await refreshHsBoardIfNeeded(ctx.channel)
   }
 
-  const build = buildUserMessage(query, ctx)
+  // older chat history lives in heatsync: one budgeted prefetch, only when recall will
+  // actually run (planRecallPrefetch mirrors its gates), so other replies pay nothing
+  const recallNeed = planRecallPrefetch(query, ctx.channel, ctx.user)
+  const history = recallNeed ? await prefetchHistory(ctx.channel, recallNeed) : null
+  const build = buildUserMessage(query, ctx, history)
   const { text: userMessage, hasGameData, isPasta, isCreative, isContinuation, isRememberReq, hasStats, contextSections } = build
   // web search: offered on a knowledge-shaped ask with no data behind it (ai-search-gate.ts).
   // the model still decides whether to use it; the hint rides in the user message so the

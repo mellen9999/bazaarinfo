@@ -31,7 +31,7 @@ export function isPastaRecall(query: string): boolean {
   return DEF_PASTA_RE.test(query)                      // "give us the pasta" → recall existing
 }
 
-function pastaKeywordCoverage(message: string, kw: string[]): number {
+export function pastaKeywordCoverage(message: string, kw: string[]): number {
   const lower = message.toLowerCase()
   return kw.reduce((n, w) => (lower.includes(w) ? n + 1 : n), 0)
 }
@@ -70,7 +70,7 @@ export function findChatPasta(query: string, channel: string): PastaHit | null {
   return null
 }
 
-function pastaKeywords(query: string): string[] {
+export function pastaKeywords(query: string): string[] {
   return query.toLowerCase().split(/\s+/)
     .map((w) => w.replace(/[^a-z0-9]/g, ''))
     .filter((w) => w.length >= 3 && !STOP_WORDS.has(w) && !PASTA_SCAFFOLD.has(w))

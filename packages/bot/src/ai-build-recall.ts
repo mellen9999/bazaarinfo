@@ -7,7 +7,8 @@ import { buildFTSQuery, buildFTSQueryLoose, buildChatRecallFTS, findReferencedUs
 import { isPastaRecall, findChatPasta, pastaText } from './pasta'
 import { stripChatMessage } from './ai-build-chat'
 import { isTitleQuery } from './channel-title'
-import { shadowRecall, shadowPasta } from './hslogs-shadow'
+import { hslogsEnabled } from './hslogs'
+import { mergeHistory, localPastaSatisfies, type HistoryNeed, type RemoteHistory } from './hslogs-context'
 
 // --- timeline builder ---
 
@@ -64,9 +65,11 @@ export function buildRecallContext(query: string, channel: string): string {
 
 const PASTA_INTENT_RE = /\b(copypasta|pasta|meme|bit|joke|rant|trend|spam(ming|med)?|chat'?s? (current|latest|recent|new))\b/i
 
-function buildPastaRecall(query: string, channel: string): string {
-  const hit = findChatPasta(query, channel)
-  shadowPasta(channel, query, hit)
+function buildPastaRecall(query: string, channel: string, remote?: RemoteHistory | null): string {
+  let hit = findChatPasta(query, channel)
+  // local keeps a short window; a pasta older than that lives in heatsync. the local
+  // "most repeated" fallback (coverage 0) must not shadow a remote hit that matched the ask.
+  if (remote?.pasta && (!hit || hit.coverage === 0)) hit = remote.pasta
   if (!hit) {
     return 'Requested pasta: NOT in chat logs. Tell [USER] plainly you don\'t have that one logged — do NOT invent a "retired/burned/not reheating" excuse. Offer to write a fresh one if they want.'
   }
@@ -78,7 +81,7 @@ function buildPastaRecall(query: string, channel: string): string {
 // Two paths: (1) FTS across all users when query has substantive keywords;
 // (2) repeated-message detection when query asks about pastas/memes/bits
 //     where the keyword "copypasta" isn't in the pasta itself.
-function buildContentRecall(query: string, channel: string, timeWindow: ReturnType<typeof parseChatTimeWindow>): string {
+function buildContentRecall(query: string, channel: string, timeWindow: ReturnType<typeof parseChatTimeWindow>, remote?: RemoteHistory | null): string {
   const now = Date.now()
   const label = timeWindow ? timeWindow.label.toLowerCase().replace(/'s?$/, '') : 'history'
 
@@ -100,8 +103,7 @@ function buildContentRecall(query: string, channel: string, timeWindow: ReturnTy
   const ftsQuery = buildChatRecallFTS(query, '')
   if (!ftsQuery) return ''
 
-  const hits = db.searchChatFTS(channel, ftsQuery, 20)
-  shadowRecall(channel, ftsQuery, undefined, hits)
+  const hits = mergeHistory(db.searchChatFTS(channel, ftsQuery, 20), remote?.content)
   if (hits.length === 0) return ''
 
   let filtered = hits
@@ -128,10 +130,78 @@ function buildContentRecall(query: string, channel: string, timeWindow: ReturnTy
   return text
 }
 
-export function buildChatRecall(query: string, channel: string, asker?: string): string {
+const FIRST_PERSON_RE = /\b(i\s|my\s|me\b|i'v?e?\b|myself)\b/i
+const COUNT_INTENT_RE = /\b(how many|how often|count|times|frequently|frequency)\b/i
+const WANTS_OLDEST_RE = /\b(earliest|first|oldest)\b/i
+
+function countWord(query: string): RegExpMatchArray | null {
+  return query.match(/(?:say|said|type|typed|wrote|write|mention|spam)\s+["']?([^"'?,!.]+)["']?/i)
+    ?? query.match(/"([^"]+)"/)
+    ?? query.match(/'([^']+)'/)
+}
+
+const dayAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
+
+/**
+ * what buildChatRecall would ask heatsync for, decided from the same gates, or null when
+ * recall won't run / local already answers (so non-recall replies pay zero latency).
+ * resolves the target optimistically: a call for an @name that turns out unknown is wasted
+ * work inside the same parallel budget, never an extra round trip.
+ */
+export function planRecallPrefetch(query: string, channel: string, asker?: string): HistoryNeed | null {
+  if (!hslogsEnabled()) return null
+  if (isPastaRecall(query)) return localPastaSatisfies(query, channel) ? null : { pasta: query }
+
+  const at = query.match(/@([a-zA-Z0-9_]+)/)?.[1]?.toLowerCase()
+  const timeWindow = parseChatTimeWindow(query)
+  if (!RECALL_INTENT.test(query) && !at && !timeWindow) return null
+
+  const need: HistoryNeed = {}
+  const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
+  let user = findReferencedUser(query, channel)
+  if (!user && at && at !== botName) {
+    user = at
+    need.profiles = [at] // existence: they may only exist in the older history
+  }
+  if (!user && asker && FIRST_PERSON_RE.test(query)) user = asker.toLowerCase()
+
+  if (!user) {
+    const fts = buildChatRecallFTS(query, '')
+    if (!fts) return null
+    need.content = fts.replace(/["()*]|\b(?:OR|AND|NOT)\b/g, ' ').replace(/\s+/g, ' ').trim()
+    return need.content ? need : null
+  }
+  need.user = user
+
+  if (COUNT_INTENT_RE.test(query) && timeWindow) {
+    if (timeWindow.sinceExpr === null) (need.profiles ??= []).push(user)
+    const word = countWord(query)?.[1]?.trim()
+    if (word) {
+      const horizon = db.getUserMessagesOldest(user, channel, 1)[0]?.created_at
+      const days = timeWindow.sinceExpr ? Number(timeWindow.sinceExpr.match(/-(\d+) days/)?.[1] ?? 0) : null
+      const from = days === null ? undefined : dayAgo(days)
+      // window reaches before the oldest local row: the remote count covers that gap only
+      if (horizon && (from === undefined || from < horizon.slice(0, 10))) {
+        need.words = { term: word, from, to: horizon.replace(' ', 'T') + '.000Z' }
+      } else if (!horizon) need.words = { term: word, from }
+    }
+    return need.profiles || need.words ? need : null
+  }
+
+  if (WANTS_OLDEST_RE.test(query)) need.userOldest = true
+  else {
+    const fts = buildChatRecallFTS(query, user)
+    const text = fts?.replace(/["()*]|\b(?:OR|AND|NOT)\b/g, ' ').replace(/\s+/g, ' ').trim()
+    if (text) need.userSearch = text
+    if (db.getUserMessagesDetailed(user, channel, 10).length < 10) need.userRecent = true // 10 local rows leave no room for older ones
+  }
+  return need
+}
+
+export function buildChatRecall(query: string, channel: string, asker?: string, remote?: RemoteHistory | null): string {
   // recite an existing chat pasta verbatim — must run before the generic recall gate,
   // which misses "remind me of the X copypasta" (no time window / @mention / recall verb)
-  if (isPastaRecall(query)) return buildPastaRecall(query, channel)
+  if (isPastaRecall(query)) return buildPastaRecall(query, channel, remote)
 
   const hasMention = /@[a-zA-Z0-9_]+/.test(query)
   const hasIntent = RECALL_INTENT.test(query)
@@ -139,23 +209,23 @@ export function buildChatRecall(query: string, channel: string, asker?: string):
   // any recall signal counts as entry — time-window alone catches "yesterday's pasta"
   if (!hasIntent && !hasMention && !timeWindow) return ''
 
-  let user = findReferencedUser(query, channel)
+  let user = findReferencedUser(query, channel, remote)
   // first-person pronouns ("i sent you", "my messages", "me") → asker is the target
-  if (!user && asker && /\b(i\s|my\s|me\b|i'v?e?\b|myself)\b/i.test(query)) {
+  if (!user && asker && FIRST_PERSON_RE.test(query)) {
     user = asker.toLowerCase()
   }
-  if (!user) return buildContentRecall(query, channel, timeWindow)
+  if (!user) return buildContentRecall(query, channel, timeWindow, remote)
 
-  const countIntent = /\b(how many|how often|count|times|frequently|frequency)\b/i.test(query)
-  if (countIntent && timeWindow) {
-    const totalMsgs = db.countUserMessages(user, channel, timeWindow.sinceExpr)
-    const wordMatch = query.match(/(?:say|said|type|typed|wrote|write|mention|spam)\s+["']?([^"'?,!.]+)["']?/i)
-      ?? query.match(/"([^"]+)"/)
-      ?? query.match(/'([^']+)'/)
+  if (COUNT_INTENT_RE.test(query) && timeWindow) {
+    const local = db.countUserMessages(user, channel, timeWindow.sinceExpr)
+    // all-time only: the remote profile has no windowed total. never lower the local count.
+    const totalMsgs = timeWindow.sinceExpr === null ? Math.max(local, remote?.profiles?.get(user)?.messages ?? 0) : local
+    const wordMatch = countWord(query)
     let statsLine = `${user} stats (${timeWindow.label.replace(/'s?$/, '')}): ${totalMsgs} total messages`
     if (wordMatch) {
       const searchWord = wordMatch[1].trim()
-      const wordCount = db.countUserWordUsage(user, channel, searchWord, timeWindow.sinceExpr)
+      // remote term-count covers only the span before the oldest local row, so no overlap
+      const wordCount = db.countUserWordUsage(user, channel, searchWord, timeWindow.sinceExpr) + (remote?.wordCount ?? 0)
       statsLine += `, "${searchWord}" appears in ${wordCount} messages`
     }
     const samples = db.getUserMessagesSince(user, channel, timeWindow.sinceExpr, 2000)
@@ -169,7 +239,7 @@ export function buildChatRecall(query: string, channel: string, asker?: string):
     return statsLine
   }
 
-  const wantsOldest = /\b(earliest|first|oldest)\b/i.test(query)
+  const wantsOldest = WANTS_OLDEST_RE.test(query)
 
   const now = Date.now()
   const lines: string[] = []
@@ -177,8 +247,7 @@ export function buildChatRecall(query: string, channel: string, asker?: string):
 
   const ftsQuery = buildChatRecallFTS(query, user)
   if (ftsQuery && !wantsOldest) {
-    const hits = db.searchChatFTS(channel, ftsQuery, 8, user)
-    shadowRecall(channel, ftsQuery, user, hits)
+    const hits = mergeHistory(db.searchChatFTS(channel, ftsQuery, 8, user), remote?.userSearch)
     for (const h of hits) {
       seen.add(h.message)
       lines.push(`[${formatAge(h.created_at, now)}] ${h.username}: ${stripChatMessage(h.message)}`)
@@ -187,8 +256,8 @@ export function buildChatRecall(query: string, channel: string, asker?: string):
 
   if (lines.length < 5) {
     const detailed = wantsOldest
-      ? db.getUserMessagesOldest(user, channel, 10)
-      : db.getUserMessagesDetailed(user, channel, 10)
+      ? mergeHistory(db.getUserMessagesOldest(user, channel, 10), remote?.userOldest, { oldestFirst: true })
+      : mergeHistory(db.getUserMessagesDetailed(user, channel, 10), remote?.userRecent)
     for (const r of detailed) {
       if (lines.length >= 10) break
       if (seen.has(r.message)) continue

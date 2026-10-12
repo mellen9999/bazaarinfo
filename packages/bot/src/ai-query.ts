@@ -1,6 +1,7 @@
 import type { BazaarCard, Monster } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
+import type { RemoteHistory } from './hslogs-context'
 import { lookupKeywords, DEFINITIONAL_INTENT } from './glossary'
 
 export const KNOWLEDGE: [RegExp, string][] = [
@@ -345,13 +346,14 @@ export const COMMON_WORDS = new Set([
   'time', 'back', 'last', 'next', 'more', 'less', 'long', 'hard', 'easy',
 ])
 
-export function findReferencedUser(query: string, channel: string): string | null {
+// remote: a user only in heatsync's older history still counts as someone chat has seen
+export function findReferencedUser(query: string, channel: string, remote?: RemoteHistory | null): string | null {
   const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
 
   const atMatch = query.match(/@([a-zA-Z0-9_]+)/)
   if (atMatch) {
     const name = atMatch[1].toLowerCase()
-    if (name !== botName && db.getUserMessagesDetailed(name, channel, 1).length > 0) return name
+    if (name !== botName && (db.getUserMessagesDetailed(name, channel, 1).length > 0 || remote?.profiles?.get(name)?.exists)) return name
   }
 
   interface Candidate { name: string; msgs: number }

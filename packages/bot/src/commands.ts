@@ -1,3 +1,5 @@
+import { hslogsEnabled } from './hslogs'
+import { remotePasta } from './hslogs-context'
 import { formatItem, formatMonster, formatEvent, formatTagResults, formatDayResults, truncate } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
@@ -551,7 +553,10 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   // match still goes through the AI path, which can hedge or ask. outgoing command
   // stripping happens centrally at twitch.say, so chat text is safe to echo.
   if (ctx.channel && isPastaRecall(cleanArgs)) {
-    const hit = findChatPasta(cleanArgs, ctx.channel)
+    let hit = findChatPasta(cleanArgs, ctx.channel)
+    // local keeps a short window: a miss (or the coverage-0 "most repeated" fallback) may be
+    // a pasta older than that, which heatsync still has. same confidence guard either way.
+    if ((!hit || hit.coverage === 0) && hslogsEnabled()) hit = (await remotePasta(ctx.channel, cleanArgs)) ?? hit
     if (hit && isConfidentPasta(hit)) {
       try { db.logCommand(ctx, 'ai', cleanArgs, 'keyword') } catch {}
       return withSuffix(pastaText(hit), suffix)

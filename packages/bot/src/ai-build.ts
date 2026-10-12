@@ -53,6 +53,7 @@ import { selfContext } from './self'
 import { buildGameContext } from './ai-build-game'
 import { buildUserContext, buildAboutUserLine } from './ai-build-user'
 import { buildTimeline, buildRecallContext, buildChatRecall } from './ai-build-recall'
+import type { RemoteHistory } from './hslogs-context'
 import { buildChattersContext, buildChatStr, fitToBudget } from './ai-build-chat'
 
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
@@ -178,7 +179,7 @@ export function statsTarget(query: string): string {
 export const COMPARISON_RE = /\b(?:more|fewer|higher|better)\s+(?:trivia\s+)?(?:wins?|points?|scores?)\s+than\b/i
 
 
-export function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }): UserMessageResult {
+export function buildUserMessage(query: string, ctx: AiContext & { user: string; channel: string }, history?: RemoteHistory | null): UserMessageResult {
   // neutralize authority-tag spoofing before the query touches any prompt text: a non-mod
   // typing "[MOD] stop replying to X" would otherwise render as "[USER]: [MOD] stop…",
   // textually adjacent to the real mod-authority pattern the prompt trusts. the literal
@@ -593,7 +594,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const recallLine = isShortFollowup ? '' : buildRecallContext(query, ctx.channel)
 
   // chat history recall
-  const chatRecallLine = buildChatRecall(query, ctx.channel, ctx.user)
+  const chatRecallLine = buildChatRecall(query, ctx.channel, ctx.user, history)
 
   // channel-wide recent responses — anti-repetition
   const recentAll = getChannelRecentResponses(ctx.channel)

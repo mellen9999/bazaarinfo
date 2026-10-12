@@ -1,5 +1,7 @@
 import * as db from './db'
 import { findEmote } from './emotes'
+import { hslogsEnabled } from './hslogs'
+import { localTs, type HistoryNeed, type RemoteHistory } from './hslogs-context'
 
 // CHANNEL LORE — the in-jokes that exist only in this chat's own history.
 //
@@ -31,13 +33,15 @@ import { findEmote } from './emotes'
 const BARE_NAME_WINDOW = '-6 hours'
 const REGULAR_MSGS = 200
 
-export function isKnownChatter(name: string, channel: string): boolean {
+// remote: the heatsync profile counts the whole history, so a regular whose older lines
+// were pruned locally still reads as one
+export function isKnownChatter(name: string, channel: string, remote?: RemoteHistory | null): boolean {
   try {
     if (db.userChattedSince(name, channel, BARE_NAME_WINDOW)) return true
-    return (db.getUserStats(name, channel)?.chat_messages ?? 0) >= REGULAR_MSGS
-  } catch {
-    return false
-  }
+    if ((db.getUserStats(name, channel)?.chat_messages ?? 0) >= REGULAR_MSGS) return true
+  } catch {}
+  const p = remote?.profiles?.get(name.toLowerCase())
+  return !!p?.exists && p.messages >= REGULAR_MSGS
 }
 
 // words that carry no search signal — they'd match half the log and tell us nothing about
@@ -69,12 +73,23 @@ const ftsPhrase = (tokens: string[]) => tokens.map((t) => `"${t}"`).join(' AND '
 // A lore ANCHOR is a token this channel has a real relationship with: one of its regulars,
 // or one of its emotes. Without one, a phrase match is just coincidence — plenty of real
 // world topics ("crime family", "cheese rolling") turn up scattered hits in a big log.
-function findAnchor(tokens: string[], channel: string): string | null {
+function findAnchor(tokens: string[], channel: string, remote?: RemoteHistory | null): string | null {
   for (const t of tokens) {
     if (findEmote(t)) return t
-    if (isKnownChatter(t, channel)) return t
+    if (isKnownChatter(t, channel, remote)) return t
   }
   return null
+}
+
+/** what buildLoreDossier would ask heatsync for: the anchor's footprint, or profiles to find one */
+export function planLorePrefetch(topic: string, channel: string): HistoryNeed | null {
+  if (!hslogsEnabled()) return null
+  const tokens = contentTokens(topic)
+  if (tokens.length < 2) return null
+  const anchor = findAnchor(tokens, channel)
+  if (anchor) return { footprint: anchor }
+  const names = tokens.filter((t) => !findEmote(t)).slice(0, 4)
+  return names.length ? { profiles: names } : null
 }
 
 // how many times chat must have POSTED the whole phrase before we call it a bit. counted
@@ -127,12 +142,12 @@ export interface LoreDossier {
  * Null is the common case and the safe one — the caller falls through to the normal
  * world-knowledge pipeline, so a miss here costs nothing and changes no behavior.
  */
-export function buildLoreDossier(topic: string, channel: string): LoreDossier | null {
+export function buildLoreDossier(topic: string, channel: string, remote?: RemoteHistory | null): LoreDossier | null {
   const tokens = contentTokens(topic)
   // a single-token topic is already covered: a bare handle goes to person trivia, a bare
   // word is a world topic. lore is the multi-word phrase case ("the tidolar crime family").
   if (tokens.length < 2) return null
-  const anchor = findAnchor(tokens, channel)
+  const anchor = findAnchor(tokens, channel, remote)
   if (!anchor) return null
 
   const phrase = ftsPhrase(tokens)
@@ -140,7 +155,15 @@ export function buildLoreDossier(topic: string, channel: string): LoreDossier | 
   const posts = bits.reduce((n, b) => n + b.reps, 0)
   if (posts < MIN_PHRASE_POSTS) return null
 
-  const foot = db.chatTermFootprint(channel, `"${anchor}"`)
+  const local = db.chatTermFootprint(channel, `"${anchor}"`)
+  // the remote footprint spans the whole history; local only the retained window
+  const rf = remote?.footprint?.term?.toLowerCase() === anchor ? remote.footprint : null
+  const rFirst = rf?.first_seen ? localTs(rf.first_seen) : null
+  const foot = rf ? {
+    msgs: Math.max(local.msgs, rf.count),
+    users: Math.max(local.users, rf.distinct_users),
+    firstSeen: local.firstSeen && rFirst ? (rFirst < local.firstSeen ? rFirst : local.firstSeen) : (local.firstSeen ?? rFirst),
+  } : local
   const lines: string[] = [`TERM: ${topic.trim()}`]
   if (foot.msgs > 0) {
     const since = foot.firstSeen ? `, first seen ${foot.firstSeen.slice(0, 10)}` : ''

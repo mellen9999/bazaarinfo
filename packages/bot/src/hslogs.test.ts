@@ -1,26 +1,25 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
 
 const hs = await import('./hslogs')
-const shadow = await import('./hslogs-shadow')
 
 const realFetch = globalThis.fetch
 let calls: string[] = []
 let impl: (url: string) => Promise<Response>
 
-const cov = { tier: 'hot', from: 'a', to: 'b', rolled_through: null, partial: false, exhausted: true }
+const cov = { tier: 'hot', from: 'a', to: 'b', rolled_through: null, days_scanned: 1, days_skipped: 0, partial: false, exhausted: true }
 const row = (u: string, m: string, id = m) => ({ username: u, display_name: u, message: m, message_id: id, timestamp: '2026-01-01T00:00:00Z', reply_to_id: null })
 const ok = (data: unknown) => new Response(JSON.stringify({ data, coverage: cov }), { status: 200 })
 
 beforeEach(() => {
+  delete process.env.HEATSYNC_LOGS_KEY
   process.env.HEATSYNC_LOGS_KEY = 'k'
   process.env.HEATSYNC_LOGS_URL = 'http://hs.test/api/v1/logs'
-  process.env.HEATSYNC_LOGS_SHADOW = '1'
-  hs.resetHslogs(); shadow.resetShadow(); hs.setForgottenCheck(() => false)
+  hs.resetHslogs(); hs.setForgottenCheck(() => false)
   calls = []
   impl = async () => ok([])
   globalThis.fetch = ((url: string) => { calls.push(String(url)); return impl(String(url)) }) as unknown as typeof fetch
 })
-afterEach(() => { globalThis.fetch = realFetch; delete process.env.HEATSYNC_LOGS_KEY; delete process.env.HEATSYNC_LOGS_SHADOW })
+afterEach(() => { globalThis.fetch = realFetch; delete process.env.HEATSYNC_LOGS_KEY })
 
 describe('hslogs', () => {
   it('no key → null without fetch', async () => {
@@ -114,35 +113,81 @@ describe('hslogs', () => {
   })
 })
 
-describe('hslogs shadow', () => {
-  it('off unless HEATSYNC_LOGS_SHADOW=1', async () => {
-    delete process.env.HEATSYNC_LOGS_SHADOW
-    shadow.shadowRecall('c', 'hello', undefined, [])
-    await Bun.sleep(5)
-    expect(calls.length).toBe(0)
+// real response shapes, verified against prod on 2026-10-12
+describe('hslogs contract', () => {
+  const wrapped = (data: unknown) => new Response(JSON.stringify({ status: 'ready', computed_at: '2026-10-12T00:00:00Z', data, coverage: cov }), { status: 200 })
+
+  it('profile is a bare object with first_seen/messages', async () => {
+    const body = { exists: true, username: 'mellen', first_seen: '2026-04-24T01:02:03.000Z', last_seen: '2026-10-12T00:00:00.000Z', messages: 16091, active_days: 120 }
+    impl = async () => new Response(JSON.stringify(body), { status: 200 })
+    const p = await hs.getUserProfile('nl_kripp', 'Mellen')
+    expect(p?.messages).toBe(16091)
+    expect(p?.first_seen).toBe('2026-04-24T01:02:03.000Z')
+    expect(calls[0]).toBe('http://hs.test/api/v1/logs/twitch/nl_kripp/users/mellen/profile')
   })
 
-  it('returns synchronously without waiting on a hung fetch', () => {
+  it('profile that is not an object with exists → null', async () => {
+    impl = async () => new Response(JSON.stringify({ data: {} }), { status: 200 })
+    expect(await hs.getUserProfile('c', 'bob')).toBeNull()
+  })
+
+  it('top-chatters rows are {username, messages, active_days}, forgotten dropped', async () => {
+    impl = async () => ok([{ username: 'a', messages: 90, active_days: 9 }, { username: 'gone', messages: 50, active_days: 5 }])
+    hs.setForgottenCheck((u) => u === 'gone')
+    const r = await hs.getTopChatters('c', 'all', 15)
+    expect(r?.data).toEqual([{ username: 'a', messages: 90, active_days: 9 }])
+    expect(calls[0]).toContain('days=all&limit=15')
+  })
+
+  it('pastas rows are {text, repeats, users, days, first_at, last_at}', async () => {
+    impl = async () => ok([{ text: 'day 1,847 of asking', repeats: 316, users: 40, days: 12, first_at: 'x', last_at: 'y' }])
+    const r = await hs.getPastas('c', { q: 'whammy', limit: 5 })
+    expect(r?.data[0].text).toBe('day 1,847 of asking')
+    expect(r?.data[0].repeats).toBe(316)
+  })
+
+  it('term-footprint unwraps {status, computed_at, data}', async () => {
+    impl = async () => wrapped({ term: 'tidolar', count: 30, distinct_users: 9, first_seen: '2026-03-01T00:00:00.000Z' })
+    const r = await hs.getTermFootprint('c', 'tidolar')
+    expect(r?.data.count).toBe(30)
+    expect(r?.data.distinct_users).toBe(9)
+  })
+
+  it('term-count unwraps {status, computed_at, data}', async () => {
+    impl = async () => wrapped({ term: 'lul', count: 4, first_at: 'x', last_at: 'y' })
+    const r = await hs.getTermCount('c', 'Bob', 'lul')
+    expect(r?.data.count).toBe(4)
+    expect(calls[0]).toContain('/users/bob/term-count?term=lul')
+  })
+
+  it('202 (still computing) → null and is not cached', async () => {
+    impl = async () => new Response(JSON.stringify({ status: 'computing' }), { status: 202 })
+    expect(await hs.getTermFootprint('c', 'x')).toBeNull()
+    impl = async () => wrapped({ term: 'x', count: 2, distinct_users: 1, first_seen: null })
+    expect((await hs.getTermFootprint('c', 'x'))?.data.count).toBe(2)
+    expect(calls.length).toBe(2)
+  })
+
+  it('202 does not feed the failure breaker', async () => {
+    impl = async () => new Response('{}', { status: 202 })
+    for (const t of ['a', 'b', 'c', 'd']) await hs.getTermFootprint('c', t)
+    impl = async () => ok([])
+    expect(await hs.search('c', 'q')).not.toBeNull()
+  })
+
+  it('envelope coverage carries days_scanned/exhausted/partial', async () => {
+    impl = async () => ok([row('a', 'hi')])
+    const r = await hs.search('c', 'hi')
+    expect(r?.coverage.days_scanned).toBe(1)
+    expect(r?.coverage.exhausted).toBe(true)
+  })
+
+  it('an outer abort signal cuts the call short', async () => {
     impl = () => new Promise(() => {})
-    const t = performance.now()
-    shadow.shadowRecall('c', 'hello', 'bob', [{ username: 'bob', message: 'hi' }])
-    shadow.shadowPasta('c', 'x', null)
-    shadow.shadowProfile('c', 'bob', null)
-    expect(performance.now() - t).toBeLessThan(20)
-  })
-
-  it('never throws on failures or garbage', async () => {
-    impl = () => Promise.reject(new Error('boom'))
-    expect(() => shadow.shadowRecall('c', 'hello', undefined, [])).not.toThrow()
-    impl = async () => new Response('{"data":null}', { status: 200 })
-    expect(() => shadow.shadowPasta('c', 'x', { message: 'm', reps: 3 })).not.toThrow()
-    await Bun.sleep(10)
-  })
-
-  it('rate-limits repeats of one kind', async () => {
-    shadow.shadowRecall('c', 'one', undefined, [])
-    shadow.shadowRecall('c', 'two', undefined, [])
-    await Bun.sleep(5)
-    expect(calls.length).toBe(1)
+    const ac = new AbortController()
+    globalThis.fetch = ((_u: string, i: RequestInit) => new Promise((_, rej) => { i.signal?.addEventListener('abort', () => rej(new DOMException('a', 'AbortError'))) })) as unknown as typeof fetch
+    const p = hs.search('c', 'slow', { signal: ac.signal })
+    ac.abort()
+    expect(await p).toBeNull()
   })
 })

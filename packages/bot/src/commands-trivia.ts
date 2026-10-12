@@ -2,14 +2,14 @@
 // person-dossier trivia, and the short queue that holds a topic while a round is live.
 import type { CustomTrivia } from './ai-trivia'
 import { generateCustomTrivia, generateChatTrivia, generatePersonTrivia, generateGameTrivia, generateLoreTrivia } from './ai-trivia'
-import { buildLoreDossier, isKnownChatter } from './lore'
+import { buildLoreDossier, isKnownChatter, planLorePrefetch } from './lore'
 import { detectGameTopic, buildGameDossier } from './trivia-game-topic'
 import { registerStateProvider } from './bot-state'
 import { isSuppressed, remainingMinutes } from './suppress'
 import { aiTriviaEnabled, aiUnavailableReason, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest } from './ai-cache'
 import { userStandingLine } from './ai-build-user'
 import { getChannelSnapshotLine } from './twitch-profile'
-import { shadowProfile } from './hslogs-shadow'
+import { prefetchHistory, localTs, type HistoryNeed, type RemoteHistory } from './hslogs-context'
 import { findEmote, isExactEmote } from './emotes'
 import { getRecent } from './chatbuf'
 import { log } from './log'
@@ -153,7 +153,7 @@ function signatureEmote(messages: string[]): string | null {
 // actually answer; hidden stats come last. returns null if the profile is too thin to make
 // a fair question, so the caller misses honestly instead of inventing. gated on the message
 // sample, not a users-table row, so a chat-only regular (never runs a command) still counts.
-function buildPersonDossier(username: string, channel: string): string | null {
+function buildPersonDossier(username: string, channel: string, remote?: RemoteHistory | null): string | null {
   const msgs = db.getUserMessages(username, channel, 80)
   const sample = msgs
     .map((m) => m.replace(/\n/g, ' ').trim())
@@ -173,15 +173,24 @@ function buildPersonDossier(username: string, channel: string): string | null {
     const standing = userStandingLine(username, channel)
     if (standing) lines.push(`twitch standing: ${standing}`)
     const chat = db.getUserChatProfile(username, channel)
-    shadowProfile(channel, username, chat)
-    if (chat) {
-      // chat_messages is pruned at 180 days: an old regular's "first seen" is the prune
-      // horizon, not their arrival — say the window, not a false start date. peak hour needs
-      // a real sample or it's noise.
-      const ageDays = (Date.now() - new Date(chat.firstSeen + 'Z').getTime()) / 86_400_000
-      const span = ageDays > 170 ? 'in the last 6 months (older lines are pruned)' : `since ${chat.firstSeen.slice(0, 7)}`
-      const peak = chat.peakHourUtc === null || chat.messages < 30 ? '' : `, most active around ${String(chat.peakHourUtc).padStart(2, '0')}:00 UTC`
-      lines.push(`chat history: ${chat.messages} messages logged here ${span}${peak}`)
+    // heatsync's profile spans the whole history (real first message, real count); local
+    // only the retained window. without it, a first-seen near the prune horizon is the
+    // horizon, not the arrival — say the window instead of a false start date.
+    const rp = remote?.profiles?.get(username.toLowerCase())
+    const real = rp?.exists && rp.first_seen ? rp : null
+    const messages = Math.max(chat?.messages ?? 0, real?.messages ?? 0)
+    if (messages > 0) {
+      let span: string
+      if (real) {
+        const first = chat && chat.firstSeen < localTs(real.first_seen!) ? chat.firstSeen : localTs(real.first_seen!)
+        span = `since ${first.slice(0, 7)}`
+      } else {
+        const ageDays = (Date.now() - new Date(chat!.firstSeen + 'Z').getTime()) / 86_400_000
+        span = ageDays > db.CHAT_RETENTION_DAYS - 10 ? `in the last ${db.CHAT_RETENTION_DAYS} days (older lines are pruned)` : `since ${chat!.firstSeen.slice(0, 7)}`
+      }
+      // peak hour needs a real sample or it's noise
+      const peak = !chat || chat.peakHourUtc === null || messages < 30 ? '' : `, most active around ${String(chat.peakHourUtc).padStart(2, '0')}:00 UTC`
+      lines.push(`chat history: ${messages} messages logged here ${span}${peak}`)
     }
     const own = getChannelSnapshotLine(username)
     if (own) lines.push(`their channel: ${own}`)
@@ -398,15 +407,28 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
   const gameTopic = isChatTrivia ? null : detectGameTopic(t)
   let person: string | null = null
   let personDossier: string | null = null
+  let history: RemoteHistory | null = null
   if (!isChatTrivia) {
     const pm = t.startsWith('@') ? t.match(PERSON_TOPIC_RE) : null
+    // who this might be about — their heatsync profile (real first-seen, whole-history count)
+    // feeds the dossier and the regular check. lore topics ask for the anchor's footprint.
+    const cand = pm ? pm[1]
+      : mention && PERSON_CONNECTOR_RE.test(t) ? mention
+      : !PERSON_CONNECTOR_RE.test(t) && BARE_NAME_RE.test(t) && !gameTopic ? t
+      : null
+    const need: HistoryNeed | null = cand ? { profiles: [cand] } : gameTopic ? null : planLorePrefetch(t, channel)
+    if (need) {
+      // the fetch awaits: hold the slot so a second ask can't slip past the busy gate meanwhile
+      customPending.add(channel)
+      try { history = await prefetchHistory(channel, need) } finally { customPending.delete(channel) }
+    }
     if (pm) person = pm[1]
     else if (mention && PERSON_CONNECTOR_RE.test(t)) person = mention
     // a dangling connector with no target ("trivia about" alone) has nothing to quiz on —
     // don't feed the bare word to the topic model (it drifts to a nonsense question).
     else if (PERSON_CONNECTOR_RE.test(t)) return null
-    else if (BARE_NAME_RE.test(t) && !gameTopic && isKnownChatter(t, channel)) {
-      const d = buildPersonDossier(t, channel)
+    else if (BARE_NAME_RE.test(t) && !gameTopic && isKnownChatter(t, channel, history)) {
+      const d = buildPersonDossier(t, channel, history)
       if (d) {
         person = t
         personDossier = d
@@ -429,7 +451,7 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
       }
       missMsg = `not enough fresh chat to make a trivia about yet — let it cook`
     } else if (person) {
-      const dossier = personDossier ?? buildPersonDossier(person, channel)
+      const dossier = personDossier ?? buildPersonDossier(person, channel, history)
       if (!dossier) {
         return withSuffix(`don't know enough about @${person} yet to quiz on — they gotta chat more`, suffix)
       }
@@ -471,7 +493,7 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
       // answer nobody in chat can win. ask our log instead. the gate is deliberately tight
       // (see lore.ts): when it doesn't fire we drop straight through to the world path
       // below unchanged, so a real world topic is never hijacked.
-      const lore = buildLoreDossier(t, channel)
+      const lore = buildLoreDossier(t, channel, history)
       if (lore) {
         const lq = await generateLoreTrivia(lore.text, t, channel, avoid, avoidAnswers)
         if (lq && !isRecentQuestion(channel, lq.question) && !isRecentAnswer(channel, lq.answer)) {
