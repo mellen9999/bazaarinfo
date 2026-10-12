@@ -38,7 +38,15 @@ export interface RemoteHistory {
 
 export interface HistRow { username: string; message: string; created_at: string }
 
-const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
+// twitch replies: local rows store the text WITHOUT the auto "@parent " prefix, heatsync keeps
+// it; and twitch's duplicate-message bypass appends invisible chars (U+E0000, U+034F, zero-width)
+const INVISIBLE = /[\u{E0000}\u034F\u200B-\u200D\u2060\uFEFF]/gu
+const REPLY_PREFIX = /^\s*@\w+[,:]?\s+/
+/** comparison form of a chat line: one leading @login stripped, invisibles dropped, case/space folded */
+export function normText(s: string): string {
+  return s.replace(INVISIBLE, '').replace(REPLY_PREFIX, '').toLowerCase().replace(/\s+/g, ' ').trim()
+}
+const norm = normText
 const rowKey = (r: { username: string; message: string }) => `${r.username.toLowerCase()}|${norm(r.message)}`
 
 /** api iso timestamp -> the 'YYYY-MM-DD HH:MM:SS' shape local rows carry */

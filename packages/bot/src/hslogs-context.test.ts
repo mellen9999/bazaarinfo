@@ -473,4 +473,24 @@ describe('older history keeps lore and person dossiers grounded', () => {
     expect(d).toContain('most active hour overall: 21:00 UTC')
     expect(d).not.toContain('most active around')
   })
+
+  it('reply prefix and dup-bypass invisibles do not defeat dedupe (merge, lore, sample)', () => {
+    expect(ctx.normText('@Bob, nice  one\u{E0000}')).toBe('nice one')
+    expect(ctx.normText('nice one \u034F')).toBe(ctx.normText('@bob nice one'))
+    expect(ctx.normText('@a @b hi')).toBe('@b hi') // only ONE leading login
+    const local = [{ username: 'amy', message: 'nice one', created_at: '2026-10-10 10:00:00' }]
+    const out = ctx.mergeHistory(local, [row('amy', '@bob nice one', '2026-01-01T00:00:00.000Z')])
+    expect(out).toBe(local)
+    // lore: remote copy of a pasta posted as a reply is the same wording local already counted
+    for (const u of ['a', 'b', 'c2']) db.logChat('c', u, PASTA)
+    db.logChat('c', 'tidolar', 'hi')
+    db.flushWrites()
+    const d = buildLoreDossier('the tidolar crime family', 'c', { pastas: [{ text: '@someone ' + PASTA + ' \u{E0000}', repeats: 999, users: 1, days: 1, first_at: 'x', last_at: 'y' }] })
+    expect(d?.text).not.toContain('999')
+    // person sample: same line in remote with the prefix is not appended twice
+    db.logChat('c', 'lapsed', 'only local line here')
+    db.flushWrites()
+    const pd = buildPersonDossier('lapsed', 'c', { userRecent: [{ username: 'lapsed', display_name: 'lapsed', message: '@x only local line here', message_id: 'm', timestamp: '2026-03-01T00:00:00.000Z', reply_to_id: null }, ...Array.from({ length: 8 }, (_, i) => ({ username: 'lapsed', display_name: 'lapsed', message: `older ${i} unique`, message_id: `o${i}`, timestamp: '2026-03-01T00:00:00.000Z', reply_to_id: null }))] })
+    expect(pd?.match(/only local line here/g)?.length).toBe(1)
+  })
 })

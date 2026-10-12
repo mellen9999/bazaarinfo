@@ -1,7 +1,7 @@
 import * as db from './db'
 import { findEmote } from './emotes'
 import { hslogsEnabled } from './hslogs'
-import { localTs, type HistoryNeed, type RemoteHistory } from './hslogs-context'
+import { localTs, normText, type HistoryNeed, type RemoteHistory } from './hslogs-context'
 
 // CHANNEL LORE — the in-jokes that exist only in this chat's own history.
 //
@@ -114,7 +114,7 @@ interface Bit { text: string; reps: number; topReps: number }
 // The surviving wording is the one chat posted MOST, not the longest: the spaced-out
 // "M E L L E N" variant is longer, and shipping it as the canonical text invites a
 // question whose answer is a spelling nobody would type.
-const variantKey = (m: string) => m.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 120)
+const variantKey = (m: string) => normText(m).replace(/[^a-z0-9]/g, '').slice(0, 120)
 
 function mergeVariants(rows: { message: string; reps: number }[]): Bit[] {
   const byKey = new Map<string, Bit>()

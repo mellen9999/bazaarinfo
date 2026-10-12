@@ -9,7 +9,7 @@ import { isSuppressed, remainingMinutes } from './suppress'
 import { aiTriviaEnabled, aiUnavailableReason, AI_VIP, isUserOverDailyAiCap, noteUserAiRequest } from './ai-cache'
 import { userStandingLine } from './ai-build-user'
 import { getChannelSnapshotLine } from './twitch-profile'
-import { prefetchHistory, localTs, type HistoryNeed, type RemoteHistory } from './hslogs-context'
+import { prefetchHistory, localTs, normText, type HistoryNeed, type RemoteHistory } from './hslogs-context'
 import { findEmote, isExactEmote } from './emotes'
 import { getRecent } from './chatbuf'
 import { log } from './log'
@@ -176,11 +176,11 @@ export function buildPersonDossier(username: string, channel: string, remote?: R
   const msgs = db.getUserMessages(username, channel, SAMPLE_WANT)
   // thin local sample: top up with older remote lines (local first, deduped by text)
   if (msgs.length < THIN_LOCAL && remote?.userRecent) {
-    const seen = new Set(msgs.map((m) => m.toLowerCase().replace(/\s+/g, ' ').trim()))
+    const seen = new Set(msgs.map(normText))
     for (const r of remote.userRecent) {
       if (msgs.length >= SAMPLE_WANT) break
       if (typeof r?.message !== 'string') continue
-      const k = r.message.toLowerCase().replace(/\s+/g, ' ').trim()
+      const k = normText(r.message)
       if (!k || seen.has(k)) continue
       seen.add(k)
       msgs.push(r.message)

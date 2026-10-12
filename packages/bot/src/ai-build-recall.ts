@@ -8,7 +8,7 @@ import { isPastaRecall, findChatPasta, pastaText } from './pasta'
 import { stripChatMessage } from './ai-build-chat'
 import { isTitleQuery } from './channel-title'
 import { hslogsEnabled } from './hslogs'
-import { mergeHistory, localPastaSatisfies, type HistoryNeed, type RemoteHistory } from './hslogs-context'
+import { mergeHistory, normText, localPastaSatisfies, type HistoryNeed, type RemoteHistory } from './hslogs-context'
 
 // --- timeline builder ---
 
@@ -252,7 +252,7 @@ export function buildChatRecall(query: string, channel: string, asker?: string, 
   if (ftsQuery && !wantsOldest) {
     const hits = mergeHistory(db.searchChatFTS(channel, ftsQuery, 8, user), remote?.userSearch)
     for (const h of hits) {
-      seen.add(h.message)
+      seen.add(normText(h.message))
       lines.push(`[${formatAge(h.created_at, now)}] ${h.username}: ${stripChatMessage(h.message)}`)
     }
   }
@@ -263,7 +263,7 @@ export function buildChatRecall(query: string, channel: string, asker?: string, 
       : mergeHistory(db.getUserMessagesDetailed(user, channel, 10), remote?.userRecent)
     for (const r of detailed) {
       if (lines.length >= 10) break
-      if (seen.has(r.message)) continue
+      if (seen.has(normText(r.message))) continue
       lines.push(`[${formatAge(r.created_at, now)}] ${r.username}: ${stripChatMessage(r.message)}`)
     }
   }
