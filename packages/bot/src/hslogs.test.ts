@@ -117,9 +117,9 @@ describe('hslogs', () => {
 describe('hslogs contract', () => {
   const wrapped = (data: unknown) => new Response(JSON.stringify({ status: 'ready', computed_at: '2026-10-12T00:00:00Z', data, coverage: cov }), { status: 200 })
 
-  it('profile is a bare object with first_seen/messages', async () => {
+  it('profile is wrapped in {data, coverage} with first_seen/messages', async () => {
     const body = { exists: true, username: 'mellen', first_seen: '2026-04-24T01:02:03.000Z', last_seen: '2026-10-12T00:00:00.000Z', messages: 16091, active_days: 120 }
-    impl = async () => new Response(JSON.stringify(body), { status: 200 })
+    impl = async () => ok(body)
     const p = await hs.getUserProfile('nl_kripp', 'Mellen')
     expect(p?.messages).toBe(16091)
     expect(p?.first_seen).toBe('2026-04-24T01:02:03.000Z')
@@ -128,6 +128,11 @@ describe('hslogs contract', () => {
 
   it('profile that is not an object with exists → null', async () => {
     impl = async () => new Response(JSON.stringify({ data: {} }), { status: 200 })
+    expect(await hs.getUserProfile('c', 'bob')).toBeNull()
+  })
+
+  it('a bare (unwrapped) profile is not the contract → null', async () => {
+    impl = async () => new Response(JSON.stringify({ exists: true, username: 'bob', messages: 5 }), { status: 200 })
     expect(await hs.getUserProfile('c', 'bob')).toBeNull()
   })
 

@@ -142,7 +142,8 @@ export async function getUserMessages(channel: string, user: string, r: Range & 
 // the profile is a bare object, not enveloped: {exists, username, first_seen, ...}
 export async function getUserProfile(channel: string, user: string, signal?: AbortSignal) {
   if (forgottenCheck(user)) return null
-  const p = await get<UserProfile>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/profile`, {}, false, TTL_AGG, signal)
+  const env = await get<Envelope<UserProfile>>(channel, `/users/${encodeURIComponent(user.toLowerCase())}/profile`, {}, false, TTL_AGG, signal)
+  const p = env?.data
   return p && typeof p.exists === 'boolean' ? p : null
 }
 

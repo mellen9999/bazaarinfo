@@ -19,8 +19,7 @@ let dbPath: string
 const cov = { tier: 'hot', from: 'a', to: 'b', rolled_through: null, days_scanned: 1, days_skipped: 0, partial: false, exhausted: true }
 const row = (u: string, m: string, ts: string) => ({ username: u, display_name: u, message: m, message_id: m, timestamp: ts, reply_to_id: null })
 const ok = (data: unknown) => new Response(JSON.stringify({ data, coverage: cov }), { status: 200 })
-const bare = (body: unknown) => new Response(JSON.stringify(body), { status: 200 })
-const profile = (messages: number, first = '2026-04-24T00:00:00.000Z') => bare({ exists: true, username: 'x', first_seen: first, last_seen: '2026-10-01T00:00:00.000Z', messages, active_days: 9 })
+const profile = (messages: number, first = '2026-04-24T00:00:00.000Z') => ok({ exists: true, username: 'x', first_seen: first, last_seen: '2026-10-01T00:00:00.000Z', messages, active_days: 9 })
 // a fetch that only ends when its signal aborts, like the real one
 const hang = (_u: string, init?: RequestInit) => new Promise<Response>((_, rej) => init?.signal?.addEventListener('abort', () => rej(new DOMException('a', 'AbortError'))))
 
