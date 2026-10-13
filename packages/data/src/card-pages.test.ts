@@ -44,6 +44,14 @@ describe('parseTierRow', () => {
     expect(p.cooldown).toBeNull()
   })
 
+  it('a passive item keeps its tier-map prices and has no cooldown or where', () => {
+    const p = parseCardPage(fx('page-atlas.rsc'))
+    expect(p.buy).toEqual({ Silver: 8, Gold: 16, Diamond: 32 })
+    expect(p.sell).toEqual({ Silver: 4, Gold: 8, Diamond: 16 })
+    expect(p.cooldown).toBeNull()
+    expect(p.where).toBeUndefined()
+  })
+
   it('differing tiers stay a tier map', () => {
     const row = '["$","tr","BuyPrice",{"children":[["$","td","BuyPrice-Gold",{"children":8}],["$","td","BuyPrice-Diamond",{"style":{"color":"x"},"children":16}]]}]'
     expect(parseTierRow(row, 'BuyPrice')).toEqual({ Gold: 8, Diamond: 16 })
