@@ -444,12 +444,12 @@ export function monstersByDay(day: number): Monster[] {
   return dayMap.get(day) ?? []
 }
 
-// exact event-encounter lookup by title (case-insensitive). undefined on miss.
 // merchants that sell a card (empty when none are known)
 export function soldBy(title: string): string[] {
   return soldByMap.get(title.toLowerCase()) ?? []
 }
 
+// exact event-encounter lookup by title (case-insensitive). undefined on miss.
 export function findEventExact(name: string): BazaarCard | undefined {
   return eventMap.get(name.trim().toLowerCase())
 }
