@@ -681,7 +681,7 @@ describe('page facts', () => {
       Quests: [{ goal: 'Visit a Gold-tier Encounter', reward: 'get 2 Loot items' }],
     }), ['Colt'])
     expect(f).toEqual([
-      'found: Awakened District (inferred by bazaardb)',
+      'also found: Awakened District (bazaardb inferred, not a full list)',
       'sold by: Colt',
       'quest: Visit a Gold-tier Encounter -> get 2 Loot items',
       'buy S8/G16g, sell 4g',

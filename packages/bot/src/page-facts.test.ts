@@ -56,7 +56,7 @@ describe('ai context', () => {
   })
   it('where-from is labelled inferred; prices ride along; no odds %', () => {
     const line = serializeCard(SOUL)
-    expect(line).toContain('found: Awakened District (inferred by bazaardb)')
+    expect(line).toContain('also found: Awakened District (bazaardb inferred, not a full list)')
     expect(line).toContain('buy 64g, sell 32g')
     expect(line).not.toContain('%')
   })

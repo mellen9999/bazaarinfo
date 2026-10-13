@@ -325,7 +325,7 @@ function goldByTier(v: NonNullable<BazaarCard['Buy']>): string {
 // list the card as a source (the caller's inverse index). empty -> no segments.
 export function cardFacts(card: BazaarCard, soldBy: string[] = []): string[] {
   const out: string[] = []
-  if (card.Where?.length) out.push(`found: ${card.Where.join(', ')} (inferred by bazaardb)`)
+  if (card.Where?.length) out.push(`also found: ${card.Where.join(', ')} (bazaardb inferred, not a full list)`)
   if (soldBy.length) out.push(`sold by: ${soldBy.join(', ')}`)
   if (card.Quests?.length) {
     out.push(`quest: ${card.Quests.slice(0, 3).map((q) => (q.reward ? `${q.goal} -> ${q.reward}` : q.goal)).join('; ')}`)
