@@ -4,6 +4,7 @@ import * as store from './store'
 import * as db from './db'
 import { getPatchInfo } from './patch'
 import { OVERLAY, isOverlayFresh, resolvePatch, getCardChange, getHeroChanges } from './patch-notes'
+import { merchantFacts } from '@bazaarinfo/shared'
 import { serializeCard, serializeMonster, type ResolvedEntities } from './ai-query'
 import { stripChatMessage } from './ai-build-chat'
 
@@ -19,7 +20,7 @@ export function buildGameContext(entities: ResolvedEntities, channel?: string): 
     sections.push(`Keyword rules (authoritative — state these exactly, never embellish or add numbers):\n${entities.glossary.join('\n')}`)
   }
 
-  const isBroadHeroQ = !entities.hero && entities.cards.length === 0 && entities.monsters.length === 0
+  const isBroadHeroQ = !entities.hero && entities.cards.length === 0 && entities.monsters.length === 0 && !entities.events?.length
   const isComparisonQ = /\b(tier\s*list|ranking|rank|compare|best|worst|strongest|weakest|meta|patch)\b/i.test(
     entities.effects.join(' '),
   )
@@ -52,6 +53,11 @@ export function buildGameContext(entities: ResolvedEntities, channel?: string): 
 
   for (const monster of entities.monsters) {
     sections.push(serializeMonster(monster))
+  }
+
+  for (const ev of entities.events ?? []) {
+    const line = merchantFacts(ev)
+    if (line) sections.push(line)
   }
 
   // "what changed for vanessa this patch" — only on a patch-shaped ask, capped so a
@@ -103,7 +109,7 @@ export function buildGameContext(entities: ResolvedEntities, channel?: string): 
   }
 
   if (entities.effects.length > 0) {
-    const noNamedEntities = entities.cards.length === 0 && entities.monsters.length === 0
+    const noNamedEntities = entities.cards.length === 0 && entities.monsters.length === 0 && !entities.events?.length
     const effectResults = store.searchByEffect(entities.effects.join(' '), entities.hero, noNamedEntities ? 3 : 5)
     if (effectResults.length > 0) {
       if (noNamedEntities || entities.hero) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { truncate, formatItem, formatEnchantment, formatMonster, formatEvent, formatTagResults, formatDayResults, resolveTooltip, resolveTooltipParts, cooldownLadder } from './format'
+import { truncate, formatItem, formatEnchantment, formatMonster, formatEvent, formatTagResults, formatDayResults, resolveTooltip, resolveTooltipParts, cooldownLadder, cardFacts, merchantFacts, monsterDrops } from './format'
 import type { TooltipPart } from './format'
 import type { BazaarCard, TierName, Monster } from './types'
 import type { SkillDetail } from './format'
@@ -658,5 +658,47 @@ describe('resolveTooltipParts / cooldownLadder — tier ladders', () => {
       { tier: 'Silver', value: '5' },
     ])
     expect(cooldownLadder({ Bronze: 6, Silver: 5 }, 'Silver')).toBeNull()
+  })
+})
+
+describe('page facts', () => {
+  it('formatItem/formatMonster/formatEvent output is unchanged by the new optional fields', () => {
+    const plain = makeCard()
+    const rich = makeCard({ Where: ['Awakened District'], Buy: 64, Sell: 32, Quests: [{ goal: 'g', reward: 'r' }] })
+    expect(formatItem(rich)).toBe(formatItem(plain))
+    const ev = makeCard({ Type: 'EventEncounter', Title: 'Colt' })
+    expect(formatEvent({ ...ev, Pool: { heroes: ['Vanessa'], counts: { Vanessa: { Bronze: 1 } } } })).toBe(formatEvent(ev))
+  })
+
+  it('cardFacts is empty for a card with no facts', () => {
+    expect(cardFacts(makeCard())).toEqual([])
+    expect(cardFacts(makeCard({ Where: [], Quests: [] }))).toEqual([])
+  })
+
+  it('cardFacts states source (labelled inferred), sellers, quest and prices', () => {
+    const f = cardFacts(makeCard({
+      Where: ['Awakened District'], Buy: { Silver: 8, Gold: 16 }, Sell: 4,
+      Quests: [{ goal: 'Visit a Gold-tier Encounter', reward: 'get 2 Loot items' }],
+    }), ['Colt'])
+    expect(f).toEqual([
+      'found: Awakened District (inferred by bazaardb)',
+      'sold by: Colt',
+      'quest: Visit a Gold-tier Encounter -> get 2 Loot items',
+      'buy S8/G16g, sell 4g',
+    ])
+  })
+
+  it('merchantFacts gives pool sizes only — no percentages', () => {
+    const line = merchantFacts(makeCard({ Title: 'Colt', Pool: { heroes: ['Vanessa'], counts: { Vanessa: { Bronze: 13, Silver: 14, Gold: 5 } } } }))
+    expect(line).toBe('Colt (merchant) pool size by hero and tier: Vanessa 13B/14S/5G')
+    expect(line).not.toContain('%')
+    expect(merchantFacts(makeCard())).toBeNull()
+    expect(merchantFacts(makeCard({ Pool: { heroes: ['X'], counts: {} } }))).toBeNull()
+  })
+
+  it('monsterDrops reads the stated drop stats; absent -> null', () => {
+    const mon = (meta: object) => ({ MonsterMetadata: { available: '', day: 1, health: 1, board: [], skills: [], ...meta } }) as unknown as Monster
+    expect(monsterDrops(mon({ skillDropChance: 0.25, avgDropGold: 1.25 }))).toBe('25% skill drop, ~1.3g avg gold')
+    expect(monsterDrops(mon({}))).toBeNull()
   })
 })

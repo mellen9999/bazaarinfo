@@ -1,10 +1,25 @@
 // item/monster/tag/hero lookup pipeline: arg parsing, noise-tolerant salvage, fuzzy
 // relevance checks, and the trivia-standings regexes the dispatcher tests queries against.
-import { formatItem, formatEnchantment, formatMonster, formatEvent, truncate, resolveTooltip, compressTooltip, TIER_ORDER } from '@bazaarinfo/shared'
+import { formatItem, formatEnchantment, formatMonster, formatEvent, cardFacts, merchantFacts, monsterDrops, truncate, resolveTooltip, compressTooltip, TIER_ORDER } from '@bazaarinfo/shared'
 import type { TierName, Monster, SkillDetail, BazaarCard } from '@bazaarinfo/shared'
 import * as store from './store'
 import type { CommandContext } from './commands'
 import { patchNote, withSuffix, logMiss, logHit, aiOrQuip } from './commands-reply'
+
+// "atlas quest" / "bolas where to find" / "hooligan drop chance": the asker wants the page
+// facts (source, quest, price, drops) that a plain card line doesn't carry. gated on the
+// question so ordinary lookups stay byte-identical.
+const FACT_ASK_RE = /\b(quests?|where|found|obtain|chances?|odds|drops?|dropped|sold|sells?|buy|price|cost|merchant)\b/i
+function askNote(query: string, base: string | undefined, facts: () => string[]): string | undefined {
+  if (!FACT_ASK_RE.test(query)) return base
+  const f = facts()
+  return f.length ? [base, ...f].filter(Boolean).join(' | ') : base
+}
+
+const dropFacts = (m: Monster): string[] => {
+  const d = monsterDrops(m)
+  return d ? [d] : []
+}
 
 const TIERS = ['bronze', 'silver', 'gold', 'diamond', 'legendary']
 
@@ -292,14 +307,14 @@ export async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix:
   if (card && isRelevantMatch(card.Title, !!exactCard)) {
     const v = validateTier(card, tier)
     logHit('item', query, card.Title, ctx, v.tier)
-    const result = formatItem(card, v.tier, patchNote(card.Title))
+    const result = formatItem(card, v.tier, askNote(cleanArgs, patchNote(card.Title), () => cardFacts(card, store.soldBy(card.Title))))
     return withSuffix(v.note ? `${result} (${v.note})` : result, suffix)
   }
 
   const monster = store.findMonster(query)
   if (monster && isRelevantMatch(monster.Title, false)) {
     logHit('mob', query, monster.Title, ctx)
-    return withSuffix(formatMonster(monster, resolveSkills(monster), patchNote(monster.Title)), suffix)
+    return withSuffix(formatMonster(monster, resolveSkills(monster), askNote(cleanArgs, patchNote(monster.Title), () => dropFacts(monster))), suffix)
   }
 
   // exact event-encounter name ("!b bjorn") — lowest priority, so an item or monster
@@ -308,7 +323,8 @@ export async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix:
   const event = store.findEventExact(query)
   if (event) {
     logHit('event', query, event.Title, ctx)
-    return withSuffix(formatEvent(event, patchNote(event.Title)), suffix)
+    const note = [merchantFacts(event), patchNote(event.Title)].filter(Boolean).join(' | ') || undefined
+    return withSuffix(formatEvent(event, note), suffix)
   }
 
   // item + monster both missed — salvage the query: strip hero/size/filler wrapping
@@ -333,13 +349,13 @@ export async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix:
       if (sCard && isRelevantMatch(sCard.Title, !!sExact, sWords) && !isIncidentalMention(sCard.Title, queryWords)) {
         const v = validateTier(sCard, tier)
         logHit('item', query, sCard.Title, ctx, v.tier)
-        const result = formatItem(sCard, v.tier, patchNote(sCard.Title))
+        const result = formatItem(sCard, v.tier, askNote(cleanArgs, patchNote(sCard.Title), () => cardFacts(sCard, store.soldBy(sCard.Title))))
         return withSuffix(v.note ? `${result} (${v.note})` : result, suffix)
       }
       const sMonster = store.findMonster(salvaged.query)
       if (sMonster && isRelevantMatch(sMonster.Title, false, sWords) && !isIncidentalMention(sMonster.Title, queryWords)) {
         logHit('mob', query, sMonster.Title, ctx)
-        return withSuffix(formatMonster(sMonster, resolveSkills(sMonster), patchNote(sMonster.Title)), suffix)
+        return withSuffix(formatMonster(sMonster, resolveSkills(sMonster), askNote(cleanArgs, patchNote(sMonster.Title), () => dropFacts(sMonster))), suffix)
       }
     }
   }

@@ -103,6 +103,7 @@ let effectWordMap: Map<string, Set<BazaarCard>> = new Map()
 let dayMap: Map<number, Monster[]> = new Map()
 let events: BazaarCard[] = []
 let eventMap: Map<string, BazaarCard> = new Map()
+let soldByMap: Map<string, string[]> = new Map()
 let derivedEnchantDefs: Record<string, string> = {}
 let dynamicGameTermsRe: RegExp | null = null
 
@@ -121,7 +122,7 @@ function dedup<T extends { Title: string }>(cards: T[]): T[] {
   })
 }
 
-function loadCache(cache: CardCache) {
+export function loadCache(cache: CardCache) {
   items = dedup(cache.items)
   skills = dedup(cache.skills ?? [])
   monsters = dedup(cache.monsters ?? [])
@@ -223,6 +224,15 @@ function loadCache(cache: CardCache) {
   events = dedup(cache.events ?? [])
   eventMap = new Map()
   for (const e of events) eventMap.set(e.Title.toLowerCase(), e)
+
+  // inverse merchant index: item -> merchants listing it as a source (bazaardb's inferred
+  // "Where to Find"). built once here; the merchant page itself carries pool sizes only.
+  soldByMap = new Map()
+  const merchants = new Set(events.filter((e) => e.Tags?.includes('Merchant')).map((e) => e.Title))
+  for (const card of [...items, ...skills]) {
+    const sellers = (card.Where ?? []).filter((w) => merchants.has(w))
+    if (sellers.length) soldByMap.set(card.Title.toLowerCase(), sellers)
+  }
 
   // precompute day → monsters map
   dayMap = new Map()
@@ -435,6 +445,11 @@ export function monstersByDay(day: number): Monster[] {
 }
 
 // exact event-encounter lookup by title (case-insensitive). undefined on miss.
+// merchants that sell a card (empty when none are known)
+export function soldBy(title: string): string[] {
+  return soldByMap.get(title.toLowerCase()) ?? []
+}
+
 export function findEventExact(name: string): BazaarCard | undefined {
   return eventMap.get(name.trim().toLowerCase())
 }

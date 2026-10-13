@@ -1,4 +1,4 @@
-import type { BazaarCard, Monster } from '@bazaarinfo/shared'
+import { cardFacts, monsterDrops, type BazaarCard, type Monster } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
 import type { RemoteHistory } from './hslogs-context'
@@ -106,6 +106,7 @@ export interface ResolvedEntities {
   knowledge: string[]
   glossary: string[]
   isGame: boolean
+  events?: BazaarCard[]  // merchants with a known pool ("what does colt sell")
 }
 
 export function extractEntities(query: string): ResolvedEntities {
@@ -225,6 +226,17 @@ export function extractEntities(query: string): ResolvedEntities {
         }
       }
 
+      // merchants (exact name, max 2) — only ones whose page gave a pool, so a name that
+      // is also a plain word can't inject anything empty
+      if ((result.events?.length ?? 0) < 2 && safe) {
+        const ev = store.findEventExact(phrase)
+        if (ev?.Pool) {
+          result.events = [...(result.events ?? []), ev]
+          for (let j = 0; j < size; j++) matched.add(i + j)
+          continue
+        }
+      }
+
     }
   }
 
@@ -242,7 +254,7 @@ export function extractEntities(query: string): ResolvedEntities {
   }
 
   // mark as game query if we found any game entities (replaces separate isGameQuery sliding window)
-  if (!result.isGame && (result.cards.length > 0 || result.monsters.length > 0 || result.hero || result.tag || result.glossary.length > 0)) {
+  if (!result.isGame && (result.cards.length > 0 || result.monsters.length > 0 || result.events?.length || result.hero || result.tag || result.glossary.length > 0)) {
     result.isGame = true
   }
 
@@ -282,7 +294,8 @@ export function serializeCard(card: BazaarCard): string {
     enchants ? `Enchants: ${enchants}` : null,
   ].filter(Boolean)
 
-  return parts.join(' | ')
+  const facts = cardFacts(card, store.soldBy(card.Title))
+  return facts.length ? `${parts.join(' | ')} | ${facts.join(' | ')}` : parts.join(' | ')
 }
 
 export function serializeMonster(monster: Monster): string {
@@ -310,6 +323,7 @@ export function serializeMonster(monster: Monster): string {
     `${monster.Title} · ${day} · ${meta.health}HP`,
     board ? `Board: ${board}` : null,
     skills ? `Skills: ${skills}` : null,
+    monsterDrops(monster),
   ].filter(Boolean)
 
   return parts.join(' | ')

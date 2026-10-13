@@ -306,3 +306,53 @@ export function formatEvent(event: BazaarCard, note?: string): string {
   const body = `${event.Title}${who} — ${kind}${note ? '' : ' (details on bazaardb)'}${note ? ` | ${note}` : ''}`
   return appendShortlink(truncate(body), event.Shortlink)
 }
+
+// --- bazaardb page facts (price, source, quest, merchant pool, monster drops) ---
+// new exports only: formatItem/formatMonster are untouched, so a card without these
+// fields renders exactly as before. every segment is a stated fact from bazaardb — never a
+// computed odds %. "Where to Find" is bazaardb's own inferred data, labelled so.
+
+const TIER_LETTER: Record<TierName, string> = { Bronze: 'B', Silver: 'S', Gold: 'G', Diamond: 'D', Legendary: 'L' }
+
+// 64 -> "64g"; per-tier map -> "S8/G16/D32g"
+function goldByTier(v: NonNullable<BazaarCard['Buy']>): string {
+  if (typeof v === 'number') return `${v}g`
+  const parts = TIER_ORDER.filter((t) => v[t] != null).map((t) => `${TIER_LETTER[t]}${v[t]}`)
+  return parts.length ? `${parts.join('/')}g` : ''
+}
+
+// terse fact segments for one card, in answer-priority order. `soldBy` = merchants that
+// list the card as a source (the caller's inverse index). empty -> no segments.
+export function cardFacts(card: BazaarCard, soldBy: string[] = []): string[] {
+  const out: string[] = []
+  if (card.Where?.length) out.push(`found: ${card.Where.join(', ')} (inferred by bazaardb)`)
+  if (soldBy.length) out.push(`sold by: ${soldBy.join(', ')}`)
+  if (card.Quests?.length) {
+    out.push(`quest: ${card.Quests.slice(0, 3).map((q) => (q.reward ? `${q.goal} -> ${q.reward}` : q.goal)).join('; ')}`)
+  }
+  const buy = card.Buy != null ? goldByTier(card.Buy) : ''
+  const sell = card.Sell != null ? goldByTier(card.Sell) : ''
+  if (buy || sell) out.push([buy && `buy ${buy}`, sell && `sell ${sell}`].filter(Boolean).join(', '))
+  return out
+}
+
+// merchant pool: "Colt pool: Vanessa 13B/14S/5G cards". sizes only — the page lists no odds.
+export function merchantFacts(event: BazaarCard): string | null {
+  const pool = event.Pool
+  if (!pool) return null
+  const per = pool.heroes.slice(0, 6).map((h) => {
+    const c = pool.counts[h]
+    const n = c ? TIER_ORDER.filter((t) => c[t] != null).map((t) => `${c[t]}${TIER_LETTER[t]}`).join('/') : ''
+    return n ? `${h} ${n}` : ''
+  }).filter(Boolean)
+  return per.length ? `${event.Title} (merchant) pool size by hero and tier: ${per.join(', ')}` : null
+}
+
+// "25% skill drop, ~1.3g avg gold" — the monster's stated drop stats
+export function monsterDrops(monster: Monster): string | null {
+  const m = monster.MonsterMetadata
+  const parts: string[] = []
+  if (typeof m.skillDropChance === 'number') parts.push(`${Math.round(m.skillDropChance * 100)}% skill drop`)
+  if (typeof m.avgDropGold === 'number') parts.push(`~${Math.round(m.avgDropGold * 10) / 10}g avg gold`)
+  return parts.length ? parts.join(', ') : null
+}
