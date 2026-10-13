@@ -544,6 +544,42 @@ describe('parseIrcLine bits/highlighted/redeem flags', () => {
   })
 })
 
+describe('shared chat', () => {
+  const line = (tags: string) => `@${tags};id=1;user-id=2 :v!v@v.tmi.twitch.tv PRIVMSG #chan :hi`
+
+  test('source-room-id differing from room-id marks the line as mirrored in', () => {
+    expect(parseIrcLine(line('room-id=100;source-room-id=200;source-id=x'))).toMatchObject({ type: 'privmsg', sharedFrom: '200' })
+  })
+
+  test('a native line in a shared session (source-room-id = room-id) is not shared', () => {
+    const m = parseIrcLine(line('room-id=100;source-room-id=100;source-id=1'))
+    if (m.type !== 'privmsg') throw new Error('expected privmsg')
+    expect(m.sharedFrom).toBeUndefined()
+  })
+
+  const mirror = { type: 'privmsg', channel: 'chan', login: 'viewer', text: 'hi', userId: '2', messageId: 'm9', badges: [], sentTs: 0, sharedFrom: '200' }
+
+  test('mirror from a channel we are not in is delivered with shared=true', () => {
+    const received: unknown[][] = []
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [{ name: 'chan', userId: '100' }] },
+      (...args: unknown[]) => { received.push(args) },
+    )
+    ;(client as unknown as { dispatchPrivmsg: (m: unknown) => void }).dispatchPrivmsg(mirror)
+    expect((received[0] as unknown[])[9]).toMatchObject({ shared: true })
+  })
+
+  test('mirror from a channel we are also in is dropped (its native copy answers there)', () => {
+    const received: unknown[][] = []
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [{ name: 'chan', userId: '100' }, { name: 'other', userId: '200' }] },
+      (...args: unknown[]) => { received.push(args) },
+    )
+    ;(client as unknown as { dispatchPrivmsg: (m: unknown) => void }).dispatchPrivmsg(mirror)
+    expect(received).toHaveLength(0)
+  })
+})
+
 describe('say() returns the transmitted text', () => {
   test('truncates past 490 codepoints and strips a leading command prefix', async () => {
     const client = new TwitchClient(

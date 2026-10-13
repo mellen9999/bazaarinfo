@@ -63,7 +63,10 @@ interface EventSubMessage {
       reconnect_url?: string
     }
     event?: {
+      broadcaster_user_id: string
       broadcaster_user_login: string
+      // shared chat: set only when the line was typed in another channel of the session
+      source_broadcaster_user_id?: string | null
       chatter_user_id: string
       chatter_user_login: string
       message_id: string
@@ -116,6 +119,10 @@ export interface MessageFlags {
   bits?: number
   highlighted?: true
   redeem?: true
+  // shared chat: this line was typed in ANOTHER channel of the session and twitch mirrored
+  // it into this room. the room saw it, but the chatter isn't this channel's — callers keep
+  // it as context and keep it out of per-channel records (logs, trivia, dungeon)
+  shared?: true
 }
 
 export type MessageHandler = (channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string, sentTs?: number, replyParent?: ReplyParent, flags?: MessageFlags) => void
@@ -145,6 +152,8 @@ interface IrcPrivmsg {
   bits?: number
   highlighted?: true
   redeem?: true
+  // shared chat: the channel id the line was typed in, set only when it isn't this room
+  sharedFrom?: string
 }
 
 // USERNOTICE: twitch's channel-event line — sub/resub/raid/gift/announce. carries no
@@ -330,6 +339,9 @@ export function parseIrcLine(line: string): IrcMessage {
       bits: tags['bits'] !== undefined && Number.isInteger(bitsNum) && bitsNum > 0 ? bitsNum : undefined,
       highlighted: tags['msg-id'] === 'highlighted-message' ? true : undefined,
       redeem: tags['custom-reward-id'] ? true : undefined,
+      // during a shared-chat session every line carries source-room-id; only one that
+      // differs from room-id was typed elsewhere
+      sharedFrom: tags['source-room-id'] && tags['room-id'] && tags['source-room-id'] !== tags['room-id'] ? tags['source-room-id'] : undefined,
     }
   }
   return { type: 'other' }
@@ -587,7 +599,10 @@ export class TwitchClient {
         const replyParent: ReplyParent | undefined = e.reply?.parent_user_login
           ? { login: e.reply.parent_user_login.toLowerCase(), body: e.reply.parent_message_body }
           : undefined
-        this.dispatchMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, text, badges, e.message_id ?? '', e.reply?.thread_message_id, sentTs, replyParent)
+        // shared chat: same rule as the irc path (dispatchPrivmsg)
+        const sharedFrom: string | undefined = e.source_broadcaster_user_id && e.source_broadcaster_user_id !== e.broadcaster_user_id ? e.source_broadcaster_user_id : undefined
+        if (sharedFrom && this.isJoinedId(sharedFrom)) return
+        this.dispatchMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, text, badges, e.message_id ?? '', e.reply?.thread_message_id, sentTs, replyParent, sharedFrom ? { shared: true } : undefined)
       }
     } else if (type === 'session_reconnect') {
       const newUrl = msg.payload.session?.reconnect_url
@@ -923,6 +938,9 @@ export class TwitchClient {
   // would otherwise be deaf during cooldown. Dedup by message id so dual-delivery
   // (EventSub + IRC both alive) only fires once per message.
   private dispatchPrivmsg(m: IrcPrivmsg) {
+    // shared chat from a channel we're also in: its native copy arrives there, so this
+    // mirror would answer/log the same line twice
+    if (m.sharedFrom && this.isJoinedId(m.sharedFrom)) return
     // channel-starvation bookkeeping: any real chat line proves this channel isn't
     // silent, and clears a pending strike so the escalation timer restarts clean.
     const channelKey = m.channel.toLowerCase()
@@ -936,10 +954,14 @@ export class TwitchClient {
     const replyParent: ReplyParent | undefined = m.replyParentUserLogin
       ? { login: m.replyParentUserLogin.toLowerCase(), body: m.replyParentBody }
       : undefined
-    const flags: MessageFlags | undefined = (m.firstMsg || m.returningChatter || m.badgeTags !== undefined || m.badgeInfoTags !== undefined || m.bits !== undefined || m.highlighted || m.redeem)
-      ? { firstMsg: m.firstMsg, returningChatter: m.returningChatter, badges: m.badgeTags, badgeInfo: m.badgeInfoTags, bits: m.bits, highlighted: m.highlighted, redeem: m.redeem }
+    const flags: MessageFlags | undefined = (m.firstMsg || m.returningChatter || m.badgeTags !== undefined || m.badgeInfoTags !== undefined || m.bits !== undefined || m.highlighted || m.redeem || m.sharedFrom)
+      ? { firstMsg: m.firstMsg, returningChatter: m.returningChatter, badges: m.badgeTags, badgeInfo: m.badgeInfoTags, bits: m.bits, highlighted: m.highlighted, redeem: m.redeem, shared: m.sharedFrom ? true : undefined }
       : undefined
     this.dispatchMessage(m.channel, m.userId, m.login, text, m.badges, m.messageId, m.threadId, m.sentTs, replyParent, flags)
+  }
+
+  private isJoinedId(userId: string): boolean {
+    return this.config.channels.some((c) => c.userId === userId)
   }
 
   private dispatchMessage(channel: string, userId: string, username: string, text: string, badges: string[], messageId: string, threadId?: string, sentTs?: number, replyParent?: ReplyParent, flags?: MessageFlags) {

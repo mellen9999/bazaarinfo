@@ -455,15 +455,21 @@ const client = new TwitchClient(
       const isMod = badges.some((b) => b === 'moderator' || b === 'broadcaster')
       const muted = !isMod && isMuted(channel, username, privileged)
 
+      // shared chat: a line mirrored in from another channel's chat. the room saw it so it
+      // stays in the transcript, but it never lands in this channel's records (logs, dossiers,
+      // badges, trivia wins, dungeon votes) — that chatter isn't this channel's
+      const shared = flags?.shared === true
       // the message id rides into the log so a mod's /delete can take the exact row back out
-      try { db.logChat(channel, username, text, messageId) } catch {}
+      if (!shared) try { db.logChat(channel, username, text, messageId) } catch {}
       // the mod flag rides into the buffer so a mod's earlier order in "Recent chat" reads
       // as an order, not a random viewer's wish. a cheer / highlight / channel-point redeem is
       // a transcript annotation the room saw too — the model reads `[500 bits]` like `[mod]`.
-      const tag = flags?.bits ? `${flags.bits} bits` : flags?.highlighted ? 'highlighted' : flags?.redeem ? 'redeem' : undefined
+      const tag = shared ? 'shared chat' : flags?.bits ? `${flags.bits} bits` : flags?.highlighted ? 'highlighted' : flags?.redeem ? 'redeem' : undefined
       chatbuf.record(channel, username, text, messageId, threadId, isMod, tag)
-      if (flags?.bits) db.logUserEvent({ channel, login: username, kind: 'cheer', detail: `cheered ${flags.bits} bits`, count: flags.bits })
-      noteBadges(channel, username, flags?.badges, flags?.badgeInfo)
+      if (!shared) {
+        if (flags?.bits) db.logUserEvent({ channel, login: username, kind: 'cheer', detail: `cheered ${flags.bits} bits`, count: flags.bits })
+        noteBadges(channel, username, flags?.badges, flags?.badgeInfo)
+      }
 
       // pre-fetch Twitch user info + followage for every chatter (fire-and-forget)
       // so data is ready BEFORE they ask questions, not after
@@ -474,7 +480,7 @@ const client = new TwitchClient(
       // a WINNING line rides into the command ctx so an "@bot is it X?" that took the round
       // is scored once, not scored AND answered by the AI. a miss still routes as an ask.
       let triviaGuess = false
-      if (isGameActive(channel) && !muted) {
+      if (isGameActive(channel) && !muted && !shared) {
         try {
           triviaGuess = checkAnswer(channel, username, text, (ch, msg) => botSay(ch, msg, messageId))
         } catch (e) {
@@ -485,7 +491,7 @@ const client = new TwitchClient(
       // dungeon: tally votes from chat. self-gates to offline channels + an active run, and
       // never replies per-vote — only a resolved window posts a line. isolated so a throw
       // here can't kill message handling. muted users can't vote (same mute invariant).
-      if (!muted && !isSuppressed(channel, 'depths')) {
+      if (!muted && !shared && !isSuppressed(channel, 'depths')) {
         try {
           dungeon.castInput(channel, username, text)
         } catch (e) {
