@@ -18,15 +18,32 @@ import type { TierName } from '@bazaarinfo/shared'
 
 export type CooldownValue = number | Partial<Record<TierName, number>>
 
-export interface PageFacts { art?: string, cd?: CooldownValue | null, at: string }
+// merchant pool: which heroes it serves and how many cards of each tier per hero. the
+// item titles themselves are loaded client-side by bazaardb, so only counts exist here.
+export interface MerchantPool { heroes: string[], counts: Record<string, Partial<Record<TierName, number>>> }
+
+// v = facts schema version; entries older than FACTS_VERSION re-fetch through the normal fill
+export interface PageFacts {
+  art?: string, cd?: CooldownValue | null, at: string
+  v?: number
+  buy?: CooldownValue, sell?: CooldownValue   // gold per tier (same shape as a cooldown)
+  where?: string[]                            // bazaardb's "Where to Find" (inferred) source cards
+  pool?: MerchantPool
+}
 export interface PageCache { cdn: string, cards: Record<string, PageFacts> }
-export interface ParsedPage { art?: string, cdn?: string, cooldown: CooldownValue | null }
+export interface ParsedPage {
+  art?: string, cdn?: string, cooldown: CooldownValue | null
+  buy?: CooldownValue, sell?: CooldownValue, where?: string[], pool?: MerchantPool
+}
+
+// bump when parseCardPage learns a new fact: cached entries below it count as stale
+export const FACTS_VERSION = 2
 
 const SITEMAP_URL = 'https://bazaardb.gg/sitemap.xml'
 const USER_AGENT = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
 const HASH_RE = /\/v1\/(z[\d.]+)\/([a-f0-9]{20,64})@/
-const COOLDOWN_ROW = '"tr","CooldownMax"'
-const COOLDOWN_CELL = /"CooldownMax-(Bronze|Silver|Gold|Diamond|Legendary)",\{(?:"style":\{[^{}]*\},)?"children":"([\d.]+)s"/g
+const WHERE_MAX = 12
+const POOL_HEROES_MAX = 12
 // most pages are ~200KB; Stickybeans is 24MB (it lists every board it appears on)
 const MAX_PAGE_BYTES = 48_000_000
 const TIERS: TierName[] = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Legendary']
@@ -43,20 +60,120 @@ export function parseCardPage(text: string): ParsedPage {
   const out: ParsedPage = { cooldown: null }
   if (m) { out.cdn = m[1]; out.art = m[2] }
 
-  const start = text.indexOf(COOLDOWN_ROW)
-  if (start < 0) return out
+  const cooldown = parseTierRow(text, 'CooldownMax', 's')
+  if (cooldown != null) out.cooldown = cooldown
+  const buy = parseTierRow(text, 'BuyPrice')
+  if (buy != null) out.buy = buy
+  const sell = parseTierRow(text, 'SellPrice')
+  if (sell != null) out.sell = sell
+  const where = parseWhereToFind(text)
+  if (where) out.where = where
+  const pool = parseMerchantPool(text)
+  if (pool) out.pool = pool
+  return out
+}
+
+// pure: one per-tier attribute row ("tr","<attr>" -> cells "<attr>-Gold" ...) -> a number
+// when every tier agrees, else a tier map. null when the row is absent or has no cells.
+// unit 's' = cooldown cells ("4s"), '' = bare numbers (prices).
+export function parseTierRow(text: string, attr: string, unit: '' | 's' = ''): CooldownValue | null {
+  const marker = `"tr","${attr}"`
+  const start = text.indexOf(marker)
+  if (start < 0) return null
   // the row ends where the next row starts
-  const next = text.indexOf('["$","tr"', start + COOLDOWN_ROW.length)
+  const next = text.indexOf('["$","tr"', start + marker.length)
   const row = text.slice(start, next < 0 ? undefined : next)
+  const cell = new RegExp(`"${attr}-(Bronze|Silver|Gold|Diamond|Legendary)",\\{(?:"style":\\{[^{}]*\\},)?"children":"?([\\d.]+)${unit}"?[,}]`, 'g')
   const perTier: Partial<Record<TierName, number>> = {}
-  for (const cell of row.matchAll(COOLDOWN_CELL)) {
-    const v = parseFloat(cell[2])
-    if (Number.isFinite(v)) perTier[cell[1] as TierName] = v
+  for (const m of row.matchAll(cell)) {
+    const v = parseFloat(m[2])
+    if (Number.isFinite(v)) perTier[m[1] as TierName] = v
   }
   const vals = TIERS.map((t) => perTier[t]).filter((v): v is number => v != null)
-  if (!vals.length) return out
-  out.cooldown = vals.every((v) => v === vals[0]) ? vals[0] : perTier
-  return out
+  if (!vals.length) return null
+  return vals.every((v) => v === vals[0]) ? vals[0] : perTier
+}
+
+const titleOfSlug = (slug: string): string => {
+  try { return decodeURIComponent(slug).replace(/-/g, ' ') } catch { return slug.replace(/-/g, ' ') }
+}
+
+// pure: the "Where to Find" section -> source card titles (bazaardb flags it "Inferred").
+// the section's body streams as a separate row referenced by "children":"$Lxx"; that row's
+// card links carry the titles (img alt, else the url slug). absent/malformed -> undefined.
+export function parseWhereToFind(text: string): string[] | undefined {
+  const at = text.indexOf('section-where-to-find","className')
+  if (at < 0) return undefined
+  const ref = /"children":"\$L([0-9a-f]+)"/.exec(text.slice(at, at + 3000))
+  let body: string
+  if (ref) {
+    const rowAt = text.indexOf(`\n${ref[1]}:`)
+    if (rowAt < 0) return undefined
+    const end = text.indexOf('\n', rowAt + 1)
+    body = text.slice(rowAt, end < 0 ? undefined : end)
+  } else {
+    const end = text.indexOf('\n', at)
+    body = text.slice(at, end < 0 ? at + 20_000 : Math.min(end, at + 20_000))
+  }
+  const titles: string[] = []
+  const links = [...body.matchAll(/"href":"\/card\/[^/"]+\/([^"]+)"/g)]
+  for (let i = 0; i < links.length && titles.length < WHERE_MAX; i++) {
+    const from = links[i].index! + links[i][0].length
+    const to = i + 1 < links.length ? links[i + 1].index! : body.length
+    const alt = /"alt":"([^"]+)"/.exec(body.slice(from, to))
+    let title = titleOfSlug(links[i][1])
+    if (alt && alt[1] !== '$undefined') {
+      try { title = JSON.parse(`"${alt[1]}"`) as string } catch { /* keep the slug title */ }
+    }
+    if (title && !titles.includes(title)) titles.push(title)
+  }
+  return titles.length ? titles : undefined
+}
+
+// balanced {...} starting at text[i] === '{', string-aware; null when it never closes
+function sliceObject(text: string, i: number, max = 20_000): string | null {
+  let depth = 0
+  let inStr = false
+  for (let j = i; j < text.length && j - i < max; j++) {
+    const c = text[j]
+    if (inStr) {
+      if (c === '\\') j++
+      else if (c === '"') inStr = false
+    } else if (c === '"') inStr = true
+    else if (c === '{') depth++
+    else if (c === '}' && --depth === 0) return text.slice(i, j + 1)
+  }
+  return null
+}
+
+// pure: a merchant page -> its pool (heroes + per-hero card counts per tier). any other
+// page has no poolCounts -> undefined. malformed json -> undefined, never throws.
+export function parseMerchantPool(text: string): MerchantPool | undefined {
+  const heroesAt = text.indexOf('"availableHeroes":[')
+  const countsAt = text.indexOf('"poolCounts":{', heroesAt < 0 ? 0 : heroesAt)
+  if (heroesAt < 0 || countsAt < 0) return undefined
+  try {
+    const hm = /^"availableHeroes":(\[[^\]]*\])/.exec(text.slice(heroesAt, heroesAt + 600))
+    const obj = sliceObject(text, countsAt + '"poolCounts":'.length)
+    if (!hm || !obj) return undefined
+    const heroes = (JSON.parse(hm[1]) as unknown[]).filter((h): h is string => typeof h === 'string').slice(0, POOL_HEROES_MAX)
+    const raw = JSON.parse(obj) as Record<string, { cards?: Record<string, unknown> }>
+    const counts: MerchantPool['counts'] = {}
+    for (const hero of heroes) {
+      const cards = raw[hero]?.cards
+      if (!cards || typeof cards !== 'object') continue
+      const per: Partial<Record<TierName, number>> = {}
+      for (const t of TIERS) {
+        const n = cards[t]
+        if (typeof n === 'number' && Number.isFinite(n) && n > 0) per[t] = n
+      }
+      if (Object.keys(per).length) counts[hero] = per
+    }
+    if (!heroes.length || !Object.keys(counts).length) return undefined
+    return { heroes, counts }
+  } catch {
+    return undefined
+  }
 }
 
 // pure: sitemap xml -> slug -> /card/{id}/{slug}. slugs are percent-encoded
@@ -183,7 +300,7 @@ export async function fillPageCache(titles: string[], cache: PageCache, opts: Fi
   const uniq = [...new Set(titles)]
   const missing = uniq.filter((t) => !cache.cards[t])
   const stale = uniq
-    .filter((t) => cache.cards[t] && t0 - Date.parse(cache.cards[t].at || '') > staleMs)
+    .filter((t) => cache.cards[t] && ((cache.cards[t].v ?? 1) < FACTS_VERSION || t0 - Date.parse(cache.cards[t].at || '') > staleMs))
     .sort((a, b) => Date.parse(cache.cards[a].at) - Date.parse(cache.cards[b].at))
   const todo = [...missing, ...stale]
   const res: FillResult = { fetched: 0, failed: 0, pending: Math.max(0, todo.length - cap) }
@@ -208,7 +325,11 @@ export async function fillPageCache(titles: string[], cache: PageCache, opts: Fi
       // a page with neither art nor cooldown row parsed to nothing: treat as a failed
       // fetch (layout drift / error page) rather than caching "no cooldown" for 3 days
       if (!page || (!page.art && page.cooldown == null && !page.cdn)) { res.failed++ } else {
-        const facts: PageFacts = { cd: page.cooldown, at: new Date(now()).toISOString() }
+        const facts: PageFacts = { cd: page.cooldown, at: new Date(now()).toISOString(), v: FACTS_VERSION }
+        if (page.buy != null) facts.buy = page.buy
+        if (page.sell != null) facts.sell = page.sell
+        if (page.where) facts.where = page.where
+        if (page.pool) facts.pool = page.pool
         if (page.art) facts.art = page.art
         else if (cache.cards[title]?.art) facts.art = cache.cards[title].art
         cache.cards[title] = facts

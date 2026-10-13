@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { readFileSync, mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { parseCardPage, parseSitemap, cdnNewer, fillPageCache, loadPageCache, savePageCache, type PageCache } from './card-pages'
+import { parseCardPage, parseTierRow, parseWhereToFind, parseMerchantPool, FACTS_VERSION, parseSitemap, cdnNewer, fillPageCache, loadPageCache, savePageCache, type PageCache } from './card-pages'
 
 const fx = (n: string) => readFileSync(join(import.meta.dir, '../fixtures', n), 'utf-8')
 
@@ -33,6 +33,66 @@ describe('parseCardPage', () => {
   it('only reads its own row, not later rows', () => {
     const t = '["$","tr","CooldownMax",{"children":[["$","td","CooldownMax-Gold",{"children":"3s"}]]}],["$","tr","Other",{"x":"CooldownMax-Gold\\",{\\"children\\":\\"9s\\""}]'
     expect(parseCardPage(t).cooldown).toBe(3)
+  })
+})
+
+describe('parseTierRow', () => {
+  it('reads price rows (bare numbers) per tier and collapses uniform ones', () => {
+    const p = parseCardPage(fx('page-soul-of-the-district.rsc'))
+    expect(p.buy).toBe(64)
+    expect(p.sell).toBe(32)
+    expect(p.cooldown).toBeNull()
+  })
+
+  it('differing tiers stay a tier map', () => {
+    const row = '["$","tr","BuyPrice",{"children":[["$","td","BuyPrice-Gold",{"children":8}],["$","td","BuyPrice-Diamond",{"style":{"color":"x"},"children":16}]]}]'
+    expect(parseTierRow(row, 'BuyPrice')).toEqual({ Gold: 8, Diamond: 16 })
+  })
+
+  it('a cooldown cell is not a price and a price is not a cooldown', () => {
+    const cd = '["$","tr","CooldownMax",{"children":[["$","td","CooldownMax-Gold",{"children":"3s"}]]}]'
+    expect(parseTierRow(cd, 'CooldownMax')).toBeNull()
+    expect(parseTierRow(cd, 'CooldownMax', 's')).toBe(3)
+  })
+
+  it('missing row, empty row and junk are null', () => {
+    expect(parseTierRow('garbage', 'BuyPrice')).toBeNull()
+    expect(parseTierRow('["$","tr","BuyPrice",{"children":[]}]', 'BuyPrice')).toBeNull()
+  })
+})
+
+describe('parseWhereToFind', () => {
+  it('follows the section to its streamed row and reads source titles', () => {
+    expect(parseWhereToFind(fx('page-soul-of-the-district.rsc'))).toEqual(['Awakened District'])
+    expect(parseCardPage(fx('page-soul-of-the-district.rsc')).where).toEqual(['Awakened District'])
+  })
+
+  it('no section, dangling ref, or no links -> undefined', () => {
+    expect(parseWhereToFind(fx('page-aged-cask.rsc'))).toBeUndefined()
+    expect(parseWhereToFind('{"id":"section-where-to-find","className":"x","children":"$L9z"}')).toBeUndefined()
+    expect(parseWhereToFind('{"id":"section-where-to-find","className":"x","children":"$L9"}\n9:["$","div",null,{}]\n')).toBeUndefined()
+  })
+
+  it('dedupes, decodes slugs when there is no alt, and caps the list', () => {
+    const links = Array.from({ length: 20 }, (_, i) => `{"href":"/card/id${i}/Card-${i}"}`).join(',')
+    const t = `{"id":"section-where-to-find","className":"x","children":"$L9"}\n9:[${links},{"href":"/card/id0/Card-0"}]\n`
+    const w = parseWhereToFind(t)!
+    expect(w).toHaveLength(12)
+    expect(w[0]).toBe('Card 0')
+  })
+})
+
+describe('parseMerchantPool', () => {
+  it('reads heroes and per-tier counts', () => {
+    const p = parseCardPage(fx('page-colt.rsc'))
+    expect(p.pool).toEqual({ heroes: ['Vanessa'], counts: { Vanessa: { Bronze: 13, Silver: 14, Gold: 5 } } })
+  })
+
+  it('non-merchant pages and malformed json have no pool, never throw', () => {
+    expect(parseMerchantPool(fx('page-aged-cask.rsc'))).toBeUndefined()
+    expect(parseMerchantPool('"availableHeroes":["A"],"poolCounts":{"A":{"cards":')).toBeUndefined()
+    expect(parseMerchantPool('"availableHeroes":[oops],"poolCounts":{}')).toBeUndefined()
+    expect(parseMerchantPool('"availableHeroes":["A"],"poolCounts":{"A":{"cards":{}}}')).toBeUndefined()
   })
 })
 
@@ -71,13 +131,31 @@ const opts = { delayMs: 0, save: false }
 describe('fillPageCache', () => {
   it('fetches only titles the cache lacks', async () => {
     const seen: string[] = []
-    const cache: PageCache = { cdn: '', cards: { 'Aged Cask': { cd: 4, art: 'a'.repeat(40), at: new Date().toISOString() } } }
+    const cache: PageCache = { cdn: '', cards: { 'Aged Cask': { cd: 4, art: 'a'.repeat(40), at: new Date().toISOString(), v: FACTS_VERSION } } }
     const f = fakeFetch({ '/card/1/Aged-Cask': aged(), '/card/2/Ice-Cream-Truck': truck() }, seen)
     const r = await fillPageCache(['Aged Cask', 'Ice Cream Truck'], cache, { ...opts, fetcher: f })
     expect(seen).toEqual(['/card/2/Ice-Cream-Truck'])
     expect(r.fetched).toBe(1)
     expect(cache.cards['Ice Cream Truck'].cd).toEqual({ Silver: 9, Gold: 8, Diamond: 7 })
     expect(cache.cdn).toBe('z19.0')
+  })
+
+  it('entries from an older facts version are re-fetched, and keep their art', async () => {
+    const seen: string[] = []
+    const cache: PageCache = { cdn: '', cards: { 'Aged Cask': { cd: 4, art: 'a'.repeat(40), at: new Date().toISOString() } } }
+    const f = fakeFetch({ '/card/1/Aged-Cask': aged() }, seen)
+    const r = await fillPageCache(['Aged Cask'], cache, { ...opts, fetcher: f })
+    expect(seen).toEqual(['/card/1/Aged-Cask'])
+    expect(r.fetched).toBe(1)
+    expect(cache.cards['Aged Cask'].v).toBe(FACTS_VERSION)
+  })
+
+  it('new facts land in the cache entry', async () => {
+    const cache: PageCache = { cdn: '', cards: {} }
+    const f = fakeFetch({ '/card/1/Soul-of-the-District': fx('page-soul-of-the-district.rsc'), '/card/2/Colt': fx('page-colt.rsc') })
+    await fillPageCache(['Soul of the District', 'Colt'], cache, { ...opts, fetcher: f })
+    expect(cache.cards['Soul of the District']).toMatchObject({ buy: 64, sell: 32, where: ['Awakened District'] })
+    expect(cache.cards.Colt.pool?.heroes).toEqual(['Vanessa'])
   })
 
   it('respects the cap and reports pending', async () => {

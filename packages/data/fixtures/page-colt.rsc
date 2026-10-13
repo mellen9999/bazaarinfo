@@ -1,0 +1,2 @@
+1:["$","img",null,{"src":"https://s.bazaardb.gg/v1/z19.0/c7eae152cb50368bf4a51445463863c525eb2bb4@400.webp)"}]
+73:["$","$L74",null,{"itemOrSkill":"Item","availableHeroes":["Vanessa"],"poolCounts":{"Vanessa":{"cards":{"Bronze":13,"Gold":5,"Silver":14},"enchantCards":{}}},"initialSelection":{"hero":"Vanessa","tierOperation":2,"tierIndex":3,"sortBy":"BaseTier","sortOrder":"ascending"},"hasUrlSelection":false,"initialCards":[]}]
