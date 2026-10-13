@@ -294,7 +294,7 @@ export function serializeCard(card: BazaarCard): string {
     enchants ? `Enchants: ${enchants}` : null,
   ].filter(Boolean)
 
-  const facts = cardFacts(card, store.soldBy(card.Title))
+  const facts = cardFacts(card)
   return facts.length ? `${parts.join(' | ')} | ${facts.join(' | ')}` : parts.join(' | ')
 }
 

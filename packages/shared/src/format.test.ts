@@ -675,14 +675,13 @@ describe('page facts', () => {
     expect(cardFacts(makeCard({ Where: [], Quests: [] }))).toEqual([])
   })
 
-  it('cardFacts states source (labelled inferred), sellers, quest and prices', () => {
+  it('cardFacts states source (labelled inferred), quest and prices', () => {
     const f = cardFacts(makeCard({
       Where: ['Awakened District'], Buy: { Silver: 8, Gold: 16 }, Sell: 4,
       Quests: [{ goal: 'Visit a Gold-tier Encounter', reward: 'get 2 Loot items' }],
-    }), ['Colt'])
+    }))
     expect(f).toEqual([
       'also found: Awakened District (bazaardb inferred, not a full list)',
-      'sold by: Colt',
       'quest: Visit a Gold-tier Encounter -> get 2 Loot items',
       'buy S8/G16g, sell 4g',
     ])

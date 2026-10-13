@@ -307,7 +307,7 @@ export async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix:
   if (card && isRelevantMatch(card.Title, !!exactCard)) {
     const v = validateTier(card, tier)
     logHit('item', query, card.Title, ctx, v.tier)
-    const result = formatItem(card, v.tier, askNote(cleanArgs, patchNote(card.Title), () => cardFacts(card, store.soldBy(card.Title))))
+    const result = formatItem(card, v.tier, askNote(cleanArgs, patchNote(card.Title), () => cardFacts(card)))
     return withSuffix(v.note ? `${result} (${v.note})` : result, suffix)
   }
 
@@ -349,7 +349,7 @@ export async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix:
       if (sCard && isRelevantMatch(sCard.Title, !!sExact, sWords) && !isIncidentalMention(sCard.Title, queryWords)) {
         const v = validateTier(sCard, tier)
         logHit('item', query, sCard.Title, ctx, v.tier)
-        const result = formatItem(sCard, v.tier, askNote(cleanArgs, patchNote(sCard.Title), () => cardFacts(sCard, store.soldBy(sCard.Title))))
+        const result = formatItem(sCard, v.tier, askNote(cleanArgs, patchNote(sCard.Title), () => cardFacts(sCard)))
         return withSuffix(v.note ? `${result} (${v.note})` : result, suffix)
       }
       const sMonster = store.findMonster(salvaged.query)

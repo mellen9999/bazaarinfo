@@ -321,12 +321,12 @@ function goldByTier(v: NonNullable<BazaarCard['Buy']>): string {
   return parts.length ? `${parts.join('/')}g` : ''
 }
 
-// terse fact segments for one card, in answer-priority order. `soldBy` = merchants that
-// list the card as a source (the caller's inverse index). empty -> no segments.
-export function cardFacts(card: BazaarCard, soldBy: string[] = []): string[] {
+// terse fact segments for one card, in answer-priority order. empty -> no segments.
+// bazaardb's "Where to Find" names monsters/encounters only, never merchants, and merchant
+// pages don't list their items — so "who sells X" has no grounded answer here.
+export function cardFacts(card: BazaarCard): string[] {
   const out: string[] = []
   if (card.Where?.length) out.push(`also found: ${card.Where.join(', ')} (bazaardb inferred, not a full list)`)
-  if (soldBy.length) out.push(`sold by: ${soldBy.join(', ')}`)
   if (card.Quests?.length) {
     out.push(`quest: ${card.Quests.slice(0, 3).map((q) => (q.reward ? `${q.goal} -> ${q.reward}` : q.goal)).join('; ')}`)
   }
