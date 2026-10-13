@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, applyCooldowns, carryCooldowns, cooldownsFromPages, applyPageArt, checkDeltaGuard, loadPrevCooldowns } from './scraper'
+import { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, applyCooldowns, carryCooldowns, cooldownsFromPages, applyPageArt, applyPageFacts, checkDeltaGuard, loadPrevCooldowns } from './scraper'
 import type { DumpEntry } from './scraper'
 import type { CardCache } from '@bazaarinfo/shared'
 import { tmpdir } from 'os'
@@ -426,5 +426,63 @@ describe('carryCooldowns', () => {
     expect(cd('Unfetched')).toBe(5)
     expect(cd('Went Passive')).toBeUndefined()
     expect(cd('Active Miss')).toBe(7)
+  })
+})
+
+describe('quests', () => {
+  const tip = (text: string) => ({ text, type: 'Passive' })
+  const atlas = [
+    { entries: [{ tooltips: [tip('Visit a Gold-tier Encounter')], reward: { tooltips: [tip('When you sell this, get 2 Loot items')] } }] },
+    { entries: [{ tooltips: [tip('Visit a Diamond-tier Encounter')], reward: { tooltips: [tip('When you sell this, gain 2 XP')] } }] },
+  ]
+
+  it('toCard carries a trimmed goal -> reward shape', () => {
+    expect(toCard(makeDumpEntry({ Quests: atlas })).Quests).toEqual([
+      { goal: 'Visit a Gold-tier Encounter', reward: 'When you sell this, get 2 Loot items' },
+      { goal: 'Visit a Diamond-tier Encounter', reward: 'When you sell this, gain 2 XP' },
+    ])
+  })
+
+  it('cards without quests have no Quests key at all', () => {
+    expect('Quests' in toCard(makeDumpEntry())).toBe(false)
+    expect('Quests' in toCard(makeDumpEntry({ Quests: [] }))).toBe(false)
+  })
+
+  it('malformed quests drop out instead of throwing', () => {
+    const bad = [null, {}, { entries: 5 }, { entries: [{}, { tooltips: [{ text: 7 }] }] }] as any
+    expect('Quests' in toCard(makeDumpEntry({ Quests: bad }))).toBe(false)
+    expect(toCard(makeDumpEntry({ Quests: 'x' as any })).Title).toBe('Test Sword')
+  })
+
+  it('caps count and text length', () => {
+    const many = Array.from({ length: 20 }, () => ({ entries: [{ tooltips: [tip('x'.repeat(500))] }] }))
+    const q = toCard(makeDumpEntry({ Quests: many })).Quests!
+    expect(q).toHaveLength(6)
+    expect(q[0].goal).toHaveLength(160)
+    expect(q[0].reward).toBe('')
+  })
+
+  it('monster drop stats ride through untouched', () => {
+    const m = toMonster(makeDumpEntry({ Type: 'CombatEncounter', MonsterMetadata: { available: 'Day 1', day: 1, health: 100, board: [], skills: [], skillDropChance: 0.25, avgDropGold: 1.25 } }))
+    expect(m!.MonsterMetadata.skillDropChance).toBe(0.25)
+    expect(m!.MonsterMetadata.avgDropGold).toBe(1.25)
+  })
+})
+
+describe('applyPageFacts', () => {
+  it('copies price, where and pool onto cards; others untouched', () => {
+    const item = toCard(makeDumpEntry({ Title: 'Soul' }))
+    const plain = toCard(makeDumpEntry({ Title: 'Plain' }))
+    const merchant = toCard(makeDumpEntry({ Title: 'Colt', Type: 'EventEncounter' as any }))
+    const cache = { items: [item, plain], skills: [], monsters: [], events: [merchant], fetchedAt: '' } as CardCache
+    const pool = { heroes: ['Vanessa'], counts: { Vanessa: { Bronze: 13 } } }
+    applyPageFacts(cache, { cdn: '', cards: {
+      Soul: { at: '', buy: 64, sell: 32, where: ['Awakened District'] },
+      Colt: { at: '', pool },
+      Plain: { at: '' },
+    } })
+    expect(item).toMatchObject({ Buy: 64, Sell: 32, Where: ['Awakened District'] })
+    expect(merchant.Pool).toEqual(pool)
+    expect('Buy' in plain || 'Where' in plain || 'Pool' in plain).toBe(false)
   })
 })

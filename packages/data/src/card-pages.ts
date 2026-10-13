@@ -14,13 +14,11 @@
 
 import { open, rename, chmod, mkdir } from 'fs/promises'
 import { dirname, resolve } from 'path'
-import type { TierName } from '@bazaarinfo/shared'
+import type { TierName, MerchantPool } from '@bazaarinfo/shared'
+
+export type { MerchantPool }
 
 export type CooldownValue = number | Partial<Record<TierName, number>>
-
-// merchant pool: which heroes it serves and how many cards of each tier per hero. the
-// item titles themselves are loaded client-side by bazaardb, so only counts exist here.
-export interface MerchantPool { heroes: string[], counts: Record<string, Partial<Record<TierName, number>>> }
 
 // v = facts schema version; entries older than FACTS_VERSION re-fetch through the normal fill
 export interface PageFacts {

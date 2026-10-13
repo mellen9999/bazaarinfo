@@ -1,4 +1,4 @@
-import type { BazaarCard, Monster, CardCache, DumpTooltip, DumpEnchantment, ReplacementValue, TierName, ItemSize, MonsterBoardEntry } from '@bazaarinfo/shared'
+import type { CardQuest, BazaarCard, Monster, CardCache, DumpTooltip, DumpEnchantment, ReplacementValue, TierName, ItemSize, MonsterBoardEntry } from '@bazaarinfo/shared'
 import { resolve } from 'path'
 import { fillPageCache, loadPageCache, readTextCapped, type CooldownValue, type PageCache } from './card-pages'
 
@@ -29,9 +29,37 @@ interface DumpEntry {
     health: number
     board: MonsterBoardEntry[]
     skills: MonsterBoardEntry[]
+    skillDropChance?: number
+    avgDropGold?: number
   }
+  Quests?: DumpQuest[]
   Shortlink: string
   ArtKey?: string
+}
+
+interface DumpQuest {
+  entries?: { tooltips?: DumpTooltip[], reward?: { tooltips?: DumpTooltip[] } }[]
+}
+
+const QUESTS_MAX = 6
+const QUEST_TEXT_MAX = 160
+
+const questText = (tips?: DumpTooltip[]): string =>
+  (Array.isArray(tips) ? tips : []).map((t) => (typeof t?.text === 'string' ? t.text.trim() : '')).filter(Boolean).join(' ').slice(0, QUEST_TEXT_MAX)
+
+// quests flattened to goal -> reward text. malformed entries drop out, never throw.
+function toQuests(raw: unknown): CardQuest[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: CardQuest[] = []
+  for (const q of raw as DumpQuest[]) {
+    for (const e of Array.isArray(q?.entries) ? q.entries : []) {
+      const goal = questText(e?.tooltips)
+      if (!goal) continue
+      out.push({ goal, reward: questText(e?.reward?.tooltips) })
+      if (out.length >= QUESTS_MAX) return out
+    }
+  }
+  return out.length ? out : undefined
 }
 
 function computeDisplayTags(entry: DumpEntry): string[] {
@@ -76,6 +104,8 @@ function toCard(entry: DumpEntry): BazaarCard {
   }
   const artKey = entry.ArtKey || ART_MAP[entry.Title]
   if (artKey) card.ArtKey = artKey
+  const quests = toQuests(entry.Quests)
+  if (quests) card.Quests = quests
   return card
 }
 
@@ -224,6 +254,21 @@ function cooldownsFromPages(pages: PageCache): Map<string, CooldownValue> {
   return map
 }
 
+// buy/sell price, where-to-find and merchant pools from the page cache onto the cards.
+// pages are the single source, so each scrape rewrites them (no carry-forward needed).
+function applyPageFacts(cache: CardCache, pages: PageCache): number {
+  let n = 0
+  for (const c of [...cache.items, ...cache.skills, ...(cache.events ?? [])]) {
+    const f = pages.cards[c.Title]
+    if (!f) continue
+    if (f.buy != null) { c.Buy = f.buy; n++ }
+    if (f.sell != null) c.Sell = f.sell
+    if (f.where?.length) c.Where = f.where
+    if (f.pool) c.Pool = f.pool
+  }
+  return n
+}
+
 // runtime art overrides the committed seed; recount so stats reflect the fill
 function applyPageArt(cache: CardCache, pages: PageCache, stats: ScrapeStats, onProgress?: (msg: string) => void): void {
   let misses = 0
@@ -296,7 +341,7 @@ async function loadPrevCooldowns(path: string = PREV_CACHE_PATH): Promise<Map<st
 }
 
 // exported for testing
-export { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, cooldownsFromPages, applyPageArt, applyCooldowns, carryCooldowns, loadPrevCooldowns }
+export { computeDisplayTags, toCard, toMonster, parseDump, parseDumpWithStats, cooldownsFromPages, applyPageArt, applyPageFacts, toQuests, applyCooldowns, carryCooldowns, loadPrevCooldowns }
 export type { DumpEntry, ScrapeStats, ParseResult as ScrapeResult }
 
 interface PrevCounts { items: number; skills: number; monsters: number }
@@ -369,6 +414,7 @@ export async function scrapeDump(onProgress?: (msg: string) => void, opts?: Scra
         .map((c) => c.Title)
       await fillPageCache(needy, pages, { onProgress }).catch((e) => onProgress?.(`card pages failed: ${e instanceof Error ? e.message : e}`))
       applyPageArt(cache, pages, stats, onProgress)
+      applyPageFacts(cache, pages)
       const cooldowns = cooldownsFromPages(pages)
       // cooldown is the #1 stat for a weapon — refuse to ship a cache where enrichment
       // silently matched almost nothing (source drift / fetch failure). ~100 floor avoids

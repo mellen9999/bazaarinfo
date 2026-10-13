@@ -17,6 +17,12 @@ export interface DumpEnchantment {
 
 export type ItemSize = 'Small' | 'Medium' | 'Large'
 
+// a quest an item carries: what you do, what it pays out (from dump.json)
+export interface CardQuest { goal: string, reward: string }
+
+// merchant pool: heroes it serves + card counts per tier per hero (bazaardb card page)
+export interface MerchantPool { heroes: string[], counts: Record<string, Partial<Record<TierName, number>>> }
+
 export interface BazaarCard {
   Type: 'Item' | 'Skill' | 'EventEncounter'
   Title: string
@@ -33,6 +39,12 @@ export interface BazaarCard {
   Shortlink: string
   ArtKey?: string
   Cooldown?: number | Partial<Record<TierName, number>>
+  // bazaardb page facts (card-pages.ts) + dump quests; all optional, absent = unknown
+  Buy?: number | Partial<Record<TierName, number>>
+  Sell?: number | Partial<Record<TierName, number>>
+  Where?: string[]        // "Where to Find" source cards — bazaardb marks this inferred
+  Quests?: CardQuest[]
+  Pool?: MerchantPool     // merchants only
 }
 
 export interface MonsterBoardEntry {
@@ -47,6 +59,8 @@ export interface MonsterMetadata {
   health: number
   board: MonsterBoardEntry[]
   skills: MonsterBoardEntry[]
+  skillDropChance?: number  // 0..1
+  avgDropGold?: number
 }
 
 export interface Monster {
