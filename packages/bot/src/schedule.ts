@@ -4,6 +4,7 @@
 // no LLM here on purpose: a schedule is a statistics problem, and an AI guess would
 // fabricate a confident-but-wrong time. this reads the streamer's real rhythm and
 // refuses to answer when the data can't support one.
+import { etClock, etDayIndex, etWeekday } from './et'
 
 const MIN = 60_000
 const HOUR = 3_600_000
@@ -27,6 +28,7 @@ const STREAK_BROKEN = 3 // silent for this × the recent gap ⇒ the run ended, 
 // how far back the caller should read sessions from. lives here, not in the query glue,
 // because it's a property of the prediction: starts older than this are deliberately
 // ignored (a schedule from four months ago predicts nothing about tonight).
+
 export const PREDICT_WINDOW_DAYS = 120
 
 export interface StreamSession {
@@ -236,20 +238,12 @@ export function humanizeDelta(ms: number): string {
 }
 
 function dayLabel(at: number, now: number): string {
-  const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
-  const d0 = Math.floor(now / DAY)
-  const d1 = Math.floor(at / DAY)
+  const d0 = etDayIndex(now)
+  const d1 = etDayIndex(at)
   if (d1 === d0) return 'today'
   if (d1 === d0 + 1) return 'tomorrow'
   if (d1 === d0 - 1) return 'yesterday'
-  return days[new Date(at).getUTCDay()]
-}
-
-function utcClock(at: number): string {
-  const d = new Date(at)
-  const h = String(d.getUTCHours()).padStart(2, '0')
-  const m = String(d.getUTCMinutes()).padStart(2, '0')
-  return `${h}:${m} UTC`
+  return etWeekday(at)
 }
 
 export interface LiveInfo {
@@ -292,7 +286,7 @@ export function formatSchedule(channel: string, pred: Prediction, now: number, l
       const inMs = pred.at - now
       const soon = inMs <= GRACE ? 'any moment now' : `in ${humanizeDelta(inMs)}`
       // a ±5h streak window is honest but nearly useless — say so, same as the weekday model
-      return `${channel} streams near-daily — next likely ${when} ${soon} (±${humanizeDelta(pred.confidenceMs)}${pred.loose ? ', rough' : ''}), ~${utcClock(pred.at)}.`
+      return `${channel} streams near-daily — next likely ${when} ${soon} (±${humanizeDelta(pred.confidenceMs)}${pred.loose ? ', rough' : ''}), ~${etClock(pred.at)}.`
     }
     case 'weekday':
     case 'gap': {
@@ -300,7 +294,7 @@ export function formatSchedule(channel: string, pred: Prediction, now: number, l
       const inMs = pred.at - now
       const soon = inMs <= GRACE ? 'any moment now' : `in ${humanizeDelta(inMs)}`
       const rough = pred.kind === 'weekday' && pred.loose ? ', rough' : ''
-      return `next ${channel} stream likely ${when} ${soon} (±${humanizeDelta(pred.confidenceMs)}${rough}) — ~${utcClock(pred.at)}.`
+      return `next ${channel} stream likely ${when} ${soon} (±${humanizeDelta(pred.confidenceMs)}${rough}) — ~${etClock(pred.at)}.`
     }
   }
 }
@@ -363,10 +357,10 @@ export function scheduleContext(channel: string, pred: Prediction, now: number, 
     case 'irregular':
       return `Stream schedule for ${channel}: too irregular to predict${pred.medianGapMs ? ` (~1 every ${humanizeDelta(pred.medianGapMs)})` : ''}. Do not guess a specific time.`
     case 'streak':
-      return `Stream schedule for ${channel}: streaming near-daily lately; next likely ${dayLabel(pred.at, now)} in ${humanizeDelta(pred.at - now)} (±${humanizeDelta(pred.confidenceMs)}), ~${utcClock(pred.at)}, from ${pred.samples} logged starts (recent ones weighted heaviest). Currently offline. This is a statistical estimate, not confirmed.`
+      return `Stream schedule for ${channel}: streaming near-daily lately; next likely ${dayLabel(pred.at, now)} in ${humanizeDelta(pred.at - now)} (±${humanizeDelta(pred.confidenceMs)}), ~${etClock(pred.at)}, from ${pred.samples} logged starts (recent ones weighted heaviest). Currently offline. This is a statistical estimate, not confirmed.`
     case 'weekday':
     case 'gap':
-      return `Stream schedule for ${channel}: next likely ${dayLabel(pred.at, now)} in ${humanizeDelta(pred.at - now)} (±${humanizeDelta(pred.confidenceMs)}), ~${utcClock(pred.at)}, from ${pred.samples} logged starts. Currently offline. This is a statistical estimate, not confirmed.`
+      return `Stream schedule for ${channel}: next likely ${dayLabel(pred.at, now)} in ${humanizeDelta(pred.at - now)} (±${humanizeDelta(pred.confidenceMs)}), ~${etClock(pred.at)}, from ${pred.samples} logged starts. Currently offline. This is a statistical estimate, not confirmed.`
   }
 }
 
@@ -400,12 +394,12 @@ export function formatLastStream(channel: string, sessions: StreamSession[], now
   const last = latestSession(sessions)
   if (live.isLive) {
     const since = live.liveSince ?? last?.startedAt
-    const up = since ? ` — started ${utcClock(since)}, up ${humanizeDelta(now - since)}` : ''
+    const up = since ? ` — started ${etClock(since)}, up ${humanizeDelta(now - since)}` : ''
     return `${channel} is live right now${up}.`
   }
   if (!last) return `haven't logged any ${channel} streams yet — i only see starts from when i'm watching.`
   const ran = last.durMs ? `, ran ${humanizeDelta(last.durMs)}` : ''
-  return `last ${channel} stream started ${dayLabel(last.startedAt, now)} around ${utcClock(last.startedAt)} (${humanizeDelta(now - last.startedAt)} ago${ran}).`
+  return `last ${channel} stream started ${dayLabel(last.startedAt, now)} around ${etClock(last.startedAt)} (${humanizeDelta(now - last.startedAt)} ago${ran}).`
 }
 
 // AI-context twin of formatLastStream, for the mention-path backstop.
@@ -413,9 +407,9 @@ export function lastStreamContext(channel: string, sessions: StreamSession[], no
   const last = latestSession(sessions)
   if (live.isLive) {
     const since = live.liveSince ?? last?.startedAt
-    return `Last stream for ${channel}: LIVE right now${since ? ` (started ${utcClock(since)}, up ${humanizeDelta(now - since)})` : ''}.`
+    return `Last stream for ${channel}: LIVE right now${since ? ` (started ${etClock(since)}, up ${humanizeDelta(now - since)})` : ''}.`
   }
   if (!last) return `Last stream for ${channel}: no logged sessions. Do not guess a time.`
   const ran = last.durMs ? `, ran ${humanizeDelta(last.durMs)}` : ''
-  return `Last stream for ${channel}: started ${dayLabel(last.startedAt, now)} ~${utcClock(last.startedAt)} (${humanizeDelta(now - last.startedAt)} ago${ran}). Relay these numbers, do not guess others.`
+  return `Last stream for ${channel}: started ${dayLabel(last.startedAt, now)} ~${etClock(last.startedAt)} (${humanizeDelta(now - last.startedAt)} ago${ran}). Relay these numbers, do not guess others.`
 }

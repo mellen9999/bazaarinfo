@@ -11,15 +11,15 @@ import * as db from './db'
 db.initDb(':memory:')
 
 describe('nowLine — the bot can state the weekday instead of deriving it', () => {
-  it('names the weekday, date and UTC time', () => {
+  it('names the weekday, date and ET time', () => {
     const l = nowLine(new Date(Date.UTC(2026, 7, 12, 17, 42)))
     expect(l).toContain('wednesday 12 aug 2026')
-    expect(l).toContain('17:42 UTC')
+    expect(l).toContain('13:42 ET')
   })
 
   it('zero-pads and rolls the weekday correctly', () => {
-    expect(nowLine(new Date(Date.UTC(2026, 0, 4, 9, 5)))).toContain('sunday 4 jan 2026, 09:05 UTC')
-    expect(nowLine(new Date(Date.UTC(2026, 11, 31, 0, 0)))).toContain('thursday 31 dec 2026, 00:00 UTC')
+    expect(nowLine(new Date(Date.UTC(2026, 0, 4, 9, 5)))).toContain('sunday 4 jan 2026, 04:05 ET')
+    expect(nowLine(new Date(Date.UTC(2026, 11, 31, 0, 0)))).toContain('wednesday 30 dec 2026, 19:00 ET')
   })
 
   it('stays small enough to never lose its slot in the context budget', () => {

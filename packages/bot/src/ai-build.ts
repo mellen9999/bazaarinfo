@@ -52,6 +52,7 @@ import { monotonyStreak } from './ai-verify'
 import { selfContext } from './self'
 import { buildGameContext } from './ai-build-game'
 import { buildUserContext, buildAboutUserLine } from './ai-build-user'
+import { etParts } from './et'
 import { buildTimeline, buildRecallContext, buildChatRecall } from './ai-build-recall'
 import type { RemoteHistory } from './hslogs-context'
 import { buildChattersContext, buildChatStr, fitToBudget } from './ai-build-chat'
@@ -59,14 +60,15 @@ import { buildChattersContext, buildChatStr, fitToBudget } from './ai-build-chat
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 
-// the wall clock, injected fresh on every request. UTC to match schedule.ts, which is the
+// the wall clock, injected fresh on every request. ET to match schedule.ts (via et.ts), the
 // only other place the bot states a time — two clocks in two zones would contradict inside
 // one answer ("streams wednesday" / "today is tuesday").
 export function nowLine(at: Date = new Date()): string {
-  const hh = String(at.getUTCHours()).padStart(2, '0')
-  const mm = String(at.getUTCMinutes()).padStart(2, '0')
-  const stamp = `${WEEKDAYS[at.getUTCDay()]} ${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]} ${at.getUTCFullYear()}, ${hh}:${mm} UTC`
-  return `\nRight now: ${stamp}. day/date/time/"what day is it" asks: answer straight from this line. never guess a weekday, never dodge to a schedule or a calendar app. viewer timezones vary, so say UTC.\n`
+  const p = etParts(at)
+  const hh = String(p.hour).padStart(2, '0')
+  const mm = String(p.minute).padStart(2, '0')
+  const stamp = `${WEEKDAYS[p.weekday]} ${p.day} ${MONTHS[p.month]} ${p.year}, ${hh}:${mm} ET`
+  return `\nRight now: ${stamp}. day/date/time/"what day is it" asks: answer straight from this line. never guess a weekday, never dodge to a schedule or a calendar app. state times in ET, never UTC.\n`
 }
 
 // whether the channel is live, which every other viewer in chat can see at a glance. the

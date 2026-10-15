@@ -388,7 +388,7 @@ describe('formatLastStream / lastStreamContext — real data, never a forward gu
   test('reports the latest logged start, not a prediction', () => {
     const out = formatLastStream('nl_kripp', sessions, now, { isLive: false })
     expect(out).toContain('yesterday')
-    expect(out).toContain('21:07 UTC')
+    expect(out).toContain('17:07 ET')
     expect(out).toContain('~6h')
     expect(out).not.toContain('likely')
     expect(out).not.toContain('next')
@@ -404,12 +404,12 @@ describe('formatLastStream / lastStreamContext — real data, never a forward gu
   test('no sessions → honest no-data, no fabrication', () => {
     const out = formatLastStream('nl_kripp', [], now, { isLive: false })
     expect(out.toLowerCase()).toContain("haven't")
-    expect(out).not.toMatch(/\d{2}:\d{2} UTC/)
+    expect(out).not.toMatch(/\d{2}:\d{2} (UTC|ET)/)
   })
 
   test('lastStreamContext grounds the model and forbids guessing', () => {
     const ctx = lastStreamContext('nl_kripp', sessions, now, { isLive: false })
-    expect(ctx).toContain('21:07')
+    expect(ctx).toContain('17:07')
     expect(ctx.toLowerCase()).toContain('do not guess')
   })
 
