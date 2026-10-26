@@ -23,6 +23,8 @@ const STREAK_RUN = 5 // most recent starts examined for an active near-daily run
 const STREAK_CLOCK = 15 // starts feeding the typical-clock estimate (cadence stays on STREAK_RUN)
 const STREAK_DECAY = 0.85 // per-start recency decay on the clock estimate
 const STREAK_MAX_GAP = 40 * HOUR // median recent gap at/below this = actively streaming ~daily
+const HIATUS_MIN = 5 * DAY // silence shorter than this is never a "break", whatever the cadence
+const HIATUS_MULT = 2 // ...and it must also beat this × the streamer's own p90 gap
 const STREAK_BROKEN = 3 // silent for this × the recent gap ⇒ the run ended, use the long models
 
 // how far back the caller should read sessions from. lives here, not in the query glue,
@@ -38,6 +40,7 @@ export interface StreamSession {
 
 export type Prediction =
   | { kind: 'insufficient'; sessions: number; needed: number; reason: 'count' | 'span'; spanDays?: number }
+  | { kind: 'hiatus'; lastAt: number; silentMs: number; usualGapMs: number }
   | { kind: 'irregular'; sessions: number; medianGapMs: number | null }
   | { kind: 'streak'; at: number; confidenceMs: number; loose: boolean; samples: number }
   | { kind: 'weekday'; at: number; confidenceMs: number; loose: boolean; samples: number }
@@ -124,6 +127,19 @@ export function predictNextStream(raw: StreamSession[], now: number): Prediction
   // enough starts, but all crammed into a few days — saying "8/6 starts logged" claims a
   // shortfall that isn't there. the missing thing is history length, so say that instead.
   if (spanDays < MIN_SPAN_DAYS) return { kind: 'insufficient', sessions: s.length, needed: MIN_SESSIONS, reason: 'span', spanDays }
+
+  // break detector, before any model: a vacation/hiatus makes every cadence model lie —
+  // weekday hit-rates keep saying "today ~6pm" for weeks. if the silence since the last
+  // start dwarfs anything in the streamer's own history (p90 gap), the honest answer is
+  // "on a break", not a time. self-calibrating: a weekly streamer needs 14d+ of silence,
+  // a daily one 5d.
+  const allGaps: number[] = []
+  for (let i = 1; i < s.length; i++) allGaps.push(s[i].startedAt - s[i - 1].startedAt)
+  const p90Gap = quantile([...allGaps].sort((a, b) => a - b), 0.9)
+  const silentMs = now - s[s.length - 1].startedAt
+  if (silentMs >= HIATUS_MIN && silentMs > HIATUS_MULT * p90Gap) {
+    return { kind: 'hiatus', lastAt: s[s.length - 1].startedAt, silentMs, usualGapMs: median(allGaps) }
+  }
 
   // timezone-agnostic frame: we don't know the streamer's tz, so we derive a shift that
   // moves the typical start to local-noon. that keeps each stream day's start cluster far
@@ -281,6 +297,8 @@ export function formatSchedule(channel: string, pred: Prediction, now: number, l
       return pred.medianGapMs
         ? `${channel}'s too irregular to call — roughly one stream every ${humanizeDelta(pred.medianGapMs)}, no reliable pattern.`
         : `no pattern in ${channel}'s streams yet.`
+    case 'hiatus':
+      return `${channel} hasn't streamed in ${humanizeDelta(pred.silentMs)} (usually every ${humanizeDelta(pred.usualGapMs)}) — looks like a break, no honest time to give. last stream ${dayLabel(pred.lastAt, now)}.`
     case 'streak': {
       const when = dayLabel(pred.at, now)
       const inMs = pred.at - now
@@ -356,6 +374,8 @@ export function scheduleContext(channel: string, pred: Prediction, now: number, 
       return `Stream schedule for ${channel}: not enough data yet (${pred.reason === 'span' ? `${pred.sessions} starts, only ~${Math.max(1, Math.round(pred.spanDays ?? 0))}d of history` : `${pred.sessions}/${pred.needed} starts logged`}). Do not guess a time.`
     case 'irregular':
       return `Stream schedule for ${channel}: too irregular to predict${pred.medianGapMs ? ` (~1 every ${humanizeDelta(pred.medianGapMs)})` : ''}. Do not guess a specific time.`
+    case 'hiatus':
+      return `Stream schedule for ${channel}: NO stream in ${humanizeDelta(pred.silentMs)} (usually every ${humanizeDelta(pred.usualGapMs)}) — far longer than any normal gap, so likely a vacation/break. Return date unknown. Do NOT give a stream time; say they seem to be on a break and to check the channel title/socials.`
     case 'streak':
       return `Stream schedule for ${channel}: streaming near-daily lately; next likely ${dayLabel(pred.at, now)} in ${humanizeDelta(pred.at - now)} (±${humanizeDelta(pred.confidenceMs)}), ~${etClock(pred.at)}, from ${pred.samples} logged starts (recent ones weighted heaviest). Currently offline. This is a statistical estimate, not confirmed.`
     case 'weekday':

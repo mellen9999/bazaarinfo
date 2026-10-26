@@ -500,3 +500,28 @@ describe('title override', () => {
     expect(TITLE_SCHEDULE_RE.test('bazaar ranked grind w/ chat')).toBe(false)
   })
 })
+
+describe('predictNextStream — hiatus', () => {
+  const daily = Array.from({ length: 28 }, (_, d) => sess(d, 18))
+
+  test('3 weeks of silence after a daily run → hiatus, no time', () => {
+    const now = BASE + 27 * DAY + 21 * DAY + 20 * HOUR
+    const p = predictNextStream(daily, now)
+    expect(p.kind).toBe('hiatus')
+    const msg = formatSchedule('nl_kripp', p, now, { isLive: false })
+    expect(msg).toContain('break')
+    expect(msg).not.toContain('±')
+    expect(scheduleContext('nl_kripp', p, now, { isLive: false })).toContain('Do NOT give a stream time')
+  })
+
+  test('a 3-day skip is not a hiatus', () => {
+    const p = predictNextStream(daily, BASE + 27 * DAY + 3 * DAY)
+    expect(p.kind).not.toBe('hiatus')
+  })
+
+  test('weekly streamer: 10d silence is normal, 20d is a break', () => {
+    const weekly = Array.from({ length: 12 }, (_, i) => sess(i * 7, 18))
+    expect(predictNextStream(weekly, BASE + 77 * DAY + 10 * DAY).kind).not.toBe('hiatus')
+    expect(predictNextStream(weekly, BASE + 77 * DAY + 20 * DAY).kind).toBe('hiatus')
+  })
+})
