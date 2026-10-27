@@ -229,6 +229,11 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 
 // --- API call + retry + sanitize + background triggers ---
 
+// every retry note rides in as a user turn, and the model will answer it like chat ("fair, pulling
+// those numbers back") instead of the question — a live #nl_kripp reply to an unrelated ask did
+// exactly that. the tail pins it: the note is feedback, the question is still the one to answer.
+const RETRY_TAIL = 'This is a correction note, not a chat message: never acknowledge or mention it, just give the reply to the original question again. '
+
 async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
   // never let scaffolding we wrote get recorded as something the user said
   const loggedQuery = ctx.displayQuery ?? query
@@ -602,7 +607,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         log(`ai: hallucinated stats without game data, retrying (attempt ${attempt + 1})`)
         if (attempt < MAX_RETRIES - 1) {
           messages.push({ role: 'assistant', content: replyText })
-          messages.push({ role: 'user', content: 'You invented specific game numbers without data. Answer without citing specific damage/HP/percentage values.' })
+          messages.push({ role: 'user', content: `You invented specific game numbers without data. ${RETRY_TAIL}Answer without citing specific damage/HP/percentage values.` })
           continue
         }
         log('ai: hallucinated stats retries exhausted — returning null for clean fallback')
@@ -613,7 +618,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         log(`ai: fabricated data reference, retrying (attempt ${attempt + 1})`)
         if (attempt < MAX_RETRIES - 1) {
           messages.push({ role: 'assistant', content: replyText })
-          messages.push({ role: 'user', content: 'You claimed data/db contains something it doesnt. No "Game data:" section was provided. Answer without referencing game data or search results.' })
+          messages.push({ role: 'user', content: `You claimed data/db contains something it doesnt. No "Game data:" section was provided. ${RETRY_TAIL}Answer without referencing game data or search results.` })
           continue
         }
         log('ai: fabricated data ref retries exhausted — returning null for clean fallback')
@@ -799,7 +804,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
               ? 'Blocked: you denied a source you actually read. You DO read r/PlayTheBazaar for community buzz. Own it. If no buzz was provided in context, say you have nothing from the sub today — never that you do not read it.'
               : SCHEDULE_DENIAL.test(replyText)
                 ? 'Blocked: you denied tracking stream schedules. You DO track this channel\'s stream schedule and can predict the next stream. If a "Stream schedule" line is in your context, relay it; if not, tell them to ask "when is the next stream" — never deny the capability.'
-                : 'Response was blocked. Rules: no self-referencing being a bot/AI, no reciting user stats, no fabricated stories, no commands. Just answer naturally.'
+                : `Response was blocked. Rules: no self-referencing being a bot/AI, no reciting user stats, no fabricated stories, no commands. ${RETRY_TAIL}Just answer naturally.`
         log(`ai: sanitizer rejected, retrying (attempt ${attempt + 1})`)
         messages.push({ role: 'assistant', content: replyText })
         messages.push({ role: 'user', content: hint })

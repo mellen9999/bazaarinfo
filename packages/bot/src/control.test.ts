@@ -398,6 +398,7 @@ describe('unhinged guardrails', () => {
     expect(h).toMatch(/keys, tokens, passwords/)
     expect(h).toMatch(/NEVER invented Bazaar facts/)
     expect(h).toContain('[MOD ORDER] wins')
+    expect(h).toContain('SERIOUS TOPICS')
     await act('guardchan', 'mod1', { kind: 'tone', tone: 'normal' }, false)
   })
 })
