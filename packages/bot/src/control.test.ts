@@ -403,6 +403,7 @@ describe('unhinged guardrails', () => {
     expect(h).toMatch(/eleven/)
     expect(h).toMatch(/protected trait/)
     expect(h).toMatch(/anyone is a valid target/)
+    expect(h).toContain('JUICY, NOT REPEATED')
     expect(h).toMatch(/never invent details/)
     expect(h).toMatch(/hours played/)
     expect(h).toMatch(/no anecdotes about a real person/)
@@ -437,5 +438,27 @@ describe('unhinged steps aside while kripp is live', () => {
     await act('nl_kripp', 'mod1', { kind: 'tone', tone: 'normal' }, false)
     await act('otherlive', 'mod1', { kind: 'tone', tone: 'normal' }, false)
     ac.resetLiveStateForTests()
+  })
+})
+
+describe('unhinged angle rotation', () => {
+  it('two replies in a row never share a move or world, normal channels get none', async () => {
+    const tn = await import('./tone')
+    const ta = await import('./tone-angle')
+    tn.__resetToneForTest()
+    ta.__resetAngleForTest()
+    await act('anglechan', 'mod1', { kind: 'tone', tone: 'unhinged' }, false)
+    let prev = tn.toneHint('anglechan').split('THIS REPLY ONLY:')[1]
+    expect(prev).toContain('move =')
+    for (let i = 0; i < 40; i++) {
+      const cur = tn.toneHint('anglechan').split('THIS REPLY ONLY:')[1]
+      const [pm, pw] = [prev.match(/move = (.*?);/)![1], prev.match(/world = (.*?)\./)![1]]
+      const [cm, cw] = [cur.match(/move = (.*?);/)![1], cur.match(/world = (.*?)\./)![1]]
+      expect(cm).not.toBe(pm)
+      expect(cw).not.toBe(pw)
+      prev = cur
+    }
+    expect(tn.toneHint('plainchan')).toBe('')
+    await act('anglechan', 'mod1', { kind: 'tone', tone: 'normal' }, false)
   })
 })
