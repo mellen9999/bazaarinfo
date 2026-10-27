@@ -38,7 +38,7 @@ export interface ParsedPage {
 export const FACTS_VERSION = 2
 
 const SITEMAP_URL = 'https://bazaardb.gg/sitemap.xml'
-const USER_AGENT = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
+export const USER_AGENT = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
 const HASH_RE = /\/v1\/(z[\d.]+)\/([a-f0-9]{20,64})@/
 const WHERE_MAX = 12
 const POOL_HEROES_MAX = 12

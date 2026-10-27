@@ -1,10 +1,12 @@
 // item/monster/tag/hero lookup pipeline: arg parsing, noise-tolerant salvage, fuzzy
 // relevance checks, and the trivia-standings regexes the dispatcher tests queries against.
-import { formatItem, formatEnchantment, formatMonster, formatEvent, cardFacts, merchantFacts, monsterDrops, truncate, resolveTooltip, compressTooltip, TIER_ORDER } from '@bazaarinfo/shared'
+import { formatItem, formatEnchantment, formatMonster, formatEvent, cardFacts, merchantFacts, monsterDrops, itemOddsLine, shopOddsLine, truncate, resolveTooltip, compressTooltip, TIER_ORDER } from '@bazaarinfo/shared'
 import type { TierName, Monster, SkillDetail, BazaarCard } from '@bazaarinfo/shared'
+import { odds } from '@bazaarinfo/data'
 import * as store from './store'
 import type { CommandContext } from './commands'
 import { patchNote, withSuffix, logMiss, logHit, aiOrQuip } from './commands-reply'
+import { log } from './log'
 
 // "atlas quest" / "bolas where to find" / "hooligan drop chance": the asker wants the page
 // facts (source, quest, price, drops) that a plain card line doesn't carry. gated on the
@@ -14,6 +16,35 @@ function askNote(query: string, base: string | undefined, facts: () => string[])
   if (!FACT_ASK_RE.test(query)) return base
   const f = facts()
   return f.length ? [base, ...f].filter(Boolean).join(' | ') : base
+}
+
+// "airplane glue odds" / "shop chance for bolas" / "shop odds 5": bazaardb's shop odds, fetched
+// live (24h hard cache in data/odds.ts). the odds line carries bazaardb's credit + link, so it
+// replaces the card line rather than trailing it where truncation could eat the link.
+// null = not an odds ask, key unset, or no odds for this card: the normal answer goes out.
+const ODDS_ASK_RE = /\b(odds|chances?|shop|merchants?|sold|sells?)\b/i
+const SHOP_ODDS_RE = /^(?:shop|tier)\s*(?:odds?|chances?)(?:\s+(?:day\s*)?(\d{1,2}))?$/i
+
+async function oddsClient() {
+  const c = odds((m) => log(`odds: ${m}`))
+  return c.enabled ? c : null
+}
+
+async function cardOddsLine(card: BazaarCard, tier: TierName | undefined, cleanArgs: string): Promise<string | null> {
+  if (!ODDS_ASK_RE.test(cleanArgs)) return null
+  const c = await oddsClient()
+  if (!c) return null
+  const hero = card.Heroes.find((h) => h !== 'Common') ?? 'Common'
+  const o = await c.item(card.Title, hero, tier ?? card.BaseTier)
+  return o ? itemOddsLine(o) : null
+}
+
+async function shopOddsReply(cleanArgs: string, suffix: string): Promise<string | null> {
+  const m = SHOP_ODDS_RE.exec(cleanArgs.trim())
+  if (!m) return null
+  const c = await oddsClient()
+  const s = c ? await c.shop() : null
+  return s ? withSuffix(shopOddsLine(s, m[1] ? Number(m[1]) : undefined), suffix) : null
 }
 
 const dropFacts = (m: Monster): string[] => {
@@ -238,6 +269,8 @@ function isIncidentalMention(title: string, qw: string[]): boolean {
 
 export async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix: string): Promise<string | null> {
   const stripped = stripQuestionPrefix(cleanArgs)
+  const shopOdds = await shopOddsReply(stripped, suffix)
+  if (shopOdds) return shopOdds
   const words = stripped.split(/\s+/)
   const { item: query, tier, enchant } = parseArgs(words)
 
@@ -307,6 +340,8 @@ export async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix:
   if (card && isRelevantMatch(card.Title, !!exactCard)) {
     const v = validateTier(card, tier)
     logHit('item', query, card.Title, ctx, v.tier)
+    const oddsLine = await cardOddsLine(card, v.tier, cleanArgs)
+    if (oddsLine) return withSuffix(oddsLine, suffix)
     const result = formatItem(card, v.tier, askNote(cleanArgs, patchNote(card.Title), () => cardFacts(card)))
     return withSuffix(v.note ? `${result} (${v.note})` : result, suffix)
   }
@@ -349,6 +384,8 @@ export async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix:
       if (sCard && isRelevantMatch(sCard.Title, !!sExact, sWords) && !isIncidentalMention(sCard.Title, queryWords)) {
         const v = validateTier(sCard, tier)
         logHit('item', query, sCard.Title, ctx, v.tier)
+        const sOdds = await cardOddsLine(sCard, v.tier, cleanArgs)
+        if (sOdds) return withSuffix(sOdds, suffix)
         const result = formatItem(sCard, v.tier, askNote(cleanArgs, patchNote(sCard.Title), () => cardFacts(sCard)))
         return withSuffix(v.note ? `${result} (${v.note})` : result, suffix)
       }

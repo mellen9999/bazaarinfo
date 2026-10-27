@@ -121,3 +121,16 @@ export interface HsState {
   /** the other seats, by leaderboard place — the game log names all eight */
   lobby?: HsHero[]
 }
+
+// bazaardb shop odds (api key, ip-locked): chance a shop shows a card, per day. see data/odds.ts
+export interface ItemOdds {
+  name: string
+  uri: string               // /card/{id}/{slug}
+  hero: string
+  tier: string
+  days: string[]            // "1".."10+"
+  pAny: number[]            // 0..1 per day: any merchant offers it
+  top: { name: string, peak: number, day: string }[]   // best merchants by peak daily chance
+}
+export interface ShopOddsDay { day: number, samples: number, tiers: Record<string, number> }   // tiers in percent
+export interface ShopOdds { days: ShopOddsDay[] }
