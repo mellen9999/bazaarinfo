@@ -10,6 +10,7 @@
 
 import * as db from './db'
 import { log } from './log'
+import { isChannelLive, isLiveStateKnown } from './ai-cache'
 
 export type Tone = 'normal' | 'unhinged'
 export const TONES: readonly Tone[] = ['normal', 'unhinged']
@@ -48,6 +49,23 @@ export function setTone(channel: string, tone: Tone, by: string): boolean {
   return true
 }
 
+// channels where the streamer wants normal while they are live: unhinged is the mod's saved
+// setting, this only holds it back for the stream and it comes back when the stream ends.
+// until the first live poll lands "not live" means "not asked yet", so the hold stays on
+// through the boot window (fails safe to normal).
+const NORMAL_WHEN_LIVE: ReadonlySet<string> = new Set(['nl_kripp'])
+
+/** true when the channel is set unhinged but is being held at normal because it is live. */
+export function toneHeld(channel: string): boolean {
+  const ch = channel.toLowerCase()
+  return NORMAL_WHEN_LIVE.has(ch) && getTone(ch) === 'unhinged' && (!isLiveStateKnown() || isChannelLive(ch))
+}
+
+/** the level the bot actually talks at right now. */
+export function effectiveTone(channel: string): Tone {
+  return toneHeld(channel) ? 'normal' : getTone(channel)
+}
+
 export function __resetToneForTest(): void {
   unhinged.clear()
   loaded = false
@@ -74,5 +92,5 @@ never loosens: the fact is right, roasts never use account age, ask counts or pr
 
 /** the prompt block for an unhinged channel; '' at normal (zero prompt cost). */
 export function toneHint(channel: string): string {
-  return getTone(channel) === 'unhinged' ? UNHINGED_HINT : ''
+  return effectiveTone(channel) === 'unhinged' ? UNHINGED_HINT : ''
 }

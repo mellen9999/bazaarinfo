@@ -684,8 +684,8 @@ function renderSwitches(snap: Snapshot): void {
     body.append(switchRow(def.label, def.tip, on, on ? 'on' : 'off', buttons))
   }
   // two-level knob, not a toggle: both levels stay clickable, the current one is marked
-  body.append(switchRow('bot tone', 'how loose the bot talks — normal is the default dry voice, unhinged turns the chaos up (bigger bits, louder, bolder roasts of the game; the rules still hold)',
-    snap.tone === 'normal' ? true : null, snap.tone,
+  body.append(switchRow('bot tone', 'how loose the bot talks — normal is the default dry voice, unhinged turns the chaos up (louder, meaner, roasts anyone; the hard rules still hold)',
+    snap.tone === 'normal' ? true : null, snap.toneHeld ? 'unhinged · normal while live' : snap.tone,
     TONES.map((t) => btn(t, `set bot tone to ${t}`, () => doAct({ kind: 'tone', tone: t }), t === snap.tone ? 'selected' : ''))))
   if (state.me?.admin) {
     const on = snap.ai.aiTrivia
@@ -943,7 +943,7 @@ const SELECTABLE: ReadonlySet<BoxKey> = new Set(['chatrules', 'trivia', 'questio
 
 function sliceFor(key: BoxKey, snap: Snapshot): unknown {
   switch (key) {
-    case 'switches': return { ai: snap.ai.enabled, aiTrivia: snap.ai.aiTrivia, pauses: snap.pauses, raid: snap.raid.enabled, goals: snap.goals, englishOnly: snap.englishOnly, tone: snap.tone, admin: state.me?.admin }
+    case 'switches': return { ai: snap.ai.enabled, aiTrivia: snap.ai.aiTrivia, pauses: snap.pauses, raid: snap.raid.enabled, goals: snap.goals, englishOnly: snap.englishOnly, tone: snap.tone, toneHeld: snap.toneHeld, admin: state.me?.admin }
     case 'chatrules': return snap.vibes
     case 'trivia': return snap.trivia
     case 'questions': return state.questionsMode === 'asks' ? snap.asks : snap.misses

@@ -16,7 +16,7 @@
 
 import { listDirectives } from './directives'
 import { isEnglishOnly } from './english-only'
-import { getTone } from './tone'
+import { effectiveTone } from './tone'
 import { listSuppressions } from './suppress'
 import { activeRoundInfo } from './trivia'
 import { statusLine as dungeonStatusLine } from './dungeon'
@@ -79,7 +79,7 @@ export function botStateReport(channel: string): string {
 
   // english only is a standing order, not a timed vibe
   if (isEnglishOnly(channel)) lines.push('english only: on (mod order, until a mod lifts it)')
-  if (getTone(channel) === 'unhinged') lines.push('tone: unhinged (a mod turned the chaos up; stays until a mod sets it back to normal)')
+  if (effectiveTone(channel) === 'unhinged') lines.push('tone: unhinged (a mod turned the chaos up; stays until a mod sets it back to normal)')
 
   // mod pauses
   const sups = listSuppressions(channel)

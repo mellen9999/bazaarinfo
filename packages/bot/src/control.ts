@@ -21,7 +21,7 @@ import { WEB_SEARCH_DAILY_CAP } from './ai-search-gate'
 import { ignoreUser, unignoreUser, listIgnored, IGNORE_MAX_MIN, LOGIN_RE, type IgnoredRow } from './ignore'
 import { isGoalsEnabled, setGoalsEnabled } from './worldcup-goals'
 import { isEnglishOnly } from './english-only'
-import { getTone, setTone, TONES, type Tone } from './tone'
+import { getTone, setTone, toneHeld, TONES, type Tone } from './tone'
 import { listTimedOut } from './moderation'
 import * as db from './db'
 import { log } from './log'
@@ -450,6 +450,8 @@ export interface Snapshot {
   goals: boolean
   englishOnly: boolean
   tone: Tone
+  /** set unhinged but held at normal because the stream is live */
+  toneHeld: boolean
   health: Health | null
   spark: number[]
   asks: db.RecentAsk[]
@@ -525,6 +527,7 @@ export function snapshot(channel: string): Snapshot {
     goals: safe('goals', () => isGoalsEnabled(ch), true),
     englishOnly: safe('englishOnly', () => isEnglishOnly(ch), false),
     tone: safe('tone', () => getTone(ch), 'normal' as Tone),
+    toneHeld: safe('toneHeld', () => toneHeld(ch), false),
     health: safe('health', () => health ? {
       irc: health.irc(),
       eventsub: health.eventsub(),

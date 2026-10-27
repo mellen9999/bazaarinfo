@@ -410,3 +410,32 @@ describe('unhinged guardrails', () => {
     await act('guardchan', 'mod1', { kind: 'tone', tone: 'normal' }, false)
   })
 })
+
+describe('unhinged steps aside while kripp is live', () => {
+  it('held at normal while live and through the boot window, back when the stream ends', async () => {
+    const tn = await import('./tone')
+    const ac = await import('./ai-cache')
+    tn.__resetToneForTest()
+    ac.resetLiveStateForTests()
+    await act('nl_kripp', 'mod1', { kind: 'tone', tone: 'unhinged' }, false)
+    expect(tn.toneHint('nl_kripp')).toBe('') // no poll yet: held, fails safe to normal
+    ac.markLiveStateKnown()
+    expect(tn.toneHint('nl_kripp')).toContain('UNHINGED') // known offline
+    ac.setChannelLive('nl_kripp')
+    expect(tn.toneHint('nl_kripp')).toBe('')
+    expect(tn.effectiveTone('nl_kripp')).toBe('normal')
+    expect(tn.getTone('nl_kripp')).toBe('unhinged') // the saved setting is untouched
+    expect(snapshot('nl_kripp').tone).toBe('unhinged')
+    expect(snapshot('nl_kripp').toneHeld).toBe(true)
+    ac.setChannelOffline('nl_kripp')
+    expect(tn.toneHint('nl_kripp')).toContain('UNHINGED')
+    expect(snapshot('nl_kripp').toneHeld).toBe(false)
+    // other channels are never held
+    await act('otherlive', 'mod1', { kind: 'tone', tone: 'unhinged' }, false)
+    ac.setChannelLive('otherlive')
+    expect(tn.toneHint('otherlive')).toContain('UNHINGED')
+    await act('nl_kripp', 'mod1', { kind: 'tone', tone: 'normal' }, false)
+    await act('otherlive', 'mod1', { kind: 'tone', tone: 'normal' }, false)
+    ac.resetLiveStateForTests()
+  })
+})
