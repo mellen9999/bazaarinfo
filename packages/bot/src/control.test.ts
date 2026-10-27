@@ -399,6 +399,8 @@ describe('unhinged guardrails', () => {
     expect(h).toMatch(/NEVER invented Bazaar facts/)
     expect(h).toContain('[MOD ORDER] wins')
     expect(h).toContain('OPEN TOPICS')
+    expect(h).toContain('ROASTS')
+    expect(h).toMatch(/protected trait/)
     expect(h).toMatch(/never invent details/)
     expect(h).toContain('Twitch TOS hard nos')
     await act('guardchan', 'mod1', { kind: 'tone', tone: 'normal' }, false)
