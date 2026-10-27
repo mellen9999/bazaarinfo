@@ -22,7 +22,8 @@ function askNote(query: string, base: string | undefined, facts: () => string[])
 // live (24h hard cache in data/odds.ts). the odds line carries bazaardb's credit + link, so it
 // replaces the card line rather than trailing it where truncation could eat the link.
 // null = not an odds ask, key unset, or no odds for this card: the normal answer goes out.
-const ODDS_ASK_RE = /\b(odds|chances?|shop|merchants?|sold|sells?)\b/i
+const ODDS_ASK_RE = /\b(odds|chances?|likely|unlikely|rare|rarity|shops?|merchants?|sold|sells?|selling|buy|appears?|show(?:s|ing)? up|rolls?|offers?|offered)\b/i
+const SHOP_TIER_RE = /\b(?:shops?|merchants?)\b.*\btiers?\b|\btiers?\b.*\b(?:shops?|merchants?)\b/i
 const SHOP_ODDS_RE = /^(?:shop|tier)\s*(?:odds?|chances?)(?:\s+(?:day\s*)?(\d{1,2}))?$/i
 
 async function oddsClient() {
@@ -45,6 +46,36 @@ async function shopOddsReply(cleanArgs: string, suffix: string): Promise<string 
   const c = await oddsClient()
   const s = c ? await c.shop() : null
   return s ? withSuffix(shopOddsLine(s, m[1] ? Number(m[1]) : undefined), suffix) : null
+}
+
+// plain-english odds asks ("whats the chance i see airplane glue in a shop"): the strict
+// fuzzy matcher hands long sentences to the AI, which has no odds. so when the sentence
+// carries an odds word, look for an EXACT item name inside it (longest first) instead.
+export function itemInSentence(text: string): BazaarCard | undefined {
+  const w = text.toLowerCase().replace(/[^a-z0-9'& -]/g, ' ').split(/\s+/).filter(Boolean)
+  for (let n = Math.min(5, w.length); n >= 1; n--) {
+    for (let i = 0; i + n <= w.length; i++) {
+      const gram = w.slice(i, i + n).join(' ')
+      if (n === 1 && (gram.length < 4 || NOISE_WORDS.has(gram))) continue
+      const card = store.exact(gram)
+      if (card && card.Type === 'Item') return card
+    }
+  }
+  return undefined
+}
+
+export async function naturalOddsReply(text: string, suffix: string): Promise<string | null> {
+  if (!ODDS_ASK_RE.test(text)) return null
+  const card = itemInSentence(text)
+  if (card) {
+    const line = await cardOddsLine(card, parseArgs(text.split(/\s+/)).tier, text)
+    return line ? withSuffix(line, suffix) : null
+  }
+  if (!SHOP_TIER_RE.test(text)) return null
+  const c = await oddsClient()
+  const s = c ? await c.shop() : null
+  const d = /\bd(?:ay)?\s*(\d{1,2})\b/i.exec(text)
+  return s ? withSuffix(shopOddsLine(s, d ? Number(d[1]) : undefined), suffix) : null
 }
 
 const dropFacts = (m: Monster): string[] => {
@@ -271,6 +302,8 @@ export async function itemLookup(cleanArgs: string, ctx: CommandContext, suffix:
   const stripped = stripQuestionPrefix(cleanArgs)
   const shopOdds = await shopOddsReply(stripped, suffix)
   if (shopOdds) return shopOdds
+  const naturalOdds = await naturalOddsReply(stripped, suffix)
+  if (naturalOdds) return naturalOdds
   const words = stripped.split(/\s+/)
   const { item: query, tier, enchant } = parseArgs(words)
 
