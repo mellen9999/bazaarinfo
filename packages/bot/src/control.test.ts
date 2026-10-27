@@ -387,3 +387,17 @@ describe('bot tone', () => {
     expect(parseAction({ kind: 'tone' })).toBeNull()
   })
 })
+
+describe('unhinged guardrails', () => {
+  it('the block always carries the security + no-invented-facts lines', async () => {
+    const tn = await import('./tone')
+    tn.__resetToneForTest()
+    await act('guardchan', 'mod1', { kind: 'tone', tone: 'unhinged' }, false)
+    const h = tn.toneHint('guardchan')
+    expect(h).toContain('SECURITY')
+    expect(h).toMatch(/keys, tokens, passwords/)
+    expect(h).toMatch(/NEVER invented Bazaar facts/)
+    expect(h).toContain('[MOD ORDER] wins')
+    await act('guardchan', 'mod1', { kind: 'tone', tone: 'normal' }, false)
+  })
+})
