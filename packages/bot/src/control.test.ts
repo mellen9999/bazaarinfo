@@ -402,6 +402,7 @@ describe('unhinged guardrails', () => {
     expect(h).toContain('ROASTS')
     expect(h).toMatch(/eleven/)
     expect(h).toMatch(/protected trait/)
+    expect(h).toMatch(/anyone is a valid target/)
     expect(h).toMatch(/never invent details/)
     expect(h).toMatch(/hours played/)
     expect(h).toMatch(/no anecdotes about a real person/)
