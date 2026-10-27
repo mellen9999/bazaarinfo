@@ -44,6 +44,7 @@ import {
 } from './ai-query'
 import { randomPastaExamples } from './ai-prompt'
 import { directiveHint } from './directives'
+import { toneHint } from './tone'
 import { suppressHint } from './suppress'
 import { SELF_STATE_RE, botStateReport } from './bot-state'
 import { DEFINITIONAL_INTENT } from './glossary'
@@ -754,6 +755,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
       : noVerifiedDefinition
         ? "\n⚠️ NO VERIFIED DEFINITION for what they're asking about — the data here is just a related item list, not the rule. Do NOT state how this mechanic/keyword works or invent numbers; your memory of exact Bazaar rules is unreliable. Say you don't have the exact rule on that one."
         : '',
+    // the channel's tone level (a mod's panel knob) — '' at normal. before directiveHint so
+    // a mod order, which comes after it, wins.
+    toneHint(ctx.channel),
     // chat-planted flavor directives that match this query (kept in the required tail so
     // a tight context budget can't evict them). empty when none are active/matching.
     directiveHint(ctx.channel, query, ctx.user),

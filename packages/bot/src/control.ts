@@ -21,6 +21,7 @@ import { WEB_SEARCH_DAILY_CAP } from './ai-search-gate'
 import { ignoreUser, unignoreUser, listIgnored, IGNORE_MAX_MIN, LOGIN_RE, type IgnoredRow } from './ignore'
 import { isGoalsEnabled, setGoalsEnabled } from './worldcup-goals'
 import { isEnglishOnly } from './english-only'
+import { getTone, setTone, TONES, type Tone } from './tone'
 import { listTimedOut } from './moderation'
 import * as db from './db'
 import { log } from './log'
@@ -50,6 +51,7 @@ export type Action =
   | { kind: 'ai'; on: boolean }
   | { kind: 'goals'; on: boolean }
   | { kind: 'english-only'; on: boolean }
+  | { kind: 'tone'; tone: Tone }
   | { kind: 'cap-reset'; user: string }
   | { kind: 'ask-purge'; id: number }
   | { kind: 'ai-trivia'; on: boolean }
@@ -162,6 +164,8 @@ export function parseAction(input: unknown): Action | null {
     case 'english-only':
     case 'ai-trivia':
       return typeof a.on === 'boolean' ? { kind: a.kind, on: a.on } : null
+    case 'tone':
+      return TONES.includes(a.tone as Tone) ? { kind: 'tone', tone: a.tone as Tone } : null
     case 'raid-pace':
       return PACES.includes(a.pace as raid.Pace) ? { kind: 'raid-pace', pace: a.pace as raid.Pace } : null
     case 'cap-reset': {
@@ -238,6 +242,7 @@ export function describe(a: Action): string {
     case 'ai': return `bot replies ${a.on ? 'on' : 'off'}`
     case 'goals': return `goal alerts ${a.on ? 'on' : 'off'}`
     case 'english-only': return `english only ${a.on ? 'on' : 'off'}`
+    case 'tone': return `bot tone ${a.tone}`
     case 'cap-reset': return `reset @${a.user}'s daily limit`
     case 'ask-purge': return `remove reply #${a.id}`
     case 'ai-trivia': return `ai trivia ${a.on ? 'on' : 'off'} (every channel)`
@@ -361,6 +366,10 @@ async function run(ch: string, by: string, a: Action, announce: boolean, isAdmin
       const { changed } = applyEnglishOnly(ch, a.on, by)
       return { ok: true, msg: `english only ${a.on ? 'on' : 'off'}${changed ? '' : ' (already)'}` }
     }
+    case 'tone': {
+      const changed = setTone(ch, a.tone, by)
+      return { ok: true, msg: `bot tone ${a.tone}${changed ? '' : ' (already)'}` }
+    }
     case 'cap-reset': {
       // a mod resetting their OWN cap is the abuse case this action exists to prevent
       // elsewhere from — never allowed except for an actual admin. and the target must be
@@ -440,6 +449,7 @@ export interface Snapshot {
   raid: { enabled: boolean; pace: raid.Pace }
   goals: boolean
   englishOnly: boolean
+  tone: Tone
   health: Health | null
   spark: number[]
   asks: db.RecentAsk[]
@@ -514,6 +524,7 @@ export function snapshot(channel: string): Snapshot {
     raid: safe('raid', () => ({ enabled: raid.isEnabled(ch), pace: raid.getPace(ch) }), { enabled: false, pace: 'normal' as raid.Pace }),
     goals: safe('goals', () => isGoalsEnabled(ch), true),
     englishOnly: safe('englishOnly', () => isEnglishOnly(ch), false),
+    tone: safe('tone', () => getTone(ch), 'normal' as Tone),
     health: safe('health', () => health ? {
       irc: health.irc(),
       eventsub: health.eventsub(),

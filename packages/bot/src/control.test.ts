@@ -361,3 +361,29 @@ describe('trivia-flag (bad q button)', () => {
     expect((db.getDb().query('SELECT flagged_by FROM trivia_games WHERE id = ?').get(id) as { flagged_by: string }).flagged_by).toBe('mod1')
   })
 })
+
+describe('bot tone', () => {
+  it('defaults normal, switches through act, shows in the snapshot, survives a wipe, stays per-channel', async () => {
+    const tn = await import('./tone')
+    expect(snapshot('tonechan').tone).toBe('normal')
+    expect(tn.toneHint('tonechan')).toBe('')
+    expect((await act('tonechan', 'mod1', { kind: 'tone', tone: 'unhinged' }, false)).msg).toBe('bot tone unhinged')
+    expect((await act('tonechan', 'mod1', { kind: 'tone', tone: 'unhinged' }, false)).msg).toBe('bot tone unhinged (already)')
+    expect(snapshot('tonechan').tone).toBe('unhinged')
+    expect(tn.toneHint('tonechan')).toContain('UNHINGED')
+    expect(tn.toneHint('tonechan')).toContain('TOS')
+    expect(tn.getTone('otherchan')).toBe('normal')
+    tn.__resetToneForTest() // memory gone, sqlite row stays
+    expect(tn.getTone('tonechan')).toBe('unhinged')
+    expect((await act('tonechan', 'mod1', { kind: 'tone', tone: 'normal' }, false)).ok).toBe(true)
+    tn.__resetToneForTest()
+    expect(tn.getTone('tonechan')).toBe('normal')
+  })
+
+  it('parseAction only takes a known level', () => {
+    expect(parseAction({ kind: 'tone', tone: 'unhinged' })).toEqual({ kind: 'tone', tone: 'unhinged' })
+    expect(parseAction({ kind: 'tone', tone: 'normal' })).toEqual({ kind: 'tone', tone: 'normal' })
+    expect(parseAction({ kind: 'tone', tone: 'feral' })).toBeNull()
+    expect(parseAction({ kind: 'tone' })).toBeNull()
+  })
+})

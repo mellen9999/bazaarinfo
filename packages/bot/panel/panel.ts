@@ -15,12 +15,14 @@ import type { Snapshot, Action } from '../src/control'
 
 type Feature = Snapshot['pauses'][number]['feature']
 type Pace = Snapshot['raid']['pace']
+type Tone = Snapshot['tone']
 type BoxKey = 'switches' | 'chatrules' | 'trivia' | 'questions' | 'activity' | 'people' | 'raidgeon' | 'log'
 type Tab = { ch: string; live: boolean; viewers: number | null }
 
 interface Me { login: string; admin: boolean; channels: string[] }
 
 const PACES: Pace[] = ['fast', 'normal', 'slow']
+const TONES: Tone[] = ['normal', 'unhinged']
 // cooldown chips — must match the server's whitelist (trivia-cd.ts), which rejects anything else
 const ROUND_CD_CHIPS: [number, string][] = [[0, 'auto'], [30, '30s'], [60, '1m'], [120, '2m'], [300, '5m']]
 const USER_CD_CHIPS: [number, string][] = [[0, 'off'], [60, '1m'], [120, '2m'], [300, '5m'], [600, '10m']]
@@ -681,6 +683,10 @@ function renderSwitches(snap: Snapshot): void {
     if (def.feature) for (const [label, m] of PAUSE_CHIPS) buttons.push(btn(label, `pause ${def.label} for ${label}`, () => doAct({ kind: 'pause', feature: def.feature!, minutes: m })))
     body.append(switchRow(def.label, def.tip, on, on ? 'on' : 'off', buttons))
   }
+  // two-level knob, not a toggle: both levels stay clickable, the current one is marked
+  body.append(switchRow('bot tone', 'how loose the bot talks — normal is the default dry voice, unhinged turns the chaos up (bigger bits, louder, bolder roasts of the game; the rules still hold)',
+    snap.tone === 'normal' ? true : null, snap.tone,
+    TONES.map((t) => btn(t, `set bot tone to ${t}`, () => doAct({ kind: 'tone', tone: t }), t === snap.tone ? 'selected' : ''))))
   if (state.me?.admin) {
     const on = snap.ai.aiTrivia
     body.append(switchRow('ai trivia', 'whether the ai can write brand-new trivia questions — applies to every channel', on, on ? 'on' : 'off',
@@ -937,7 +943,7 @@ const SELECTABLE: ReadonlySet<BoxKey> = new Set(['chatrules', 'trivia', 'questio
 
 function sliceFor(key: BoxKey, snap: Snapshot): unknown {
   switch (key) {
-    case 'switches': return { ai: snap.ai.enabled, aiTrivia: snap.ai.aiTrivia, pauses: snap.pauses, raid: snap.raid.enabled, goals: snap.goals, englishOnly: snap.englishOnly, admin: state.me?.admin }
+    case 'switches': return { ai: snap.ai.enabled, aiTrivia: snap.ai.aiTrivia, pauses: snap.pauses, raid: snap.raid.enabled, goals: snap.goals, englishOnly: snap.englishOnly, tone: snap.tone, admin: state.me?.admin }
     case 'chatrules': return snap.vibes
     case 'trivia': return snap.trivia
     case 'questions': return state.questionsMode === 'asks' ? snap.asks : snap.misses
