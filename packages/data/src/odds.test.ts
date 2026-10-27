@@ -49,8 +49,8 @@ describe('formatters carry credit + link', () => {
   })
   it('shop line, with and without a day', () => {
     const s = parseShopOdds({ days: [{ day: 1, samples: 9, tiers: { Bronze: 97.4, Silver: 2.6 } }, { day: 5, samples: 9, tiers: { Silver: 74.77, Bronze: 25.13, Gold: 0.1 } }] })!
-    expect(shopOddsLine(s, 5)).toBe('shop tiers d5 silver 75% bronze 25% gold 0.1% | odds via bazaardb.gg/shop-odds')
-    expect(shopOddsLine(s)).toContain('d1 bronze 97%')
+    expect(shopOddsLine(s, 5)).toBe('shop tiers day 5 silver 75% bronze 25% gold 0.1% | odds via bazaardb.gg/shop-odds')
+    expect(shopOddsLine(s)).toContain('day 1 bronze 97%')
     expect(shopOddsLine(s, 99)).toContain('no shop data for day 99')
   })
 })

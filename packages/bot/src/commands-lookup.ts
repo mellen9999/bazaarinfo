@@ -23,6 +23,7 @@ function askNote(query: string, base: string | undefined, facts: () => string[])
 // replaces the card line rather than trailing it where truncation could eat the link.
 // null = not an odds ask, key unset, or no odds for this card: the normal answer goes out.
 const ODDS_ASK_RE = /\b(odds|chances?|likely|unlikely|rare|rarity|shops?|merchants?|sold|sells?|selling|buy|appears?|show(?:s|ing)? up|rolls?|offers?|offered)\b/i
+const TYPO_SCORE = 0.2
 const SHOP_TIER_RE = /\b(?:shops?|merchants?)\b.*\btiers?\b|\btiers?\b.*\b(?:shops?|merchants?)\b/i
 const SHOP_ODDS_RE = /^(?:shop|tier)\s*(?:odds?|chances?)(?:\s+(?:day\s*)?(\d{1,2}))?$/i
 
@@ -53,15 +54,35 @@ async function shopOddsReply(cleanArgs: string, suffix: string): Promise<string 
 // carries an odds word, look for an EXACT item name inside it (longest first) instead.
 export function itemInSentence(text: string): BazaarCard | undefined {
   const w = text.toLowerCase().replace(/[^a-z0-9'& -]/g, ' ').split(/\s+/).filter(Boolean)
-  for (let n = Math.min(5, w.length); n >= 1; n--) {
-    for (let i = 0; i + n <= w.length; i++) {
-      const gram = w.slice(i, i + n).join(' ')
-      if (n === 1 && (gram.length < 4 || NOISE_WORDS.has(gram))) continue
+  const grams = (max: number, min: number) => {
+    const out: string[] = []
+    for (let n = Math.min(max, w.length); n >= min; n--) {
+      for (let i = 0; i + n <= w.length; i++) out.push(w.slice(i, i + n).join(' '))
+    }
+    return out
+  }
+  const exactHit = (list: string[]) => {
+    for (const gram of list) {
+      if (!gram.includes(' ') && (gram.length < 4 || NOISE_WORDS.has(gram))) continue
       const card = store.exact(gram)
       if (card && card.Type === 'Item') return card
     }
   }
-  return undefined
+  // typo rescue ("airplan glue"): only a tight fuzzy hit counts, and the words can't all be filler
+  const fuzzyHit = (list: string[]) => {
+    let best: { card: BazaarCard, score: number } | undefined
+    for (const gram of list) {
+      const parts = gram.split(' ')
+      if (parts.every((p) => NOISE_WORDS.has(p) || ODDS_ASK_RE.test(p))) continue
+      if (parts.length === 1 && gram.length < 6) continue
+      const hit = store.searchWithScore(gram, 1)[0]
+      if (hit && hit.item.Type === 'Item' && hit.score <= TYPO_SCORE && (!best || hit.score < best.score)) best = { card: hit.item, score: hit.score }
+    }
+    return best?.card
+  }
+  // multi-word names first, so "airplan glue" is Airplane Glue and not the lone item "Glue"
+  const multi = grams(5, 2), single = grams(1, 1)
+  return exactHit(multi) ?? fuzzyHit(multi.filter((g) => g.split(' ').length <= 4)) ?? exactHit(single) ?? fuzzyHit(single)
 }
 
 export async function naturalOddsReply(text: string, suffix: string): Promise<string | null> {

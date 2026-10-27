@@ -6,7 +6,7 @@ const pct = (p: number): string => {
   const v = p * 100
   return v >= 10 ? `${Math.round(v)}%` : v >= 1 ? `${Math.round(v * 10) / 10}%` : `${Math.round(v * 100) / 100}%`
 }
-const day = (d: string): string => `d${d}`
+const day = (d: string): string => `day ${d}`
 
 // "airplane glue (stelle gold) shop chance: 0.54% d4 → 6.8% d10+ | best: ande 2%, ... | bazaardb.gg/card/…"
 export function itemOddsLine(o: ItemOdds): string {
@@ -27,7 +27,7 @@ export function shopOddsLine(s: ShopOdds, wantDay?: number): string {
     if (!r) return ''
     const t = Object.entries(r.tiers).filter(([, v]) => v >= 0.1).sort((a, b) => b[1] - a[1])
       .map(([k, v]) => `${k.toLowerCase()} ${v >= 10 ? Math.round(v) : Math.round(v * 10) / 10}%`)
-    return t.length ? `d${d} ${t.join(' ')}` : ''
+    return t.length ? `day ${d} ${t.join(' ')}` : ''
   }
   if (wantDay != null) {
     const r = row(wantDay)

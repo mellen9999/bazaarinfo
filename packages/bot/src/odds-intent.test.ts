@@ -21,6 +21,11 @@ describe('itemInSentence', () => {
     expect(itemInSentence('whats the chance i see airplane glue in a shop')?.Title).toBe('Airplane Glue')
     expect(itemInSentence('how likely is cutlass to show up?')?.Title).toBe('Cutlass')
   })
+  it('rescues a typo, but not filler or a stray word', () => {
+    expect(itemInSentence('whats the odds of airplan glue')?.Title).toBe('Airplane Glue')
+    expect(itemInSentence('chance to see cutlas in shop')?.Title).toBe('Cutlass')
+    expect(itemInSentence('what are the odds of winning the lottery')).toBeUndefined()
+  })
   it('no item, no match', () => {
     expect(itemInSentence('what tier are shops on day 5')).toBeUndefined()
     expect(itemInSentence('is it a good day')).toBeUndefined()
