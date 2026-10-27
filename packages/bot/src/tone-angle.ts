@@ -1,4 +1,4 @@
-// per-reply creative assignment for unhinged: a comedy "move" and a comparison "world",
+// per-reply creative assignment for unhinged: a comedy "move", a comparison "world" and a reply "shape",
 // rotated so two replies in a row never share either. rules alone didn't stop the bot from
 // circling one angle ("on loop", "same dart, same board") against a repeat target — handing
 // it a fresh lane each time makes the variety structural instead of a plea. pure and
@@ -22,7 +22,17 @@ const WORLDS = [
   'wildlife and nature', 'construction and tools', 'weather', 'theater and movies', 'real estate', 'archaeology',
 ]
 
-const last = new Map<string, { move: number; world: number }>()
+// the shape of the reply, so lengths and formats mix too, not just the jokes
+const SHAPES = [
+  'one savage sentence',
+  'two short sentences with a turn on the second',
+  'a rhetorical question that answers itself',
+  'a three-beat list, the last item the cruelest',
+  'a tiny story in three beats',
+  'a fake quote from someone about them',
+]
+
+const last = new Map<string, { move: number; world: number; shape: number }>()
 const pick = (n: number, not: number | undefined): number => {
   let i = Math.floor(Math.random() * n)
   if (i === not) i = (i + 1 + Math.floor(Math.random() * (n - 1))) % n
@@ -33,9 +43,9 @@ const pick = (n: number, not: number | undefined): number => {
 export function nextAngle(channel: string): string {
   const ch = channel.toLowerCase()
   const prev = last.get(ch)
-  const cur = { move: pick(MOVES.length, prev?.move), world: pick(WORLDS.length, prev?.world) }
+  const cur = { move: pick(MOVES.length, prev?.move), world: pick(WORLDS.length, prev?.world), shape: pick(SHAPES.length, prev?.shape) }
   last.set(ch, cur)
-  return `\nTHIS REPLY ONLY: move = ${MOVES[cur.move]}; comparison world = ${WORLDS[cur.world]}. use them if they fit, bend them if not, but never fall back on an angle from your last replies.`
+  return `\nTHIS REPLY ONLY: move = ${MOVES[cur.move]}; comparison world = ${WORLDS[cur.world]}; shape = ${SHAPES[cur.shape]}. use them if they fit, bend them if not, but never fall back on an angle from your last replies.`
 }
 
 export function __resetAngleForTest(): void {

@@ -404,6 +404,7 @@ describe('unhinged guardrails', () => {
     expect(h).toMatch(/protected trait/)
     expect(h).toMatch(/anyone is a valid target/)
     expect(h).toContain('JUICY, NOT REPEATED')
+    expect(h).toMatch(/account age, sub status/)
     expect(h).toMatch(/never invent details/)
     expect(h).toMatch(/hours played/)
     expect(h).toMatch(/no anecdotes about a real person/)
@@ -452,10 +453,11 @@ describe('unhinged angle rotation', () => {
     expect(prev).toContain('move =')
     for (let i = 0; i < 40; i++) {
       const cur = tn.toneHint('anglechan').split('THIS REPLY ONLY:')[1]
-      const [pm, pw] = [prev.match(/move = (.*?);/)![1], prev.match(/world = (.*?)\./)![1]]
-      const [cm, cw] = [cur.match(/move = (.*?);/)![1], cur.match(/world = (.*?)\./)![1]]
+      const [pm, pw, ps] = [prev.match(/move = (.*?);/)![1], prev.match(/world = (.*?);/)![1], prev.match(/shape = (.*?)\./)![1]]
+      const [cm, cw, cs] = [cur.match(/move = (.*?);/)![1], cur.match(/world = (.*?);/)![1], cur.match(/shape = (.*?)\./)![1]]
       expect(cm).not.toBe(pm)
       expect(cw).not.toBe(pw)
+      expect(cs).not.toBe(ps)
       prev = cur
     }
     expect(tn.toneHint('plainchan')).toBe('')
