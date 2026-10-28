@@ -442,7 +442,10 @@ const client = new TwitchClient(
   async (channel, userId, username, text, badges, messageId, threadId, sentTs, replyParent, flags) => {
     try {
       if (userId === botUserId) return
-      void noteChatterEmotes(userId, text)
+      // a first-seen chatter's inventory has to land before the ask is built, or the model
+      // meets their emote cold; everyone else is a cache hit, so only addressed lines wait
+      const hsNote = noteChatterEmotes(userId, text)
+      if (/^\s*(?:!b\b|@?bazaarinfo\b)/i.test(text)) await Promise.race([hsNote, new Promise((r) => setTimeout(r, 1200))])
 
       // rxTs = when the bot first touches this message; inboundAge = how stale it already was on
       // arrival (Twitch network + any IRC-reconnect stall + event-loop pickup) — the latency term

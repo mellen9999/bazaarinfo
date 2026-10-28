@@ -19,7 +19,7 @@ import { isPastaRecall } from './pasta'
 import { getTopicalDigest } from './topical'
 import { getActivityFor } from './activity'
 import { getRecent, getActiveThreads } from './chatbuf'
-import { formatEmotesForAI, getEmotesForChannel } from './emotes'
+import { formatEmotesForAI, getEmotesForChannel, isExactEmote } from './emotes'
 import { getDescriptions } from './emote-describe'
 import { getChannelStyle, getChannelVoiceContext } from './style'
 import { getHotExchanges, getChannelRecentResponses, getRecentEmotes, isChannelLive, isLiveStateKnown, getChannelGame, getStreamInfo } from './ai-cache'
@@ -672,6 +672,11 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     }
   }
 
+  // any emote name in the ask (7tv, heatsync inventory) that has no description: without this the
+  // model guesses a source for the word ("it's a BTTV emote") or hunts for it in the game data
+  const askEmotes = [...new Set(query.split(/\s+/).filter((w) => w.length >= 3 && isExactEmote(w) && !getDescriptions()[w]))].slice(0, 4)
+  const askEmoteLine = askEmotes.length ? `\nEmote names in the ask: ${askEmotes.join(' ')} — emotes the chatter can see, not Bazaar items. react to the vibe, never name which site they come from.` : ''
+
   const recentPastas = isPasta
     ? deduped.filter((r) => r.length > 150).map((r) => `- ALREADY USED: "${r}"`)
     : []
@@ -829,6 +834,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'recentResponses', text: recentLine, base: 30, trunc: true },
     { name: 'pastaBlock', text: pastaBlock, base: 40 },
     { name: 'queryEmotes', text: queryEmoteLine, base: 50 },
+    { name: 'askEmotes', text: askEmoteLine, base: 45 },
     { name: 'fullEmotes', text: fullEmoteLine, base: 60, trunc: true },
     { name: 'emotes', text: emoteLine, base: 70, boost: emoteIntent ? 55 : 0, trunc: true },
     { name: 'topical', text: topicalLine, base: 80 },
