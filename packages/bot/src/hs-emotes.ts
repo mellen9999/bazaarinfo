@@ -40,13 +40,20 @@ async function fetchSet(userId: string): Promise<Row[] | null> {
 
 const nameOf = (r: Row): string | null => (typeof r.custom_name === 'string' && r.custom_name ? r.custom_name : null)
 
-async function refreshBotOwned(): Promise<void> {
-  if (!botId || Date.now() < botOwnedExp) return
+// shared in-flight promise: started alongside the chatter's fetch so the two run in parallel,
+// and a second message mid-refresh waits on the same one instead of reading a half-built set
+let ownedRefresh: Promise<void> | null = null
+
+function refreshBotOwned(): Promise<void> {
+  if (!botId || Date.now() < botOwnedExp) return ownedRefresh ?? Promise.resolve()
   botOwnedExp = Date.now() + TTL
-  const rows = await fetchSet(botId)
-  if (!rows) return
-  botOwned.clear()
-  for (const r of rows) { const n = nameOf(r); if (n) { botOwned.add(n); noteBotHsEmote(n) } }
+  ownedRefresh = (async () => {
+    const rows = await fetchSet(botId)
+    if (!rows) { botOwnedExp = 0; return }
+    botOwned.clear()
+    for (const r of rows) { const n = nameOf(r); if (n) { botOwned.add(n); noteBotHsEmote(n) } }
+  })().finally(() => { ownedRefresh = null })
+  return ownedRefresh
 }
 
 async function adopt(rows: Row[], text: string): Promise<void> {
@@ -88,6 +95,7 @@ async function adopt(rows: Row[], text: string): Promise<void> {
 export async function noteChatterEmotes(userId: string, text = ''): Promise<void> {
   if (!/^\d{1,20}$/.test(userId)) return
   let hit = seen.get(userId)
+  if (process.env.HEATSYNC_EMOTES_KEY) void refreshBotOwned()
   if (!hit || hit.exp <= Date.now()) {
     const rows = await fetchSet(userId)
     hit = { exp: Date.now() + TTL, rows: (rows ?? []).slice(0, MAX_NAMES) }
