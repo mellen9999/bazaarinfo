@@ -1,5 +1,6 @@
 import { hslogsEnabled } from './hslogs'
 import { remotePasta } from './hslogs-context'
+import { lastOp } from './lastop'
 import { formatItem, formatMonster, formatEvent, formatTagResults, formatDayResults, truncate } from '@bazaarinfo/shared'
 import * as store from './store'
 import * as db from './db'
@@ -125,6 +126,7 @@ const subcommands: [RegExp, SubHandler][] = [
     // force bypasses the >30% delta guard for a genuinely massive content cull
     return onRefresh(/\bforce\b/i.test(q))
   }],
+  [/^last\s*op$/i, (_q, ctx, suffix) => (ctx.channel ? lastOp(ctx.channel).then((l) => withSuffix(l, suffix)) : null)],
   [/^emotes?\s+refresh$/i, async (_q, ctx) => {
     if (!isAdmin(ctx.user)) return null
     if (!onEmoteRefresh) return 'emote refresh not available'
