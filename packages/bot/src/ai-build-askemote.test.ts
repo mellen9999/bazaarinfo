@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll } from 'bun:test'
 import { initDb } from './db'
 import { loadStore } from './store'
 import { buildUserMessage } from './ai-build'
-import { addHeatsyncEmotes } from './emotes'
+import { addHeatsyncEmotes, noteBotHsEmote } from './emotes'
 
 beforeAll(async () => { initDb(':memory:'); await loadStore(); addHeatsyncEmotes(['ass11']) })
 
@@ -12,6 +12,12 @@ describe('emote names in the ask', () => {
   it('flags a known emote that has no description', () => {
     const r = buildUserMessage('thoughts on ass11 ?', { user: 'mellen', channel: '#askemote' } as any)
     expect(r.text).toContain('Emote names in the ask: ass11')
+  })
+
+  it('tells the model it may post back an emote the bot owns', () => {
+    noteBotHsEmote('ass11')
+    const r = buildUserMessage('thoughts on ass11 ?', { user: 'mellen', channel: '#askemote' } as any)
+    expect(r.text).toContain('you own ass11 too')
   })
 
   it('stays quiet when no token is an emote', () => {

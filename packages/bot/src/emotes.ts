@@ -41,6 +41,8 @@ export function noteBotHsEmote(name: string) {
   while (botHsEmotes.size > MAX_BOT_HS) botHsEmotes.delete(botHsEmotes.keys().next().value as string)
 }
 
+export function botOwnsHsEmote(name: string): boolean { return botHsEmotes.has(name) }
+
 function botHsEmoteLine(): string {
   const cutoff = Date.now() - 6 * 3_600_000
   const names = [...botHsEmotes].filter(([, t]) => t > cutoff).map(([n]) => n)
