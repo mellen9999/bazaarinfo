@@ -69,7 +69,7 @@ export const OPINION_RE = /\b(?:your|you)\b[^?]{0,40}\b(?:favou?rite|opinion|rat
 // along on every ask during a stream and say nothing about a real-world fact.
 export const GROUNDING_SECTIONS: ReadonlySet<string> = new Set([
   'weather', 'shirt', 'schedule', 'worldCup', 'hs', 'hsCards', 'hsBoard', 'guildrun', 'grNews',
-  'patch', 'patchNotes', 'triviaRef', 'triviaStandings', 'self', 'gameBlock',
+  'patch', 'patchNotes', 'officialEvent', 'triviaRef', 'triviaStandings', 'self', 'gameBlock',
 ])
 // when the ask NAMES another game, only data about that game (or the bot) grounds it. the
 // bazaar block and the streamer sections still fire on incidental words — "cham rune" hit a

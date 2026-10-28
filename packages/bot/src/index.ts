@@ -38,6 +38,7 @@ import { reconcilePins, pinChannel, unpinChannel } from './hslogs-pins'
 import { notify } from './notify'
 import { sweepVocabularyChunked } from './grounding-sweep'
 import { fetchPatchInfo } from './patch'
+import { refreshOfficialPosts } from './official-posts'
 import { diffContent, renderDiffChat, renderDiffAlert } from './content-diff'
 import { readJson } from './http'
 import * as raid from './raid'
@@ -917,6 +918,12 @@ setInterval(async () => {
     }
   }
 }, DUMP_POLL_INTERVAL)
+
+// dev announcements (events, season drops) — every 3h so a new event is live in chat the
+// same afternoon, not at the next daily digest. fail-soft inside, rides the shared queue.
+const OFFICIAL_POSTS_INTERVAL = 3 * 60 * 60_000
+refreshOfficialPosts().catch((e) => log(`official posts load failed: ${e}`))
+setInterval(() => refreshOfficialPosts().catch((e) => log(`official posts refresh failed: ${e}`)), OFFICIAL_POSTS_INTERVAL)
 
 // daily reddit digest refresh at 5pm PT
 scheduleDaily(17, async () => {

@@ -3,6 +3,7 @@ import { fortniteContext } from './fortnite'
 import { isGameActive } from './trivia'
 import { getRedditDigest, getBgRedditDigest, getGrRedditDigest } from './reddit'
 import { getPatchInfo } from './patch'
+import { getOfficialEventLine } from './official-posts'
 import { OVERLAY, isOverlayFresh, resolvePatch, selectNotes, patchScope, newCardNote } from './patch-notes'
 import { exact } from './store'
 import { getWorldCupLine } from './worldcup'
@@ -380,9 +381,14 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const isMetaQuery = META_QUERY_RE.test(query)
   const patch = isMetaQuery ? resolvePatch(getPatchInfo()).info : null
   const size = patch?.sizeBadge ? `, size ${patch.sizeBadge}` : ''
+  // bazaardb's patchnotes only names an event once it lists one; the devs' own reddit
+  // announcement lands first. when that exists, "none" would be a lie.
+  const officialEvent = isMetaQuery ? getOfficialEventLine() : ''
+  const noEvent = officialEvent ? 'see the official announcement below' : 'none — no special limited-time event is running right now'
   const patchLine = patch
-    ? `\nCurrent game patch (authoritative — answer "what's new / is there an event" from THIS, don't deflect): ${patch.latestPatch} (${patch.patchDate}${size}); active event: ${patch.activeEvent ?? 'none — no special limited-time event is running right now'}.`
+    ? `\nCurrent game patch (authoritative — answer "what's new / is there an event" from THIS, don't deflect): ${patch.latestPatch} (${patch.patchDate}${size}); active event: ${patch.activeEvent ?? noEvent}.`
     : ''
+  const officialEventLine = officialEvent ? `\n${officialEvent}` : ''
   // hand-grounded notes for the newest patch — the only source of "what actually changed",
   // since the dump carries current stats but no deltas. query-ranked, capped at 3, so the
   // scope line carries the real totals — three bullets must never read as the whole patch.
@@ -839,6 +845,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'pushback', text: pushbackLine, base: -108.8 },
     // live patch/event line is the direct answer to "what's new" — keep it ahead of primaryPair
     { name: 'patch', text: patchLine, base: -108 },
+    // the devs' own event announcement — the direct answer to "is there an event", same tier
+    { name: 'officialEvent', text: officialEventLine, base: -107.9 },
     // the actual "what changed" bullets sit right behind the version line, same tier
     { name: 'patchNotes', text: notesLine, base: -107.5, trunc: true },
     // world cup scoreboard is the direct answer when it fires — same never-evict tier

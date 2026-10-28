@@ -111,11 +111,12 @@ async function fetchOnce(url: string): Promise<string> {
 /**
  * Fetch and parse a subreddit's Atom feed. Serialized against every other caller.
  * `key` names the source for staleness tracking (e.g. 'playthebazaar').
+ * `listing` picks the sort ('/new'); default is the hot front page.
  * Returns [] on failure — callers keep whatever digest they already had.
  */
-export function fetchSubreddit(sub: string, key: string): Promise<FeedEntry[]> {
+export function fetchSubreddit(sub: string, key: string, listing = ''): Promise<FeedEntry[]> {
   const run = async (): Promise<FeedEntry[]> => {
-    const url = `https://www.reddit.com/r/${sub}/.rss`
+    const url = `https://www.reddit.com/r/${sub}${listing}/.rss`
     for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt++) {
       try {
         const entries = parseAtom(await fetchOnce(url))
