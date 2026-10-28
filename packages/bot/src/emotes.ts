@@ -31,6 +31,22 @@ function rebuildAllEmoteNames() {
   allEmoteNames = names
 }
 
+// names the bot owns in its own heatsync inventory that chatters recently used: safe to post back
+const botHsEmotes = new Map<string, number>()
+const MAX_BOT_HS = 12
+
+export function noteBotHsEmote(name: string) {
+  botHsEmotes.delete(name)
+  botHsEmotes.set(name, Date.now())
+  while (botHsEmotes.size > MAX_BOT_HS) botHsEmotes.delete(botHsEmotes.keys().next().value as string)
+}
+
+function botHsEmoteLine(): string {
+  const cutoff = Date.now() - 6 * 3_600_000
+  const names = [...botHsEmotes].filter(([, t]) => t > cutoff).map(([n]) => n)
+  return names.length ? `\n  heatsync (chatters use these; reuse back when it fits): ${names.join(' ')}` : ''
+}
+
 export function addHeatsyncEmotes(list: string[]) {
   let changed = false
   for (const name of list) {
@@ -227,7 +243,7 @@ export function formatEmotesForAI(channel: string, recentlyUsed?: Set<string>): 
   const now = Date.now()
   const uKey = usedSetKey(recentlyUsed)
   const cached = emoteBlockCache.get(channel)
-  if (cached && now - cached.ts < EMOTE_SHUFFLE_WINDOW && cached.usedKey === uKey) return cached.text
+  if (cached && now - cached.ts < EMOTE_SHUFFLE_WINDOW && cached.usedKey === uKey) return cached.text + botHsEmoteLine()
 
   const descriptions = getDescriptions()
   const usedSet = recentlyUsed ?? new Set<string>()
@@ -292,7 +308,7 @@ export function formatEmotesForAI(channel: string, recentlyUsed?: Set<string>): 
 
   const text = `Emotes:\n${lines.join('\n')}`
   emoteBlockCache.set(channel, { text, ts: now, usedKey: uKey })
-  return text
+  return text + botHsEmoteLine()
 }
 
 export function invalidateEmoteBlockCache(channel?: string) {

@@ -49,7 +49,7 @@ import { renderUserNotice, routesAsAsk, renderStoredEvent } from './stream-event
 import { renderModeration, noteTimeout, isTimedOut, noteDeletedMessage, wasDeleted, noteSentLine, storedLineFor } from './moderation'
 import { setControlSender, setControlChannelOps, setHealthProvider } from './control'
 import { startPanel } from './panel-server'
-import { noteChatterEmotes } from './hs-emotes'
+import { noteChatterEmotes, setBotHeatsyncId } from './hs-emotes'
 
 const CHANNELS_RAW = process.env.TWITCH_CHANNELS ?? process.env.TWITCH_CHANNEL
 const CLIENT_ID = process.env.TWITCH_CLIENT_ID
@@ -244,6 +244,7 @@ const doRefresh = () => refreshToken(CLIENT_ID, CLIENT_SECRET)
 // resolve user IDs
 log('resolving user IDs...')
 const botUserId = await getUserId(token, CLIENT_ID, BOT_USERNAME, doRefresh)
+setBotHeatsyncId(botUserId)
 const channels: ChannelInfo[] = await Promise.all(
   channelNames.map(async (name) => ({
     name,
@@ -441,7 +442,7 @@ const client = new TwitchClient(
   async (channel, userId, username, text, badges, messageId, threadId, sentTs, replyParent, flags) => {
     try {
       if (userId === botUserId) return
-      void noteChatterEmotes(userId)
+      void noteChatterEmotes(userId, text)
 
       // rxTs = when the bot first touches this message; inboundAge = how stale it already was on
       // arrival (Twitch network + any IRC-reconnect stall + event-loop pickup) — the latency term
