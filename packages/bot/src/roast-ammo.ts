@@ -136,5 +136,5 @@ export function buildRoastAmmoLine(query: string, asker: string, channel: string
     }
   } catch {}
   if (blocks.length === 0) return ''
-  return `\nWho they are — real, derived from their whole chat history here (roast the PERSONA: flip a habit, the catchphrase, the contradiction between what they say and how they play; pick the single most telling thing, never invent, never lead with account age or sub length):\n${blocks.join('\n')}`
+  return `\nWho they are — real, derived from their whole chat history here (roast the PERSONA: flip a habit, the catchphrase, the contradiction between what they say and how they play; pick the single most telling thing; never invent; never count or say how many times or "in a row"; never lead with account age or sub length):\n${blocks.join('\n')}`
 }
