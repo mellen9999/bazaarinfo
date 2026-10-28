@@ -538,6 +538,21 @@ export function stripInputEcho(response: string, query: string): string {
   return response
 }
 
+// a reply that opens by repeating the whole ask ("LICK wollip Madge LICK wollip" for the ask
+// "LICK wollip Madge") is a parrot, not an answer: drop the copy, keep what the bot added.
+// leaves the reply alone when nothing follows the copy (a pure repeat is the model's call).
+export function stripLeadingAskEcho(response: string, query: string): string {
+  const q = query.trim().split(/\s+/).filter(Boolean)
+  if (!q.length) return response
+  const words = response.trim().split(/\s+/)
+  const at = words[0]?.startsWith('@') ? 1 : 0
+  const head = words.slice(at, at + q.length)
+  if (head.length !== q.length || head.some((w, i) => w.toLowerCase() !== q[i].toLowerCase())) return response
+  const rest = words.slice(at + q.length)
+  if (!rest.length) return response
+  return [...words.slice(0, at), ...rest].join(' ')
+}
+
 // --- emote dedup ---
 
 // Pulling an emote out of a space-joined word list orphans the punctuation that sat

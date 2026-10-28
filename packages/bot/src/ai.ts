@@ -13,7 +13,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 
 // --- local imports from sub-modules ---
 
-import { sanitize, plainDashes, stripInputEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL, SETTINGS_TALK } from './ai-sanitize'
+import { sanitize, plainDashes, stripInputEcho, stripLeadingAskEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL, SETTINGS_TALK } from './ai-sanitize'
 import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak, hasFabricatedDataRef } from './ai-verify'
 import { searchEligible, finalText, SEARCH_TALK, stripSearchTalk, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, SEARCH_HINT, SEARCH_FAILED_HINT } from './ai-search-gate'
 import { notify } from './notify'
@@ -586,7 +586,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // isRealUser falls back to the channel chat log for anyone outside the recent window
       const result = sanitize(replyText, ctx.user, ctx.isMod, knownUsers, data.stop_reason === 'max_tokens', (n) => db.userHasChatted(n, ctx.channel), hasStats)
       // strip injection echo (model parroting user's injected instructions)
-      result.text = stripInputEcho(result.text, query)
+      result.text = stripLeadingAskEcho(stripInputEcho(result.text, query), query)
       // strip per-user signature emote repetition — but NOT for creative writing, where an
       // emote can be a recurring character/noun ("Crowge watched from the corner…") and
       // stripping it leaves grammatically broken fragments ("the watched from the corner").

@@ -678,7 +678,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const askOwned = askEmotes.filter(botOwnsHsEmote)
   const askEmoteLine = askEmotes.length
     ? `\nEmote names in the ask: ${askEmotes.join(' ')} — emotes the chatter can see, not Bazaar items. react to the vibe, never name which site they come from.`
-      + (askOwned.length ? ` you own ${askOwned.join(' ')} too: usually end your reply with it, as the emote itself.` : '')
+      + (askOwned.length ? ` you own ${askOwned.join(' ')} too: usually end your reply with it, as the emote itself. never copy the ask back.` : '')
     : ''
 
   const recentPastas = isPasta
