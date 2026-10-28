@@ -54,6 +54,7 @@ import { monotonyStreak } from './ai-verify'
 import { selfContext } from './self'
 import { buildGameContext } from './ai-build-game'
 import { buildUserContext, buildAboutUserLine } from './ai-build-user'
+import { buildRoastAmmoLine } from './roast-ammo'
 import { etParts } from './et'
 import { buildTimeline, buildRecallContext, buildChatRecall } from './ai-build-recall'
 import type { RemoteHistory } from './hslogs-context'
@@ -719,7 +720,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // a NAMED other game ("which hero in deadlock") is not a bazaar gap: "hero" is a game
   // term, but the bazaar "do NOT state the mechanic" nudge would only fight the answer
   // (and, with web search offered, the search). its dossier line anchors it instead.
-  const noGameData = entities.isGame && !hasGameData && !namedGame
+  // an official event announcement in context IS the data for an event ask
+  const noGameData = entities.isGame && !hasGameData && !namedGame && !officialEvent
   const noVerifiedDefinition = entities.isGame && DEFINITIONAL_INTENT.test(query)
     && !/\b(best|worst|good|bad|meta|tier|build|strong|weak|viable|worth|better|op|broken|heroes?|comp|loadout|strat|counter)\b/i.test(query)
     && !gr.grounded // a guildrun-grounded answer is a verified definition, not a gap
@@ -731,6 +733,10 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   if (noGameData || noVerifiedDefinition) recordGap(ctx.channel, ctx.displayQuery ?? query)
 
   // build context sections in priority order
+  // static voice instructions, not data: sized apart from the budget below. unhinged's hint is
+  // ~6k chars — counted against the 3500 cap it left a negative budget and silently evicted
+  // EVERY context section (game data, patch, chat) in any unhinged channel.
+  const toneText = toneHint(ctx.channel)
   const requiredTail = [
     // clock line — always present, never evicted. the system prompt only carries a bare
     // ISO date, and the model cannot derive a weekday from it: chat asked "what day is
@@ -742,6 +748,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     isContinuationLike ? `\n⚠️ SCENE CONTINUATION — [USER] asked for more. OVERRIDES one-and-done. This is turn ${hot.length + 1}. Each turn SHIFT AXIS — change at least one: setting, POV, format (action/dialogue/montage/letter/news/court transcript), stakes, genre (noir/sci-fi/horror/romance/heist), tempo. NEVER rehash. NEVER recycle the same beat with new words. Compound escalation: fistfight → duel → war → reckoning. ${hot.length >= 3 ? 'TURN 4+: linear escalation is exhausted — HARD CUT. timejump (years pass / future), dimension shift (alt reality / dream), genre flip, or new generation of the same characters. reset the stakes ladder. ' : ''}Pull from real-world (2025-2026 news, pop culture, history, science, internet). 400 chars.` : '',
     buildUserContext(ctx.user, ctx.channel, !!(recallLine || hotLine), isRememberReq, query, { firstMsg: ctx.firstMsg, returningChatter: ctx.returningChatter }),
     buildAboutUserLine(query, ctx.user, ctx.channel),
+    buildRoastAmmoLine(query, ctx.user, ctx.channel),
     ctx.mention
       ? `\n---\n@MENTION — ${ctx.replyParent?.body ? `[USER] replied to your line: "${ctx.replyParent.body.slice(0, 200)}"` : '[USER] addressed you by name'} — answer them directly.\n[USER]: ${query}`
       : `\n---\n${ctx.isMod ? '[MOD] ' : ''}[USER]: ${query}`,
@@ -763,7 +770,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
         : '',
     // the channel's tone level (a mod's panel knob) — '' at normal. before directiveHint so
     // a mod order, which comes after it, wins.
-    toneHint(ctx.channel),
+    toneText,
     // chat-planted flavor directives that match this query (kept in the required tail so
     // a tight context budget can't evict them). empty when none are active/matching.
     directiveHint(ctx.channel, query, ctx.user),
@@ -885,7 +892,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // truncatable list-sections degrade to a partial include rather than losing
   // their slot to a smaller, lower-value section that happens to fit the crumbs.
   const USER_MSG_CAP = 3500
-  const tailLen = requiredTail.length
+  const tailLen = requiredTail.length - toneText.length
   let budget = USER_MSG_CAP - tailLen
   const included: string[] = []
   const trimmed: string[] = []

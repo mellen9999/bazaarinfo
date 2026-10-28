@@ -8,6 +8,7 @@ import { formatUserEvents } from './stream-events'
 import { getUserProfile } from './style'
 import { maybeFetchTwitchInfo } from './ai-background'
 import { findReferencedUser } from './ai-query'
+import { effectiveTone } from './tone'
 
 // --- user context builder ---
 
@@ -44,22 +45,25 @@ export function userStandingLine(user: string, channel: string): string {
   return bits.join('; ')
 }
 
-// "does X stream" / "how long has X followed rogue" / any @X: the named chatter's
-// twitch-readable record — account age, followage here and on a named channel, badges,
-// what they've done, their own channel on a streamer ask. only when X is a real chatter
-// here, never for the asker (their own block already carries it).
+// in unhinged, account age and followage are the lazy roast angle — keep them out of the
+// context unless the ask is actually about them ("how long has X followed rogue").
+function tenureHidden(query: string, channel: string): boolean {
+  return effectiveTone(channel) === 'unhinged' && !FOLLOW_ASK_RE.test(query) && !isStreamerAsk(query)
+}
+
 export function buildAboutUserLine(query: string, asker: string, channel: string): string {
   if (!isStreamerAsk(query) && !FOLLOW_ASK_RE.test(query) && !/@\w+/.test(query)) return ''
   const ref = findReferencedUser(query, channel)
   if (!ref || ref === asker.toLowerCase()) return ''
+  const tenureOff = tenureHidden(query, channel)
   const bits: string[] = []
   try {
     const tu = db.getCachedTwitchUser(ref)
-    if (tu?.account_created_at) bits.push(`account ${db.formatAccountAge(tu.account_created_at)}`)
+    if (tu?.account_created_at && !tenureOff) bits.push(`account ${db.formatAccountAge(tu.account_created_at)}`)
     const standing = userStandingLine(ref, channel)
     if (standing) bits.push(standing)
     const here = db.getCachedFollowage(ref, channel)
-    if (here?.followed_at) bits.push(`following #${channel} since ${db.formatAccountAge(here.followed_at).replace(' old', '')}`)
+    if (here?.followed_at && !tenureOff) bits.push(`following #${channel} since ${db.formatAccountAge(here.followed_at).replace(' old', '')}`)
     const other = FOLLOW_ASK_RE.test(query) ? channelNamedIn(query, channel) : null
     if (other) {
       const of = db.getCachedFollowage(ref, other)
@@ -77,6 +81,8 @@ export function buildUserContext(user: string, channel: string, skipAsks = false
   // kick off background Twitch data fetch (non-blocking)
   maybeFetchTwitchInfo(user, channel)
 
+  const tenureOff = tenureHidden(query, channel)
+
   // try style cache first (regulars with pre-built profiles)
   let profile = getUserProfile(channel, user)
 
@@ -88,7 +94,7 @@ export function buildUserContext(user: string, channel: string, skipAsks = false
     try {
       const twitchUser = db.getCachedTwitchUser(user)
       if (twitchUser?.account_created_at) {
-        parts.push(`account ${db.formatAccountAge(twitchUser.account_created_at)}`)
+        if (!tenureOff) parts.push(`account ${db.formatAccountAge(twitchUser.account_created_at)}`)
       } else {
         const stats = db.getUserStats(user)
         if (stats?.first_seen) {
@@ -123,7 +129,7 @@ export function buildUserContext(user: string, channel: string, skipAsks = false
   let followLine = ''
   try {
     const follow = db.getCachedFollowage(user, channel)
-    if (follow?.followed_at) {
+    if (follow?.followed_at && !tenureOff) {
       followLine = `following #${channel} since ${db.formatAccountAge(follow.followed_at).replace(' old', '')}`
     }
     const other = FOLLOW_ASK_RE.test(query) ? channelNamedIn(query, channel) : null
