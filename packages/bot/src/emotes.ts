@@ -17,14 +17,29 @@ let globalEmoteSetId = ''
 
 // fast lookup set for all known emote names (rebuilt on any mutation)
 let allEmoteNames = new Set<string>()
+// heatsync personal-inventory names seen in chat; bounded, cleared whole at the cap
+const heatsyncNames = new Set<string>()
+const MAX_HEATSYNC_NAMES = 5000
 
 function rebuildAllEmoteNames() {
   const names = new Set<string>(KNOWN_GLOBALS)
   for (const name of globalEmotes) names.add(name)
+  for (const name of heatsyncNames) names.add(name)
   for (const names_ of channelEmotes.values()) {
     for (const n of names_) names.add(n)
   }
   allEmoteNames = names
+}
+
+export function addHeatsyncEmotes(list: string[]) {
+  let changed = false
+  for (const name of list) {
+    if (!name || name.length > 64 || /\s/.test(name) || heatsyncNames.has(name)) continue
+    if (heatsyncNames.size >= MAX_HEATSYNC_NAMES) heatsyncNames.clear()
+    heatsyncNames.add(name)
+    changed = true
+  }
+  if (changed) rebuildAllEmoteNames()
 }
 
 export function getEmoteSetId(channel: string): string | undefined {
