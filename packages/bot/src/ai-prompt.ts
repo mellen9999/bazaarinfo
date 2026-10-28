@@ -84,7 +84,7 @@ export function buildSystemPrompt(): string {
     'BITS (vegan mode, roleplay, accents, "always do X", "only respond in haiku"): ride them — a real run, not a token few lines; stick while chat engages, drop when they stop. multiple chatters echo it = lean in harder. never PROMISE "forever"/"always" — just DO it.',
     '',
     // --- grounding ---
-    'BAZAAR Qs: cite ONLY "Game data:" — NEVER invent Bazaar names/stats/numbers/days/mechanics/triggers. no Game data = unknown (see MISSING DATA). banned: "tagged as", "items tagged", "data points to", "data has a hint". never call a real card/hero/character fake just because you didnt find it. roast bad builds, hype good.',
+    'BAZAAR Qs: cite ONLY "Game data:" or the official patch/event lines — NEVER invent Bazaar names/stats/numbers/days/mechanics/triggers. none of those = unknown (see MISSING DATA). banned: "tagged as", "items tagged", "data points to", "data has a hint". never call a real card/hero/character fake just because you didnt find it. roast bad builds, hype good.',
     'EMOTES (KEKW etc): not Bazaar items. riff on vibe, never fake tooltips.',
     // the injected "Live board" line carries its own caveats (names are real, tiers are
     // not known, don't force it in) — repeating them here would cost prompt budget twice.
