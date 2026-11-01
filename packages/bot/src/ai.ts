@@ -14,7 +14,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 // --- local imports from sub-modules ---
 
 import { sanitize, plainDashes, stripInputEcho, stripLeadingAskEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL, SETTINGS_TALK } from './ai-sanitize'
-import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak, hasFabricatedDataRef } from './ai-verify'
+import { findUngroundedStats, findHeroItemClaims, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak, hasFabricatedDataRef } from './ai-verify'
 import { searchEligible, finalText, SEARCH_TALK, stripSearchTalk, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, SEARCH_HINT, SEARCH_FAILED_HINT } from './ai-search-gate'
 import { notify } from './notify'
 import { repairTruncation, isStub } from './ai-truncate'
@@ -35,6 +35,7 @@ import { refreshGrNewsIfNeeded } from './guildrun-news'
 import { prefetchGameDossier, canonicalGameName, isUngroundedGame } from './game-dossier'
 import { isStreamerAsk, FOLLOW_ASK_RE, channelNamedIn, maybeFetchChannelSnapshot, maybeFetchFollowageFor } from './twitch-profile'
 import { findReferencedUser } from './ai-query'
+import * as store from './store'
 import { planRecallPrefetch } from './ai-build-recall'
 import { prefetchHistory } from './hslogs-context'
 import { refreshBoardIfNeeded } from './board'
@@ -107,6 +108,17 @@ const MAX_TOKENS_CHAT = 110
 const MAX_TOKENS_PASTA = 200
 const TIMEOUT = 7_000
 const MAX_RETRIES = 3
+
+// hero names as the model writes them: lowercase, "the dragons" also bare, plus pyg
+const heroWords = () => store.getHeroNames().flatMap((h) => {
+  const l = h.toLowerCase()
+  return l.startsWith('the ') ? [l, l.slice(4)] : l === 'pygmalien' ? [l, 'pyg'] : [l]
+})
+const HERO_ITEM_LOOKUP = {
+  find: store.findCard,
+  hero: store.findHeroName,
+  isTerm: isGameTerm,
+}
 // hedged request: prod p90 is ~3.8s, so a call still pending at 4s is in the slow tail.
 // fire one identical backup and take whichever returns first — collapses the stall /
 // empty-body / slow-backend tail (~10% of calls) into ~p50 at the cost of one extra small
@@ -668,6 +680,21 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           }
           log('ai: ungrounded stat retries exhausted — returning null for clean fallback')
           return miss('ungrounded_stat_blocked')
+        }
+      }
+      // item→hero ownership, checked against the dump whether or not a card was injected: a
+      // multi-hero ask carries one hero's pool at most, and the model fills the rest from memory.
+      if (!isCreative && !OTHER_GAME_RE.test(query)) {
+        const claims = findHeroItemClaims(result.text, query, heroWords(), HERO_ITEM_LOOKUP)
+        if (claims.length > 0) {
+          log(`ai: wrong hero item ${claims.join(' / ')}, retrying (attempt ${attempt + 1})`)
+          if (attempt < MAX_RETRIES - 1) {
+            messages.push({ role: 'assistant', content: replyText })
+            messages.push({ role: 'user', content: `Wrong: ${claims.join('; ')}. ${RETRY_TAIL}Only name an item as a hero's when Game data lists it under that hero; otherwise describe the kind of item instead of naming one.` })
+            continue
+          }
+          log('ai: hero item retries exhausted — returning null for clean fallback')
+          return miss('hero_item_blocked')
         }
       }
       // the bot can see the live board whenever the overlay companion is feeding frames, and

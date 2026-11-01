@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { findUngroundedStats, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak } from './ai-verify'
+import { findUngroundedStats, findHeroItemClaims, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak } from './ai-verify'
 
 const CARD = 'Game data:\nPumpkin (Vanessa, Medium) — Heal 30/45/60. Cooldown 7 seconds.\n---\n[USER]: what does pumpkin do'
 
@@ -131,5 +131,50 @@ describe('correctClockClaim — a weekday claim is always checkable', () => {
 
   it('does nothing without a clock line', () => {
     expect(correctClockClaim('today is monday', 'no clock here')).toBeNull()
+  })
+})
+
+describe('findHeroItemClaims — item ownership against the dump', () => {
+  const CARDS: Record<string, string[]> = {
+    proboscis: ['Common'],
+    toolbox: ['Stelle'],
+    'pasta maker': ['Jules'],
+    'cooling fan': ['Dooley'],
+    pumpkin: ['Vanessa'],
+  }
+  const HEROES: Record<string, string> = { vanessa: 'Vanessa', dooley: 'Dooley', mak: 'Mak', stelle: 'Stelle', jules: 'Jules', karnok: 'Karnok', pyg: 'Pygmalien', pygmalien: 'Pygmalien' }
+  const look = {
+    find: (n: string) => (CARDS[n.toLowerCase()] ? { Title: n.replace(/\b\w/g, (c) => c.toUpperCase()), Heroes: CARDS[n.toLowerCase()] } : undefined),
+    hero: (w: string) => HEROES[w.toLowerCase()],
+    isTerm: (w: string) => /^(?:weapons?|haste|burn|tool|crit|flying)$/i.test(w),
+  }
+  const words = Object.keys(HEROES)
+  const ASK = 'give me a top list from each hero to dilute pygs itempool'
+
+  it('catches the shipped roster: a Common card and invented names', () => {
+    const reply = 'pyg dilute picks: vanessa - fan (cheap, early sell fodder), dooley - tool box, mak - proboscis obviously, stelle - telescope, jules - kindling, karnok - any cheap weapon with haste tag.'
+    const bad = findHeroItemClaims(reply, ASK, words, look)
+    expect(bad).toContain('Proboscis is Common (any hero), not Mak')
+    expect(bad).toContain('"telescope" is not a Bazaar item')
+    expect(bad).toContain('"kindling" is not a Bazaar item')
+    expect(bad).toContain('"fan" is not a Bazaar item')
+    expect(bad.some((b) => b.includes('cheap weapon'))).toBe(false)
+  })
+
+  it('passes a correct roster', () => {
+    expect(findHeroItemClaims('stelle - toolbox, jules - pasta maker, dooley - cooling fan', ASK, words, look)).toEqual([])
+  })
+
+  it('catches label and possessive shapes on a known card', () => {
+    expect(findHeroItemClaims('proboscis is a mak item', 'what about proboscis', words, look)).toEqual(['Proboscis is Common (any hero), not Mak'])
+    expect(findHeroItemClaims("go for dooley's toolbox", 'dooley build', words, look)).toEqual(['Toolbox is Stelle, not Dooley'])
+    expect(findHeroItemClaims("pasta maker's in jules territory", 'pasta maker', words, look)).toEqual([])
+  })
+
+  it('leaves playstyle lists and unknown words outside a roster alone', () => {
+    expect(findHeroItemClaims('vanessa - aggro, dooley - engine, pyg - econ', 'which hero is fun', words, look)).toEqual([])
+    expect(findHeroItemClaims("jules' haste pairs with mak's crit windows", ASK, words, look)).toEqual([])
+    expect(findHeroItemClaims('stelle - telescope', ASK, words, look)).toEqual([])
+    expect(findHeroItemClaims('random hero: stelle. go roll with it', 'random hero', words, look)).toEqual([])
   })
 })

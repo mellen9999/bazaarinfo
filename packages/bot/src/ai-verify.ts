@@ -168,3 +168,98 @@ export function correctClockClaim(reply: string, context: string): { text: strin
   const at = claim.index + claim[0].lastIndexOf(claim[1])
   return { text: reply.slice(0, at) + day + reply.slice(at + claim[1].length), day }
 }
+
+// --- hero item claims ---
+//
+// "mak - proboscis, stelle - telescope, jules - kindling" shipped to kripp's chat: proboscis is
+// a Common card, the other two don't exist. the numbers guards can't see it (no numbers), and
+// a multi-hero ask resolves to one hero's data at most, so the model filled the rest from
+// memory. the dump knows every card's owners, so ownership is checkable — check it.
+
+export interface CardLookup {
+  /** exact card title (case-insensitive) → its owners, or undefined */
+  find: (name: string) => { Title: string; Heroes: string[] } | undefined
+  /** a hero name or alias → canonical hero */
+  hero: (word: string) => string | undefined
+  /** a word the game itself uses (tag, keyword, hero) — never an invented card name */
+  isTerm: (word: string) => boolean
+}
+
+// openers that make the phrase a description, not a card: "karnok - any cheap weapon"
+const GENERIC_LEAD = /^(?:any|anything|all|every|most|some|whatever|whichever|cheap|small|big|early|late|nothing|none|same|just|mostly|their|his|her|its)\b/
+// hedges the model trails after a name: "mak - proboscis obviously"
+const TRAILING_FILLER = /\s+(?:obviously|probably|maybe|tbh|imo|honestly|easily|too|for sure|items?|cards?)$/
+const LEAD_ARTICLE = /^(?:the|a|an)\s+/
+// an item-shaped ask — the only time an unknown name in a hero list is a claimed card
+const ITEM_ASK = /\b(?:items?|itempool|item pool|cards?|picks?|pool)\b/i
+
+function cardFromStart(words: string[], look: CardLookup) {
+  for (let n = Math.min(4, words.length); n >= 1; n--) {
+    const c = look.find(words.slice(0, n).join(' '))
+    if (c) return c
+  }
+}
+
+function cardFromEnd(words: string[], look: CardLookup) {
+  for (let n = Math.min(4, words.length); n >= 1; n--) {
+    const c = look.find(words.slice(-n).join(' '))
+    if (c) return c
+  }
+}
+
+function owns(card: { Heroes: string[] }, hero: string): boolean {
+  return card.Heroes.some((h) => h.toLowerCase() === hero.toLowerCase())
+}
+
+function wrongOwner(card: { Title: string; Heroes: string[] }, hero: string): string {
+  const real = card.Heroes.filter((h) => h !== '???')
+  const who = real.length === 0 ? 'no hero' : real.includes('Common') ? 'Common (any hero)' : real.join('/')
+  return `${card.Title} is ${who}, not ${hero}`
+}
+
+/**
+ * item→hero claims in a reply that the card dump contradicts. three shapes:
+ *   list  — "mak - proboscis", "stelle: telescope"
+ *   label — "proboscis is a mak item"
+ *   owner — "mak's proboscis"
+ * a known card under the wrong hero always counts. an unknown name only counts in the list
+ * shape, on an item-shaped ask, with two or more list entries — that is a roster of cards,
+ * and "vanessa - aggro" in a playstyle answer is not.
+ */
+export function findHeroItemClaims(reply: string, query: string, heroWords: string[], look: CardLookup): string[] {
+  if (heroWords.length === 0) return []
+  const alt = heroWords.map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  const text = reply.toLowerCase()
+  const bad = new Set<string>()
+
+  const list = [...text.matchAll(new RegExp(`\\b(${alt})\\s*(?:[-–—:]|items?:)\\s*([^,;.()\\n!?]+)`, 'g'))]
+  const roster = list.length >= 2 && ITEM_ASK.test(query)
+  for (const m of list) {
+    const hero = look.hero(m[1])
+    if (!hero) continue
+    let phrase = m[2].trim().replace(LEAD_ARTICLE, '')
+    while (TRAILING_FILLER.test(phrase)) phrase = phrase.replace(TRAILING_FILLER, '')
+    if (!phrase || GENERIC_LEAD.test(phrase)) continue
+    const words = phrase.split(/\s+/)
+    const card = cardFromStart(words, look)
+    if (card) {
+      if (!owns(card, hero)) bad.add(wrongOwner(card, hero))
+    } else if (roster && words.length <= 3 && !words.some((w) => look.isTerm(w) || look.hero(w))) {
+      bad.add(`"${phrase}" is not a Bazaar item`)
+    }
+  }
+
+  for (const m of text.matchAll(new RegExp(`\\b([a-z][a-z' -]{2,40}?)\\s+(?:is|are|'s)\\s+(?:an?\\s+)?(${alt})(?:'s?)?\\s+(?:items?|cards?|exclusive)\\b`, 'g'))) {
+    const hero = look.hero(m[2])
+    const card = hero && cardFromEnd(m[1].trim().split(/\s+/), look)
+    if (hero && card && !owns(card, hero)) bad.add(wrongOwner(card, hero))
+  }
+
+  for (const m of text.matchAll(new RegExp(`\\b(${alt})(?:'s|')\\s+([a-z][a-z' -]{2,40})`, 'g'))) {
+    const hero = look.hero(m[1])
+    const card = hero && cardFromStart(m[2].trim().split(/\s+/), look)
+    if (hero && card && !owns(card, hero)) bad.add(wrongOwner(card, hero))
+  }
+
+  return [...bad]
+}
