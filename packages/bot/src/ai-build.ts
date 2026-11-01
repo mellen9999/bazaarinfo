@@ -251,7 +251,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // which deliberately does NOT set hasGameData: the board carries no numbers, so the
   // fabricated-stats guard must stay armed while the model banters over it.
   // questions about the bot itself. costs nothing on every other message: empty unless asked.
-  const selfLine = selfContext(query)
+  const selfLine = selfContext(query, getRecent(ctx.channel, 6).map((m) => m.text))
 
   const boardShaped = isBoardQuery(query)
   const boardLine = boardShaped ? getBoardLine(ctx.channel) : ''

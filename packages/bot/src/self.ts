@@ -25,10 +25,16 @@ export const RESERVED_SUBS = new Set([
 
 // questions aimed at the bot itself. deliberately requires a self-referent, so the bare
 // "what's new" stays with the GAME patch line (META_QUERY_RE) where chat means it.
-export const SELF_QUERY_RE = /\b(?:what\s+(?:can|do)\s+(?:you|u)\s+do|what\s+(?:are|r)\s+(?:you|u)|how\s+(?:do|does)\s+(?:you|u|this\s+bot|it)\s+work|how\s+(?:were|was)\s+(?:you|u|this)\s+(?:made|built|created)|who\s+(?:made|built|wrote|created)\s+(?:you|u|this)|(?:your|ur)\s+(?:features?|commands?|updates?|changelog|abilities|capabilit\w+)|what\s+commands?\b|what(?:'?s| is| are)\s+new\s+(?:with|about|for)\s+(?:you|u|the\s+bot)|(?:you|u)\s+(?:get|got|had)\s+(?:an?\s+)?updates?|what\s+changed\s+(?:with|about)\s+(?:you|u)|can\s+(?:you|u)\s+(?:do|play|run)\s+\w+|are\s+(?:you|u)\s+(?:an?\s+)?(?:ai|bot|robot|human|real))\b/i
+export const SELF_QUERY_RE = /\b(?:what\s+(?:can|do)\s+(?:you|u)\s+do|what\s+(?:are|r)\s+(?:you|u)|how\s+(?:do|does)\s+(?:you|u|this\s+bot|it)\s+work|how\s+(?:were|was)\s+(?:you|u|this)\s+(?:made|built|created)|who\s+(?:made|built|wrote|created)\s+(?:you|u|this)|(?:your|ur)\s+(?:features?|commands?|updates?|changelog|abilities|capabilit\w+)|what\s+commands?\b|what(?:'?s| is| are)\s+new\s+(?:with|about|for)\s+(?:you|u|the\s+bot)|(?:you|u)\s+(?:get|got|had)\s+(?:an?\s+)?updates?|what\s+changed\s+(?:with|about)\s+(?:you|u)|can\s+(?:you|u)\s+(?:do|play|run)\s+\w+|are\s+(?:you|u)\s+(?:an?\s+)?(?:ai|bot|robot|human|real)|(?:are|r)\s+(?:you|u)\s+(?:fixed|working|broken)|(?:you|u)\s+(?:fixed|working)\s+(?:now|yet)|did\s+(?:you|u|they|mellen)\s+(?:get\s+)?fix|(?:you|u)\s+(?:get|got|been)\s+fixed|still\s+hallucinat\w*)\b/i
 
-export function isSelfQuery(query: string): boolean {
-  return SELF_QUERY_RE.test(query)
+// "is it?" right after "should be fixed": the self-referent lives in chat, not the ask. only a
+// bare follow-up qualifies, so a real question never gets the bot's changelog stapled on.
+const BARE_FOLLOWUP = /^(?:is\s+it|did\s+it(?:\s+work)?|really|for\s+real|fr|you\s+sure|it\s+is|are\s+you|is\s+that\s+true)\s*\?*$/i
+const FIX_TALK = /\b(?:fix(?:ed|ing)?|hallucinat\w*|broken|bugged|patched)\b/i
+
+export function isSelfQuery(query: string, recentChat: string[] = []): boolean {
+  if (SELF_QUERY_RE.test(query)) return true
+  return BARE_FOLLOWUP.test(query.trim()) && recentChat.some((m) => FIX_TALK.test(m))
 }
 
 // plain-language grouping of the command table. the GROUPS keys are what chat would call
@@ -73,8 +79,8 @@ function recentChanges(): string[] {
  * grounding for questions about the bot itself. empty unless the query actually asks —
  * this is never ambient, because a bot that volunteers its feature list is a pamphlet.
  */
-export function selfContext(query: string): string {
-  if (!isSelfQuery(query)) return ''
+export function selfContext(query: string, recentChat: string[] = []): string {
+  if (!isSelfQuery(query, recentChat)) return ''
   const can = Object.keys(GROUPS).map((g) => `- ${g}`).join('\n')
   const changes = recentChanges()
   const changeBlock = changes.length

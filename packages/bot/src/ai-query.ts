@@ -267,7 +267,8 @@ export const TIER_SHORT: Record<string, string> = {
 
 export function serializeCard(card: BazaarCard): string {
   const tiers = card.Tiers.map((t) => TIER_SHORT[t]).join(',')
-  const heroes = card.Heroes.filter((h) => h !== '???' && h !== 'Common').join(', ')
+  // Common spelled out: dropping it left "no heroes listed", and the model read that as unknown
+  const heroes = card.Heroes.filter((h) => h !== '???').map((h) => (h === 'Common' ? 'Common (any hero)' : h)).join(', ')
 
   const abilities = card.Tooltips.map((t) => {
     return t.text.replace(/\{[^}]+\}/g, (match) => {

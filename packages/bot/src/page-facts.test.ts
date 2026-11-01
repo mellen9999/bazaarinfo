@@ -84,3 +84,9 @@ describe('chat lookup', () => {
     expect(await itemLookup('colt', ctx, '')).toContain('pool size by hero and tier')
   })
 })
+
+describe('serializeCard — Common is named, not dropped', () => {
+  it('says any hero instead of listing none', () => {
+    expect(serializeCard({ ...PLAIN, Heroes: ['Common'] })).toContain('Heroes: Common (any hero)')
+  })
+})

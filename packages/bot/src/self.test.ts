@@ -14,6 +14,7 @@ describe('self-knowledge — the bot describes itself from the command table, no
       'how does this bot work', 'who made you', 'who built this', 'your features',
       'what commands', 'whats new with you', 'what changed with you', 'did you get an update',
       'can you play trivia', 'are you an ai', 'are you a bot', 'your changelog',
+      'are you fixed', 'r u fixed now', 'did they fix you', 'you got fixed?', 'still hallucinating?',
     ]) expect(isSelfQuery(q)).toBe(true)
   })
 
@@ -49,5 +50,12 @@ describe('self-knowledge — the bot describes itself from the command table, no
     expect(RESERVED_SUBS.has('trivia')).toBe(true)
     expect(RESERVED_SUBS.has('overlay')).toBe(true)
     expect(RESERVED_SUBS.has('pumpkin')).toBe(false)
+  })
+
+  it('reads a bare follow-up against chat talking about a fix', () => {
+    // the real case: mellen "should be fixed", ennortix "is it?" — the referent is in chat
+    expect(isSelfQuery('is it?', ['bot hallucinating?', 'fixing', 'should be fixed'])).toBe(true)
+    expect(isSelfQuery('is it?', ['pumpkin is busted', 'gg'])).toBe(false)
+    expect(isSelfQuery('is pumpkin good?', ['should be fixed'])).toBe(false)
   })
 })
