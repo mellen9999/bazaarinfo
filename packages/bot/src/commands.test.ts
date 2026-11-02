@@ -612,6 +612,11 @@ describe('salvageQuery', () => {
     expect(salvageQuery('vanessa items')).toEqual({ query: '', hero: 'Vanessa' })
   })
 
+  it('returns null when 2+ heroes are named (a comparison, not a pool lookup)', () => {
+    expect(salvageQuery('vanessa, stelle or dooley?')).toBeNull()
+    expect(salvageQuery('vanessa or stelle')).toBeNull()
+  })
+
   it('returns null when nothing strippable (no false rescue)', () => {
     mockExact.mockImplementation(() => undefined)
     expect(salvageQuery('obsidian dagger')).toBeNull()

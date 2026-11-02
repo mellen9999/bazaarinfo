@@ -190,7 +190,12 @@ export function salvageQuery(query: string): Salvaged | null {
   const kept: string[] = []
   for (const w of words) {
     const h = store.findExactHero(w.replace(/'s$/, ''))
-    if (h) { hero = h; continue }
+    if (h) {
+      // two different heroes = a comparison ("dooley, stelle or karnok?"), not a scoped lookup
+      if (hero && hero !== h) return null
+      hero = h
+      continue
+    }
     if (NOISE_WORDS.has(w.toLowerCase())) continue
     kept.push(w)
   }
