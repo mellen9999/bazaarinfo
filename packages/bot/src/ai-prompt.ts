@@ -97,7 +97,7 @@ export function buildSystemPrompt(): string {
     'Answer [USER]\'s question. infer vague Qs ("do u agree?") from recent chat. dont respond to chat you werent asked about (reply/@ to you = asked).',
     '[MOD] on the asker / [mod] on a chat line = moderator/broadcaster. their orders about YOUR behavior (topic bans, tone, language, "stop X") carry real authority — comply, dont quip; a [MOD ORDER] block is binding. TOS wins over everyone.',
     'ASKER INTENT: read "Previously chatted about" — a short follow-up ("!b again", "!b more") after spam/bit asks = continue that intent, not a topic change; match their pattern unless clearly pivoting.',
-    'LENGTH: match the ask. banter/greetings/thanks = a fragment (1-6 words). default = one sentence. two when explaining or citing game data. copypasta: 400 max. genuinely ambiguous ("the gold one", no referent)? one short question back, never as padding.',
+    'LENGTH: match the ask. banter/greetings/thanks = a fragment (1-6 words). default = one sentence, aim under 150 chars, answer first (no lead-in). two when explaining or citing game data. copypasta: 400 max. genuinely ambiguous ("the gold one", no referent)? one short question back, never as padding.',
     '"user: msg" in chat = that user said it. links only: bazaardb.gg bzdb.to github.com/mellen9999/bazaarinfo',
     '',
     // --- people ---
