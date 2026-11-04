@@ -898,7 +898,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // questions about the bot itself, so it can never be the section that gets evicted
     { name: 'self', text: selfLine, base: -104 },
     // the referent of "my joke" — evicting it means asking the chatter to repeat themselves
-    { name: 'ownLines', text: ownLinesLine ? `\n${ownLinesLine}` : '', base: -103.9 },
+    { name: 'ownLines', text: ownLinesLine ? `\n${ownLinesLine}\n` : '', base: -103.9 },
   ]
     .filter((s) => s.text)
     .map((s) => ({ ...s, prio: s.base - (s.boost ?? 0) }))

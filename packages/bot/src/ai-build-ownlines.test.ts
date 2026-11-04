@@ -85,6 +85,8 @@ describe('buildUserMessage — the own-lines section rides the prompt only when 
     expect(r.text).not.toContain('> ennortix: because he ate the wrong kiwi HEH')
     expect(r.text).toContain('[USER]\'s own lines (oldest first): "because he ate the wrong kiwi HEH"')
     expect(r.contextSections.map((s) => s.name)).toContain('ownLines')
+    // the pinned section sits above Recent chat — it must end on its own line
+    expect(r.text).toMatch(/own lines[^\n]*\nRecent chat:/)
   })
 
   it('no section on an ask that is not about their own line', () => {
