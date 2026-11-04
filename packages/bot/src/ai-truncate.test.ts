@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test'
-import { repairTruncation, isStub } from './ai-truncate'
+import { repairTruncation, isStub, trimLostMost } from './ai-truncate'
 
 // hardCaps used in doAiCall, for reference: creative 400, game data 250, remember 120,
 // short 60, ordinary chat 150.
@@ -112,5 +112,23 @@ describe('isStub — when trimming leaves nothing worth sending', () => {
   test('a real short answer is not a stub', () => {
     expect(isStub('yeah, that build rips')).toBe(false)
     expect(isStub('no idea honestly mate')).toBe(false)
+  })
+})
+
+describe('trimLostMost — an over-cap trim that keeps only the lead-in', () => {
+  // live 2026-11-04: "!b what class do you rec for wollip" shipped only the preamble sentence;
+  // the actual class rec sat in the dropped tail.
+  const shipped = 'wollip said keyword stuff and no elevation, already covered that with street fighter. for wow since he said he wants something chill, go hunter, pet does the work and the rotation is easy.'
+  test('flags the preamble-only trim', () => {
+    const kept = repairTruncation(shipped, CHAT, false)
+    expect(kept).toBe('wollip said keyword stuff and no elevation, already covered that with street fighter.')
+    expect(trimLostMost(shipped, kept, false)).toBe(true)
+  })
+  test('a light trim is fine', () => {
+    const t = 'dooley is great right now. core into robotic factory carries hard. '.repeat(2).trim() + ' yes'
+    expect(trimLostMost(t, repairTruncation(t, CHAT, false), false)).toBe(false)
+  })
+  test('max_tokens cuts have their own stub retry', () => {
+    expect(trimLostMost('a'.repeat(200), 'a'.repeat(50), true)).toBe(false)
   })
 })

@@ -79,3 +79,10 @@ export function repairTruncation(text: string, hardCap: number, cutShort: boolea
 export function isStub(text: string): boolean {
   return text.trim().split(/\s+/).filter(Boolean).length < 3
 }
+
+// did an over-cap trim throw away most of the reply? the first sentence is often lead-in
+// ("wollip said X, already covered that") with the answer in the tail, so keeping just it
+// ships the preamble. half of live over-cap trims did this — worth a rewrite retry instead.
+export function trimLostMost(before: string, after: string, cutShort: boolean): boolean {
+  return !cutShort && after.length < before.length * 0.5
+}

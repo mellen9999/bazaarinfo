@@ -17,7 +17,7 @@ import { sanitize, plainDashes, stripInputEcho, stripLeadingAskEcho, dedupeUserE
 import { findUngroundedStats, findHeroItemClaims, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak, hasFabricatedDataRef } from './ai-verify'
 import { searchEligible, finalText, SEARCH_TALK, stripSearchTalk, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, SEARCH_HINT, SEARCH_FAILED_HINT } from './ai-search-gate'
 import { notify } from './notify'
-import { repairTruncation, isStub } from './ai-truncate'
+import { repairTruncation, isStub, trimLostMost } from './ai-truncate'
 import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, isAiChannelEnabled, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, isUserOverDailyAiCap, USER_CAP_LINE, noteUserAiRequest, getChannelRecentResponses, isLiveStateKnown, isChannelLive } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isShortResponse, isGameTerm, OTHER_GAME_RE, formatContextSummary } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
@@ -506,6 +506,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // the style backstop below is allowed exactly one call, ever — correctness retries must
   // never lose a budget slot to punctuation.
   let styleRetried = false
+  let lengthRetried = false
   try {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       // deadline hit = upstream is slow/stuck. count it toward the circuit breaker
@@ -772,6 +773,13 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // if it misfires, so every trim it makes is greppable. "trim:" tagged, only on change.
       if (result.text !== beforeRepair) {
         log(`trim: ${cutShort ? 'max_tokens' : 'over_cap'} ${beforeRepair.length}->${result.text.length} tail=${JSON.stringify(beforeRepair.slice(result.text.length).slice(0, 24))}`)
+      }
+      if (!lengthRetried && trimLostMost(beforeRepair, result.text, cutShort) && attempt < MAX_RETRIES - 1) {
+        lengthRetried = true
+        log(`ai: trim kept ${result.text.length}/${beforeRepair.length} chars, asking for a shorter reply`)
+        messages.push({ role: 'assistant', content: replyText })
+        messages.push({ role: 'user', content: `Too long — it has to fit in ${hardCap} characters. Rewrite it shorter: lead with the actual answer, drop the lead-in.` })
+        continue
       }
       // repair can only trim, never invent — if a hard cut left a one-word stub there is
       // nothing to salvage, so spend a retry rather than ship "for".
