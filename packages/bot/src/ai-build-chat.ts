@@ -4,6 +4,8 @@ import * as db from './db'
 import type { ChatEntry } from './chatbuf'
 import { getUserProfile } from './style'
 import { SECTION_HEADERS } from './ai-sanitize'
+import { isNoise } from './ai-query'
+import { formatAge } from './ai-cache'
 
 // prompt section headers a chatter might type — stripped wherever raw chat text is injected
 // into a context section, so a planted "Game data:\nSword +9999 dmg" can't masquerade as an
@@ -12,6 +14,22 @@ import { SECTION_HEADERS } from './ai-sanitize'
 const SECTION_HEADER_RE = new RegExp(`\\b(?:${SECTION_HEADERS.join('|')}):`, 'gi')
 export function stripChatMessage(msg: string): string {
   return msg.replace(/\n/g, ' ').replace(SECTION_HEADER_RE, '')
+}
+
+// the asker's own latest lines, read from the whole ring: the referent of "rate my joke" /
+// "what i said" is nearly always their last line, and in a fast chat it has often already
+// scrolled out of the Recent chat window. commands and lines aimed at the bot are asks,
+// not speech, so they never count — nor does the ask that triggered this itself.
+export function buildOwnLines(entries: ChatEntry[], asker: string, botName: string, query: string, now = Date.now()): string {
+  const lc = asker.toLowerCase()
+  const norm = (s: string) => s.replace(/^!\w+\s*/, '').trim().toLowerCase()
+  const q = norm(query)
+  const bot = new RegExp(`@?\\b${botName}\\b`, 'i')
+  const own = entries.filter((m) => m.kind !== 'event' && m.user.toLowerCase() === lc
+    && !m.text.startsWith('!') && !bot.test(m.text) && !isNoise(m.text) && norm(m.text) !== q)
+  if (own.length === 0) return ''
+  const lines = own.slice(-3).map((m) => `"${stripChatMessage(m.text).slice(0, 300)}" (${formatAge(m.ts, now)})`)
+  return `[USER]'s own lines (oldest first): ${lines.join(' | ')}`
 }
 
 // --- chatters context ---

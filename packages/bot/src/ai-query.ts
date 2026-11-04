@@ -439,6 +439,11 @@ export function isAboutOtherUser(query: string): boolean {
   return false
 }
 
+// the ask points at the asker's OWN earlier chat line ("rate my joke", "translate what i
+// said", "did u see my take"). speech nouns only — "my build"/"my points"/"my name" are the
+// board, the standings and the memo, each with its own section.
+export const OWN_LINES_RE = /\b(?:my (?:(?:last|previous|earlier|own|first|new|other) )?(?:jokes?|puns?|msgs?|messages?|(?:hot )?takes?|bits?|lines?|comments?|posts?|(?:copy)?pastas?|theor(?:y|ies)|stor(?:y|ies)|poems?|haikus?|rhymes?|roasts?|predictions?|ideas?|opinions?|point|arguments?|rants?|memes?|repl(?:y|ies)|guess|questions?|wordplay|one.?liner)|what i (?:just )?(?:said|typed|wrote|posted|sent)|(?:joke|pun|thing|one|line|take) (?:that )?i (?:just )?(?:made|said|typed|wrote|posted|sent))\b/i
+
 export const REMEMBER_RE = /\b(remember|call me|my name is|i('m| am) (a |an |the |from )|know that i|i go by|refer to me|don'?t forget)\b/i
 
 // a reply to the bot's own line that is a human aside, not an ask: reactions ("lol",

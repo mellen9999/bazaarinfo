@@ -344,7 +344,7 @@ export function cleanupChannel(channel: string) {
   eventCollapseMap.delete(channel)
 }
 
-export function getRecent(channel: string, count: number): ChatEntry[] {
+export function getRecent(channel: string, count = MAX_SIZE): ChatEntry[] {
   const buf = buffers.get(channel)
   if (!buf) return []
   return buf.slice(-count)

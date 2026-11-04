@@ -80,8 +80,10 @@ export function getHotExchanges(user: string, channel?: string): HotExchange[] {
   return list.filter((e) => now - e.ts < HOT_EXCHANGE_TTL)
 }
 
-export function formatAge(createdAt: string, now: number): string {
-  const mins = Math.round((now - new Date(createdAt + 'Z').getTime()) / 60_000)
+// accepts a sqlite timestamp (UTC, no zone suffix) or an epoch-ms number (the chat ring)
+export function formatAge(createdAt: string | number, now: number): string {
+  const then = typeof createdAt === 'number' ? createdAt : new Date(createdAt + 'Z').getTime()
+  const mins = Math.round((now - then) / 60_000)
   return mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`
 }
 

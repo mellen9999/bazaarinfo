@@ -40,7 +40,7 @@ import type { AiContext } from './ai'
 import {
   extractEntities,
   RECALL_INTENT, STOP_WORDS,
-  REMEMBER_RE, isAboutOtherUser, isNoise, parseChatTimeWindow,
+  REMEMBER_RE, OWN_LINES_RE, isAboutOtherUser, isNoise, parseChatTimeWindow,
   OTHER_GAME_RE,
 } from './ai-query'
 import { randomPastaExamples } from './ai-prompt'
@@ -58,7 +58,7 @@ import { buildRoastAmmoLine } from './roast-ammo'
 import { etParts } from './et'
 import { buildTimeline, buildRecallContext, buildChatRecall } from './ai-build-recall'
 import type { RemoteHistory } from './hslogs-context'
-import { buildChattersContext, buildChatStr, fitToBudget } from './ai-build-chat'
+import { buildChattersContext, buildChatStr, buildOwnLines, fitToBudget } from './ai-build-chat'
 
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
@@ -203,6 +203,10 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const chatStr = buildChatStr(chatContext, botName, ctx.user)
 
   const chattersLine = buildChattersContext(humanEntries, ctx.user, ctx.channel)
+
+  // "rate my joke" / "what i said": the asker's own last lines, pinned — whole ring, not
+  // just the Recent chat window, so a fast chat can't have scrolled the referent away
+  const ownLinesLine = OWN_LINES_RE.test(query) ? buildOwnLines(getRecent(ctx.channel), ctx.user, botName, query) : ''
 
   const styleLine = getChannelStyle(ctx.channel)
   const contextLine = styleLine ? `\nChannel: ${styleLine}` : ''
@@ -893,6 +897,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // "what can you do" / "what's new with you" — the only grounding that exists for
     // questions about the bot itself, so it can never be the section that gets evicted
     { name: 'self', text: selfLine, base: -104 },
+    // the referent of "my joke" — evicting it means asking the chatter to repeat themselves
+    { name: 'ownLines', text: ownLinesLine ? `\n${ownLinesLine}` : '', base: -103.9 },
   ]
     .filter((s) => s.text)
     .map((s) => ({ ...s, prio: s.base - (s.boost ?? 0) }))
