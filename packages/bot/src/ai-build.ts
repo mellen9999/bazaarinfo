@@ -13,6 +13,7 @@ import { isGrQuery, isGrIntent, isGuildrunCategory, grContext, grKeywordCard } f
 import { getGrNewsLine } from './guildrun-news'
 import { getGameDossierLine, isUngroundedGame, canonicalGameName } from './game-dossier'
 import { getWeatherLine } from './weather'
+import { getClockLine, type Instant } from './clock'
 import { getShirtLine } from './shirt'
 import { META_QUERY_RE } from './intents'
 import { isPastaRecall } from './pasta'
@@ -72,6 +73,18 @@ export function nowLine(at: Date = new Date()): string {
   const mm = String(p.minute).padStart(2, '0')
   const stamp = `${WEEKDAYS[p.weekday]} ${p.day} ${MONTHS[p.month]} ${p.year}, ${hh}:${mm} ET`
   return `\nRight now: ${stamp}. day/date/time/"what day is it" asks: answer straight from this line. never guess a weekday, never dodge to a schedule or a calendar app. state times in ET, never UTC.\n`
+}
+
+// the stream's ET instants, for the Clock section to restate in the asker's zone: the live
+// start when live, the last start on a past-stream ask, otherwise the prediction.
+function clockInstants(channel: string, sched: ReturnType<typeof snapshotSchedule> | null, past: boolean): Instant[] {
+  if (!sched) return []
+  if (sched.live.isLive) return sched.live.liveSince ? [{ label: `${channel} went live`, at: sched.live.liveSince }] : []
+  if (past) {
+    const last = sched.sessions.at(-1)
+    return last ? [{ label: `${channel}'s last stream started`, at: last.startedAt }] : []
+  }
+  return 'at' in sched.pred ? [{ label: `${channel}'s predicted next stream`, at: sched.pred.at }] : []
 }
 
 // whether the channel is live, which every other viewer in chat can see at a glance. the
@@ -456,6 +469,14 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // (fail-soft: honest "lookup down / place not found / which city?" lines on partial
   // failure, '' otherwise — nothing to hallucinate from). refreshed in doAiCall.
   const weatherLine = getWeatherLine(query)
+
+  // the time somewhere else, or one of our ET times in their zone — computed, never the
+  // model's own arithmetic off the ET clock line. geocode warmed in doAiCall.
+  const clockLine = getClockLine(query, {
+    schedAsked: askedSchedule,
+    instants: clockInstants(schedTarget, sched, isPastStreamQuery(query)),
+    said: ownLines.at(-1)?.text,
+  })
 
   // the channel title, when that is what they asked for. the Stream line carries it too, but a
   // bare "title" reads as "write me a title" without an explicit pointer (live 2026-09-07,
@@ -878,6 +899,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'fortnite', text: fortniteLine, base: -105.9 },
     // live weather is the direct answer when it fires — same never-evict tier
     { name: 'weather', text: weatherLine, base: -105 },
+    // a time somewhere else is the direct answer when it fires — same never-evict tier
+    { name: 'clock', text: clockLine, base: -105 },
     // the shirt bet is the direct answer when it fires — same never-evict tier
     { name: 'shirt', text: shirtLine, base: -104.8 },
     // the title IS the answer to "title" — same never-evict tier

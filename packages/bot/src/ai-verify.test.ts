@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { findUngroundedStats, findHeroItemClaims, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak } from './ai-verify'
+import { findUngroundedStats, findHeroItemClaims, correctClockClaim, findWrongClockTimes, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak } from './ai-verify'
 
 const CARD = 'Game data:\nPumpkin (Vanessa, Medium) — Heal 30/45/60. Cooldown 7 seconds.\n---\n[USER]: what does pumpkin do'
 
@@ -176,5 +176,24 @@ describe('findHeroItemClaims — item ownership against the dump', () => {
     expect(findHeroItemClaims("jules' haste pairs with mak's crit windows", ASK, words, look)).toEqual([])
     expect(findHeroItemClaims('stelle - telescope', ASK, words, look)).toEqual([])
     expect(findHeroItemClaims('random hero: stelle. go roll with it', 'random hero', words, look)).toEqual([])
+  })
+})
+
+describe('findWrongClockTimes — a time the Clock section never gave is the model doing math', () => {
+  const ctx = 'Right now: wednesday 4 nov 2026, 20:35 ET.\nClock (REAL, computed from the system clock — relay these exactly): now in new zealand: thursday 5 nov 2:35pm (14:35), NZDT UTC+13.\n[USER]: time nz'
+
+  it('catches the live failure', () => {
+    expect(findWrongClockTimes("it's 8:35am thursday in auckland (UTC+13, DST).", ctx)).toEqual(['8:35am'])
+  })
+
+  it('passes the relayed time in any form, rounded, or the ET time', () => {
+    expect(findWrongClockTimes('2:35pm thursday in nz', ctx)).toEqual([])
+    expect(findWrongClockTimes('14:35 over there', ctx)).toEqual([])
+    expect(findWrongClockTimes('about 2:30pm, so ~3pm-ish', ctx)).toEqual([])
+    expect(findWrongClockTimes('8:35pm ET here, 2:35pm there', ctx)).toEqual([])
+  })
+
+  it('never fires without a Clock section — the bot talks times all day', () => {
+    expect(findWrongClockTimes('stream at 8:35am', 'Right now: wednesday 4 nov 2026, 20:35 ET.')).toEqual([])
   })
 })

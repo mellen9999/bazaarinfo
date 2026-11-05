@@ -11,6 +11,8 @@
 // would put an API round-trip in front of every reply, which the freshness gate then drops.
 // so: check what is checkable, in microseconds, and leave the rest to the prompt.
 
+import { CLOCK_HEAD, parseClockTimes } from './clock'
+
 // a number is only a claim when it sits against a stat word. "season 2", "$20", "day 5 of
 // the run" and "2 items" must all survive — the bot talks about numbers constantly.
 const STAT_WORD = 'damage|dmg|heal|shield|burn|poison|freeze|slow|haste|crit|regen|lifesteal|multicast|charge|ammo|hp|health|armou?r|cooldown'
@@ -139,6 +141,26 @@ export function monotonyStreak(recent: string[]): number {
     n++
   }
   return n
+}
+
+// --- clock times ---
+
+/**
+ * times of day in the reply that appear nowhere in the context, checked only when a Clock
+ * section was injected. every time it states is computed, so a reply time with no source is
+ * the model doing timezone math again. lenient on purpose: anything near ANY context time
+ * passes (15 min, an hour for a bare "2pm"), so a rounded or relayed time never retries.
+ */
+export function findWrongClockTimes(reply: string, context: string): string[] {
+  if (!context.includes(CLOCK_HEAD)) return []
+  const known = parseClockTimes(context).flatMap((t) => t.mins)
+  const near = (a: number, b: number, tol: number) => {
+    const d = Math.abs(a - b) % 1440
+    return Math.min(d, 1440 - d) <= tol
+  }
+  return parseClockTimes(reply)
+    .filter((t) => !t.mins.some((m) => known.some((k) => near(m, k, t.hourOnly ? 60 : 15))))
+    .map((t) => t.raw.trim())
 }
 
 const WEEKDAYS = 'sunday|monday|tuesday|wednesday|thursday|friday|saturday'

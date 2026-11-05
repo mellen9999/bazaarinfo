@@ -14,7 +14,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 // --- local imports from sub-modules ---
 
 import { sanitize, plainDashes, stripInputEcho, stripLeadingAskEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL, SETTINGS_TALK } from './ai-sanitize'
-import { findUngroundedStats, findHeroItemClaims, correctClockClaim, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak, hasFabricatedDataRef } from './ai-verify'
+import { findUngroundedStats, findHeroItemClaims, correctClockClaim, findWrongClockTimes, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak, hasFabricatedDataRef } from './ai-verify'
 import { searchEligible, finalText, SEARCH_TALK, stripSearchTalk, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, SEARCH_HINT, SEARCH_FAILED_HINT } from './ai-search-gate'
 import { notify } from './notify'
 import { repairTruncation, isStub } from './ai-truncate'
@@ -28,6 +28,7 @@ import { matchingDirectives } from './directives'
 import { isEnglishOnly, looksNonEnglish, ENGLISH_ONLY_RETRY } from './english-only'
 import { isWorldCupQuery, refreshWorldCupIfNeeded } from './worldcup'
 import { isWeatherQuery, refreshWeatherIfNeeded } from './weather'
+import { refreshClockIfNeeded } from './clock'
 import { isHsRatingQuery, refreshHsIfNeeded } from './hs'
 import { isHsCardQuery, isHearthstoneCategory, refreshHsCardsIfNeeded } from './hs-cards'
 import { isGrQuery, isGuildrunCategory, refreshGuildrunIfNeeded } from './guildrun'
@@ -265,6 +266,10 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // weather queries: geocode + fetch live conditions BEFORE building context, same
   // contract as world cup — TTL-gated no-op when fresh; fail-soft, never throws.
   if (isWeatherQuery(query)) await refreshWeatherIfNeeded(query)
+
+  // a place named in a time ask: geocode it (24h cache) so the Clock section can state its
+  // local time. no-op unless the ask names one the zone table doesn't know. never throws.
+  await refreshClockIfNeeded(query, isScheduleQuery(query))
 
   // BG leaderboard: deliberately NOT awaited — a full sweep is ~70 requests, so this turn
   // answers from the cached board (refreshed at most every 6h) while a stale one reloads
@@ -506,6 +511,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   // the style backstop below is allowed exactly one call, ever — correctness retries must
   // never lose a budget slot to punctuation.
   let styleRetried = false
+  let clockRetried = false
   try {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       // deadline hit = upstream is slow/stuck. count it toward the circuit breaker
@@ -736,6 +742,20 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           }
           return miss('tier_claim_blocked')
         }
+      }
+      // a time of day the Clock section doesn't contain is the model's own timezone math —
+      // the exact failure the section exists to stop. one retry names it; a second miss
+      // ships (the check can't prove a time wrong, only unsourced) and is logged.
+      const wrongTimes = findWrongClockTimes(result.text, userMessage)
+      if (wrongTimes.length > 0) {
+        if (!clockRetried && attempt < MAX_RETRIES - 1) {
+          clockRetried = true
+          log(`ai: time ${wrongTimes.join('/')} not in the Clock section, retrying (attempt ${attempt + 1})`)
+          messages.push({ role: 'assistant', content: replyText })
+          messages.push({ role: 'user', content: `You wrote ${wrongTimes.join(' and ')}, which is not a time the Clock section gives. ${RETRY_TAIL}State the time exactly as the Clock section has it.` })
+          continue
+        }
+        log(`ai: time ${wrongTimes.join('/')} still not in the Clock section after retry, shipping`)
       }
       // punctuation-streak backstop. the SHAPE nudge in the context handles most of this for
       // free; this catches the times the model writes its fourth identical clause—clause in a

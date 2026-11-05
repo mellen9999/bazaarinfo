@@ -1,4 +1,7 @@
 import { log } from './log'
+import { lookupPlace, type GeoLoc } from './geo'
+
+export type { GeoLoc }
 
 // real weather via Open-Meteo (open-meteo.com — no key, no auth, no tracking, CC BY 4.0).
 // mirrors the worldcup.ts fail-soft contract: every export returns ''/null on any failure —
@@ -7,10 +10,9 @@ import { log } from './log'
 // relays numbers instead of doing math.
 
 const UA = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
-const GEO_API = 'https://geocoding-api.open-meteo.com/v1/search'
 const WX_API = 'https://api.open-meteo.com/v1/forecast'
 const WX_TTL_MS = 10 * 60_000 // conditions older than 10min get refetched
-const GEO_TTL_MS = 24 * 60 * 60_000 // places don't move
+const GEO_TTL_MS = 24 * 60 * 60_000 // places don't move (geo.ts caches the lookup itself too)
 const HARD_STALE_MS = 30 * 60_000 // never inject conditions older than this
 const FETCH_TIMEOUT_MS = 4_000
 const MAX_CACHE = 64
@@ -75,15 +77,6 @@ export function extractLocation(query: string): string | null {
 }
 
 // --- data shapes ---
-
-export interface GeoLoc {
-  name: string
-  region: string // admin1, may be ''
-  country: string // country code, e.g. "CA"
-  lat: number
-  lon: number
-  timezone: string
-}
 
 export interface WxDay {
   highC: number
@@ -176,22 +169,6 @@ export function __setWeatherCacheForTest(place: string, entry: CacheEntry | null
 
 // --- fetch ---
 
-async function geocode(place: string): Promise<GeoLoc | null> {
-  const url = `${GEO_API}?name=${encodeURIComponent(place)}&count=1&language=en&format=json`
-  const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-  if (!res.ok) throw new Error(`geocode ${res.status}`)
-  const r = (await res.json() as { results?: unknown[] })?.results?.[0] as Record<string, unknown> | undefined
-  if (!r || typeof r.latitude !== 'number' || typeof r.longitude !== 'number') return null
-  return {
-    name: String(r.name ?? place),
-    region: typeof r.admin1 === 'string' ? r.admin1 : '',
-    country: typeof r.country_code === 'string' ? r.country_code.toUpperCase() : '',
-    lat: r.latitude,
-    lon: r.longitude,
-    timezone: typeof r.timezone === 'string' ? r.timezone : 'UTC',
-  }
-}
-
 function parseDay(daily: Record<string, unknown[]> | undefined, i: number): WxDay | null {
   const hi = Number(daily?.temperature_2m_max?.[i])
   const lo = Number(daily?.temperature_2m_min?.[i])
@@ -256,7 +233,8 @@ export async function refreshWeatherIfNeeded(query: string): Promise<void> {
   if (!p) {
     p = (async () => {
       try {
-        const loc = hit?.loc ?? await geocode(key)
+        const loc = hit?.loc ?? await lookupPlace(key)
+        if (loc === undefined) throw new Error('geocode failed')
         if (!loc) {
           setCache(key, { ts: Date.now(), loc: null, wx: null })
           return
@@ -313,7 +291,9 @@ export function getWeatherLine(query: string, now = Date.now()): string {
   const hx = humidexC(wx.tempC, wx.humidity)
   const wc = windChillC(wx.tempC, wx.windKmh)
   let localTime = ''
-  try {
+  // no zone = a country spanning several (the geocoder returns none for the US/AU/CA) —
+  // stamping it UTC and calling that "local" was a lie
+  if (loc.timezone) try {
     // weekday + time in the place's own timezone — "Fri 10:18 PM local"
     localTime = new Intl.DateTimeFormat('en-US', { timeZone: loc.timezone, weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(now)).replace(',', '')
   } catch {}
