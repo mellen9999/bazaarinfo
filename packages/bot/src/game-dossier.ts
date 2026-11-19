@@ -13,7 +13,7 @@
 import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { writeAtomic } from './fs-util'
-import { parseNewsFeed } from './guildrun-news'
+import { parseNewsFeed } from './steam-news'
 import { log } from './log'
 
 const CACHE_PATH = resolve(import.meta.dir, '../../../cache/game-dossiers.json')

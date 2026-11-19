@@ -11,20 +11,11 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
 import { log } from './log'
+import { fetchSteamNews, type NewsItem } from './steam-news'
 
-const FEED_URL = 'https://store.steampowered.com/feeds/news/app/3669200/'
+const APPID = 3669200
 const CACHE_PATH = resolve(import.meta.dir, '../../../cache/guildrun-news.json')
-const UA = 'BazaarInfo/1.0 (Twitch bot; github.com/mellen9999/bazaarinfo)'
 const TTL_MS = 6 * 60 * 60 * 1000 // news lands ~weekly; 6h keeps patch day fresh enough
-const FETCH_TIMEOUT_MS = 30_000
-const MAX_ITEMS = 3
-const MAX_SUMMARY = 260
-
-interface NewsItem {
-  title: string
-  date: string // "Aug 19" — display form, parsed from pubDate
-  summary: string
-}
 
 interface NewsCache {
   fetchedAt: number
@@ -33,45 +24,6 @@ interface NewsCache {
 
 let cache: NewsCache | null = null
 let refreshing: Promise<void> | null = null
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .replace(/&amp;/g, '&')
-}
-
-/** entity-encoded steam-bb html → the first few readable list lines. pure, testable. */
-export function summarizeNewsHtml(raw: string): string {
-  const html = decodeEntities(raw)
-  // list items are where steam patch posts put the actual changes; paragraphs are greeting fluff
-  const lis = [...html.matchAll(/<li[^>]*>(.*?)<\/li>/gs)]
-    .map((m) => m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
-    .filter((t) => t.length > 3)
-  let text = lis.slice(0, 4).join('; ')
-  if (!text) text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-  if (text.length > MAX_SUMMARY) text = text.slice(0, MAX_SUMMARY - 1).replace(/\s+\S*$/, '') + '…'
-  return text
-}
-
-/** rss xml → items. tolerant: a malformed entry costs itself, never the parse. */
-export function parseNewsFeed(xml: string): NewsItem[] {
-  const items: NewsItem[] = []
-  for (const m of xml.matchAll(/<item>(.*?)<\/item>/gs)) {
-    const block = m[1]
-    const title = /<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/s.exec(block)?.[1]?.trim()
-    if (!title) continue
-    const pub = /<pubDate>(.*?)<\/pubDate>/s.exec(block)?.[1] ?? ''
-    const d = new Date(pub)
-    const date = Number.isNaN(d.getTime()) ? '' : `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`
-    const desc = /<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/description>/s.exec(block)?.[1] ?? ''
-    items.push({ title: decodeEntities(title), date, summary: summarizeNewsHtml(desc) })
-    if (items.length >= MAX_ITEMS) break
-  }
-  return items
-}
 
 function loadDisk(): void {
   if (cache || !existsSync(CACHE_PATH)) return
@@ -85,9 +37,7 @@ function loadDisk(): void {
 
 async function refresh(): Promise<void> {
   try {
-    const res = await fetch(FEED_URL, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const items = parseNewsFeed(await res.text())
+    const items = await fetchSteamNews(APPID)
     if (items.length === 0) {
       log('guildrun-news: feed parsed to zero items, keeping previous cache')
       return
