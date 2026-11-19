@@ -163,8 +163,8 @@ describe('system prompt', () => {
   // model over-applying a narrow ban: the emote-bit carve-out in HARD NOs (it refused
   // "LICK <chatter>" as harassment and lectured chat about consent), scope dodges stated
   // as a CATEGORY not one sample string (it still said "wrong lobby, thats hearthstone"
-  // with "thats a diablo Q" already banned), and owning the reddit source (it told chat
-  // "my relationship with reddit is nonexistent" while reading r/PlayTheBazaar).
+  // with "thats a diablo Q" already banned), and denying a source (the reddit
+  // denial it once got wrong is gone with the feed: the bot reads no reddit now).
   // ->9400 for the certainty rules (2026-09-07, the mcginnis thread): "full nerd mode w/
   // real numbers" on other games had the model stating a hero's ult as a stun it doesn't
   // have, then — told it was wrong — inventing a replacement fact to agree. other-games now

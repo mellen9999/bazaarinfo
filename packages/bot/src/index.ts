@@ -17,7 +17,6 @@ import { isSuppressed } from './suppress'
 import { invalidatePromptCache, initSummarizer, initLearner, setChannelLive, setChannelOffline, setChannelInfos, maybeFetchTwitchInfo, getLiveChannels, setChannelGame, getChannelGame } from './ai'
 import { enableAiForChannel, disableAiForChannel, markLiveStateKnown, setStreamInfo, getStreamInfo, setModCheck } from './ai-cache'
 import { noteStreamThumb, noteStreamOffline, onShirtChange } from './shirt'
-import { refreshRedditDigest, refreshBgRedditDigest, refreshGrRedditDigest } from './reddit'
 import { refreshGuildrunIfNeeded } from './guildrun'
 import { refreshGrNewsIfNeeded } from './guildrun-news'
 import { refreshHsCardsIfNeeded } from './hs-cards'
@@ -255,14 +254,13 @@ log(`bot: ${BOT_USERNAME} (${botUserId}), channels: ${channels.map((c) => `${c.n
 
 setChannelInfos(channels)
 
-// owner-only !b refresh [force] — full pipeline + reddit digest; force bypasses the delta guard
+// owner-only !b refresh [force] — full pipeline; force bypasses the delta guard
 setRefreshHandler(async (force?: boolean) => {
   try {
     const line = await refreshAll({ force })
     // TTL-gated + not awaited: the BG card dump is ~10MB and its own patch cycle, so it
     // must never hold up the owner's refresh reply
     refreshHsCardsIfNeeded()
-    await refreshRedditDigest()
     return line ?? `refreshed, no new content (${getCacheInfo().items} items)`
   } catch (e) {
     log(`manual refresh failed: ${e}`)
@@ -389,12 +387,6 @@ loadDescriptionCache().then(async () => {
     emoteEvents.subscribeChannel(channel, setId)
   }
 }).catch((e) => log(`emote startup failed: ${e}`))
-
-// load reddit digests (non-blocking) — daily refreshes at 5pm/6pm PT scheduled below.
-// separate slots: both ride the shared reddit rate-limit queue, which spaces fetches 90s apart.
-refreshRedditDigest().catch((e) => log(`reddit digest load failed: ${e}`))
-refreshBgRedditDigest().catch((e) => log(`bg reddit digest load failed: ${e}`))
-refreshGrRedditDigest().catch((e) => log(`guildrun reddit digest load failed: ${e}`))
 
 // warm the guildrun card cache at startup — the lazy trigger lives behind the AI gates,
 // and a cold cache means the first guildrun question of a stream gets zero grounding.
@@ -926,31 +918,10 @@ setInterval(async () => {
 }, DUMP_POLL_INTERVAL)
 
 // dev announcements (events, season drops) — every 3h so a new event is live in chat the
-// same afternoon, not at the next daily digest. fail-soft inside, rides the shared queue.
+// same afternoon. fail-soft inside.
 const OFFICIAL_POSTS_INTERVAL = 3 * 60 * 60_000
 refreshOfficialPosts().catch((e) => log(`official posts load failed: ${e}`))
 setInterval(() => refreshOfficialPosts().catch((e) => log(`official posts refresh failed: ${e}`)), OFFICIAL_POSTS_INTERVAL)
-
-// daily reddit digest refresh at 5pm PT
-scheduleDaily(17, async () => {
-  try {
-    await refreshRedditDigest()
-  } catch (e) { log(`daily reddit refresh failed: ${e}`) }
-})
-
-// battlegrounds buzz an hour later — its own slot so the two never queue behind each other
-scheduleDaily(18, async () => {
-  try {
-    await refreshBgRedditDigest()
-  } catch (e) { log(`daily bg reddit refresh failed: ${e}`) }
-})
-
-// guildrun buzz another hour on — same reason, same shared quota-aware transport
-scheduleDaily(19, async () => {
-  try {
-    await refreshGrRedditDigest()
-  } catch (e) { log(`daily guildrun reddit refresh failed: ${e}`) }
-})
 
 // daily data refresh at 4am PT
 scheduleDaily(4, async () => {

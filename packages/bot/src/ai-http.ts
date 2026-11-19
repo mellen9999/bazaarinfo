@@ -6,7 +6,7 @@ import { recordAiSpend, recordAiSpendBySource, ptDay } from './db'
 import { safeStringify } from './safe-json'
 
 // ONE Anthropic HTTP call, shared by every non-chat call site (trivia, directives,
-// background summaries, dungeon archetypes, reddit, style, emote descriptions).
+// background summaries, dungeon archetypes, style, emote descriptions).
 // Owns the endpoint, headers, unpaired-surrogate stripping, timeout, prompt caching,
 // spend + cache accounting, the concurrency semaphore, and the hard-stop breaker — so
 // none of that has to be re-implemented (or forgotten) per call site.

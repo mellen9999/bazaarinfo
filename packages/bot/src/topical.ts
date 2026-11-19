@@ -1,6 +1,5 @@
 import { log } from './log'
 import { readJson } from './http'
-import { fetchSubreddit } from './reddit-feed'
 
 const HN_TOP = 'https://hacker-news.firebaseio.com/v0/topstories.json'
 const HN_ITEM = (id: number) => `https://hacker-news.firebaseio.com/v0/item/${id}.json`
@@ -38,32 +37,12 @@ async function fetchHnTitles(): Promise<string[]> {
     .slice(0, 5)
 }
 
-// r/popular via the shared RSS transport — the JSON endpoint 403s from this host and had
-// been failing silently inside allSettled below, leaving the digest quietly HN-only.
-// RSS carries no score, so the feed's own ordering does the filtering instead.
-async function fetchRedditTitles(): Promise<string[]> {
-  const entries = await fetchSubreddit('popular', 'popular')
-  return entries
-    .map((e) => e.title.replace(/\s+/g, ' ').trim().slice(0, 90))
-    .filter(Boolean)
-    .slice(0, 4)
-}
-
 export async function refreshTopicalDigest(): Promise<void> {
   try {
-    const [hn, reddit] = await Promise.allSettled([fetchHnTitles(), fetchRedditTitles()])
-    const parts: string[] = []
-    if (hn.status === 'fulfilled' && hn.value.length > 0) parts.push(`HN: ${hn.value.map((t) => `"${t}"`).join(' • ')}`)
-    if (reddit.status === 'fulfilled' && reddit.value.length > 0) parts.push(`Reddit: ${reddit.value.map((t) => `"${t}"`).join(' • ')}`)
-    if (parts.length === 0) return
-    cachedDigest = parts.join(' || ')
-    // name which halves landed — "refreshed (243 chars)" looked healthy for a week while
-    // the reddit half was 403ing into allSettled and being dropped on the floor
-    const sources = [
-      hn.status === 'fulfilled' && hn.value.length > 0 ? 'hn' : null,
-      reddit.status === 'fulfilled' && reddit.value.length > 0 ? 'reddit' : null,
-    ].filter(Boolean).join('+')
-    log(`topical: refreshed (${cachedDigest.length} chars, ${sources || 'none'})`)
+    const hn = await fetchHnTitles()
+    if (hn.length === 0) return
+    cachedDigest = `HN: ${hn.map((t) => `"${t}"`).join(' • ')}`
+    log(`topical: refreshed (${cachedDigest.length} chars)`)
   } catch (e) {
     log(`topical: refresh failed: ${e}`)
   }

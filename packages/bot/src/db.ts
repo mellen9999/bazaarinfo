@@ -842,7 +842,7 @@ const migrations: (() => void)[] = [
   // today" but not "which feature spent it" — pinning the aug 2026 blowout on one code
   // path took a log-mining session that a GROUP BY should have answered. kept as its own
   // table rather than a column on ai_spend so the daily-cap query and its primary key are
-  // untouched. `source` is the call-site tag ('ai-trivia', 'summary', 'reddit', ...).
+  // untouched. `source` is the call-site tag ('ai-trivia', 'summary', ...).
   () => {
     db.run(`CREATE TABLE ai_spend_source (
       day TEXT NOT NULL,

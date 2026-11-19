@@ -821,7 +821,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           : SCOPE_DODGE.test(replyText)
             ? 'Blocked: you dodged on scope. You answer anything chat asks, other games included, in full detail. Drop the "wrong lobby"/"im just a bazaar bot" framing and actually answer.'
             : SOURCE_LIE.test(replyText)
-              ? 'Blocked: you denied a source you actually read. You DO read r/PlayTheBazaar for community buzz. Own it. If no buzz was provided in context, say you have nothing from the sub today — never that you do not read it.'
+              ? 'Blocked: you claimed to read reddit. You do NOT read reddit or any subreddit. Official news comes from steam patch notes; if none is in your context, say you have nothing on that — never claim a reddit source.'
               : SCHEDULE_DENIAL.test(replyText)
                 ? 'Blocked: you denied tracking stream schedules. You DO track this channel\'s stream schedule and can predict the next stream. If a "Stream schedule" line is in your context, relay it; if not, tell them to ask "when is the next stream" — never deny the capability.'
                 : `Response was blocked. Rules: no self-referencing being a bot/AI, no reciting user stats, no fabricated stories, no commands. ${RETRY_TAIL}Just answer naturally.`

@@ -1,7 +1,6 @@
 import * as db from './db'
 import { fortniteContext } from './fortnite'
 import { isGameActive } from './trivia'
-import { getRedditDigest, getBgRedditDigest, getGrRedditDigest } from './reddit'
 import { getPatchInfo } from './patch'
 import { getOfficialEventLine } from './official-posts'
 import { OVERLAY, isOverlayFresh, resolvePatch, selectNotes, patchScope, newCardNote } from './patch-notes'
@@ -399,7 +398,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const isMetaQuery = META_QUERY_RE.test(query)
   const patch = isMetaQuery ? resolvePatch(getPatchInfo()).info : null
   const size = patch?.sizeBadge ? `, size ${patch.sizeBadge}` : ''
-  // bazaardb's patchnotes only names an event once it lists one; the devs' own reddit
+  // bazaardb's patchnotes only names an event once it lists one; the devs' own steam
   // announcement lands first. when that exists, "none" would be a lie.
   const officialEvent = isMetaQuery ? getOfficialEventLine() : ''
   const noEvent = officialEvent ? 'see the official announcement below' : 'none — no special limited-time event is running right now'
@@ -579,28 +578,12 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   const namedDossier = namedCanon && !liveDossier.includes(`: ${namedCanon}`) ? getGameDossierLine(namedCanon, 'asked about') : ''
   const gameLine = [liveDossier, namedDossier].filter(Boolean).map((l) => `\n${l}`).join('')
 
-  // skip reddit digest + emotes when we have specific game data or short queries
-  const digest = getRedditDigest()
-  // community buzz is high-value on meta/sentiment asks — keep it even when a game entity
-  // matched ("is dooley busted this patch", "whats the meta on vanessa"): those answers go
-  // stale without current sentiment. the redditRelevant boost below then protects it from
-  // the budget. hoist the intent regex once and reuse it for both un-suppress and boost.
-  const redditMetaIntent = /\b(meta|patch|nerf|buff|broken|busted|op|tier|balance|reddit|subreddit|community|drama|hype|controvers|complain|what'?s\s+(?:new|happening|going on)|everyone|people)\b/i.test(query)
-  const skipReddit = (hasGameData && !redditMetaIntent) || (query.length < 20 && !META_QUERY_RE.test(query))
-  const redditLine = (!skipReddit && digest) ? `\nCommunity buzz (r/PlayTheBazaar): ${digest}` : ''
-  const redditRelevant = !!redditLine && redditMetaIntent
-  // the battlegrounds community's buzz — memes, tier-list arguments, "this hero is broken".
-  // same value the bazaar digest carries, for the half of chat that came for hearthstone.
-  // only on a hearthstone-shaped ask, so it never competes for budget on a Bazaar question.
-  const bgDigest = hsShaped ? getBgRedditDigest() : ''
-  const bgRedditLine = bgDigest ? `\nBattlegrounds community buzz (r/BobsTavern): ${bgDigest}` : ''
-  // guildrun's community digest, same gate shape — only on a guildrun-shaped ask
-  const grDigest = grShaped ? getGrRedditDigest() : ''
-  const grRedditLine = grDigest ? `\nGuildrun community buzz (r/Guildrun): ${grDigest}` : ''
+  // "what's new / meta / patch" intent: gates the guildrun news line and boosts it past budget eviction
+  const newsIntent = /\b(meta|patch|nerf|buff|broken|busted|op|tier|balance|community|drama|hype|controvers|complain|what'?s\s+(?:new|happening|going on)|everyone|people)\b/i.test(query)
   // official steam patch notes — the answer to "whats new in guildrun". only on a
   // guildrun-shaped ask that is actually about news/patches, so it never spends
   // budget on a hero question.
-  const grNews = grShaped && redditMetaIntent ? getGrNewsLine() : ''
+  const grNews = grShaped && newsIntent ? getGrNewsLine() : ''
   const grNewsLine = grNews ? `\n${grNews}` : ''
   const emoteLine = hasGameData ? '' : '\n' + formatEmotesForAI(ctx.channel, getRecentEmotes(ctx.channel))
 
@@ -833,7 +816,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
   // Bases mirror the historical fixed order, so a query with no intent signal
   // behaves exactly as before. Intent boosts lift a section only when the query
   // makes it relevant — voice for banter, recall for "remember when", emotes for
-  // emote talk, timeline for stream-history Qs, reddit for community/meta Qs.
+  // emote talk, timeline for stream-history Qs.
   const recallIntent = RECALL_INTENT.test(query) || /\b(remember|earlier|yesterday|last (?:time|stream|night)|moments? ago|while back|before)\b/i.test(query)
   const emoteIntent = isCreative || /\b(emote|emoji|spam|7tv|bttv)\b/i.test(query)
   const historyIntent = /\b(today|tonight|this stream|so far|how long|stream history|been (?:live|streaming|on)|when did (?:you|we|the))\b/i.test(query)
@@ -846,13 +829,8 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
 
   const sections: Sec[] = [
     ...primaryPair,
-    { name: 'reddit', text: redditLine, base: 190, boost: redditRelevant ? 185 : 0 },
-    // already gated to hearthstone-shaped asks, so when it exists it is on-topic — same
-    // boost shape as the bazaar digest on a meta/sentiment question
-    { name: 'redditBg', text: bgRedditLine, base: 189, boost: redditMetaIntent ? 185 : 0 },
-    { name: 'redditGr', text: grRedditLine, base: 188, boost: redditMetaIntent ? 185 : 0 },
-    // official beats community buzz for a news ask — slightly higher priority
-    { name: 'grNews', text: grNewsLine, base: 187, boost: redditMetaIntent ? 190 : 0 },
+    // a news ask on a guildrun-shaped query — keep the official patch notes through budget eviction
+    { name: 'grNews', text: grNewsLine, base: 187, boost: newsIntent ? 190 : 0 },
     // a follow-up ("why?", a reply to the bot's line) is answered FROM this section — a fifth
     // of all asks are one. pinned below the eviction line then; flavor-tier otherwise.
     { name: 'hotConvo', text: hotLine, base: (isShortFollowup || ctx.mention) ? -50 : 10 },

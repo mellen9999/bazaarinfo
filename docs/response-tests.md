@@ -273,7 +273,7 @@ injected only when asked — the bot never volunteers a feature list.
 | `!b weather in <city>` | live Open-Meteo numbers |
 | `!b time nz` / `!b 8pm est in cet` | computed local time + day, matches `TZ=Pacific/Auckland date` — ⚠ never off by hours |
 | `!b world cup scores` | live during a tournament, dormant otherwise |
-| `!b what's the sub saying` | reddit digest, or "nothing today" — ⚠ never "i don't read it" |
+| `!b what's the sub saying` | we don't read reddit: say so, never claim to read or check it |
 | `!b join` / `!b part` in a new channel | AI stays enabled in the joined channel |
 
 ## 12. after every deploy

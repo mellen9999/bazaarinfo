@@ -1090,15 +1090,21 @@ describe('live-log regressions', () => {
     })
   })
 
-  describe('denying a source it reads (SOURCE_LIE)', () => {
-    it('blocks the reddit denial', () => {
-      expect(blocked("my relationship with reddit is nonexistent — i don't browse it, post on it, or lurk r/PlayBazaar")).toBe(true)
+  describe('claiming a source it does not read (SOURCE_LIE)', () => {
+    it('blocks claiming to read reddit', () => {
+      expect(blocked("yeah i lurk r/PlayTheBazaar all day, the sub is saying dooley got nerfed")).toBe(true)
     })
-    it('blocks the doubled-down version', () => {
-      expect(blocked('no lie there — zero reddit activity, checked my own logs and everything')).toBe(true)
+    it('blocks "i checked reddit"', () => {
+      expect(blocked('i checked reddit and everyone hates the patch')).toBe(true)
     })
-    it('keeps an honest "nothing from the sub today"', () => {
-      expect(blocked('nothing from r/PlayTheBazaar today, the sub has been quiet')).toBe(false)
+    it('blocks "saw it on reddit"', () => {
+      expect(blocked('saw it on reddit earlier, devs are cooking')).toBe(true)
+    })
+    it('keeps the honest denial', () => {
+      expect(blocked("i don't read reddit, i go off steam patch notes")).toBe(false)
+    })
+    it('keeps a chatter-attributed mention', () => {
+      expect(blocked('chatter said reddit hates it, no idea if true')).toBe(false)
     })
   })
 

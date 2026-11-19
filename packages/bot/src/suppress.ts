@@ -7,7 +7,7 @@
 // Own map, NOT the directives ring buffer — a viewer steer-flood must never evict mod
 // authority. In-memory, lazy expiry — the panel's persisted mirror below is what makes a
 // pause survive a restart; the in-memory map (and its lazy expiry) stays the hot path.
-// Proactive posters (gap-watch, reddit digests) are deliberately out of scope — they
+// Proactive posters (gap-watch) are deliberately out of scope — they
 // aren't chat-triggered misbehavior.
 
 import * as db from './db'
