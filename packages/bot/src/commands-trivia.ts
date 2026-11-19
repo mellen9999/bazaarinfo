@@ -217,7 +217,7 @@ export function buildPersonDossier(username: string, channel: string, remote?: R
         span = `since ${first.slice(0, 7)}`
       } else {
         const ageDays = (Date.now() - new Date(chat!.firstSeen + 'Z').getTime()) / 86_400_000
-        span = ageDays > db.CHAT_RETENTION_DAYS - 10 ? `in the last ${db.CHAT_RETENTION_DAYS} days (older lines are pruned)` : `since ${chat!.firstSeen.slice(0, 7)}`
+        span = ageDays > db.RETENTION_DAYS.chat - 10 ? `in the last ${db.RETENTION_DAYS.chat} days (older lines are pruned)` : `since ${chat!.firstSeen.slice(0, 7)}`
       }
       // peak hour needs a real sample or it's noise; local only (channel-scoped — heatsync
       // deliberately exposes no peak hour)

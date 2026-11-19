@@ -964,18 +964,19 @@ scheduleDaily(4, async () => {
     await refreshActivity()
   } catch (e) { log(`daily activity refresh failed: ${e}`) }
   try {
-    await db.pruneOldChats(db.CHAT_RETENTION_DAYS)
-    db.pruneOldSummaries(365)
+    const keep = db.RETENTION_DAYS
+    await db.pruneOldChats(keep.chat)
+    db.pruneOldSummaries(keep.summaries)
     db.pruneZeroHitLessons()
-    db.pruneOldAskQueries(90)
-    db.pruneOldTriviaGames(180)
-    db.pruneOldAiSpend(60)
-    db.pruneOldAiSpendSource(60)
-    db.pruneOldUserAiBudget(7)
-    db.pruneOldTriviaBank(90)
-    db.pruneStaleUserFacts(180)
-    db.pruneStaleUserMemos(365)
-    db.pruneOldUserEvents(90)
+    db.pruneOldAskQueries(keep.askQueries)
+    db.pruneOldTriviaGames(keep.triviaGames)
+    db.pruneOldAiSpend(keep.aiSpend)
+    db.pruneOldAiSpendSource(keep.aiSpendSource)
+    db.pruneOldUserAiBudget(keep.userAiBudget)
+    db.pruneOldTriviaBank(keep.triviaBank)
+    db.pruneStaleUserFacts(keep.userFacts)
+    db.pruneStaleUserMemos(keep.userMemos)
+    db.pruneOldUserEvents(keep.userEvents)
   } catch (e) { log(`daily prune failed: ${e}`) }
   try {
     await refreshGlobalEmotes()

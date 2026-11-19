@@ -1171,8 +1171,22 @@ export function getScheduleChannels(): string[] {
   return (db.query('SELECT DISTINCT channel FROM stream_sessions').all() as { channel: string }[]).map((r) => r.channel)
 }
 
-// how long chat_messages keeps rows; heatsync holds the rest. the single knob for retention.
-export const CHAT_RETENTION_DAYS = 180
+// how long each table keeps rows, in days — the one source for the daily prune (index.ts)
+// and the retention table in PRIVACY.md (privacy-policy.test.ts holds the two equal).
+// chat older than this lives in heatsync's logs api, not here.
+export const RETENTION_DAYS = {
+  chat: 30,
+  askQueries: 90,
+  triviaGames: 180,
+  summaries: 365,
+  userEvents: 90,
+  userFacts: 180,
+  userMemos: 365,
+  triviaBank: 90,
+  aiSpend: 60,
+  aiSpendSource: 60,
+  userAiBudget: 7,
+} as const
 const PRUNE_CHUNK = 5000
 
 // chunked + yielding: the first run after a retention cut removes hundreds of thousands of
