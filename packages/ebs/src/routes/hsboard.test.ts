@@ -1,3 +1,4 @@
+import '../test-env'
 import { test, expect, describe, beforeEach } from 'bun:test'
 import { parseMinion, parseHero, parseHsState } from './hsboard-validate'
 import { storeHsState, handleHsBoard, __clearHsForTest } from './hsboard'

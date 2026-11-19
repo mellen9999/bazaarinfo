@@ -17,7 +17,7 @@ conventions:
 ## 0. automated first
 
 ```
-bun run test                                  # ~2000 tests, must be 0 fail
+bun run test                                  # ~3500 tests, must be 0 fail
 bun scripts/quality-report.ts                 # measured voice/tone/accuracy vs baselines (exit 1 = regressed)
 bun test packages/bot/src/sanitize.test.ts    # output guards
 bun test packages/bot/src/ai-build.test.ts    # context assembly + clock line
