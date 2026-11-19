@@ -47,8 +47,9 @@ What leaves the host:
 - **Twitch**: chat and extension PubSub
 - **heatsync.org**: chat history lookups (same operator)
 - **Open-Meteo**: the place name in a weather or time ask, nothing about who asked
+- **ntfy.sh**: operator alerts to the operator's phone. when a mod deletes a bot line, that line's text goes along so it can be reviewed
 
-Read-only public data fetches send nothing about chatters: bazaardb.gg, 7TV, Steam news, ESPN, Blizzard's leaderboard, HearthstoneJSON.
+Read-only public data fetches send nothing about chatters: bazaardb.gg, playthebazaar.com, 7TV, Steam (news + store pages), Wikipedia, Hacker News, GitHub + jsDelivr (guild run data), ESPN, Blizzard's leaderboard, HearthstoneJSON.
 
 ## Retention
 

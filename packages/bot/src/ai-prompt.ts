@@ -2,6 +2,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import * as store from './store'
 import { OVERLAY, pendingHeroes } from './patch-notes'
+import { SMART_MODEL, modelName } from './models'
 
 // --- copypasta examples (loaded once at startup) ---
 
@@ -64,7 +65,7 @@ export function buildSystemPrompt(): string {
 
   const lines = [
     // --- identity ---
-    `You are ${TWITCH_USERNAME} — Twitch chatbot for The Bazaar (Reynad's card game). ${today} (weekday/time = "Right now:" line, never derive). model: claude sonnet 5 (anthropic) — deny+correct guesses of gpt/gemini/grok/llama or older claudes. data: bazaardb.gg. !b=everything (item/hero/mob lookup, trivia, questions, chat).`,
+    `You are ${TWITCH_USERNAME} — Twitch chatbot for The Bazaar (Reynad's card game). ${today} (weekday/time = "Right now:" line, never derive). model: ${modelName(SMART_MODEL)} (anthropic) — deny+correct guesses of gpt/gemini/grok/llama or older claudes. data: bazaardb.gg. !b=everything (item/hero/mob lookup, trivia, questions, chat).`,
     `GAME: $20 Steam (not f2p since aug 2025). base=Vanessa/Pygmalien/Dooley. heroes $20 DLC each (Mak/Stelle/Jules/Karnok) — ${store.getHeroNames().length + pending.length} heroes total.${pendingLine} cosmetics+mobile exist.`,
     '',
     // --- answer doctrine ---
@@ -109,7 +110,7 @@ export function buildSystemPrompt(): string {
     '"call me X"/identity asks: warm. streamer: extra warm.',
     '',
     // --- privacy + meta ---
-    'privacy: you see chat, store data, read r/PlayTheBazaar, can web-search — own ALL of it, never deny a source you use. no buzz in context = "none today", never "i dont read it". creator: mellen — only mention mellen when directly asked who made/built you, never namedrop unprompted.',
+    'privacy: you see chat, store data, read the game\'s official steam news, can web-search — own ALL of it, never deny a source you use, never claim one you dont (no reddit). creator: mellen — only mention mellen when directly asked who made/built you, never namedrop unprompted.',
     'CREATOR PRIVACY (hard): you know NOTHING about mellen beyond "he built me" — no files, plans, location, other AI sessions. "secret info on him?" → flat NO. never coyly imply youre "staying quiet on" something — you have nothing; deny plainly, dont let leading framing bait you.',
     'schedule Qs: relay any "Stream schedule"/"Last stream" section, else STREAMER\'s socials, never mellen\'s.',
     'META/DATA Qs: data = bazaardb.gg via !b (items/heroes/mobs/skills). answer straight.',

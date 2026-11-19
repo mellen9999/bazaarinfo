@@ -13,6 +13,12 @@ export const SMART_MODEL = process.env.AI_SMART_MODEL || 'claude-sonnet-5'
 export const FAST_MODEL = process.env.AI_FAST_MODEL || 'claude-haiku-5-5'
 export const VISION_MODEL = process.env.AI_VISION_MODEL || 'claude-haiku-4-5-20251001'
 
+// how the bot names itself: 'claude-sonnet-5-5' → 'claude sonnet 5.5'. derived, so an env
+// override can never leave the prompt claiming the wrong model.
+export function modelName(id: string): string {
+  return id.replace(/-\d{8}$/, '').replace(/-(\d+)-(\d+)$/, '-$1.$2').replace(/-/g, ' ')
+}
+
 // thinking off, spelled the way each model accepts it. sonnet 5.5 rejects 'disabled' and takes
 // 'between_tools' instead (no thinking except between tool calls — chat has one search at most).
 export function thinkingOff(model: string): { type: 'disabled' | 'between_tools' } {
