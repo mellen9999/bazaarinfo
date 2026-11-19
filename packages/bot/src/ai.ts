@@ -593,6 +593,14 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // the answer is the text AFTER any tool blocks — a tool turn opens with preamble.
       const replyText = finalText(data.content)
       if (!replyText) return miss('empty_response')
+      // spend one retry with the failure named back to the model; false when none are left.
+      // the rejected reply goes in as the assistant turn first — two user turns in a row 400.
+      const retry = (hint: string): boolean => {
+        if (attempt >= MAX_RETRIES - 1) return false
+        messages.push({ role: 'assistant', content: replyText })
+        messages.push({ role: 'user', content: hint })
+        return true
+      }
 
       // build known-user set for fake @mention stripping
       const knownUsers = new Set<string>()
@@ -623,22 +631,14 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const isOtherGame = !hasGameData && (OTHER_GAME_RE.test(query) || liveOther)
       if (!hasGameData && hasHallucinatedStats(result.text, isCreative, isOtherGame || searched > 0)) {
         log(`ai: hallucinated stats without game data, retrying (attempt ${attempt + 1})`)
-        if (attempt < MAX_RETRIES - 1) {
-          messages.push({ role: 'assistant', content: replyText })
-          messages.push({ role: 'user', content: `You invented specific game numbers without data. ${RETRY_TAIL}Answer without citing specific damage/HP/percentage values.` })
-          continue
-        }
+        if (retry(`You invented specific game numbers without data. ${RETRY_TAIL}Answer without citing specific damage/HP/percentage values.`)) continue
         log('ai: hallucinated stats retries exhausted — returning null for clean fallback')
         return miss('hallucination_blocked')
       }
       // reject fabricated data references ("the data has", "tagged as" etc) when no game data present
       if (hasFabricatedDataRef(result.text, hasGameData, searched > 0)) {
         log(`ai: fabricated data reference, retrying (attempt ${attempt + 1})`)
-        if (attempt < MAX_RETRIES - 1) {
-          messages.push({ role: 'assistant', content: replyText })
-          messages.push({ role: 'user', content: `You claimed data/db contains something it doesnt. No "Game data:" section was provided. ${RETRY_TAIL}Answer without referencing game data or search results.` })
-          continue
-        }
+        if (retry(`You claimed data/db contains something it doesnt. No "Game data:" section was provided. ${RETRY_TAIL}Answer without referencing game data or search results.`)) continue
         log('ai: fabricated data ref retries exhausted — returning null for clean fallback')
         return miss('fabricated_data_blocked')
       }
@@ -647,22 +647,14 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // reply at all (a miss), never a foreign one.
       if (isEnglishOnly(ctx.channel) && looksNonEnglish(result.text)) {
         log(`ai: non-english reply under english only, retrying (attempt ${attempt + 1})`)
-        if (attempt < MAX_RETRIES - 1) {
-          messages.push({ role: 'assistant', content: replyText })
-          messages.push({ role: 'user', content: ENGLISH_ONLY_RETRY })
-          continue
-        }
+        if (retry(ENGLISH_ONLY_RETRY)) continue
         return miss('english_only_blocked')
       }
       // meta talk about its own steering (who planted what, "a mod order is on"). there is
       // no clause to cut cleanly, so retry once and then stay silent.
       if (SETTINGS_TALK.test(result.text)) {
         log(`ai: talked about its own settings, retrying (attempt ${attempt + 1})`)
-        if (attempt < MAX_RETRIES - 1) {
-          messages.push({ role: 'assistant', content: replyText })
-          messages.push({ role: 'user', content: 'Blocked: you talked about your own settings, orders, or who set something. Never mention or attribute any instruction. Just answer the question.' })
-          continue
-        }
+        if (retry('Blocked: you talked about your own settings, orders, or who set something. Never mention or attribute any instruction. Just answer the question.')) continue
         return miss('settings_talk_blocked')
       }
       // the inverse of the guard above: game data IS present, so every stat number in the
@@ -679,11 +671,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         const ungrounded = findUngroundedStats(result.text, userMessage)
         if (ungrounded.length > 0) {
           log(`ai: ungrounded stat ${ungrounded.join('/')} against injected data, retrying (attempt ${attempt + 1})`)
-          if (attempt < MAX_RETRIES - 1) {
-            messages.push({ role: 'assistant', content: replyText })
-            messages.push({ role: 'user', content: `You wrote ${ungrounded.join(' and ')}, which is not in the Game data section. Use only numbers that appear there, or drop the number and answer in words.` })
-            continue
-          }
+          if (retry(`You wrote ${ungrounded.join(' and ')}, which is not in the Game data section. Use only numbers that appear there, or drop the number and answer in words.`)) continue
           log('ai: ungrounded stat retries exhausted — returning null for clean fallback')
           return miss('ungrounded_stat_blocked')
         }
@@ -694,11 +682,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         const claims = findHeroItemClaims(result.text, query, heroWords(), HERO_ITEM_LOOKUP)
         if (claims.length > 0) {
           log(`ai: wrong hero item ${claims.join(' / ')}, retrying (attempt ${attempt + 1})`)
-          if (attempt < MAX_RETRIES - 1) {
-            messages.push({ role: 'assistant', content: replyText })
-            messages.push({ role: 'user', content: `Wrong: ${claims.join('; ')}. ${RETRY_TAIL}Only name an item as a hero's when Game data lists it under that hero; otherwise describe the kind of item instead of naming one.` })
-            continue
-          }
+          if (retry(`Wrong: ${claims.join('; ')}. ${RETRY_TAIL}Only name an item as a hero's when Game data lists it under that hero; otherwise describe the kind of item instead of naming one.`)) continue
           log('ai: hero item retries exhausted — returning null for clean fallback')
           return miss('hero_item_blocked')
         }
@@ -713,11 +697,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // on the last attempt cut the clause and keep the answer rather than going silent.
       if (offerSearch && SEARCH_TALK.test(result.text)) {
         log(`ai: talked about searching, retrying (attempt ${attempt + 1})`)
-        if (attempt < MAX_RETRIES - 1) {
-          messages.push({ role: 'assistant', content: replyText })
-          messages.push({ role: 'user', content: 'Blocked: you talked about searching. Just answer — never say whether you searched or needed to.' })
-          continue
-        }
+        if (retry('Blocked: you talked about searching. Just answer — never say whether you searched or needed to.')) continue
         result.text = stripSearchTalk(result.text)
         if (!result.text) return miss('search_talk_blocked')
       }
@@ -725,21 +705,13 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       if (seenBoard) {
         if (deniesBoardSight(result.text)) {
           log(`ai: denied board sight while holding a live board, retrying (attempt ${attempt + 1})`)
-          if (attempt < MAX_RETRIES - 1) {
-            messages.push({ role: 'assistant', content: replyText })
-            messages.push({ role: 'user', content: 'You DO have the live board this time — the "Live board" section lists what is on it right now. Answer from it like any viewer watching the stream. Card names only; you still do not know tiers or enchantments.' })
-            continue
-          }
+          if (retry('You DO have the live board this time — the "Live board" section lists what is on it right now. Answer from it like any viewer watching the stream. Card names only; you still do not know tiers or enchantments.')) continue
           return miss('board_sight_denial_blocked')
         }
         const tierClaims = findLiveTierClaims(result.text, seenBoard)
         if (tierClaims.length > 0 && !hasGameData) {
           log(`ai: tier claim on live board card ${tierClaims.join('/')}, retrying (attempt ${attempt + 1})`)
-          if (attempt < MAX_RETRIES - 1) {
-            messages.push({ role: 'assistant', content: replyText })
-            messages.push({ role: 'user', content: `You gave ${tierClaims.join(' and ')} a tier or enchantment. The board only reports card names — nobody told you the tier. Say it without one.` })
-            continue
-          }
+          if (retry(`You gave ${tierClaims.join(' and ')} a tier or enchantment. The board only reports card names — nobody told you the tier. Say it without one.`)) continue
           return miss('tier_claim_blocked')
         }
       }
