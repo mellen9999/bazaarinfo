@@ -2,6 +2,7 @@ import { getEmotesForChannel, invalidateEmoteBlockCache } from './emotes'
 import { getRecent } from './chatbuf'
 import { getRecentEmotes, getHotExchanges } from './ai-cache'
 import { log } from './log'
+import { STAT_WORDS } from './stat-words'
 import { normalizeText, peelLeadingTriggers } from './text-safety'
 
 // --- validation regex constants ---
@@ -126,8 +127,8 @@ export const FABRICATION = /\b(it was a dream|someone had a dream|someone dreame
 //          so it's only enforced OUTSIDE creative.
 //  LOOSE — verb+number / "base X is N". real Bazaar tells, but they also trip on
 //          incidental narrative numbers ("gained 50 pounds"), so also creative-exempt.
-export const STAT_FACT = /\+\d+%?\s*(damage|crit|shield|hp|heal|poison|burn|lifesteal|multicast|cooldown|haste|regen|freeze|slow)\b|\+\d+\s*\/\s*\+?\d+|\b\+?\d{2,}\s+(?:at|on)\s+(?:bronze|silver|gold|diamond|legendary)\b|\b(?:deals?|shields?|heals?|hastes?|burns?|poisons?|gains?|gives?|grants?|slows?|freezes?|regens?|charges?)\s+(?:for\s+)?\d+\s*\/\s*\d+(?:\s*\/\s*\d+)?\b/i
-export const STAT_BARE = /\b\d{2,}\s*(damage|poison|burn|shield|heal|hp|health|crit|gold|regen|haste|freeze|slow|attack|lifesteal|multicast|cooldown|luck)\b/i
+export const STAT_FACT = new RegExp(String.raw`\+\d+%?\s*(?:${STAT_WORDS})\b|\+\d+\s*\/\s*\+?\d+|\b\+?\d{2,}\s+(?:at|on)\s+(?:bronze|silver|gold|diamond|legendary)\b|\b(?:deals?|shields?|heals?|hastes?|burns?|poisons?|gains?|gives?|grants?|slows?|freezes?|regens?|charges?)\s+(?:for\s+)?\d+\s*\/\s*\d+(?:\s*\/\s*\d+)?\b`, 'i')
+export const STAT_BARE = new RegExp(String.raw`\b\d{2,}\s*(?:${STAT_WORDS}|gold|attack|luck)\b`, 'i')
 export const STAT_LOOSE = /\b(deals?|gains?|grants?|gives?|adds?|stacks?|does|heals?)\s+(for\s+)?\+?\d{2,}\b|\b(base|starting)\s+\w+\s+is\s+\d{2,}\b/i
 // STAT_FACT (Bazaar tooltip notation: +X stat, B:/S: tiers) is ALWAYS a hallucination when
 // we have no game data — even in creative/banter. STAT_BARE/STAT_LOOSE (a bare "50 damage")

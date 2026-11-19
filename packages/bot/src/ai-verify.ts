@@ -12,10 +12,11 @@
 // so: check what is checkable, in microseconds, and leave the rest to the prompt.
 
 import { CLOCK_HEAD, parseClockTimes } from './clock'
+import { STAT_WORDS } from './stat-words'
 
 // a number is only a claim when it sits against a stat word. "season 2", "$20", "day 5 of
 // the run" and "2 items" must all survive — the bot talks about numbers constantly.
-const STAT_WORD = 'damage|dmg|heal|shield|burn|poison|freeze|slow|haste|crit|regen|lifesteal|multicast|charge|ammo|hp|health|armou?r|cooldown'
+const STAT_WORD = STAT_WORDS
 // verb + plural forms matter — the model writes "heals 85" far more often than "heal 85"
 const STAT = `(?:${STAT_WORD})(?:e?s|ed|ing)?`
 const CLAIM_AFTER = new RegExp(`\\b(\\d+(?:\\.\\d+)?)\\s*%?\\s*${STAT}\\b`, 'gi')
