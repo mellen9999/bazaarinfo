@@ -285,3 +285,29 @@ export function findHeroItemClaims(reply: string, query: string, heroWords: stri
 
   return [...bad]
 }
+
+// --- false denials ---
+//
+// "flying carpets aren't an item, no" shipped while Magic Carpet sat in the dump. saying a
+// card doesn't exist is a claim the dump can check. a single word counts when it IS a card's
+// title ("gold isn't an item, it's a resource" stays legal). a 2-3 word nickname counts only
+// when a card sharing its head noun was in the injected context — "runic glaive is not a
+// card" is true, and Plague Glaive existing elsewhere doesn't make it a denial.
+const DENIAL = /\b((?:[a-z]+ ){0,2}[a-z]+) (?:isn'?t|aren'?t|is not|are not) (?:a |an )?(?:real |actual )?(?:bazaar )?(?:items?|cards?)\b|\bno such (?:item|card) (?:as |called )?(?:an? )?((?:[a-z]+ ){0,2}[a-z]+)/g
+const DENIAL_STOP = new Set(['that', 'it', 'this', 'there', 'those', 'these', 'which', 'what', 'one', 'thing', 'things', 'he', 'she', 'they', 'you', 'i'])
+
+/** real cards the reply says don't exist, as "Magic Carpet is a real card" lines */
+export function findFalseDenials(reply: string, context: string, cardsWithWord: (w: string) => string[], isCard: (name: string) => boolean): string[] {
+  const ctx = context.toLowerCase()
+  const out = new Set<string>()
+  for (const m of reply.toLowerCase().matchAll(DENIAL)) {
+    const ws = (m[1] ?? m[2]).split(' ').filter((w) => !DENIAL_STOP.has(w))
+    if (ws.length === 0) continue
+    if (ws.length === 1) {
+      if (isCard(ws[0])) out.add(`${ws[0]} is a real card`)
+      continue
+    }
+    for (const t of cardsWithWord(ws[ws.length - 1].replace(/s$/, ''))) if (ctx.includes(t.toLowerCase())) out.add(`${t} is a real card`)
+  }
+  return [...out]
+}

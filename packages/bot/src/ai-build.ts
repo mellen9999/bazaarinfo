@@ -4,7 +4,7 @@ import { isGameActive } from './trivia'
 import { getPatchInfo } from './patch'
 import { getOfficialEventLine } from './official-posts'
 import { OVERLAY, isOverlayFresh, resolvePatch, selectNotes, patchScope, newCardNote } from './patch-notes'
-import { exact } from './store'
+import { exact, isMissingCardName } from './store'
 import { getWorldCupLine } from './worldcup'
 import { isHsRatingQuery, extractSubject, hsContext } from './hs'
 import { isHsCardQuery, isHsCardIntent, isHearthstoneCategory, hsCardContext } from './hs-cards'
@@ -218,6 +218,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
 
   // "rate my joke" / "what i said": the asker's own last lines, pinned — whole ring, not
   // just the Recent chat window, so a fast chat can't have scrolled the referent away
+  const cardMissLine = isMissingCardName(query)
+    ? `\nCard lookup: no Bazaar card or skill is named "${query.trim().slice(0, 40)}". If they mean a card, say there isn't one by that name (bazaardb.gg has the full list) — never describe it as one.`
+    : ''
   const ownLinesLine = OWN_LINES_RE.test(query) ? buildOwnLines(getRecent(ctx.channel), ctx.user, botName, query) : ''
 
   const styleLine = getChannelStyle(ctx.channel)
@@ -900,6 +903,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     { name: 'self', text: selfLine, base: -104 },
     // the referent of "my joke" — evicting it means asking the chatter to repeat themselves
     { name: 'ownLines', text: ownLinesLine ? `\n${ownLinesLine}\n` : '', base: -103.9 },
+    // "runic glaive" / "ice water" got a confident tooltip for a card that doesn't exist. the
+    // dump is sure it doesn't, so say so — grounding, not a guard after the fact.
+    { name: 'cardMiss', text: cardMissLine, base: -103.8 },
   ]
     .filter((s) => s.text)
     .map((s) => ({ ...s, prio: s.base - (s.boost ?? 0) }))

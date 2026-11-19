@@ -105,6 +105,7 @@ let events: BazaarCard[] = []
 let eventMap: Map<string, BazaarCard> = new Map()
 let derivedEnchantDefs: Record<string, string> = {}
 let dynamicGameTermsRe: RegExp | null = null
+let titleWords: Set<string> = new Set()
 
 // house style for a derived def: lowercase leading letter, no trailing period.
 function normalizeDef(text: string): string {
@@ -130,6 +131,7 @@ export function loadCache(cache: CardCache) {
   // build title map with skills first so items take priority on collision
   titleMap = buildTitleMap([...skills, ...items])
   index = buildIndex(allCards)
+  titleWords = new Set(allCards.flatMap((c) => c.Title.toLowerCase().split(/[^a-z]+/)).filter((w) => w.length >= 3))
   monsterIndex = new Fuse(monsters, {
     keys: [{ name: 'Title', weight: 1 }],
     threshold: 0.25,
@@ -419,6 +421,21 @@ export function findMonsterFuzzy(query: string): Monster | undefined {
 }
 export function findMonster(query: string): Monster | undefined {
   return findMonsterExact(query) ?? findMonsterFuzzy(query)
+}
+
+// "runic glaive", "ice water": two or three words that are each a word of some card title,
+// yet name no card. that is a card the asker half-remembers or the model would invent —
+// the dump says it doesn't exist, which is the one thing worth telling the model.
+export function isMissingCardName(query: string): boolean {
+  const ws = query.toLowerCase().replace(/['’]s\b/g, '').trim().split(/\s+/)
+  if (ws.length < 2 || ws.length > 3 || titleMap.has(ws.join(' '))) return false
+  return ws.every((w) => /^[a-z]+$/.test(w) && (titleWords.has(w) || titleWords.has(w.replace(/s$/, ''))))
+}
+
+// card titles containing `word` as a whole word ("carpet" → Magic Carpet)
+export function cardsWithWord(word: string): string[] {
+  const w = word.toLowerCase()
+  return titleWords.has(w) ? allCards.filter((c) => c.Title.toLowerCase().split(/[^a-z]+/).includes(w)).map((c) => c.Title) : []
 }
 
 export function findCard(name: string): BazaarCard | undefined {

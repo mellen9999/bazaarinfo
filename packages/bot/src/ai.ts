@@ -14,7 +14,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 // --- local imports from sub-modules ---
 
 import { sanitize, plainDashes, stripInputEcho, stripLeadingAskEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, COT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL, SETTINGS_TALK } from './ai-sanitize'
-import { findUngroundedStats, findHeroItemClaims, correctClockClaim, findWrongClockTimes, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak, hasFabricatedDataRef } from './ai-verify'
+import { findUngroundedStats, findHeroItemClaims, correctClockClaim, findWrongClockTimes, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak, hasFabricatedDataRef, findFalseDenials } from './ai-verify'
 import { searchEligible, finalText, SEARCH_TALK, stripSearchTalk, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, SEARCH_HINT, SEARCH_FAILED_HINT } from './ai-search-gate'
 import { notify } from './notify'
 import { repairTruncation, isStub, cutPageChrome, endsDangling } from './ai-truncate'
@@ -716,6 +716,15 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           if (retry(`Wrong: ${claims.join('; ')}. ${RETRY_TAIL}Only name an item as a hero's when Game data lists it under that hero; otherwise describe the kind of item instead of naming one.`)) continue
           log('ai: hero item retries exhausted — returning null for clean fallback')
           return miss('hero_item_blocked')
+        }
+      }
+      // denying a card the dump has ("flying carpets aren't an item" — Magic Carpet). the
+      // last attempt ships: the check can name the card but not prove what they meant.
+      if (!isCreative && !OTHER_GAME_RE.test(query)) {
+        const denied = findFalseDenials(result.text, userMessage, store.cardsWithWord, (n) => !!store.findCard(n))
+        if (denied.length > 0) {
+          log(`ai: denied a real card (${denied.join(' / ')}), retrying (attempt ${attempt + 1})`)
+          if (retry(`Wrong: ${denied.join('; ')}. ${RETRY_TAIL}Never say a card doesn't exist. If it isn't in Game data, name it and say you don't have its details.`)) continue
         }
       }
       // the bot can see the live board whenever the overlay companion is feeding frames, and
