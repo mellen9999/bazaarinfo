@@ -194,9 +194,3 @@ export function startGoalWatch(say: Say, offlineChannels: () => string[]) {
   }
   timer = setTimeout(tick, 5_000) // stay off the boot path
 }
-
-export function stopGoalWatch() {
-  if (timer) clearTimeout(timer)
-  timer = null
-  tracked.clear()
-}

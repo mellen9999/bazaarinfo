@@ -544,13 +544,6 @@ export function hsCardByName(name: string): HsCard | null {
   return minion ?? hits[0]
 }
 
-/** just the rules text, trimmed to something a chat answer can carry. */
-export function hsCardText(name: string, max = 110): string | null {
-  const card = hsCardByName(name)
-  if (!card?.x) return null
-  return card.x.length > max ? `${card.x.slice(0, max - 1).replace(/\s+\S*$/, '')}…` : card.x
-}
-
 /** test seam — load a card set without touching the network or disk */
 export function __setHsCards(cards: HsCard[], ids: Record<string, IdCard | string> = {}): void {
   cache = { fetchedAt: Date.now(), cards, ids }

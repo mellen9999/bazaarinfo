@@ -134,10 +134,6 @@ const budget = (v?: number) => clamp(v, MIN_BUDGET_MS, MAX_BUDGET_MS)
 const MIN_PASTA_LEN = 80 // the rollup only stores pastas of 80+ chars
 const MIN_PASTA_REPEATS = 2
 
-export async function getMessages(channel: string, r: Range & { order?: 'new' | 'old'; cursor?: string } = {}) {
-  return clean(await get<Envelope<LogRow[]>>(channel, '/messages', { from: r.from, to: r.to, limit: r.limit, cursor: r.cursor, order: order(r.order), budget_ms: budget(r.budget_ms) }, false, TTL_FAST, r.signal))
-}
-
 export async function search(channel: string, q: string, r: Range & { user?: string } = {}) {
   return clean(await get<Envelope<LogRow[]>>(channel, '/search', { q, user: r.user?.toLowerCase(), from: r.from, to: r.to, limit: r.limit, budget_ms: budget(r.budget_ms) }, false, TTL_FAST, r.signal))
 }

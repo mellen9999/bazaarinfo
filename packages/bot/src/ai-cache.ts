@@ -539,8 +539,3 @@ export function setAiTriviaOverride(on: boolean): void {
   aiTriviaOverride = on
   try { db.saveControl({ channel: '*', key: 'ai-trivia', value: on ? 'on' : 'off', by: '', expires_at: null }) } catch (e) { log(`ai-cache: ai-trivia override save failed: ${e}`) }
 }
-
-export function __resetAiTriviaForTest(): void {
-  aiTriviaLoaded = false
-  aiTriviaOverride = null
-}

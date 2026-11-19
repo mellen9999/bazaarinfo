@@ -710,13 +710,6 @@ async function runVerifier(system: string, q: CustomTrivia, channel: string, top
   }
 }
 
-// single general lens — exported as the eval/test seam and used standalone where a quick
-// check is enough. the live path uses verifyPanel (below) for the full diverse panel.
-export async function verifyTrivia(q: CustomTrivia, channel: string): Promise<Verdict> {
-  if (!API_KEY) return { ok: true, quality: 2 } // can't verify without a key; don't block generation
-  return runVerifier(VERIFY_SYSTEM, q, channel)
-}
-
 // PANEL: three independent lenses in parallel — general (format/leak/ambiguity/spam),
 // solver (re-derives the answer, catches plausible-but-wrong), skeptic (hunts fabricated
 // detail). A question ships ONLY if ALL THREE accept — each fires only on a CONFIDENT,

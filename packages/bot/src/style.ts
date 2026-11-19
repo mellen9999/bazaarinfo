@@ -9,7 +9,6 @@ import { FAST_MODEL } from './models'
 // --- channel style ---
 
 interface ChannelStyle {
-  topEmotes: string[]
   profile: string
   regulars: Map<string, string> // username → compact profile
 }
@@ -100,7 +99,7 @@ function buildStyle(channel: string): ChannelStyle {
   const profile = parts.join('. ')
   if (profile) log(`style #${channel}: ${topEmotes.length} emotes, ${regulars.size} regulars`)
 
-  return { topEmotes, profile, regulars }
+  return { profile, regulars }
 }
 
 // local keeps a short window, so a long-time regular who has been quiet lately is missing
@@ -130,13 +129,6 @@ export function getChannelStyle(channel: string): string {
   ensureCache(channel)
   return styleCache.get(channel)?.profile ?? ''
 }
-
-export function getChannelTopEmotes(channel: string): string[] {
-  ensureCache(channel)
-  return styleCache.get(channel)?.topEmotes ?? []
-}
-
-
 
 const buildingStyle = new Set<string>()
 

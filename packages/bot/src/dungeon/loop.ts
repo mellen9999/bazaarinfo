@@ -276,5 +276,3 @@ export function resetRun(channel: string): string {
   store.deleteRun(ch)
   return 'the Depths have been reset — type `descend` to begin anew.'
 }
-
-export const FLOOR_COUNT = FLOORS
