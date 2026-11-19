@@ -730,7 +730,9 @@ const MIN_QUALITY = 2
 //
 // Model per lens is a knob because the solver and skeptic are two thirds of the panel, and
 // haiku 4.5 is 3x cheaper than sonnet 5 on both input and output. It looked like the single
-// biggest remaining cost lever.
+// biggest remaining cost lever. (the lens model follows FAST_MODEL, haiku 5.5 since
+// 2026-11-19 — unmeasured on this corpus; rerun `trivia-eval --haiku-lenses` before any
+// live path passes cheapLenses.)
 //
 // MEASURED 2026-08-17, AND REJECTED. Scored against the eval corpus of real chat incidents:
 //
