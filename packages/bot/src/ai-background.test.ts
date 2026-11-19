@@ -76,4 +76,10 @@ describe('trimMemoPrefix', () => {
     expect(trimMemoPrefix('uses the LICK emote for efficiency')).toBe('uses the LICK emote for efficiency')
     expect(trimMemoPrefix('')).toBe('')
   })
+  it('strips a "Memo:" label and the user\'s own name as a label', () => {
+    expect(trimMemoPrefix('Memo: Repeatedly asks to LICK wollip')).toBe('repeatedly asks to LICK wollip')
+    expect(trimMemoPrefix('Nathanilus: waiting on vusar mobile, Pyg main', 'nathanilus')).toBe('waiting on vusar mobile, Pyg main')
+    expect(trimMemoPrefix('Pyg main: stacks lion cane', 'nathanilus')).toBe('pyg main: stacks lion cane')
+    expect(trimMemoPrefix('memorizes every card', 'x')).toBe('memorizes every card')
+  })
 })

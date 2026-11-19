@@ -145,8 +145,10 @@ const MEMO_MAX_CHARS = 160
 const SLOP_ADJECTIVES = /\b(playful|witty|dry wit|chaos agent|delightful|genuinely|enthusiast|quick-witted|curious|creative|mischievous|energy)\b/i
 // "User asks about..." / "User zanderwill: Makes jokes..." — half the regenned memos opened
 // with the word the prompt banned. a mental note about a friend has no subject line.
-export function trimMemoPrefix(memo: string): string {
+export function trimMemoPrefix(memo: string, user = ''): string {
+  const name = user.replace(/\W/g, '')
   const t = memo
+    .replace(new RegExp(`^(?:memo${name ? `|${name}` : ''})\\s*:\\s*`, 'i'), '')   // "Memo: …" / "Nathanilus: pyg main" → "pyg main"
     .replace(/^(?:the\s+)?user\s+\w+\s*:\s*/i, '')   // "User zanderwill: makes jokes" → "makes jokes"
     .replace(/^(?:the\s+)?user\s*[:\-]?\s+/i, '')     // "User asks about" / "The user: asks" → "asks about"
     .trim()
@@ -210,11 +212,11 @@ export async function maybeUpdateMemo(user: string, force = false) {
       content: prompt,
     })
 
-    let memo = trimMemoPrefix((await requestMemo(basePrompt))?.trim() ?? '')
+    let memo = trimMemoPrefix((await requestMemo(basePrompt))?.trim() ?? '', user)
     // one retry on slop (em-dash / personality adjective) — a stubborn model gets a
     // second chance with a pointed hint, but a slop memo is never stored.
     if (memo && isSlopMemo(memo)) {
-      memo = trimMemoPrefix((await requestMemo(`${basePrompt}\n\nThat was too generic — no personality adjectives, no em dash, just a concrete observable detail.`))?.trim() ?? '')
+      memo = trimMemoPrefix((await requestMemo(`${basePrompt}\n\nThat was too generic — no personality adjectives, no em dash, just a concrete observable detail.`))?.trim() ?? '', user)
     }
     memo = stripMetaTraits(memo)
     if (memo && memo.length <= MEMO_MAX_CHARS && !isSlopMemo(memo)) {
