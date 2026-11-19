@@ -17,7 +17,7 @@ import { sanitize, plainDashes, stripInputEcho, stripLeadingAskEcho, dedupeUserE
 import { findUngroundedStats, findHeroItemClaims, correctClockClaim, findWrongClockTimes, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak, hasFabricatedDataRef } from './ai-verify'
 import { searchEligible, finalText, SEARCH_TALK, stripSearchTalk, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, SEARCH_HINT, SEARCH_FAILED_HINT } from './ai-search-gate'
 import { notify } from './notify'
-import { repairTruncation, isStub } from './ai-truncate'
+import { repairTruncation, isStub, cutPageChrome, endsDangling } from './ai-truncate'
 import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, isAiChannelEnabled, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, isUserOverDailyAiCap, USER_CAP_LINE, noteUserAiRequest, getChannelRecentResponses, isLiveStateKnown, isChannelLive } from './ai-cache'
 import { buildSystemPrompt, buildUserMessage, isLowValue, isGameTerm, OTHER_GAME_RE, formatContextSummary } from './ai-context'
 import { maybeExtractFacts, maybeUpdateMemo } from './ai-background'
@@ -617,6 +617,20 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       // emote can be a recurring character/noun ("Crowge watched from the corner…") and
       // stripping it leaves grammatically broken fragments ("the watched from the corner").
       if (!isCreative) result.text = dedupeUserEmote(result.text, ctx.user, ctx.channel)
+      // web-page chrome glued onto the answer ("…35.6°F Latest Anthropic says…"): keep the
+      // answer in front of it; chrome with no answer in front is a retry, never a ship.
+      const unchromed = cutPageChrome(result.text)
+      if (unchromed !== null) {
+        log(`ai: cut page chrome ${JSON.stringify(result.text.slice(unchromed.length, unchromed.length + 30))}`)
+        if (isStub(unchromed)) {
+          if (retry('Your reply came out as garbled web-page text. Answer the message in one clean sentence.')) continue
+          return miss('page_chrome_blocked')
+        }
+        result.text = unchromed
+      }
+      // a thought that trails off mid-clause ("…and then just..."): one retry to finish it,
+      // then it ships — an unfinished true reply still beats none.
+      if (!isCreative && endsDangling(result.text) && retry('Your reply trailed off mid-thought. Say the whole thing, finished, in fewer words.')) continue
       // reject hallucinated game stats when no game data was provided. unambiguous
       // Bazaar stat claims (keyword/tier/+X/+Y) are rejected even in creative/banter —
       // a roleplay reply that invents "+60 haste at gold tier" is still misinformation.

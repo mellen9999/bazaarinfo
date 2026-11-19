@@ -80,3 +80,25 @@ export function isStub(text: string): boolean {
   return text.trim().split(/\s+/).filter(Boolean).length < 3
 }
 
+
+// web-page chrome the model sometimes emits after (or instead of) its answer, with no search
+// anywhere near the call: "2°C is 35.6°F Latest Anthropic says… Reading Time: 2 minutes",
+// "…go outside for once Sadeg Latest Flash News Loading...", "yourself Latest". a capital
+// "Latest" glued on mid-sentence, loader text, read-time badges and log-style timestamps
+// never belong in a chat reply.
+const PAGE_CHROME = /(?<![.!?:]) Latest\b(?= [A-Z]|\s*$)|\bLoading\.\.\.|\bReading Time: \d+ min|\b\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\b/
+
+// the reply with everything from the first piece of page chrome on cut away, or null when
+// there was none. what's left may be a stub; the caller decides whether that's worth a retry.
+export function cutPageChrome(text: string): string | null {
+  const m = PAGE_CHROME.exec(text)
+  if (!m) return null
+  return text.slice(0, m.index).trim()
+}
+
+// a thought trailed off on purpose-looking dots after a word that can't end one: "Samantha's
+// growth outpaces attachment and then just..." — chat asked "then just what?". the dots make
+// it look finished to every max_tokens check, so it needs its own.
+export function endsDangling(text: string): boolean {
+  return /\b(?:and|but|or|then|just|so|because|until|which|that|the|a|an|to|of|with|into|like)\s*(?:\.{2,}|…)\s*$/i.test(text)
+}

@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test'
-import { repairTruncation, isStub } from './ai-truncate'
+import { repairTruncation, isStub, cutPageChrome, endsDangling } from './ai-truncate'
 
 // hardCaps used in doAiCall, for reference: creative 400, game data 250, remember 120,
 // short 60, ordinary chat 150.
@@ -112,5 +112,33 @@ describe('isStub — when trimming leaves nothing worth sending', () => {
   test('a real short answer is not a stub', () => {
     expect(isStub('yeah, that build rips')).toBe(false)
     expect(isStub('no idea honestly mate')).toBe(false)
+  })
+})
+
+describe('cutPageChrome (live-log regressions)', () => {
+  test('cuts chrome after a real answer', () => {
+    expect(cutPageChrome("2°C is 35.6°F Latest Anthropic says 'Claude Cowork' was nothing to do with it 2025-11-23 23:08:44 Reading Time: 2 minutes")).toBe('2°C is 35.6°F')
+    expect(cutPageChrome("walls, a furnace array, or just block up your base entrance and go outside for once Sadeg Latest Flash News\nLoading...\nLoading...")).toBe('walls, a furnace array, or just block up your base entrance and go outside for once Sadeg')
+  })
+  test('chrome-only reply leaves a stub', () => {
+    expect(cutPageChrome('yourself Latest')).toBe('yourself')
+    expect(isStub(cutPageChrome('yourself Latest')!)).toBe(true)
+  })
+  test('ordinary replies untouched', () => {
+    for (const t of [
+      'Latest patch nerfed it, check the notes',
+      'the latest patch moved it to silver',
+      'patch 20.2 is the latest. tiny world got a fix',
+      'his latest run was a 10-win vanessa',
+      'loading screens take forever on that build',
+      'it dropped on 2026-11-04',
+    ]) expect(cutPageChrome(t)).toBeNull()
+  })
+  test('dangling trail-off', () => {
+    expect(endsDangling("Samantha's growth into something that outpaces human attachment and then just...")).toBe(true)
+    expect(endsDangling('so he sold it and…')).toBe(true)
+    expect(endsDangling('well...')).toBe(false)
+    expect(endsDangling('not sure...')).toBe(false)
+    expect(endsDangling('it scales off burn.')).toBe(false)
   })
 })
