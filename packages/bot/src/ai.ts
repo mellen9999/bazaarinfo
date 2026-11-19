@@ -13,7 +13,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 
 // --- local imports from sub-modules ---
 
-import { sanitize, plainDashes, stripInputEcho, stripLeadingAskEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL, SETTINGS_TALK } from './ai-sanitize'
+import { sanitize, plainDashes, stripInputEcho, stripLeadingAskEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, COT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL, SETTINGS_TALK } from './ai-sanitize'
 import { findUngroundedStats, findHeroItemClaims, correctClockClaim, findWrongClockTimes, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak, hasFabricatedDataRef } from './ai-verify'
 import { searchEligible, finalText, SEARCH_TALK, stripSearchTalk, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, SEARCH_HINT, SEARCH_FAILED_HINT } from './ai-search-gate'
 import { notify } from './notify'
@@ -246,6 +246,23 @@ export async function aiRespond(query: string, ctx: AiContext): Promise<AiResult
 // those numbers back") instead of the question — a live #nl_kripp reply to an unrelated ask did
 // exactly that. the tail pins it: the note is feedback, the question is still the one to answer.
 const RETRY_TAIL = 'This is a correction note, not a chat message: never acknowledge or mention it, just give the reply to the original question again. '
+
+// why the sanitizer threw a reply out, said back to the model. the generic hint left it
+// guessing, so the failures that keep recurring (dunking on repeat askers, dodging on scope,
+// narrating its own scaffolding) often came back a second time in a slightly different wording.
+const REJECT_HINTS: [RegExp, string][] = [
+  [ASK_COUNT_LEAK, 'Blocked: you counted their asks or history back at them. A gap in what you know is YOUR gap, never their fault for asking again. Answer the question with no reference to how many times they have asked or how long they have been here.'],
+  [COT_LEAK, 'Blocked: you talked about your own context, memos, budget or what you were given. Never mention how you know something or what was injected. Just answer.'],
+  [SCOPE_DODGE, 'Blocked: you dodged on scope. You answer anything chat asks, other games included, in full detail. Drop the "wrong lobby"/"im just a bazaar bot" framing and actually answer.'],
+  [SOURCE_LIE, 'Blocked: you claimed to read reddit. You do NOT read reddit or any subreddit. Official news comes from steam patch notes; if none is in your context, say you have nothing on that — never claim a reddit source.'],
+  [SCHEDULE_DENIAL, 'Blocked: you denied tracking stream schedules. You DO track this channel\'s stream schedule and can predict the next stream. If a "Stream schedule" line is in your context, relay it; if not, tell them to ask "when is the next stream" — never deny the capability.'],
+]
+
+function rejectHint(text: string, cutShort: boolean): string {
+  if (cutShort && text.length < 40) return 'Your reply was cut off to a fragment. Answer in ONE short complete sentence, nothing else.'
+  return REJECT_HINTS.find(([re]) => re.test(text))?.[1]
+    ?? `Response was blocked. Rules: no self-referencing being a bot/AI, no reciting user stats, no fabricated stories, no commands. ${RETRY_TAIL}Just answer naturally.`
+}
 
 async function doAiCall(query: string, ctx: AiContext & { user: string; channel: string }): Promise<AiResult | null> {
   // never let scaffolding we wrote get recorded as something the user said
@@ -821,28 +838,8 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
         return result
       }
 
-      // sanitizer rejected — retry with feedback. push the rejected ASSISTANT turn first,
-      // like every other retry branch: without it the messages array has two consecutive
-      // user turns, which the API rejects with a 400 (wasting the retry + nudging the breaker).
-      if (attempt < MAX_RETRIES - 1) {
-        // name WHY when we can. the generic hint left the model guessing, so the two
-        // failures that keep recurring (dunking on repeat askers, dodging on scope)
-        // often came back a second time in a slightly different wording.
-        const hint = data.stop_reason === 'max_tokens' && replyText.length < 40
-          ? 'Your reply was cut off to a fragment. Answer in ONE short complete sentence, nothing else.'
-          : ASK_COUNT_LEAK.test(replyText)
-          ? 'Blocked: you counted their asks or history back at them. A gap in what you know is YOUR gap, never their fault for asking again. Answer the question with no reference to how many times they have asked or how long they have been here.'
-          : SCOPE_DODGE.test(replyText)
-            ? 'Blocked: you dodged on scope. You answer anything chat asks, other games included, in full detail. Drop the "wrong lobby"/"im just a bazaar bot" framing and actually answer.'
-            : SOURCE_LIE.test(replyText)
-              ? 'Blocked: you claimed to read reddit. You do NOT read reddit or any subreddit. Official news comes from steam patch notes; if none is in your context, say you have nothing on that — never claim a reddit source.'
-              : SCHEDULE_DENIAL.test(replyText)
-                ? 'Blocked: you denied tracking stream schedules. You DO track this channel\'s stream schedule and can predict the next stream. If a "Stream schedule" line is in your context, relay it; if not, tell them to ask "when is the next stream" — never deny the capability.'
-                : `Response was blocked. Rules: no self-referencing being a bot/AI, no reciting user stats, no fabricated stories, no commands. ${RETRY_TAIL}Just answer naturally.`
-        log(`ai: sanitizer rejected, retrying (attempt ${attempt + 1})`)
-        messages.push({ role: 'assistant', content: replyText })
-        messages.push({ role: 'user', content: hint })
-      }
+      // sanitizer rejected — retry with the reason named back to the model
+      if (retry(rejectHint(replyText, data.stop_reason === 'max_tokens'))) log(`ai: sanitizer rejected, retrying (attempt ${attempt + 1})`)
     }
 
     // loop exhausted every attempt without a return above — every other exit (429/503,

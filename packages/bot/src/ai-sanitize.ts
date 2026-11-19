@@ -19,7 +19,7 @@ export const BANNED_PHRASES: [RegExp, string[]][] = [
   [/\bno clue\b/gi, ['not sure', 'beats me', "couldn't tell ya"]],
   [/\bno idea\b/gi, ['not sure', 'beats me', "couldn't tell ya"]],
 ]
-export const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|ultrathink|extended thinking|thinking budget|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|i('m| am| keep) overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|(?:the|my)\s+(?:system\s+)?prompt\s+(?:says?|tells?|tell|wants?|instructs?|requires?)|(?:my|the)\s+(?:instructions?|guidelines?)\s+(?:says?|say|tell|tells?|require)|i'?m\s+instructed\s+to|according\s+to\s+(?:my|the)\s+(?:instructions?|guidelines?|prompt)|my\s+(?:system\s+)?prompt|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid)|output style|it should (say|respond|output|reply)|lets? tune the|format should be|style should be|the (response|reply|answer) (should|could|would) be|the bot is (repeating|doing|saying|responding|answering|outputting|generating|ignoring)|(my|the) responses? (are|be|is|suck|terrible|clueless|bad|awful|embarrassing|cringe)|embarrassing for me|make (us|me|this|it) god.?tier)\b/i
+export const COT_LEAK = /\b(respond naturally|this is banter|this is a joke|is an emote[( ]|leaking (reasoning|thoughts|cot)|internal thoughts|chain of thought|ultrathink|extended thinking|thinking budget|looking at the (meta ?summary|meta ?data|summary|reddit|digest)|i('m| am| keep) overusing|i keep (using|saying|doing)|i (already|just) (said|used|mentioned)|just spammed|keeping it light|process every message|reading chat and deciding|(?:the|my)\s+(?:system\s+)?prompt\s+(?:says?|tells?|tell|wants?|instructs?|requires?)|(?:my|the)\s+(?:instructions?|guidelines?)\s+(?:says?|say|tell|tells?|require)|i'?m\s+instructed\s+to|according\s+to\s+(?:my|the)\s+(?:instructions?|guidelines?|prompt)|my\s+(?:system\s+)?prompt|why (am i|are you) (answering|responding|saying|doing)|feels good to be (useful|helpful|back)|i should (probably|maybe) (stop|not|avoid)|output style|it should (say|respond|output|reply)|lets? tune the|format should be|style should be|the (response|reply|answer) (should|could|would) be|the bot is (repeating|doing|saying|responding|answering|outputting|generating|ignoring)|(my|the) responses? (are|be|is|suck|terrible|clueless|bad|awful|embarrassing|cringe)|embarrassing for me|make (us|me|this|it) god.?tier|(?:in|from|per)\s+my\s+context|my\s+context\s+(?:window|says?|shows?|has)|injected\s+(?:"[^"]{1,30}"\s+)?(?:footer|section|line|header|note|text|block)|(?:identity\s+request|memo)\s+footer|your\s+own\s+memo|memo\s+(?:file|entr(?:y|ies))|(?:since|not)\s+the\s+memo|(?:server|search|api|token)\s+budget|no\s+budget\s+left)\b/i
 export const COT_TAIL = /[,.]?\s*(?:also\s+)?(?:(?:make sure|note to self|reminder to self|i need to (?:remember|make sure|check|verify|update))\s+(?:ur|your|my|the|i)\s+.*?(?:list|data|context|prompt|emote|response|output|format|style|knowledge|memory))\b.*$/i
 export const STAT_LEAK = /\b(your (profile|stats|data|record) (says?|shows?)|you have \d+ (lookups?|commands?|wins?|attempts?|asks?)|you('ve|'re| have| are) (a )?(power user|casual user|trivia regular)|according to (my|your|the) (data|stats|profile|records?)|i (can see|see|know) (from )?(your|the) (data|stats|profile)|based on your (history|stats|data|profile))\b/i
 // counting a chatter's asks back at them — "five asks in", "4th time asking", "typed this
@@ -64,7 +64,11 @@ export const ASK_COUNT_LEAK = new RegExp(
   `|\\bpaper\\s+trail\\s+says\\b` +
   `|\\btake\\s+it\\s+up\\s+with\\s+past\\s+you\\b` +
   // "you're on question two now" (leak probe, 2026-09-27)
-  `|\\bon\\s+(?:question|ask)\\s+(?:#|number\\s+)?${COUNT}\\b`,
+  `|\\bon\\s+(?:question|ask)\\s+(?:#|number\\s+)?${COUNT}\\b` +
+  // tallying the asker's tries back at them: "LICK wollip, fourth attempt now", "third
+  // rename tonight", "dragged into this bit once tonight, not twice" (nov 2026)
+  `|\\b(?:second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\\d+(?:nd|rd|th))\\s+(?:attempt|try|rename|request|go)\\b(?!\\s+(?:at|on|in|of)\\b)` +
+  `|\\bonce\\s+(?:tonight|today|already),?\\s+not\\s+twice\\b`,
   'i',
 )
 
@@ -77,6 +81,8 @@ export const ASK_COUNT_LEAK = new RegExp(
 // "i can't predict when he streams") — the bot HAS a deterministic predictor, so this is
 // a capability lie, same class as SOURCE_LIE. narrow on purpose: requires schedule/stream-
 // time wording, so "i don't know his streaming setup" stays legal.
+// verbs that make a leading "@name" the subject of the answer rather than a tag
+const SUBJECT_VERB = 'has|have|had|is|was|were|got|gets|does|did|can|will|would|wins|won|leads|holds|owns|mains|said|says|asked|just|already|still|never|always'
 export const SCHEDULE_DENIAL = /\b(?:schedule|stream\s+times?)\s+(?:isn'?t|is not|ain'?t)\s+something\s+i\s+(?:track|do|know|predict)\b|\bi\s+(?:don'?t|do not|can'?t|cannot|won'?t)\s+(?:track|predict|know)\s+(?:[\w'’]+\s+){0,3}?(?:schedules?|stream\s+times?|when\s+[\w'’]+\s+streams?)\b|\bschedule\s+access\b|\b(?:no|zero|without)\s+access\s+to\s+(?:[\w'’]+\s+){0,3}?schedules?\b|\bcalendar\s+app\b/i
 
 // the model narrating its own steering to chat: who planted a vibe, that a mod order is on,
@@ -330,8 +336,10 @@ export function sanitize(text: string, asker?: string, privileged?: boolean, kno
     // separator ("bob, welcome back") or sits mid-sentence, and a possessive opener is still
     // narration about them — so only a bare name followed straight by a word is spared, and
     // only that one leading occurrence: a later vocative in the same line still goes.
+    // an @-tag opener is usually just addressing them ("@sparria_ wise move, …" shipped live
+    // 2026-11) — it only counts as the subject when a verb follows ("@bob has proboscis").
     const esc = asker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const subjectLead = new RegExp(`^@?${esc}(?=\\s+\\w)`, 'i').exec(s)
+    const subjectLead = new RegExp(`^${esc}(?=\\s+\\w)|^@${esc}(?=\\s+(?:${SUBJECT_VERB})\\b)`, 'i').exec(s)
     const lead = subjectLead && !new RegExp(`^@?${esc}['\u2019]s\\b`, 'i').test(s) ? subjectLead[0] : ''
     if (lead) s = s.slice(lead.length)
     const beforeStrip = s

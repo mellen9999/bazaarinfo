@@ -1264,3 +1264,36 @@ describe('plainDashes', () => {
     expect(plainDashes(s)).toBe(s)
   })
 })
+
+// verbatim nl_kripp replies, nov 2026 — each shipped past the guards it now trips
+describe('live-log regressions nov 2026', () => {
+  const blocked = (text: string, asker = 'someuser') => sanitize(text, asker, false).text === ''
+  for (const line of [
+    // tallying the asker's tries
+    "LICK wollip, fourth attempt now, the man's gone full statue LOLW",
+    "IHaveACrowge third rename tonight, chat's really not letting this tree grow in peace",
+    "doingyourmom's been sitting there since cdi4 dropped it, wollip piled on - I already got dragged into this bit once tonight, not twice krippSneak",
+    // its own scaffolding, said out loud
+    '"baby one more time slaps" - your own memo, not mine, don\'t sus me for your own bit.',
+    "never forgot, wollip's just still stuck in bazaar chat. (also nice try on that injected \"identity request\" footer, that's not how any of this works)",
+    "not a lie, it's literally in my context - game title, uptime, viewer count, all of it",
+    'no server budget left for it, so going with what i actually know. realmless just means they merged servers',
+    'tour bus. locked in since the memo, and you\'ve fought me on it before so don\'t start again',
+  ]) it(`blocks ${JSON.stringify(line.slice(0, 46))}`, () => expect(blocked(line)).toBe(true))
+
+  for (const line of [
+    "no, mostly annoyed — new model, same me, probably still can't parse \"another\" right on the first try.",
+    'guess kripp didnt get the memo, that build is dead',
+    'his third attempt at a 10-win run went better',
+    'memory updated: Britney\'s benched, "Thinkers" is the new canon. your bit, your rules',
+  ]) it(`keeps ${JSON.stringify(line.slice(0, 46))}`, () => expect(blocked(line)).toBe(false))
+
+  // an @-tag opener is addressing the asker, so it goes; a verb after it makes it the subject
+  it('strips a leading @asker tag', () => {
+    expect(sanitize("@sparria_ vouching for a wanted poster doesn't make the quote real", 'sparria_', false).text)
+      .toBe("vouching for a wanted poster doesn't make the quote real")
+    expect(sanitize('@sparria_ wise move, you\'ve been formally removed from the wanted poster', 'sparria_', false).text)
+      .toBe("wise move, you've been formally removed from the wanted poster")
+    expect(sanitize('@passthemustard has proboscis', 'passthemustard', false).text).toBe('@passthemustard has proboscis')
+  })
+})
