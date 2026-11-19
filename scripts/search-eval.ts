@@ -4,9 +4,9 @@
 // said. the deterministic gate has unit tests; THIS is the proof for the model-side gate —
 // searches on the fact asks, none on banter, no preamble, no urls.
 //
-//   ssh mele "cd ~/projects/bazaarinfo && bun run scripts/search-eval.ts"
+//   cd ~/bazaarinfo-prod && bun run scripts/search-eval.ts
 //
-// needs ANTHROPIC_API_KEY (auto-loaded from .env on mele). ~15 calls, a handful of
+// needs ANTHROPIC_API_KEY (auto-loaded from ~/bazaarinfo-prod/.env). ~15 calls, a handful of
 // searches: ~$0.30 a run. isolated temp db, the bot's data is untouched.
 import { initDb } from '../packages/bot/src/db'
 import { SMART_MODEL, thinkingOff } from '../packages/bot/src/models'

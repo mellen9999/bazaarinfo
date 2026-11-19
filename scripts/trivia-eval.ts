@@ -3,9 +3,9 @@
 // and reports whether the verifier still makes the right call. run after any change to the
 // generation/verification prompts so a fixed miss can't silently regress:
 //
-//   ssh mele "cd ~/projects/bazaarinfo && bun run scripts/trivia-eval.ts"
+//   cd ~/bazaarinfo-prod && bun run scripts/trivia-eval.ts
 //
-// needs ANTHROPIC_API_KEY + an AI channel (auto-loaded from .env on mele). uses an
+// needs ANTHROPIC_API_KEY + an AI channel (auto-loaded from ~/bazaarinfo-prod/.env). uses an
 // isolated temp DB so the bot's data is untouched. the verifier is a temp-0 model call,
 // so a rare case may flip — investigate any FAIL, don't treat one as deterministic truth.
 import { Database } from 'bun:sqlite'

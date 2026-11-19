@@ -82,7 +82,7 @@ export function sweepVocabulary(): SweepResult {
 
 // non-blocking variant for the live bot: same sweep, but TIME-boxed slices with an
 // event-loop yield between them. term cost varies ~60x between dev hardware and
-// mele's passive CPU, so a fixed term count per slice would freeze chat there —
+// a passive-cooled host's CPU, so a fixed term count per slice would freeze chat there —
 // boxing by elapsed ms self-adapts: each slice blocks ≤~sliceMs regardless of host.
 export async function sweepVocabularyChunked(sliceMs = 100, restMs = 50): Promise<SweepResult> {
   const terms = collectTerms()

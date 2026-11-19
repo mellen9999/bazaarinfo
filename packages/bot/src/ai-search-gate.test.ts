@@ -3,7 +3,7 @@ import { describe, expect, it, beforeEach } from 'bun:test'
 import * as db from './db'
 
 // the gate reads its cap at module load — bun auto-loads .env, so the test must exercise the
-// default, not whatever mele's env says (pattern: ai-user-budget.test.ts).
+// default, not whatever prod's .env says (pattern: ai-user-budget.test.ts).
 delete process.env.WEB_SEARCH_DAILY_CAP
 db.initDb(':memory:')
 const gate = await import('./ai-search-gate')

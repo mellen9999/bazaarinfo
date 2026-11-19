@@ -3,6 +3,8 @@ dist/
 cache/*.json
 !cache/copypasta-examples.json
 .env
+.env.*
+!.env.example
 *.log
 __pycache__/
 *.npz

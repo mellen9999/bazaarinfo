@@ -35,7 +35,7 @@ bun scripts/leak-probe.ts
 then confirm the bot is actually running the code you just tested:
 
 ```
-ssh mele "cd ~/projects/bazaarinfo && git log -1 --oneline && systemctl --user is-active bazaarinfo"
+git -C ~/bazaarinfo-prod log -1 --oneline && systemctl --user is-active bazaarinfo
 ```
 
 ## 1. clock + calendar ⚠
@@ -279,8 +279,8 @@ injected only when asked — the bot never volunteers a feature list.
 ## 12. after every deploy
 
 ```
-ssh mele "systemctl --user restart bazaarinfo && sleep 5 && systemctl --user is-active bazaarinfo"
-ssh mele "journalctl --user -u bazaarinfo -n 50 --no-pager | grep -i error"
+systemctl --user restart bazaarinfo && sleep 5 && systemctl --user is-active bazaarinfo
+journalctl --user -u bazaarinfo -n 50 --no-pager | grep -i error
 ```
 
 then fire, in this order: `!b what day is it`, `!b pumpkin`, `!b what's new`,
@@ -291,8 +291,8 @@ then fire, in this order: `!b what day is it`, `!b pumpkin`, `!b what's new`,
 the DB is the real defect source — logged replies are post-sanitize, i.e. exactly what chat saw.
 
 ```
-ssh mele "sqlite3 -separator '|' ~/.bazaarinfo.db \
-  \"select created_at, query, response from ask_queries order by created_at desc limit 100\""
+sqlite3 -readonly -separator '|' ~/.bazaarinfo.db \
+  "select created_at, query, response from ask_queries order by created_at desc limit 100"
 ```
 
 scan for: replies ending on a function word, a dodge phrase, a weekday claim, a stat with no

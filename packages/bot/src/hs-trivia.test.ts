@@ -4,7 +4,7 @@ import { resolve } from 'path'
 import { extractBgCards, __setHsCards } from './hs-cards'
 import { HS_GENERATORS, hsTriviaReady, __leaksNameForTest } from './hs-trivia'
 
-// run against the REAL card set when it's on disk (mele, and any dev box that has
+// run against the REAL card set when it's on disk (prod, and any dev box that has
 // refreshed once). a generator for data we don't control is only worth what it does on
 // the real thing — the same reason the companion parser is tested against a real log.
 const CACHE = resolve(import.meta.dir, '../../../cache/hs-cards.json')

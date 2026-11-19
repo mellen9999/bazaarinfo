@@ -2,9 +2,9 @@
 // inputs and verifies output shape, thematic correctness, and reframe behavior — naughty
 // suggestions must produce a broadcast-safe funny hero, not bail to the DEFAULT.
 //
-//   ssh mele "cd ~/projects/bazaarinfo && bun run scripts/dungeon-archetype-eval.ts"
+//   cd ~/bazaarinfo-prod && bun run scripts/dungeon-archetype-eval.ts
 //
-// needs ANTHROPIC_API_KEY + the eval channel in AI_CHANNELS (auto-loaded from .env on mele).
+// needs ANTHROPIC_API_KEY + the eval channel in AI_CHANNELS (auto-loaded from ~/bazaarinfo-prod/.env).
 // uses an isolated temp DB so the bot's live data is untouched.
 import { initDb } from '../packages/bot/src/db'
 import { AI_CHANNELS } from '../packages/bot/src/ai-cache'
@@ -16,7 +16,7 @@ initDb('/tmp/bzi-arch-eval.db')
 const CHANNEL = process.env.EVAL_CHANNEL ?? 'mellen'
 
 if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('ANTHROPIC_API_KEY not set — run on mele with the key')
+  console.error('ANTHROPIC_API_KEY not set — run from ~/bazaarinfo-prod, where the .env has it')
   process.exit(1)
 }
 if (!AI_CHANNELS.has(CHANNEL)) {

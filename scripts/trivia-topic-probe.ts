@@ -2,13 +2,13 @@
 // runs the whole generator — stage 1 subjects, best-of-N lenses, the panel, the rescue
 // pass — against real topics and reports what chat would actually have received.
 //
-//   ssh mele "cd ~/projects/bazaarinfo && bun run scripts/trivia-topic-probe.ts [topics...]"
+//   cd ~/bazaarinfo-prod && bun run scripts/trivia-topic-probe.ts [topics...]
 //
 // exists because "!trivia Fire Emblem" answered with a US-states question and nothing in
 // the test suite could have caught it: every unit was passing, the pipeline was simply
 // giving up on the topic and falling through to an unrelated substitute.
 //
-// needs ANTHROPIC_API_KEY + an AI channel (auto-loaded from .env on mele). isolated temp DB.
+// needs ANTHROPIC_API_KEY + an AI channel (auto-loaded from ~/bazaarinfo-prod/.env). isolated temp DB.
 //
 // `--haiku-gen` routes the GENERATION side (stage-1 subject pick + deep-cut writing) to
 // haiku 4.5 while the verify panel stays on sonnet. Compare against a plain baseline run:
