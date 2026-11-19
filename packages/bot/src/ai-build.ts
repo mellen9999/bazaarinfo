@@ -218,6 +218,9 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
 
   // "rate my joke" / "what i said": the asker's own last lines, pinned — whole ring, not
   // just the Recent chat window, so a fast chat can't have scrolled the referent away
+  // a chatter who opted out of emote bits (emote-optout.ts), named in an ask the AI handles
+  const optedOut = db.emoteOptedOutAmong(query.match(/\w{3,25}/g) ?? []).filter((n) => n !== ctx.user.toLowerCase())
+  const optOutLine = optedOut.length ? `\n${optedOut.slice(0, 3).join(', ')} opted out of emote bits aimed at them: aim any at the asker instead, and never make fun of the opt-out.` : ''
   const cardMissLine = isMissingCardName(query)
     ? `\nCard lookup: no Bazaar card or skill is named "${query.trim().slice(0, 40)}". If they mean a card, say there isn't one by that name (bazaardb.gg has the full list) — never describe it as one.`
     : ''
@@ -906,6 +909,7 @@ export function buildUserMessage(query: string, ctx: AiContext & { user: string;
     // "runic glaive" / "ice water" got a confident tooltip for a card that doesn't exist. the
     // dump is sure it doesn't, so say so — grounding, not a guard after the fact.
     { name: 'cardMiss', text: cardMissLine, base: -103.8 },
+    { name: 'optOut', text: optOutLine, base: -103.7 },
   ]
     .filter((s) => s.text)
     .map((s) => ({ ...s, prio: s.base - (s.boost ?? 0) }))

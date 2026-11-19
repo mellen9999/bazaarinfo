@@ -1055,6 +1055,14 @@ const migrations: (() => void)[] = [
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`)
   },
+  // migration 43: emote_optouts — chatters who asked not to be the target of emote bits
+  // ("LICK wollip"). a wall aimed at them lands on whoever asked instead.
+  () => {
+    db.run(`CREATE TABLE IF NOT EXISTS emote_optouts (
+      username TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`)
+  },
 ]
 
 function runMigrations() {
@@ -1841,6 +1849,26 @@ export function unforgetUser(username: string): void {
 
 export function isForgotten(username: string): boolean {
   return !!db.query('SELECT 1 FROM forgotten_users WHERE username = ?').get(username.toLowerCase())
+}
+
+export function setEmoteOptOut(username: string, out: boolean): void {
+  if (out) db.run('INSERT OR IGNORE INTO emote_optouts (username) VALUES (?)', [username.toLowerCase()])
+  else db.run('DELETE FROM emote_optouts WHERE username = ?', [username.toLowerCase()])
+}
+
+export function isEmoteOptedOut(username: string): boolean {
+  try {
+    return !!db.query('SELECT 1 FROM emote_optouts WHERE username = ?').get(username.toLowerCase().replace(/^@/, ''))
+  } catch { return false }
+}
+
+/** which of `names` opted out of emote bits — one query for a whole ask's words */
+export function emoteOptedOutAmong(names: string[]): string[] {
+  const keys = [...new Set(names.map((n) => n.toLowerCase().replace(/^@/, '')))].slice(0, 50)
+  if (keys.length === 0) return []
+  try {
+    return (db.query(`SELECT username FROM emote_optouts WHERE username IN (${keys.map(() => '?').join(',')})`).all(...keys) as { username: string }[]).map((r) => r.username)
+  } catch { return [] }
 }
 
 export interface FTSResult { username: string; message: string; created_at: string }

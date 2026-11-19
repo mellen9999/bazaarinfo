@@ -110,3 +110,16 @@ describe('detectSpamIntent', () => {
     expect(detect('spam KEKW and tell me whats the meta')).toBeNull()
   })
 })
+
+// wollip opted out (emote-optout.ts): the wall still posts, aimed at whoever asked
+describe('opted-out target', () => {
+  const redirect = { asker: 'tsukinami_', optedOut: (n: string) => n.toLowerCase() === 'wollip' }
+  it('lands on the asker instead', () => {
+    expect(detectSpamIntent('LICK wollip', isChatter, redirect)).toBe('LICK LICK LICK LICK LICK @tsukinami_')
+    expect(detectSpamIntent('spam LICK @wollip', isChatter, redirect)).toBe('LICK LICK LICK LICK LICK @tsukinami_')
+  })
+  it('leaves everyone else alone', () => {
+    expect(detectSpamIntent('LICK mellen', isChatter, redirect)).toBe('LICK LICK LICK LICK LICK @mellen')
+    expect(detectSpamIntent('LICK wollip mellen', isChatter, redirect)).toBe('LICK LICK LICK LICK LICK @tsukinami_ @mellen')
+  })
+})

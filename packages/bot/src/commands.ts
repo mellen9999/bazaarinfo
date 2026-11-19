@@ -16,6 +16,7 @@ import { aiUnavailableReason, getChannelGame } from './ai-cache'
 import { isLowValue, isThrowawayReply } from './ai-query'
 import { META_QUERY_RE } from './intents'
 import { detectSpamIntent } from './spam-intent'
+import { handleEmoteOptOut } from './emote-optout'
 import { isPastaRecall, findChatPasta, isConfidentPasta, pastaText } from './pasta'
 import { glossaryAnswer, isBareKeyword, DEFINITIONAL_INTENT, BUILD_INTENT } from './glossary'
 import { isGuildrunCategory, isGrQuery, grKeywordCard, grExactCard, describeGrCard } from './guildrun'
@@ -491,10 +492,14 @@ async function bazaarinfo(args: string, ctx: CommandContext): Promise<string | n
   const isDynamicSub = firstTok != null && DYNAMIC_SUBS.has(firstTok)
   // emote-wall intent is repeat-by-design — the bit IS asking again. answered further down;
   // resolved here only so the duplicate suppressor never answers a spam ask with a dunk.
+  // opting yourself out of (or back into) being the target of emote bits — deterministic,
+  // so the answer to "please stop licking me" can never be a joke at their expense
+  const optReply = ctx.user ? handleEmoteOptOut(cleanArgs, ctx.user) : null
+  if (optReply) return optReply
   const spamWall = detectSpamIntent(cleanArgs, (n) => {
     if (!ctx.channel) return false
     try { return db.userHasChatted(n, ctx.channel) } catch { return false }
-  })
+  }, ctx.user ? { asker: ctx.user, optedOut: db.isEmoteOptedOut } : undefined)
   if (ctx.channel && ctx.user && !isDynamicSub && !spamWall && !CONTINUE_RE.test(cleanArgs) && isDuplicate(ctx.channel, `${ctx.user}:${cleanArgs}`)) {
     const sfx = mentions.length ? ` ${mentions.join(' ')}` : ''
     return withSuffix(`↑ ${cleanArgs}, posted that just now`, sfx)

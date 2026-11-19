@@ -49,14 +49,20 @@ function wall(emotes: string[], tags: string[] = []): string {
   return [...out, ...tags.map((t) => `@${t}`)].join(' ')
 }
 
-/** distinct named chatters among the targets, each tagged once (audience words excluded) */
-function tagsIn(targets: string[], isChatter: (name: string) => boolean): string[] {
+/** who asked, and who opted out of being aimed at (emote-optout.ts) */
+export interface Redirect { asker: string; optedOut: (name: string) => boolean }
+
+/** distinct named chatters among the targets, each tagged once (audience words excluded).
+ *  an opted-out target is swapped for the asker — the bit still lands, just on them. */
+function tagsIn(targets: string[], isChatter: (name: string) => boolean, redirect?: Redirect): string[] {
   const seen = new Set<string>()
   const out: string[] = []
   for (const t of targets) {
-    const name = t.replace(/^@/, '')
+    let name = t.replace(/^@/, '')
+    if (AUDIENCE.has(name.toLowerCase()) || !/^\w+$/.test(name) || !isChatter(name)) continue
+    if (redirect?.optedOut(name)) name = redirect.asker
     const key = name.toLowerCase()
-    if (AUDIENCE.has(key) || seen.has(key) || !/^\w+$/.test(name) || !isChatter(name)) continue
+    if (seen.has(key)) continue
     seen.add(key)
     out.push(name)
   }
@@ -77,7 +83,7 @@ function valid(emotes: string[]): boolean {
  * `isChatter` decides whether an unrecognized token is a real person being aimed at
  * (so "LICK mellen" walls but "LICK respectfully" goes to the AI).
  */
-export function detectSpamIntent(args: string, isChatter: (name: string) => boolean = () => false): string | null {
+export function detectSpamIntent(args: string, isChatter: (name: string) => boolean = () => false, redirect?: Redirect): string | null {
   const clean = args.trim()
   if (!clean) return null
 
@@ -90,7 +96,7 @@ export function detectSpamIntent(args: string, isChatter: (name: string) => bool
     const emotes = emotesIn(tokens)
     const rest = tokens.filter((t) => !findEmote(t)).join(' ')
     const hasQuestion = /[?]/.test(leading[1]) || /\b(what|who|when|where|why|how|tell|is|are|does|do|can|could|would|whats|whos)\b/i.test(rest)
-    if (!hasQuestion && valid(emotes)) return wall(emotes, tagsIn(tokens.filter((t) => !findEmote(t)), isChatter))
+    if (!hasQuestion && valid(emotes)) return wall(emotes, tagsIn(tokens.filter((t) => !findEmote(t)), isChatter, redirect))
   }
 
   // "LICK spam" — trailing verb. Stricter than the leading form: every non-filler token
@@ -114,5 +120,5 @@ export function detectSpamIntent(args: string, isChatter: (name: string) => bool
   const targets = tokens.filter((t) => !findEmote(t))
   if (targets.length > MAX_TARGETS) return null
   if (!targets.every((t) => AUDIENCE.has(t.toLowerCase()) || isChatter(t.replace(/^@/, '')))) return null
-  return wall(emotes, tagsIn(targets, isChatter))
+  return wall(emotes, tagsIn(targets, isChatter, redirect))
 }
