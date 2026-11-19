@@ -86,6 +86,17 @@ describe('notify', () => {
     await expect(notify('k1', 'title', 'body')).resolves.toBeUndefined()
   })
 
+  it('a failed send frees the dedupe slot, so the next alert for that key really tries', async () => {
+    writeEnv('NTFY_TOPIC=mytopic\n')
+    let status = 500
+    const calls = stubFetch(() => new Response('', { status }))
+    await notify('k1', 'title', 'body')
+    status = 200
+    await notify('k1', 'title', 'body')
+    await notify('k1', 'title', 'body')
+    expect(calls.length).toBe(2)
+  })
+
   it('env parsing: comments, export prefix, NTFY_BASE default', async () => {
     writeEnv(['# a comment', 'export NTFY_TOPIC=exported-topic', '', '# another'].join('\n'))
     const calls = stubFetch(() => new Response('ok', { status: 200 }))

@@ -66,7 +66,7 @@ export async function notify(key: string, title: string, body: string, priority:
   lastSent.set(key, now)
 
   try {
-    await fetch(`${cfg.ntfyBase}/${cfg.ntfyTopic}`, {
+    const res = await fetch(`${cfg.ntfyBase}/${cfg.ntfyTopic}`, {
       method: 'POST',
       body,
       headers: {
@@ -75,8 +75,11 @@ export async function notify(key: string, title: string, body: string, priority:
       },
       signal: AbortSignal.timeout(5000),
     })
-  } catch {
-    // ntfy down/unreachable — never throw, we already logged
+    if (!res.ok) throw new Error(`http ${res.status}`)
+  } catch (e) {
+    // never throw — but say so, and free the dedupe slot so the next one gets a real try
+    lastSent.delete(key)
+    log(`notify: ntfy send failed for ${key}: ${e}`)
   }
 }
 
