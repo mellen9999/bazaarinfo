@@ -2376,6 +2376,18 @@ describe('findUnansweredQuestion', () => {
     expect(findUnansweredQuestion('q-ch')).toBeNull()
   })
 
+  it('a question that scrolled out of the conversation is not answered', () => {
+    chatbuf.record('q-ch', 'alice', 'is vanessa busted right now?')
+    expect(findUnansweredQuestion('q-ch', Date.now() + 11 * 60_000)).toBeNull()
+    expect(findUnansweredQuestion('q-ch', Date.now() + 9 * 60_000)?.user).toBe('alice')
+  })
+
+  it('a question the bot already answered stays answered', () => {
+    chatbuf.record('q-ch', 'alice', 'is vanessa busted right now?')
+    chatbuf.record('q-ch', 'bazaarinfo', 'vanessa is fine, aggro just got a buff this patch')
+    expect(findUnansweredQuestion('q-ch')).toBeNull()
+  })
+
   it('walks back to find the most recent unanswered q', () => {
     chatbuf.record('q-ch', 'a', 'is X good?')
     chatbuf.record('q-ch', 'b', 'yeah X is solid, no question about it')

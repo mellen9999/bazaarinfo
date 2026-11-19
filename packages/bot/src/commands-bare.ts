@@ -26,11 +26,17 @@ const QUESTION_RE = /\?\s*$|^(who|what|when|where|why|how|does|do|is|are|am|can|
 
 function clip(s: string, n: number): string { return s.length <= n ? s : s.slice(0, n) }
 
+// a line older than this has scrolled out of the conversation — answering or riffing on it
+// reads as the bot replaying a fight from an hour ago (17718, nov 2026)
+const QUESTION_FRESH_MS = 10 * 60_000
+
 function recentEligible(channel: string): { user: string; text: string }[] {
   try {
     const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
+    const now = Date.now()
     return getRecent(channel, 15)
       .filter((m) =>
+        now - m.ts <= QUESTION_FRESH_MS &&
         m.kind !== 'event' &&
         m.user.toLowerCase() !== botName &&
         !/^!\w/.test(m.text.trim()) &&
@@ -42,20 +48,27 @@ function recentEligible(channel: string): { user: string; text: string }[] {
   }
 }
 
-export function findUnansweredQuestion(channel: string): { user: string; text: string } | null {
-  const recent = recentEligible(channel)
-  for (let i = recent.length - 1; i >= 0; i--) {
-    const msg = recent[i]
-    if (msg.text.length < 6) continue
-    if (!QUESTION_RE.test(msg.text)) continue
-    // unanswered = no substantive reply (>15 chars) by a different user after.
-    // spoiler-deflections ("no spoilers", "im trying to guess") aren't answers — skip them.
-    const replied = recent.slice(i + 1).some((later) =>
-      later.user.toLowerCase() !== msg.user.toLowerCase() &&
-      later.text.length > 15 &&
+export function findUnansweredQuestion(channel: string, now = Date.now()): { user: string; text: string } | null {
+  let lines: ReturnType<typeof getRecent>
+  try { lines = getRecent(channel, 15) } catch { return null }
+  const botName = (process.env.TWITCH_USERNAME ?? 'bazaarinfo').toLowerCase()
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i]
+    if (now - m.ts > QUESTION_FRESH_MS) break
+    const text = m.text.replace(/\s+/g, ' ').trim()
+    if (m.kind === 'event' || m.user.toLowerCase() === botName || /^!\w/.test(text) || text.length < 6) continue
+    if (!QUESTION_RE.test(text)) continue
+    // unanswered = no substantive reply (>15 chars) by anyone else after — the bot's own
+    // answer included, or bare !b answers the same question twice. spoiler-deflections
+    // ("no spoilers", "im trying to guess") aren't answers — skip them.
+    const replied = lines.slice(i + 1).some((later) =>
+      later.kind !== 'event' &&
+      later.user.toLowerCase() !== m.user.toLowerCase() &&
+      later.text.trim().length > 15 &&
+      !/^!\w/.test(later.text.trim()) &&
       !SPOILER_SENSITIVE_RE.test(later.text),
     )
-    if (!replied) return msg
+    if (!replied) return { user: m.user, text }
   }
   return null
 }
