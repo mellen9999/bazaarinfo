@@ -618,3 +618,63 @@ describe('usernotice dedupe + routing', () => {
     expect(received.length).toBe(1)
   })
 })
+
+// irc starvation: silence alone isn't a deaf socket (slow chats are real). with eventsub up
+// the rule needs proof — eventsub saw chat irc didn't. eventsub down -> 15min viewer fallback.
+describe('irc channel starvation', () => {
+  const MIN = 60_000
+  function setup(esUp: boolean) {
+    const client = new TwitchClient(
+      { token: 't', clientId: 'c', botUserId: '1', botUsername: 'bot', channels: [{ name: 'chan', userId: '9' }] } as never,
+      () => {},
+    )
+    const c = client as unknown as {
+      eventsub: { readyState: number } | null; sessionId: string
+      lastPrivmsgAt: Map<string, number>; lastEventsubMsgAt: Map<string, number>
+      ircSend: (l: string) => boolean; checkChannelStarvation: (now: number) => void
+    }
+    if (esUp) { c.eventsub = { readyState: WebSocket.OPEN }; c.sessionId = 's' }
+    const joins: string[] = []
+    const alerts: string[] = []
+    c.ircSend = (l) => { joins.push(l); return true }
+    client.setLiveViewersResolver(() => 500)
+    client.setStarvedHandler((ch) => alerts.push(ch))
+    return { c, joins, alerts }
+  }
+
+  test('quiet chat, eventsub up -> no rejoin, no alert', () => {
+    const { c, joins, alerts } = setup(true)
+    const t0 = 1_000_000
+    c.lastPrivmsgAt.set('chan', t0)
+    for (let m = 1; m <= 60; m++) c.checkChannelStarvation(t0 + m * MIN)
+    expect(joins).toEqual([])
+    expect(alerts).toEqual([])
+  })
+
+  test('eventsub delivers, irc silent -> rejoin then handler', () => {
+    const { c, joins, alerts } = setup(true)
+    const t0 = 1_000_000
+    c.lastPrivmsgAt.set('chan', t0)
+    c.lastEventsubMsgAt.set('chan', t0 + 2 * MIN)
+    c.checkChannelStarvation(t0 + 4 * MIN)
+    expect(joins).toEqual([])                       // irc silent only 4min
+    c.checkChannelStarvation(t0 + 6 * MIN)
+    expect(joins).toEqual(['JOIN #chan'])
+    c.checkChannelStarvation(t0 + 8 * MIN)
+    expect(alerts).toEqual([])                      // strike not yet 5min old
+    c.checkChannelStarvation(t0 + 11 * MIN)
+    expect(alerts).toEqual(['chan'])
+  })
+
+  test('eventsub down -> 15min live+viewers fallback', () => {
+    const { c, joins, alerts } = setup(false)
+    const t0 = 1_000_000
+    c.lastPrivmsgAt.set('chan', t0)
+    c.checkChannelStarvation(t0 + 14 * MIN)
+    expect(joins).toEqual([])
+    c.checkChannelStarvation(t0 + 16 * MIN)
+    expect(joins).toEqual(['JOIN #chan'])
+    c.checkChannelStarvation(t0 + 21 * MIN)
+    expect(alerts).toEqual(['chan'])
+  })
+})

@@ -416,12 +416,13 @@ export class TwitchClient {
   private ircConnectTimeout: Timer | null = null
   private ircJoinAckTimeout: Timer | null = null
   private ircJoinedChannels = new Set<string>()
-  // per-channel starvation self-heal: live viewers but no PRIVMSG in 5min smells like a
-  // stuck JOIN, not a quiet chat. injected (not imported) to keep ai-cache/notify out of
+  // per-channel starvation self-heal: eventsub delivering chat that irc never saw proves a
+  // stuck JOIN; silence alone is just a quiet chat. injected (not imported) to keep ai-cache/notify out of
   // twitch.ts — this client stays transport-only.
   private liveViewersResolver: ((channel: string) => number | undefined) | null = null
   private starvedHandler: ((channel: string, viewers: number) => void) | null = null
   private lastPrivmsgAt = new Map<string, number>()
+  private lastEventsubMsgAt = new Map<string, number>()
   private starvedStrikeAt = new Map<string, number>()
   // Dedup ring for messages seen via either transport. EventSub + IRC PRIVMSG can
   // both deliver the same message; first wins, duplicates dropped by message id.
@@ -602,6 +603,7 @@ export class TwitchClient {
         // shared chat: same rule as the irc path (dispatchPrivmsg)
         const sharedFrom: string | undefined = e.source_broadcaster_user_id && e.source_broadcaster_user_id !== e.broadcaster_user_id ? e.source_broadcaster_user_id : undefined
         if (sharedFrom && this.isJoinedId(sharedFrom)) return
+        this.lastEventsubMsgAt.set(String(e.broadcaster_user_login).toLowerCase(), Date.now())
         this.dispatchMessage(e.broadcaster_user_login, e.chatter_user_id, e.chatter_user_login, text, badges, e.message_id ?? '', e.reply?.thread_message_id, sentTs, replyParent, sharedFrom ? { shared: true } : undefined)
       }
     } else if (type === 'session_reconnect') {
@@ -1023,27 +1025,37 @@ export class TwitchClient {
     }, 60_000)
   }
 
-  // a channel can look connected (PINGs answered, no watchdog timeout) while genuinely
-  // live chat goes nowhere — a stuck JOIN twitch never acks as failed. first strike
-  // retries the JOIN; if that hasn't cleared it after another 5min, hand off to the
-  // caller's alert instead of staying deaf indefinitely.
+  // a channel can look connected (PINGs answered, no watchdog timeout) while chat goes
+  // nowhere — a stuck JOIN twitch never acks as failed. silence alone proves nothing (slow
+  // chats are real), so with eventsub up we need proof: eventsub delivered a line irc never
+  // did. with eventsub down there's no cross-check, so fall back to live+viewers over a
+  // long 15min window. first strike retries the JOIN; if that hasn't cleared it after
+  // another 5min, hand off to the caller's alert instead of staying deaf indefinitely.
   private checkChannelStarvation(now: number) {
     if (!this.liveViewersResolver) return
+    const esUp = this.eventsub?.readyState === WebSocket.OPEN && !!this.sessionId
     for (const ch of this.config.channels) {
       const channel = ch.name.toLowerCase()
       const viewers = this.liveViewersResolver(channel)
       if (viewers === undefined || viewers < 100) continue
-      const lastMsg = this.lastPrivmsgAt.get(channel) ?? now
-      if (now - lastMsg <= 5 * 60_000) continue
+      const lastMsg = this.lastPrivmsgAt.get(channel)
+      let starved: boolean
+      if (esUp) {
+        const esAt = this.lastEventsubMsgAt.get(channel)
+        starved = esAt !== undefined && esAt > (lastMsg ?? 0) && now - (lastMsg ?? 0) > 5 * 60_000
+      } else {
+        starved = now - (lastMsg ?? now) > 15 * 60_000
+      }
+      if (!starved) continue
       const strikeAt = this.starvedStrikeAt.get(channel)
       if (!strikeAt) {
         this.starvedStrikeAt.set(channel, now)
         this.ircSend(`JOIN #${channel}`)
-        log(`irc #${channel}: live (${viewers} viewers) but silent 5min — rejoining`)
+        log(`irc #${channel}: ${esUp ? 'eventsub saw chat irc missed' : `live (${viewers} viewers) but silent 15min, eventsub down`} — rejoining`)
       } else if (now - strikeAt >= 5 * 60_000) {
         this.starvedHandler?.(channel, viewers)
         // reset so this can't refire until either chat resumes (dispatchPrivmsg clears
-        // it) or another full 5min of silence passes after the next rejoin attempt.
+        // it) or another full 5min passes after the next rejoin attempt.
         this.starvedStrikeAt.delete(channel)
       }
     }
