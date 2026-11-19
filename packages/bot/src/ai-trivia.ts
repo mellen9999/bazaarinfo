@@ -3,6 +3,7 @@ import { extractFirstJson } from './http'
 import { isOverDailyCap, aiTriviaEnabled, isAiChannelEnabled } from './ai-cache'
 import { anthropicCall, anthropicCallMeta, stripUnpairedSurrogates, isHardStopped, type AnthropicMeta } from './ai-http'
 import { bankTrivia, takeBankedTrivia } from './db'
+import { SMART_MODEL, FAST_MODEL } from './models'
 
 // Custom-topic trivia generation. Isolated from the chat path (ai.ts): no system
 // prompt, no chat context, no sanitize/COT guards — just a single constrained call
@@ -11,7 +12,7 @@ import { bankTrivia, takeBankedTrivia } from './db'
 // caller always has a clean miss path.
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
-const MODEL = 'claude-sonnet-5'
+const MODEL = SMART_MODEL
 // GENERATION-side model knob (subject pick + custom-topic deep-cut writing only — the
 // verify panel, and the grounded game/chat/person writers, stay on MODEL). Safe to trial a
 // cheaper writer here because every candidate still has to clear the full sonnet panel; a
@@ -767,7 +768,7 @@ export interface Lens {
   ownsTopicVeto: boolean
 }
 
-export const HAIKU_LENS_MODEL = 'claude-haiku-4-5-20251001'
+export const HAIKU_LENS_MODEL = FAST_MODEL
 
 export function panelLenses(cheapLenses = false): Lens[] {
   const side = cheapLenses ? HAIKU_LENS_MODEL : MODEL

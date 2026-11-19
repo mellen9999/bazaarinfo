@@ -9,11 +9,12 @@
 
 import { loadStore } from './store'
 import { buildSystemPrompt, sanitize, isModelRefusal } from './ai'
+import { SMART_MODEL, thinkingOff } from './models'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
 if (!API_KEY) { console.error('ANTHROPIC_API_KEY required'); process.exit(1) }
 
-const MODEL = 'claude-haiku-4-5-20251001'
+const MODEL = SMART_MODEL
 const MAX_TOKENS = 55
 
 // --- test cases from real chat prompts ---
@@ -159,6 +160,7 @@ async function callApi(systemPrompt: string, query: string, user = 'evaltester')
     body: JSON.stringify({
       model: MODEL,
       max_tokens: MAX_TOKENS,
+      thinking: thinkingOff(MODEL),
       system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: userMsg }],
     }),

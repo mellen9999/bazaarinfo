@@ -44,6 +44,7 @@ import { refreshHsBoardIfNeeded } from './hs-board'
 import { isScheduleQuery } from './schedule'
 import { resolveScheduleChannel } from './schedule-query'
 import { refreshChannelTitle, getCachedChannelTitle, isTitleQuery } from './channel-title'
+import { SMART_MODEL, thinkingOff } from './models'
 
 // tool turns in flight right now — a 45s search must never park more than two AI slots.
 let inFlightSearches = 0
@@ -61,7 +62,7 @@ export { stripUnpairedSurrogates, safeStringify } from './ai-http'
 export const CONTINUE_RE = /^(continue|keep going|go on|carry on|more\b|next\b|finish( it)?|expand|extend|again\b|and then|then what)/i
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
-const CHAT_MODEL = 'claude-sonnet-5'
+const CHAT_MODEL = SMART_MODEL
 
 // circuit-breaker-open lines — the breaker trips during the exact high-load window where
 // many users hit !b at once, and Twitch silently drops a bot's identical consecutive lines.
@@ -549,7 +550,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
       const body = {
         model,
         max_tokens: useTools ? SEARCH_MAX_TOKENS : effectiveMaxTokens,
-        thinking: { type: 'disabled' as const },
+        thinking: thinkingOff(model),
         system: [{ type: 'text' as const, text: systemPrompt, cache_control: cacheControl() }],
         ...(useTools ? { tools: WEB_SEARCH_TOOL } : {}),
         messages,

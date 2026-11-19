@@ -2,6 +2,7 @@ import { log } from './log'
 import { writeAtomic } from './fs-util'
 import { safeStringify } from './safe-json'
 import { join } from 'path'
+import { FAST_MODEL, thinkingOff } from './models'
 // db is imported lazily inside describeEmotes (the maintenance-script-only path) so this
 // module — pulled into the bot runtime via emotes.ts — stays free of a static db dependency
 // that would break the partial db mocks in trivia/commands tests.
@@ -250,8 +251,9 @@ async function describeBatch(
         'content-type': 'application/json',
       },
       body: safeStringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: FAST_MODEL,
         max_tokens: 800,
+        thinking: thinkingOff(FAST_MODEL),
         messages: [{ role: 'user', content }],
       }),
       signal: AbortSignal.timeout(30_000),

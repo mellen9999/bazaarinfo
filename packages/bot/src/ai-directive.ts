@@ -3,6 +3,7 @@ import { isOverDailyCap, isAiChannelEnabled } from './ai-cache'
 import { anthropicCall, stripUnpairedSurrogates } from './ai-http'
 import { MAX_INSTRUCTION, listDirectives, type Directive } from './directives'
 import type { SuppressFeature } from './suppress'
+import { SMART_MODEL } from './models'
 
 // AI gate for chat-planted steering directives. Parses a natural-language plant
 // ("anytime someone asks about topology, work in GachiBlacksmith") into a structured
@@ -12,7 +13,7 @@ import type { SuppressFeature } from './suppress'
 // tracking) exactly like ai-trivia.
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
-const MODEL = 'claude-sonnet-5'
+const MODEL = SMART_MODEL
 const TIMEOUT = 9_000
 
 export interface ParsedDirective {

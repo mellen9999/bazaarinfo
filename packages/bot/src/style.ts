@@ -4,6 +4,7 @@ import { getEmotesForChannel } from './emotes'
 import { anthropicCall } from './ai-http'
 import { log } from './log'
 import { hslogsEnabled, getTopChatters } from './hslogs'
+import { FAST_MODEL } from './models'
 
 // --- channel style ---
 
@@ -190,7 +191,7 @@ export function preloadStyles(channels: string[]) {
 // --- channel voice analysis ---
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
-const VOICE_MODEL = 'claude-haiku-4-5-20251001'
+const VOICE_MODEL = FAST_MODEL
 const VOICE_REFRESH = 6 * 60 * 60_000 // 6 hours
 
 interface VoiceData {

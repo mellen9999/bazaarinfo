@@ -9,6 +9,7 @@
 // needs ANTHROPIC_API_KEY (auto-loaded from .env on mele). ~15 calls, a handful of
 // searches: ~$0.30 a run. isolated temp db, the bot's data is untouched.
 import { initDb } from '../packages/bot/src/db'
+import { SMART_MODEL, thinkingOff } from '../packages/bot/src/models'
 import { loadStore } from '../packages/bot/src/store'
 import { buildSystemPrompt, buildUserMessage } from '../packages/bot/src/ai-context'
 import { searchEligible, finalText, SEARCH_HINT, WEB_SEARCH_TOOL, SEARCH_MAX_TOKENS, SEARCH_TIMEOUT } from '../packages/bot/src/ai-search-gate'
@@ -49,9 +50,9 @@ for (const [ask, want] of CASES) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
-      model: 'claude-sonnet-5',
+      model: SMART_MODEL,
       max_tokens: SEARCH_MAX_TOKENS,
-      thinking: { type: 'disabled' },
+      thinking: thinkingOff(SMART_MODEL),
       system: [{ type: 'text', text: system }],
       tools: WEB_SEARCH_TOOL,
       messages: [{ role: 'user', content: `${build.text}\n\n${SEARCH_HINT}` }],

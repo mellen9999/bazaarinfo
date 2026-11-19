@@ -22,13 +22,14 @@
 import { unlinkSync } from 'node:fs'
 import { initDb, getAiSpendBySource } from '../packages/bot/src/db'
 import { generateCustomTrivia } from '../packages/bot/src/ai-trivia'
+import { SMART_MODEL, FAST_MODEL } from '../packages/bot/src/models'
 
 // AI_TRIVIA is off in production (see aiTriviaEnabled in ai-cache) — running this
 // IS deliberate spend, so it opts itself in. Never set this in the bot's env.
 // (read lazily at call time, so setting it after the imports is fine — genModel too.)
 process.env.AI_TRIVIA = '1'
 const HAIKU_GEN = process.argv.includes('--haiku-gen')
-if (HAIKU_GEN) process.env.AI_TRIVIA_GEN_MODEL = 'claude-haiku-4-5-20251001'
+if (HAIKU_GEN) process.env.AI_TRIVIA_GEN_MODEL = FAST_MODEL
 
 // fresh, per-config DB: a leftover bank from a previous run serves topics for 0 calls and
 // a shared bank lets one config's spare questions subsidize the other — both corrupt the
@@ -53,7 +54,7 @@ const DEFAULT_TOPICS = [
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'))
 const topics = args.length ? args : DEFAULT_TOPICS
-console.log(`gen model: ${HAIKU_GEN ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-5'}  (verify panel: claude-sonnet-5)\n`)
+console.log(`gen model: ${HAIKU_GEN ? FAST_MODEL : SMART_MODEL}  (verify panel: ${SMART_MODEL})\n`)
 
 // did the question actually land on the topic? a crude token overlap is enough to catch
 // the failure this exists for — a US-states question about Fire Emblem shares nothing.

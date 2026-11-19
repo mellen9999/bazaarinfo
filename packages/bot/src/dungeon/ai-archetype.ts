@@ -2,9 +2,10 @@ import { log } from '../log'
 import { extractFirstJson } from '../http'
 import { AI_CHANNELS, isOverDailyCap } from '../ai-cache'
 import { anthropicCall, stripUnpairedSurrogates } from '../ai-http'
+import { SMART_MODEL } from '../models'
 
 const API_KEY = process.env.ANTHROPIC_API_KEY
-const MODEL = 'claude-sonnet-5'
+const MODEL = SMART_MODEL
 const TIMEOUT = 12_000
 
 export type Build = 'tanky' | 'balanced' | 'aggressive'

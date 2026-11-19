@@ -4,6 +4,7 @@ import { notify } from './notify'
 import { acquireAiSlot } from './ai-cache'
 import { recordAiSpend, recordAiSpendBySource, ptDay } from './db'
 import { safeStringify } from './safe-json'
+import { thinkingOff } from './models'
 
 // ONE Anthropic HTTP call, shared by every non-chat call site (trivia, directives,
 // background summaries, dungeon archetypes, style, emote descriptions).
@@ -305,7 +306,7 @@ export async function anthropicCallMeta(o: AnthropicCallOpts): Promise<Anthropic
         body: safeStringify({
           model: o.model,
           max_tokens: o.maxTokens,
-          thinking: { type: 'disabled' },
+          thinking: thinkingOff(o.model),
           ...(system ? { system } : {}),
           ...(o.tools ? { tools: o.tools } : {}),
           messages: [{ role: 'user', content: o.content }],
