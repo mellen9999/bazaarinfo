@@ -6,7 +6,7 @@ import * as db from './db'
 import type { ShirtLook } from './db'
 import { getStreamInfo, isChannelLive, isLiveStateKnown, isAiChannelEnabled } from './ai-cache'
 import { familiesIn, toFamily } from './shirt-colour'
-import { FAST_MODEL } from './models'
+import { VISION_MODEL } from './models'
 
 // chat bets on what colour shirt kripp is wearing. the bot could never see the stream, so it
 // had nothing to say. this reads frames of the broadcast — the Twitch thumbnail that already
@@ -35,7 +35,7 @@ import { FAST_MODEL } from './models'
 // derived from the rows (outfitTimeline / broadcastShirt), so a restart mid-stream lands in
 // exactly the state it left.
 
-const MODEL = FAST_MODEL
+const MODEL = VISION_MODEL
 // 1280x720 is ~1230 image tokens (w*h/750). the inset cam is still ~200px wide there, and
 // doubling to 1080p quadruples the token bill for detail a colour question does not need.
 const THUMB_W = 1280
