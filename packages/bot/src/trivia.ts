@@ -1271,7 +1271,10 @@ function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>, a
   // (when it started, its id) against answer/timeout activity.
   log(`trivia: launched #${channel} game ${gameId} type ${q.type} "${q.question.slice(0, 50)}"`)
 
-  return `Trivia! ${q.question} (30s)`
+  // the picker's answers are dropped silently (checkAnswer), so say it up front — otherwise
+  // it reads as the bot ignoring them (live 2026-11-22: "did the bot block me?")
+  const picker = asker ? `, ${asker.toLowerCase()} picked it so can't score` : ''
+  return `Trivia! ${q.question} (30s${picker})`
 }
 
 // recent-question check for the custom AI path (commands.ts) — avoids asking a near

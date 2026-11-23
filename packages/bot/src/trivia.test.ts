@@ -601,8 +601,14 @@ describe('the chatter who picked a topic cannot score on it', () => {
   })
 
   it('rounds with no picked topic are open to everyone, starter included', () => {
-    startCustomTrivia('#ask2', { question: 'what is X?', answer: 'archaeopteryx', accept: [] })
+    const text = startCustomTrivia('#ask2', { question: 'what is X?', answer: 'archaeopteryx', accept: [] })
+    expect(text).toBe('Trivia! what is X? (30s)')
     expect(checkAnswer('#ask2', 'topicpicker', 'archaeopteryx', mockSay)).toBe(true)
+  })
+
+  it('the launch line says who picked it and that they cannot score', () => {
+    const text = startCustomTrivia('#ask3', { question: 'what is X?', answer: 'archaeopteryx', accept: [] }, 'TopicPicker')
+    expect(text).toBe("Trivia! what is X? (30s, topicpicker picked it so can't score)")
   })
 })
 
