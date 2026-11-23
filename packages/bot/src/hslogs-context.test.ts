@@ -475,6 +475,17 @@ describe('older history keeps lore and person dossiers grounded', () => {
     expect(d).toContain('only local line')
   })
 
+  it('person: a one-off lookup is not their item — only a 3+ lookup habit reaches the dossier', () => {
+    for (let i = 0; i < 12; i++) db.logChat('c', 'looker', `chat line ${i} here`)
+    db.logCommand({ user: 'looker' }, 'item', 'boomer', 'Boomerang')
+    db.logCommand({ user: 'looker' }, 'item', 'boomer', 'Boomerang')
+    db.flushWrites()
+    expect(buildPersonDossier('looker', 'c')).not.toContain('Boomerang')
+    db.logCommand({ user: 'looker' }, 'item', 'boomerang', 'Boomerang')
+    db.flushWrites()
+    expect(buildPersonDossier('looker', 'c')).toContain('most-looked-up item: Boomerang')
+  })
+
   const prof = (messages = 500) => new Map([['lapsed', { exists: true, username: 'lapsed', first_seen: '2026-03-01T00:00:00.000Z', last_seen: 'y', messages, active_days: 9 }]])
   const seed = (n: number) => { for (let i = 0; i < n; i++) db.logChat('c', 'lapsed', `line ${i} about boomerang builds`); db.flushWrites() }
 

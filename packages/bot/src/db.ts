@@ -85,6 +85,13 @@ let stmts: {
   deleteBadges: Statement
 }
 
+// "is the bot alive" probes: `!b test` fuzzy-matches Test Subject Alpha, `!b hello` Hemlock.
+// they're pokes, not interest, so they never count toward someone's favorite/top items
+// (live 2026-11-22: a person-trivia round asked for luna_bright's "most looked-up item" and
+// the answer was four `!b test`s). one-char queries are the same accident.
+const PROBE_QUERIES = ['test', 'testing', 'hello', 'hi', 'hey', 'ping', 'yo', 'lol']
+const NOT_PROBE = `LENGTH(TRIM(query)) > 1 AND LOWER(TRIM(query)) NOT IN (${PROBE_QUERIES.map((q) => `'${q}'`).join(', ')})`
+
 function prepareStatements() {
   stmts = {
     upsertUser: db.prepare(
@@ -113,7 +120,7 @@ function prepareStatements() {
     selectUser: db.prepare('SELECT * FROM users WHERE username = ?'),
     selectUserFav: db.prepare(
       `SELECT match_name, COUNT(*) as cnt FROM commands
-       WHERE user_id = ? AND match_name IS NOT NULL AND cmd_type NOT IN ('miss', 'ai')
+       WHERE user_id = ? AND match_name IS NOT NULL AND cmd_type NOT IN ('miss', 'ai') AND ${NOT_PROBE}
        GROUP BY match_name ORDER BY cnt DESC LIMIT 1`,
     ),
     channelLeaderboard: db.prepare(
@@ -162,7 +169,7 @@ function prepareStatements() {
     userTopItems: db.prepare(
       `SELECT match_name, COUNT(*) as cnt FROM commands c
        JOIN users u ON c.user_id = u.id
-       WHERE LOWER(u.username) = ? AND c.match_name IS NOT NULL AND c.cmd_type NOT IN ('miss', 'ai')
+       WHERE LOWER(u.username) = ? AND c.match_name IS NOT NULL AND c.cmd_type NOT IN ('miss', 'ai') AND ${NOT_PROBE}
        GROUP BY c.match_name ORDER BY cnt DESC LIMIT ?`,
     ),
     channelRegulars: db.prepare(
@@ -1741,11 +1748,12 @@ export function getUserMessagesOldest(username: string, channel: string, limit =
   ).all(username.toLowerCase(), channel, limit) as FTSResult[]
 }
 
-// user's top looked-up items
-export function getUserTopItems(username: string, limit = 5): string[] {
+// user's top looked-up items. minCount drops items looked up fewer times than that —
+// rows come back count-desc, so the survivors are still the top ones.
+export function getUserTopItems(username: string, limit = 5, minCount = 1): string[] {
   const lower = username.toLowerCase()
   const rows = stmts.userTopItems.all(lower, limit) as { match_name: string; cnt: number }[]
-  return rows.map((r) => r.match_name)
+  return rows.filter((r) => r.cnt >= minCount).map((r) => r.match_name)
 }
 
 // channel regulars (by message count)

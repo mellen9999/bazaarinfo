@@ -83,6 +83,25 @@ describe('db', () => {
     expect(db.getUserTopItems('alice')).toEqual(['Boomerang'])
   })
 
+  it("'is it alive' probes (!b test, !b hello) never count as someone's item", () => {
+    for (let i = 0; i < 4; i++) db.logCommand({ user: 'dave' }, 'item', 'test', 'Test Subject Alpha')
+    db.logCommand({ user: 'dave' }, 'item', ' Hello ', 'Hemlock')
+    db.logCommand({ user: 'dave' }, 'item', 'b', 'Bubble Gum')
+    db.logCommand({ user: 'dave' }, 'item', 'test subject', 'Test Subject Alpha')
+    db.flushWrites()
+    expect(db.getUserTopItems('dave')).toEqual(['Test Subject Alpha'])
+    expect(db.getUserTopItems('dave', 5, 2)).toEqual([])
+    expect(db.getUserStats('dave')!.favorite_item).toBe('Test Subject Alpha')
+  })
+
+  it('top items can require a minimum lookup count', () => {
+    for (let i = 0; i < 3; i++) db.logCommand({ user: 'carol' }, 'item', 'boom', 'Boomerang')
+    db.logCommand({ user: 'carol' }, 'item', 'test subject', 'Test Subject Alpha')
+    db.flushWrites()
+    expect(db.getUserTopItems('carol', 4)).toEqual(['Boomerang', 'Test Subject Alpha'])
+    expect(db.getUserTopItems('carol', 4, 3)).toEqual(['Boomerang'])
+  })
+
   it('channel leaderboard works', () => {
     db.logCommand({ user: 'alice', channel: 'test' }, 'item', 'a', 'A')
     db.logCommand({ user: 'alice', channel: 'test' }, 'item', 'b', 'B')

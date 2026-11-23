@@ -172,6 +172,8 @@ export function personNeed(user: string, channel: string): HistoryNeed {
   return need
 }
 
+const PERSON_ITEM_MIN_LOOKUPS = 3
+
 export function buildPersonDossier(username: string, channel: string, remote?: RemoteHistory | null): string | null {
   const msgs = db.getUserMessages(username, channel, SAMPLE_WANT)
   // thin local sample: top up with older remote lines (local first, deduped by text)
@@ -234,9 +236,11 @@ export function buildPersonDossier(username: string, channel: string, remote?: R
     if (fol?.followed_at) lines.push(`following #${channel} since ${db.formatAccountAge(fol.followed_at).replace(' old', '')}`)
   } catch {}
   const stats = db.getUserStats(username, channel)
-  if (stats?.favorite_item) lines.push(`most-looked-up item: ${stats.favorite_item}`)
-  const tops = db.getUserTopItems(username, 4)
-  if (tops.length) lines.push(`top items: ${tops.join(', ')}`)
+  // one or two lookups is an accident (`!b test` fuzzy-matched an item), not a persona —
+  // a question built on it is unguessable (live 2026-11-22). only habits make the dossier.
+  const tops = db.getUserTopItems(username, 4, PERSON_ITEM_MIN_LOOKUPS)
+  if (tops.length) lines.push(`most-looked-up item: ${tops[0]}`)
+  if (tops.length > 1) lines.push(`top items: ${tops.join(', ')}`)
   if (facts.length) lines.push(`facts: ${facts.join(' | ')}`)
   if (stats) {
     const t: string[] = []
