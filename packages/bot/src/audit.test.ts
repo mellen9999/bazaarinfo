@@ -59,6 +59,21 @@ describe('entity extraction via store', () => {
     expect(mobs.length).toBeGreaterThan(0)
   })
 
+  // live 2026-11-25: "hero" fuzzy-hit Lost Hero and "nurse harrow" hit Boss Harrow, so a
+  // deadlock ask got a bazaar data block and the bot answered with a bazaar item
+  it('an ask naming another game pulls no fuzzy bazaar data', () => {
+    for (const q of ['which hero should ennortix play in deadlock?', 'explain nurse harrow in deadlock', 'explain burn in deadlock']) {
+      const e = extractEntities(q)
+      expect(e.monsters).toEqual([])
+      expect(e.cards).toEqual([])
+      expect(e.glossary).toEqual([])
+    }
+    // naming the bazaar keeps the comparison grounded
+    expect(extractEntities('is boss harrow in bazaar like deadlock').monsters.map((m) => m.Title)).toContain('Boss Harrow')
+    // the same ask without another game still resolves
+    expect(extractEntities('explain nurse harrow').monsters.map((m) => m.Title)).toContain('Boss Harrow')
+  })
+
   it('fuzzy search handles typos', () => {
     const results = store.search('magnifing glass', 1) // common misspelling
     expect(results.length).toBeGreaterThan(0)

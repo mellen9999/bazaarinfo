@@ -1,5 +1,5 @@
 // web-search eval for the chat path. replays real logged asks through the exact request the
-// bot sends when the search gate opens (system prompt + built context + SEARCH_HINT + the
+// bot sends when the search gate opens (system prompt + built context + the search hint + the
 // web_search tool) and prints whether the model searched, how long it took, and what it
 // said. the deterministic gate has unit tests; THIS is the proof for the model-side gate —
 // searches on the fact asks, none on banter, no preamble, no urls.
@@ -12,7 +12,7 @@ import { initDb } from '../packages/bot/src/db'
 import { SMART_MODEL, thinkingOff } from '../packages/bot/src/models'
 import { loadStore } from '../packages/bot/src/store'
 import { buildSystemPrompt, buildUserMessage } from '../packages/bot/src/ai-context'
-import { searchEligible, finalText, SEARCH_HINT, WEB_SEARCH_TOOL, SEARCH_MAX_TOKENS, SEARCH_TIMEOUT } from '../packages/bot/src/ai-search-gate'
+import { searchEligible, finalText, searchHint, WEB_SEARCH_TOOL, SEARCH_MAX_TOKENS, SEARCH_TIMEOUT } from '../packages/bot/src/ai-search-gate'
 
 initDb('/tmp/bzi-search-eval.db')
 await loadStore()
@@ -24,6 +24,8 @@ if (!API_KEY) { console.error('ANTHROPIC_API_KEY missing'); process.exit(1) }
 const CASES: [string, 'yes' | 'no' | 'maybe'][] = [
   ['how many days till blizzcon?', 'yes'],
   ['what does mcginnis ult do in deadlock', 'yes'],
+  ['explain nurse harrow in deadlock', 'yes'],
+  ['which hero should ennortix play in deadlock?', 'yes'],
   ['whats the drop rate on cham rune in diablo 2?', 'yes'],
   ['do you know the story behind the song Bonehead\'s Bank Holiday from oasis?', 'yes'],
   ['what is marvel snap draft?', 'maybe'],
@@ -41,7 +43,10 @@ const CASES: [string, 'yes' | 'no' | 'maybe'][] = [
 const system = buildSystemPrompt()
 let searches = 0
 let wrong = 0
+// optional substring filter: bun run scripts/search-eval.ts deadlock
+const only = process.argv[2]?.toLowerCase()
 for (const [ask, want] of CASES) {
+  if (only && !ask.toLowerCase().includes(only)) continue
   const build = buildUserMessage(ask, { user: 'evaluser', channel: 'mellen', direct: true } as any)
   const offered = searchEligible(ask, build, 0, 0)
   if (!offered) { console.log(`GATE-CLOSED  ${ask}`); continue }
@@ -55,7 +60,7 @@ for (const [ask, want] of CASES) {
       thinking: thinkingOff(SMART_MODEL),
       system: [{ type: 'text', text: system }],
       tools: WEB_SEARCH_TOOL,
-      messages: [{ role: 'user', content: `${build.text}\n\n${SEARCH_HINT}` }],
+      messages: [{ role: 'user', content: `${build.text}\n\n${searchHint(ask)}` }],
     }),
     signal: AbortSignal.timeout(SEARCH_TIMEOUT),
   }).catch((e) => ({ ok: false, status: 0, text: async () => String(e), json: async () => null }) as Response)

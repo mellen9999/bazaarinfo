@@ -197,3 +197,16 @@ describe('web_search_spend — the cap survives a restart', () => {
     expect(db.getWebSearchesToday('2026-09-08')).toBe(0)
   })
 })
+
+describe('searchHint', () => {
+  it('names stale memory and forbids unsearched denials on an other-game ask', () => {
+    const h = gate.searchHint('explain nurse harrow in deadlock')
+    expect(h.startsWith(gate.SEARCH_HINT)).toBe(true)
+    expect(h).toMatch(/out of date/)
+    expect(h).toMatch(/pick, recommendation/)
+    expect(h).toMatch(/never say something in it does not exist without searching/)
+  })
+  it('keeps the plain hint for a real-world ask', () => {
+    expect(gate.searchHint('when is blizzcon 2026')).toBe(gate.SEARCH_HINT)
+  })
+})

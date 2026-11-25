@@ -115,6 +115,11 @@ export function extractEntities(query: string): ResolvedEntities {
     day: undefined, effects: [], chatQuery: undefined, knowledge: [], glossary: [],
     isGame: isGameTerm(query),
   }
+  // an ask about another game ("which hero in deadlock", "explain nurse harrow in deadlock")
+  // must not fuzzy-match bazaar data: live 2026-11-25 "hero" → Lost Hero and "nurse harrow"
+  // → Boss Harrow rode in as Game data, the model answered with a bazaar item and denied a
+  // real deadlock hero instead of searching. exact names still resolve ("is vanessa like X").
+  const otherGameOnly = OTHER_GAME_RE.test(query) && !/\bbazaar\b/i.test(query)
 
   // authoritative keyword definitions — inject when the query asks ABOUT a keyword
   // (any interrogative, or a bare keyword), not when it's just used in a build/list
@@ -128,7 +133,9 @@ export function extractEntities(query: string): ResolvedEntities {
   const interrogative = /\?/.test(query)
     || /\b(what|whats|wat|how|hows|why|does|do|is|are|can|could|will|would|should|which|whether|explain|define|definition|meaning|means?|effect|bonus|works?|wtf|wdym|tell me)\b/i.test(query)
   const COMPARISON_GATE_RE = /\b(vs|versus|compared? to|difference between|compare)\b/i
-  if (interrogative || bareKeyword) {
+  if (otherGameOnly) {
+    // bazaar keyword rules ("burn", "shield") would define the wrong game's mechanic
+  } else if (interrogative || bareKeyword) {
     result.glossary = lookupKeywords(query)
   } else if (COMPARISON_GATE_RE.test(query)) {
     const compHits = lookupKeywords(query)
@@ -144,8 +151,8 @@ export function extractEntities(query: string): ResolvedEntities {
   // fuzzy-fuse budgets, spent longest-phrase-first (the loop runs size 3→2→1), so the
   // highest-signal phrases get the fuzzy slots. cards are the expensive index (~1450
   // items); monsters are cheaper (~120) so get a roomier budget.
-  let cardFuzzyBudget = 7
-  let monsterFuzzyBudget = 12
+  let cardFuzzyBudget = otherGameOnly ? 0 : 7
+  let monsterFuzzyBudget = otherGameOnly ? 0 : 12
 
   // day number
   const dayMatch = query.match(/day\s+(\d+)/i)
@@ -215,6 +222,9 @@ export function extractEntities(query: string): ResolvedEntities {
       // monsters (max 2) — exact title scan always; fuzzy fuse only under budget
       if (result.monsters.length < 2 && safe) {
         let monster = store.findMonsterExact(phrase)
+        // findMonsterExact also takes a title word ("hero" → Lost Hero); another game's
+        // ask only gets a monster it named in full
+        if (monster && otherGameOnly && monster.Title.toLowerCase() !== phrase) monster = undefined
         if (!monster && monsterFuzzyBudget > 0) {
           monsterFuzzyBudget--
           monster = store.findMonsterFuzzy(phrase)

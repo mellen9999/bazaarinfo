@@ -15,7 +15,7 @@ export { initSummarizer, initLearner, maybeFetchTwitchInfo, maybeUpdateMemo, may
 
 import { sanitize, plainDashes, stripInputEcho, stripLeadingAskEcho, dedupeUserEmote, isModelRefusal, hasHallucinatedStats, ASK_COUNT_LEAK, COT_LEAK, SCOPE_DODGE, SOURCE_LIE, SCHEDULE_DENIAL, SETTINGS_TALK } from './ai-sanitize'
 import { findUngroundedStats, findHeroItemClaims, correctClockClaim, findWrongClockTimes, extractBoardLine, deniesBoardSight, findLiveTierClaims, isDashClause, monotonyStreak, hasFabricatedDataRef, findFalseDenials } from './ai-verify'
-import { searchEligible, finalText, SEARCH_TALK, stripSearchTalk, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, SEARCH_HINT, SEARCH_FAILED_HINT } from './ai-search-gate'
+import { searchEligible, finalText, SEARCH_TALK, stripSearchTalk, WEB_SEARCH_TOOL, WEB_SEARCH_DAILY_CAP, SEARCH_TIMEOUT, SEARCH_MAX_TOKENS, searchHint, SEARCH_FAILED_HINT } from './ai-search-gate'
 import { notify } from './notify'
 import { repairTruncation, isStub, cutPageChrome, endsDangling } from './ai-truncate'
 import { getChannelGame, getAiCooldown, getGlobalAiCooldown, recordUsage, cbIsOpen, cbRecordSuccess, cbRecordFailure, AI_VIP, isAiChannelEnabled, AI_MAX_QUEUE, cacheExchange, aiQueueDepth, acquireAiSlot, incrementQueue, decrementQueue, isOverDailyCap, isRepeatAbuse, isUserOverDailyAiCap, USER_CAP_LINE, noteUserAiRequest, getChannelRecentResponses, isLiveStateKnown, isChannelLive } from './ai-cache'
@@ -397,7 +397,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
   const fancyDirective = fancyStyle
     ? `${userMessage}\n\n[Write the reply in PLAIN ASCII letters and digits only — no unicode, fancy, or special characters. A fancy font is applied automatically afterward, so do not stylize it yourself.]`
     : userMessage
-  const messages: unknown[] = [{ role: 'user', content: offerSearch ? `${fancyDirective}\n\n${SEARCH_HINT}` : fancyDirective }]
+  const messages: unknown[] = [{ role: 'user', content: offerSearch ? `${fancyDirective}\n\n${searchHint(query)}` : fancyDirective }]
   let start = Date.now()
   // hard cap on one request's total time. this is THE latency lever: when Anthropic is slow,
   // all AI_MAX_CONCURRENT slots sit at this deadline and a queue builds — every queued request
@@ -566,6 +566,7 @@ async function doAiCall(query: string, ctx: AiContext & { user: string; channel:
           inFlightSearches--
         }
         const ran = single.data?.usage?.server_tool_use?.web_search_requests ?? 0
+        if (ran === 0 && isUsable(single)) log('ai: search offered, answered from memory')
         if (ran > 0) {
           searched += ran
           log(`ai: web search x${ran} — ${((Date.now() - t0) / 1000).toFixed(1)}s`)

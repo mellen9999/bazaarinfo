@@ -30,6 +30,17 @@ export const WEB_SEARCH_TOOL = [{ type: 'web_search_20260209', name: 'web_search
 export const SEARCH_HINT =
   'WEB SEARCH: you can search once, for a verifiable real-world or other-game fact you are not certain of (dates, events, patch/ability details, stats, names). Answer in your own words, one line, no urls or site names; you may say you looked it up. Never comment on whether you searched.'
 
+// a named other game is where memory goes stale fastest: live 2026-11-25 the bot was offered
+// the tool 4 times, searched 0, and told chat deadlock's nurse harrow (added oct 2026) "isn't
+// a thing". the plain hint lets the model judge its own certainty, and it is always certain.
+const OTHER_GAME_SEARCH_HINT =
+  'This ask is about another game. Games get new heroes, items, patches and metas after your training, so your memory of it is out of date: search first for any fact, pick, recommendation or meta take about it, and never say something in it does not exist without searching.'
+
+/** The hint for an offered search — firmer when the ask names another game. */
+export function searchHint(query: string): string {
+  return OTHER_GAME_RE.test(query) ? `${SEARCH_HINT} ${OTHER_GAME_SEARCH_HINT}` : SEARCH_HINT
+}
+
 // the model talking about its own search decision ("no need to search", "doesn't need a
 // search", "a second search", "web search fixes"). only checked when the tool was offered
 // on that ask, so "use the search bar on bazaardb" in an ordinary answer is never touched.
