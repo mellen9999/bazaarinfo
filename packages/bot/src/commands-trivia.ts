@@ -524,7 +524,7 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
         if (!q) {
           return withSuffix(`couldn't cook that exact one — bazaar question instead: ${startTrivia(channel, undefined, !!ctx.isMod)}`, suffix)
         }
-        return withSuffix(startCustomTrivia(channel, q, ctx.user), suffix)
+        return withSuffix(startCustomTrivia(channel, q), suffix)
       }
       // a topic that is this channel's OWN in-joke ("the tidolar crime family") is not
       // world knowledge — the model has never heard of it and invents a plausible-sounding
@@ -535,7 +535,7 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
       if (lore) {
         const lq = await generateLoreTrivia(lore.text, t, channel, avoid, avoidAnswers)
         if (lq && !isRecentQuestion(channel, lq.question) && !isRecentAnswer(channel, lq.answer)) {
-          return withSuffix(startCustomTrivia(channel, lq, ctx.user), suffix)
+          return withSuffix(startCustomTrivia(channel, lq), suffix)
         }
         // do NOT fall through to the world model. the gate that got us here means this is
         // chat's own in-joke, and the world model has nothing true to say about one — it
@@ -560,11 +560,10 @@ async function handleCustomTrivia(ctx: CommandContext, topic: string, suffix: st
         if (!fb) return withSuffix(`trivia's catching its breath — try again in a sec`, suffix)
         return withSuffix(`couldn't cook one about "${t.slice(0, 40)}" — random one instead: ${fb}`, suffix)
       }
-      return withSuffix(startCustomTrivia(channel, q, ctx.user), suffix)
+      return withSuffix(startCustomTrivia(channel, q), suffix)
     }
     if (!q) return withSuffix(missMsg, suffix)
-    // chat-derived rounds have no topic the asker picked; person rounds do
-    return withSuffix(startCustomTrivia(channel, q, isChatTrivia ? undefined : ctx.user), suffix)
+    return withSuffix(startCustomTrivia(channel, q), suffix)
   } finally {
     customPending.delete(channel)
     const now = Date.now()

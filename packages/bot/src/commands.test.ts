@@ -2620,11 +2620,6 @@ describe('custom-topic trivia: !trivia <topic>', () => {
     expect(res).toBe('Trivia! custom question (30s)')
   })
 
-  it('the asker is handed to the round, so they cannot score on their own topic', async () => {
-    await handleCommand('!b trivia roman history', { user: 'TopicPicker', channel: 'ct-ask' })
-    expect(mockStartCustomTrivia).toHaveBeenCalledWith('ct-ask', expect.anything(), 'TopicPicker')
-  })
-
   it('bot replies off: says so, makes no generator call, starts a bazaar round, bills nobody', async () => {
     AI_CHANNELS.has = realHas // the real switch: this throwaway channel is not enabled
     mockStartTrivia.mockClear()

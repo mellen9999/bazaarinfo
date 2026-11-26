@@ -590,25 +590,12 @@ describe('topic gap floor', () => {
   })
 })
 
-describe('the chatter who picked a topic cannot score on it', () => {
-  it('their correct answer is ignored; someone else still wins the round', () => {
-    startCustomTrivia('#ask1', { question: 'what is X?', answer: 'archaeopteryx', accept: [] }, 'TopicPicker')
-    expect(checkAnswer('#ask1', 'topicpicker', 'archaeopteryx', mockSay)).toBe(false)
-    expect(isGameActive('#ask1')).toBe(true)
-    expect(mockSay).not.toHaveBeenCalledWith('#ask1', expect.stringContaining('topicpicker'))
-    expect(checkAnswer('#ask1', 'someoneelse', 'archaeopteryx', mockSay)).toBe(true)
-    expect(isGameActive('#ask1')).toBe(false)
-  })
-
-  it('rounds with no picked topic are open to everyone, starter included', () => {
-    const text = startCustomTrivia('#ask2', { question: 'what is X?', answer: 'archaeopteryx', accept: [] })
+describe('the chatter who picked a topic can score on it', () => {
+  it('their correct answer wins the round', () => {
+    const text = startCustomTrivia('#ask1', { question: 'what is X?', answer: 'archaeopteryx', accept: [] })
     expect(text).toBe('Trivia! what is X? (30s)')
-    expect(checkAnswer('#ask2', 'topicpicker', 'archaeopteryx', mockSay)).toBe(true)
-  })
-
-  it('the launch line says who picked it and that they cannot score', () => {
-    const text = startCustomTrivia('#ask3', { question: 'what is X?', answer: 'archaeopteryx', accept: [] }, 'TopicPicker')
-    expect(text).toBe("Trivia! what is X? (30s, topicpicker picked it so can't score)")
+    expect(checkAnswer('#ask1', 'topicpicker', 'archaeopteryx', mockSay)).toBe(true)
+    expect(isGameActive('#ask1')).toBe(false)
   })
 })
 

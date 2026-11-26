@@ -243,8 +243,6 @@ interface TriviaState {
   hintTimers: Timer[]
   closeMissCount: number
   say: SayFn
-  // lowercased login of the chatter who picked this round's TOPIC; they can't score on it
-  asker?: string
 }
 
 // clear all pending hint timers for a round — single chokepoint so no timer can leak
@@ -1186,7 +1184,7 @@ const CUSTOM_TYPE = 21
 // launch a round from a ready question object — shared by built-in (startTrivia)
 // and custom AI (startCustomTrivia) paths. assumes the channel has no active game
 // (callers guard); purely creates the DB row, timers, hint schedule, and state.
-function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>, asker?: string): string {
+function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>): string {
   // mod-pause wall: every start path (built-in categories, kripp/fallback/quiz-culture
   // packs, custom AI, queue drain) funnels through here, so a paused channel can never
   // sneak a round in through a side door.
@@ -1251,7 +1249,6 @@ function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>, a
     hintTimers,
     closeMissCount: 0,
     say: globalSay,
-    asker: asker?.toLowerCase(),
   })
 
   // record the question for BOTH built-in and custom rounds so neither repeats it
@@ -1271,10 +1268,7 @@ function launchRound(channel: string, q: NonNullable<ReturnType<QuestionGen>>, a
   // (when it started, its id) against answer/timeout activity.
   log(`trivia: launched #${channel} game ${gameId} type ${q.type} "${q.question.slice(0, 50)}"`)
 
-  // the picker's answers are dropped silently (checkAnswer), so say it up front — otherwise
-  // it reads as the bot ignoring them (live 2026-11-22: "did the bot block me?")
-  const picker = asker ? `, ${asker.toLowerCase()} picked it so can't score` : ''
-  return `Trivia! ${q.question} (30s${picker})`
+  return `Trivia! ${q.question} (30s)`
 }
 
 // recent-question check for the custom AI path (commands.ts) — avoids asking a near
@@ -1309,7 +1303,6 @@ export function isRecentAnswer(channel: string, answer: string): boolean {
 export function startCustomTrivia(
   channel: string,
   raw: { question: string; answer: string; accept: string[] },
-  asker?: string,
 ): string {
   if (activeGames.has(channel)) {
     const game = activeGames.get(channel)!
@@ -1323,7 +1316,7 @@ export function startCustomTrivia(
     answer: raw.answer,
     accepted,
     type: CUSTOM_TYPE,
-  }, asker)
+  })
 }
 
 // --- round-end hook ---
@@ -1434,11 +1427,6 @@ export function checkAnswer(
 ): boolean {
   const game = activeGames.get(channel)
   if (!game) return false
-  // whoever picked the topic can't score on it (they chose a subject they know; chat called
-  // it out). ignored outright: not a participant, no streak reset, no reply — the least
-  // noisy answer, and the round carries on for everyone else.
-  if (game.asker === username.toLowerCase()) return false
-
   const trimmed = text.trim()
   if (!trimmed) return false
 
